@@ -7,8 +7,8 @@ channel = "stable-23_05"
 packages = ["libxcrypt"]
 
 [deployment]
-run = ["sh", "-c", "python -m server.main"]
-deploymentTarget = "cloudrun"
+run = ["bash", "-c", "PORT=5000 python -m server.main"]
+deploymentTarget = "autoscale"
 
 [[ports]]
 localPort = 5000
