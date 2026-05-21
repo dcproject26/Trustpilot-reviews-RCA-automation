@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ORM RCA · Headout</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:     #0f1117; --bg2: #181b23; --bg3: #1e2230; --bg4: #252a3a;
+  --line:   #2a2f40; --line2: #333a50;
+  --text:   #e2e5ef; --text2: #9ba3bc; --text3: #5f6780; --text4: #3d4460;
+  --accent: #ff5c3d; --accent2: #ff7a5c;
+  --good:   #3dd68c; --warn: #f5a623; --info: #4d9ef5; --purple: #9b72f5;
+  --mono:   'IBM Plex Mono', monospace;
+  --sans:   'IBM Plex Sans', system-ui, sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{font-family:var(--sans);font-size:13px;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+input,textarea,select{font-family:inherit;color:inherit}
+
+/* Layout */
+.app{display:grid;grid-template-columns:260px 1fr;height:100vh}
+.sidebar{background:var(--bg2);border-right:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden}
+.main{display:flex;flex-direction:column;overflow:hidden}
+
+/* Sidebar */
+.s-head{padding:16px;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:8px;margin-bottom:14px}
+.brand-dot{width:24px;height:24px;background:var(--accent);border-radius:4px;display:grid;place-items:center;font-size:11px;font-weight:600;color:#fff;font-family:var(--mono)}
+.brand-name{font-size:12px;font-weight:600;letter-spacing:.03em}
+.brand-name small{display:block;font-weight:400;color:var(--text3);font-size:10px}
+.filters{display:flex;gap:2px;background:var(--bg3);padding:2px;border-radius:5px}
+.filter{flex:1;padding:4px;font-size:10px;font-weight:500;color:var(--text3);border-radius:3px;text-align:center}
+.filter.on{background:var(--bg4);color:var(--text)}
+.inbox{flex:1;overflow-y:auto;padding:4px}
+.inbox::-webkit-scrollbar{width:4px}
+.inbox::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:2px}
+.card{padding:9px 10px;border-radius:5px;margin-bottom:1px;cursor:pointer;border:1px solid transparent}
+.card:hover{background:var(--bg3)}
+.card.on{background:var(--bg3);border-color:var(--line2)}
+.c-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}
+.c-snip{font-size:11px;color:var(--text3);line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.c-meta{display:flex;gap:3px;margin-top:5px;flex-wrap:wrap}
+.tag{font-family:var(--mono);font-size:9px;padding:1px 4px;border-radius:2px;background:var(--bg4);color:var(--text3);text-transform:uppercase}
+.tag.new{background:rgba(255,92,61,.12);color:var(--accent)}
+.tag.draft{background:rgba(245,166,35,.12);color:var(--warn)}
+.tag.sent{background:rgba(61,214,140,.12);color:var(--good)}
+.tag.lang{background:rgba(77,158,245,.1);color:var(--info)}
+.stars{color:#e74c3c;font-size:9px}
+.s-foot{padding:10px;border-top:1px solid var(--line)}
+.nav-btn{width:100%;padding:7px 10px;border-radius:5px;font-size:11px;font-weight:500;color:var(--text3);text-align:left;display:flex;align-items:center;gap:6px}
+.nav-btn:hover,.nav-btn.on{background:var(--bg3);color:var(--text)}
+
+/* Topbar */
+.topbar{display:flex;justify-content:space-between;align-items:center;padding:10px 20px;border-bottom:1px solid var(--line);background:var(--bg2);flex-shrink:0}
+.crumbs{font-size:11px;color:var(--text3);display:flex;align-items:center;gap:6px}
+.crumbs strong{color:var(--text);font-weight:500}
+.health{display:flex;gap:8px;align-items:center}
+.h-dot{width:6px;height:6px;border-radius:50%}
+.h-dot.on{background:var(--good)}
+.h-dot.off{background:var(--text4)}
+.h-label{font-family:var(--mono);font-size:9px;color:var(--text3)}
+
+/* Main area */
+#main-area{flex:1;min-height:0;overflow:hidden;display:flex}
+.workspace{flex:1;display:grid;grid-template-columns:340px 1fr;height:100%;overflow:hidden}
+.ctx{background:var(--bg2);border-right:1px solid var(--line);overflow-y:auto;padding:16px}
+.ctx::-webkit-scrollbar{width:4px}
+.ctx::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:2px}
+.rca{overflow-y:auto;padding:20px 28px 100px;background:var(--bg)}
+.rca::-webkit-scrollbar{width:6px}
+.rca::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:3px}
+
+/* Context panel */
+.ctx-block{margin-bottom:18px}
+.ctx-lbl{font-family:var(--mono);font-size:9px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;display:flex;align-items:center;gap:5px}
+.ctx-lbl::before{content:'';width:4px;height:4px;border-radius:50%;background:var(--good);flex-shrink:0}
+.review-card-ctx{background:var(--bg3);border-left:2px solid var(--accent);padding:10px 12px;border-radius:0 5px 5px 0;margin-bottom:8px}
+.r-author{font-size:14px;font-weight:600;margin-bottom:2px}
+.r-meta{font-family:var(--mono);font-size:9px;color:var(--text3);margin-bottom:6px}
+.r-body{font-size:11px;color:var(--text2);line-height:1.5;white-space:pre-wrap}
+.translation{background:rgba(77,158,245,.06);border-left:2px solid var(--info);padding:9px 11px;border-radius:0 5px 5px 0;margin-top:6px}
+.t-head{font-family:var(--mono);font-size:9px;color:var(--info);font-weight:500;margin-bottom:4px;text-transform:uppercase}
+.t-body{font-size:11px;line-height:1.5;white-space:pre-wrap}
+
+.match-box{display:flex;gap:8px;background:var(--bg3);padding:8px;border-radius:5px;margin-bottom:8px}
+.match-score{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-family:var(--mono);font-size:11px;font-weight:600;flex-shrink:0}
+.match-score.t1{background:rgba(61,214,140,.12);color:var(--good)}
+.match-score.t2{background:rgba(245,166,35,.12);color:var(--warn)}
+.match-score.t3{background:rgba(255,92,61,.12);color:var(--accent)}
+.match-info{min-width:0}
+.mi-label{font-family:var(--mono);font-size:9px;color:var(--text3);text-transform:uppercase}
+.mi-val{font-size:11px;font-weight:500;margin-bottom:1px}
+.mi-method{font-size:10px;color:var(--text3);line-height:1.35}
+
+.bk-rows{font-size:11px}
+.bk-row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--line);gap:8px}
+.bk-row:last-child{border:none}
+.bk-l{color:var(--text3)}
+.bk-v{font-weight:500;text-align:right;word-break:break-word}
+.bk-v.mono{font-family:var(--mono);font-size:10px}
+
+.tl{padding-left:12px;position:relative}
+.tl::before{content:'';position:absolute;left:3px;top:3px;bottom:3px;width:1px;background:var(--line2)}
+.tl-item{position:relative;padding:0 0 10px 8px}
+.tl-item::before{content:'';position:absolute;left:-12px;top:3px;width:6px;height:6px;border-radius:50%;background:var(--bg2);border:1.5px solid var(--text3)}
+.tl-item.guest::before{border-color:var(--info)}
+.tl-item.co::before{border-color:var(--purple)}
+.tl-item.sp::before{border-color:var(--warn)}
+.tl-item.alert::before{background:var(--accent);border-color:var(--accent)}
+.tl-time{font-family:var(--mono);font-size:9px;color:var(--text3)}
+.tl-actor{font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-right:4px}
+.tl-actor.guest{color:var(--info)}
+.tl-actor.co{color:var(--purple)}
+.tl-actor.sp{color:var(--warn)}
+.tl-actor.system{color:var(--text3)}
+.tl-flag{font-size:8px;padding:1px 4px;border-radius:2px;background:rgba(255,92,61,.12);color:var(--accent);font-weight:600;text-transform:uppercase}
+.tl-sum{font-size:11px;color:var(--text2);margin-top:1px;line-height:1.35}
+
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.stat{background:var(--bg3);padding:8px;border-radius:4px;border:1px solid var(--line)}
+.stat-l{font-size:9px;color:var(--text3);text-transform:uppercase;font-family:var(--mono);margin-bottom:3px}
+.stat-v{font-size:17px;font-weight:600}
+
+.dss-box{background:rgba(155,114,245,.06);border:1px solid rgba(155,114,245,.2);border-radius:5px;padding:10px}
+.dss-tag{font-family:var(--mono);font-size:9px;color:var(--purple);background:rgba(155,114,245,.1);padding:1px 5px;border-radius:2px;display:inline-block;margin-bottom:5px}
+.dss-comp{font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:5px}
+.dss-action{font-size:11px;line-height:1.45;margin-bottom:5px}
+.dss-esc{font-size:10px;color:var(--text3)}
+
+/* RCA pane */
+.rca-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.rca-title{font-size:22px;font-weight:600;letter-spacing:-.01em}
+.view-toggle{display:flex;gap:2px;background:var(--bg3);padding:2px;border-radius:4px}
+.vt-btn{padding:4px 10px;border-radius:3px;font-size:10px;font-weight:500;color:var(--text3)}
+.vt-btn.on{background:var(--bg4);color:var(--text)}
+
+.rca-doc{background:var(--bg2);border:1px solid var(--line);border-radius:6px;padding:20px 24px}
+.sec-title{font-size:13px;font-weight:600;color:var(--text);margin:16px 0 10px;display:flex;align-items:center;gap:8px}
+.sec-title::after{content:'';flex:1;height:1px;background:var(--line)}
+.rca-divider{border:none;border-top:1px solid var(--line);margin:14px 0}
+.mention{background:rgba(77,158,245,.12);color:#6ab0f5;padding:1px 4px;border-radius:2px;font-weight:500}
+
+.field{margin-bottom:10px}
+.field-label{font-size:10px;font-weight:600;color:var(--text2);margin-bottom:3px;display:flex;align-items:center;gap:5px}
+.ai-badge{font-family:var(--mono);font-size:8px;padding:1px 3px;background:rgba(155,114,245,.12);color:var(--purple);border-radius:2px}
+.fi{width:100%;background:var(--bg3);border:1px solid transparent;border-radius:4px;padding:6px 8px;font-size:12px;color:var(--text);line-height:1.5}
+.fi:focus{outline:none;border-color:var(--accent)}
+textarea.fi{resize:vertical;min-height:55px}
+textarea.fi.lg{min-height:100px}
+select.fi{cursor:pointer}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px}
+
+/* Signals */
+.sig-block{background:var(--bg3);border-radius:5px;padding:10px 12px;border:1px solid var(--line2)}
+.sig-row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+.sig-pill{display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:100px;font-size:10px;font-weight:500;border:1px solid var(--line2);background:var(--bg2);color:var(--text3);cursor:pointer}
+.sig-pill:hover{border-color:var(--text3);color:var(--text2)}
+.sig-pill.on{background:rgba(155,114,245,.12);border-color:var(--purple);color:var(--purple)}
+.sig-add{padding:4px 8px;border-radius:100px;font-size:10px;border:1px dashed var(--line2);color:var(--text3);cursor:pointer}
+.sig-add:hover{border-color:var(--text3);color:var(--text2)}
+.sig-hint{font-size:10px;color:var(--text3)}
+
+/* Response panel */
+.resp-panel{margin-top:20px;background:var(--bg2);border:1px solid var(--line);border-radius:6px;padding:16px 20px}
+.resp-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.resp-title{font-size:12px;font-weight:600}
+.resp-sub{font-size:10px;color:var(--text3)}
+
+/* Raw / preview */
+.raw-view{background:var(--bg2);border:1px solid var(--line);border-radius:6px;padding:20px 24px;font-family:var(--mono);font-size:11px;line-height:1.7;white-space:pre-wrap;color:var(--text2)}
+.raw-view b{color:var(--text);font-weight:600}
+
+/* Send bar */
+.send-bar{position:sticky;bottom:0;background:var(--bg2);border:1px solid var(--line2);border-radius:6px;padding:10px 14px;margin-top:18px;display:flex;justify-content:space-between;align-items:center;gap:12px;box-shadow:0 -8px 24px rgba(0,0,0,.3)}
+.sb-info{font-size:10px;color:var(--text3);flex:1}
+.sb-info code{font-family:var(--mono);font-size:9px;background:var(--bg3);padding:1px 4px;border-radius:2px}
+.sb-btns{display:flex;gap:6px}
+.btn{padding:5px 10px;border-radius:4px;font-size:11px;font-weight:500;display:inline-flex;align-items:center;gap:5px;border:1px solid transparent}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-ghost{color:var(--text2);border-color:var(--line2)}
+.btn-ghost:hover:not(:disabled){background:var(--bg3);color:var(--text)}
+.btn-send{background:var(--accent);color:#fff;font-weight:600}
+.btn-send:hover:not(:disabled){background:var(--accent2)}
+
+/* Empty / error states */
+.empty{display:grid;place-items:center;height:100%;text-align:center;color:var(--text3);padding:20px}
+.empty-mark{font-family:var(--mono);font-size:60px;color:var(--bg4);line-height:1;margin-bottom:10px}
+
+/* Modal */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.75);backdrop-filter:blur(4px);display:grid;place-items:center;z-index:100}
+.modal-bg[hidden]{display:none}
+.modal{background:var(--bg2);border:1px solid var(--line2);border-radius:7px;width:92%;max-width:560px;max-height:80vh;overflow:hidden;display:flex;flex-direction:column}
+.modal-head{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+.modal-head h2{font-size:14px;font-weight:600}
+.modal-body{padding:14px 16px;overflow-y:auto;flex:1}
+.modal-foot{padding:10px 16px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:6px}
+.sig-search{width:100%;background:var(--bg3);border:1px solid var(--line2);border-radius:4px;padding:7px 10px;font-size:12px;margin-bottom:10px}
+.sig-cat{font-family:var(--mono);font-size:9px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin:10px 0 5px}
+
+/* Reporting page */
+.report-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
+.r-stat{background:var(--bg2);border:1px solid var(--line);border-radius:6px;padding:14px 16px}
+.r-stat-l{font-size:9px;color:var(--text3);text-transform:uppercase;font-family:var(--mono);margin-bottom:6px}
+.r-stat-v{font-size:28px;font-weight:600}
+.r-stat-s{font-size:10px;color:var(--text3);margin-top:3px}
+.r-section{background:var(--bg2);border:1px solid var(--line);border-radius:6px;padding:14px 16px;margin-bottom:12px}
+.r-sec-title{font-size:11px;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.bar-row{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.bar-label{font-size:10px;color:var(--text2);width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0}
+.bar-track{flex:1;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden}
+.bar-fill{height:100%;background:var(--purple);border-radius:3px}
+.bar-count{font-family:var(--mono);font-size:10px;color:var(--text3);width:30px;text-align:right;flex-shrink:0}
+
+/* Toast */
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:8px 16px;border-radius:4px;font-size:11px;font-weight:600;z-index:200}
+.toast[hidden]{display:none}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="s-head">
+      <div class="brand">
+        <div class="brand-dot">OR</div>
+        <div class="brand-name">ORM RCA<small>Headout · CX</small></div>
+      </div>
+      <div class="filters" id="filters">
+        <button class="filter on" data-f="all">All</button>
+        <button class="filter" data-f="new">New</button>
+        <button class="filter" data-f="draft">Draft</button>
+        <button class="filter" data-f="sent">Sent</button>
+      </div>
+    </div>
+    <div class="inbox" id="inbox"><div class="empty"><p>Loading…</p></div></div>
+    <div class="s-foot">
+      <button class="nav-btn" id="nav-add">＋ Add review manually</button>
+      <button class="nav-btn" id="nav-reporting">📊 Reporting</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="crumbs">Reviews <span style="color:var(--text4)">/</span> <strong id="bc">Select a review</strong></div>
+      <div class="health" id="health-bar"></div>
+    </div>
+    <div id="main-area">
+      <div class="empty"><div><div class="empty-mark">∙</div><p>Pick a review from the inbox</p></div></div>
+    </div>
+  </main>
+</div>
+
+<div class="modal-bg" id="modal-bg" hidden>
+  <div class="modal">
+    <div class="modal-head"><h2 id="m-title">Signals</h2><button class="btn btn-ghost" id="m-close">Close</button></div>
+    <div class="modal-body" id="m-body"></div>
+    <div class="modal-foot" id="m-foot"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+'use strict';
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let toastT; function toast(m){const t=$('#toast');t.textContent=m;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,2400)}
+
+const API={
+  health:()=>fetch('/api/health').then(r=>r.json()),
+  list:(s)=>fetch('/api/reviews'+(s?'?status='+s:'')).then(r=>r.json()),
+  get:(id)=>fetch('/api/reviews/'+id).then(r=>r.json()),
+  patch:(id,b)=>fetch('/api/reviews/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json()),
+  send:(id)=>fetch('/api/reviews/'+id+'/send',{method:'POST'}).then(r=>r.ok?r.json():r.json().then(j=>Promise.reject(j))),
+  signals:()=>fetch('/api/signals').then(r=>r.json()),
+  reporting:()=>fetch('/api/reporting').then(r=>r.json()),
+};
+
+const S={filter:'all',selectedId:null,current:null,taxonomy:{},view:'form',saveT:null,page:'inbox'};
+
+async function init(){
+  try{
+    const h=await API.health();
+    const svc=h.services||{};
+    const live=Object.values(svc).filter(Boolean).length;
+    const total=Object.keys(svc).length;
+    $('#health-bar').innerHTML=Object.entries(svc).map(([k,v])=>
+      `<span class="h-dot ${v?'on':'off'}" title="${k}"></span><span class="h-label">${k}</span>`
+    ).join('');
+  }catch{}
+  const sg=await API.signals().catch(()=>({taxonomy:{}}));
+  S.taxonomy=sg.taxonomy||{};
+  await loadInbox();
+  if(S.reviews?.length) selectReview(S.reviews[0].id);
+}
+
+async function loadInbox(){
+  S.reviews=await API.list(S.filter==='all'?null:S.filter).catch(()=>[]);
+  renderInbox();
+}
+function renderInbox(){
+  const box=$('#inbox');
+  if(!S.reviews.length){box.innerHTML='<div class="empty"><p>No reviews</p></div>';return}
+  box.innerHTML=S.reviews.map(r=>{
+    const stars='★'.repeat(r.rating||1)+'☆'.repeat(5-(r.rating||1));
+    const t=r.received_at?new Date(r.received_at).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'';
+    return`<div class="card ${S.selectedId===r.id?'on':''}" data-id="${r.id}">
+      <div class="c-top"><span class="stars">${stars}</span><span style="font-size:9px;color:var(--text3);font-family:var(--mono)">${esc(t)}</span></div>
+      <div class="c-snip">${esc(r.snippet||'')}</div>
+      <div class="c-meta">
+        <span class="tag lang">${(r.language||'en').toUpperCase()}</span>
+        <span class="tag ${r.status}">${r.status}</span>
+        ${r.match_tier?`<span class="tag">T${r.match_tier}</span>`:''}
+      </div>
+    </div>`;
+  }).join('');
+  $$('.card').forEach(c=>c.addEventListener('click',()=>selectReview(c.dataset.id)));
+}
+
+async function selectReview(id){
+  S.selectedId=id; S.page='inbox'; renderInbox();
+  $('#bc').textContent='Loading…';
+  S.current=await API.get(id).catch(()=>null);
+  if(!S.current){toast('Could not load review');return}
+  $('#bc').textContent=(S.current.review.body_english||S.current.review.body_original||'').slice(0,60)+'…';
+  renderMain();
+}
+
+function renderMain(){
+  const ma=$('#main-area');
+  if(S.page==='reporting'){renderReporting(ma);return}
+  if(!S.current){ma.innerHTML='<div class="empty"><div><div class="empty-mark">∙</div><p>Pick a review</p></div></div>';return}
+  const {review,draft}=S.current;
+  if(review.status==='sent'){
+    ma.innerHTML=`<div class="empty"><div><div class="empty-mark" style="color:var(--good)">✓</div><p>RCA already sent</p></div></div>`;
+    return;
+  }
+  ma.innerHTML=`<div class="workspace"><aside class="ctx">${buildCtx(review,draft)}</aside><section class="rca">${buildRcaHead()}${buildRcaBody()}${buildSendBar()}</section></div>`;
+  wireMain();
+}
+
+function buildCtx(r,d){
+  const stars='★'.repeat(r.rating||1)+'☆'.repeat(5-(r.rating||1));
+  let out=`<div class="ctx-block">
+    <div class="ctx-lbl">Trustpilot review</div>
+    <div class="review-card-ctx">
+      <div class="r-author">${esc(r.author||'Reviewer')}</div>
+      <div class="r-meta">${stars} · ${(r.language||'en').toUpperCase()}${r.reference_number?' · Ref: '+r.reference_number:' · No ref'}</div>
+      <div class="r-body">${esc(r.body_original||'')}</div>
+    </div>
+    ${r.body_english&&r.language!=='en'?`<div class="translation"><div class="t-head">English · Claude</div><div class="t-body">${esc(r.body_english)}</div></div>`:''}
+  </div>`;
+  if(d?.booking?.id){
+    const b=d.booking, m=d.match_tier;
+    const scoreClass=m===1?'t1':m===2?'t2':'t3';
+    const scoreLabel=m===1?'T1':m===2?'T2':'T3';
+    out+=`<div class="ctx-block">
+      <div class="ctx-lbl">Booking</div>
+      <div class="match-box">
+        <div class="match-score ${scoreClass}">${scoreLabel}</div>
+        <div class="match-info">
+          <div class="mi-label">Match</div>
+          <div class="mi-val">${esc(d.match_confidence||'?')} confidence</div>
+          <div class="mi-method">${esc(d.match_method||'')}</div>
+        </div>
+      </div>
+      <div class="bk-rows">
+        ${[['Booking ID',b.id,'mono'],['Experience',b.experienceName||'—'],['TGID/TID',`${b.tgid||'—'}/${b.tid||'—'}`,'mono'],['VID',b.vid||'—','mono'],['Visit',b.visitDate||'—','mono'],['Partner',b.partner||'—']].map(([l,v,cls])=>
+          `<div class="bk-row"><span class="bk-l">${l}</span><span class="bk-v${cls?' '+cls:''}">${esc(v)}</span></div>`
+        ).join('')}
+      </div>
+    </div>`;
+  }
+  if(d?.timeline?.length){
+    out+=`<div class="ctx-block">
+      <div class="ctx-lbl">Zendesk timeline · ${d.timeline.length} events</div>
+      <div class="tl">${d.timeline.map(t=>`
+        <div class="tl-item ${t.flag?'alert':(t.actor||'')}">
+          <div class="tl-time">${esc(t.time||'')}</div>
+          <div><span class="tl-actor ${t.actor||''}">${esc(t.actor_label||'')}</span>${t.flag?`<span class="tl-flag">${esc(t.flag)}</span>`:''}</div>
+          <div class="tl-sum">${esc(t.summary||'')}</div>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }
+  if(d?.insights&&Object.keys(d.insights).length){
+    const i=d.insights;
+    out+=`<div class="ctx-block">
+      <div class="ctx-lbl">Insights</div>
+      <div class="stat-grid">
+        <div class="stat"><div class="stat-l">TGID rating</div><div class="stat-v">${esc(i.tgidRating||'—')}</div></div>
+        <div class="stat"><div class="stat-l">TID-VID</div><div class="stat-v">${esc(i.tidVidRating||'—')}</div></div>
+        <div class="stat"><div class="stat-l">Completion</div><div class="stat-v">${esc(i.vidCompletionRate||'—')}</div></div>
+        <div class="stat"><div class="stat-l">Same-day issues</div><div class="stat-v">${esc((i.sameDaySameVidIssues||'—').split(' ')[0])}</div></div>
+      </div>
+    </div>`;
+  }
+  if(d?.dss_rec&&Object.keys(d.dss_rec).length){
+    const ds=d.dss_rec;
+    out+=`<div class="ctx-block">
+      <div class="ctx-lbl">DSS · Retool</div>
+      <div class="dss-box">
+        <span class="dss-tag">${esc(ds.issueType||'')}</span>
+        <div class="dss-comp">Recommended: <strong>${esc(ds.compensation||'')}</strong></div>
+        <div class="dss-action">${esc(ds.action||'')}</div>
+        <div class="dss-esc">Escalate: <strong>${esc(ds.escalateTo||'')}</strong></div>
+      </div>
+    </div>`;
+  }
+  return out;
+}
+
+function buildRcaHead(){
+  return`<div class="rca-head">
+    <h1 class="rca-title">RCA</h1>
+    <div class="view-toggle" id="vtoggle">
+      <button class="vt-btn ${S.view==='form'?'on':''}" data-v="form">Edit</button>
+      <button class="vt-btn ${S.view==='raw'?'on':''}" data-v="raw">Preview</button>
+    </div>
+  </div>`;
+}
+
+function buildRcaBody(){
+  const d=S.current?.draft;
+  if(!d?.rca_fields||!d.rca_fields.queryIssueType){
+    return`<div style="background:var(--bg2);border:1px solid var(--line);border-radius:6px;padding:16px;font-size:11px;color:var(--text3)">
+      <strong style="color:var(--text)">Draft pending.</strong> The pipeline runs automatically when a review arrives in Slack.<br>
+      To retry manually: <code style="font-family:var(--mono);background:var(--bg3);padding:1px 4px;border-radius:2px">POST /webhook/test {"review_id":"${S.selectedId}"}</code>
+    </div>`;
+  }
+  if(S.view==='raw') return buildRaw();
+  return buildForm();
+}
+
+function buildForm(){
+  const f=S.current.draft.rca_fields||{};
+  const b=S.current.draft.booking||{};
+  const sig=S.current.draft.signals||[];
+  const sugg=S.current.draft.suggested_response||'';
+  const fin=S.current.draft.final_response||sugg;
+
+  return`<div class="rca-doc">
+    <div style="font-size:12px;font-weight:600;margin-bottom:8px">Case Facts <span class="mention">@reviewteam</span></div>
+    <div class="field"><div class="field-label">Query / Issue Type <span class="ai-badge">AI</span></div><input class="fi" id="f-queryIssueType" value="${esc(f.queryIssueType||'')}"></div>
+    <div class="rca-divider"></div>
+    <div class="sec-title">Booking Details</div>
+    ${b.id?`<div class="grid2">
+      <div class="field"><div class="field-label">Booking ID</div><input class="fi" value="${esc(b.id)}" readonly></div>
+      <div class="field"><div class="field-label">Supply Partner</div><input class="fi" value="${esc(b.partner||'')}" readonly></div>
+      <div class="field" style="grid-column:span 2"><div class="field-label">Experience</div><input class="fi" value="${esc(b.experienceName||'')}" readonly></div>
+      <div class="field"><div class="field-label">TGID</div><input class="fi" value="${esc(b.tgid||'')}" readonly></div>
+      <div class="field"><div class="field-label">TID</div><input class="fi" value="${esc(b.tid||'')}" readonly></div>
+      <div class="field"><div class="field-label">Booking date</div><input class="fi" value="${esc(b.bookedOn||'')}" readonly></div>
+      <div class="field"><div class="field-label">Visit date</div><input class="fi" value="${esc(b.visitDate||'')}" readonly></div>
+    </div>`:'<p style="font-size:11px;color:var(--text3)">No booking matched.</p>'}
+    <div class="rca-divider"></div>
+    <div class="sec-title">Case Details</div>
+    <div class="field"><div class="field-label">What went wrong <span class="ai-badge">AI</span></div><textarea class="fi lg" id="f-whatWentWrong">${esc(f.whatWentWrong||'')}</textarea></div>
+    <div class="field"><div class="field-label">Customer interaction with CO <span class="ai-badge">AI</span></div><textarea class="fi lg" id="f-customerInteractionCO">${esc(f.customerInteractionCO||'')}</textarea></div>
+    <div class="field"><div class="field-label">SP Interaction <span class="ai-badge">AI</span></div><textarea class="fi" id="f-spIssueInteraction">${esc(f.spIssueInteraction||'')}</textarea></div>
+    <div class="field"><div class="field-label">Area of Improving</div><textarea class="fi" id="f-areaOfImproving">${esc(f.areaOfImproving||'')}</textarea></div>
+    <div class="field"><div class="field-label">Solution Offered <span class="ai-badge">AI</span></div><textarea class="fi" id="f-solutionOffered">${esc(f.solutionOffered||'')}</textarea></div>
+    <div class="grid2">
+      <div class="field"><div class="field-label">Follow-up needed?</div><select class="fi" id="f-followUpNeeded"><option ${f.followUpNeeded==='No'?'selected':''}>No</option><option ${f.followUpNeeded==='Yes'?'selected':''}>Yes</option></select></div>
+      <div class="field"><div class="field-label">Takedown sent?</div><select class="fi" id="f-reviewTakedownSent"><option ${f.reviewTakedownSent==='Yes'?'selected':''}>Yes</option><option ${f.reviewTakedownSent==='No'?'selected':''}>No</option><option ${f.reviewTakedownSent==='Pending'?'selected':''}>Pending</option></select></div>
+    </div>
+    <div class="rca-divider"></div>
+    <div class="sec-title">Signals</div>
+    <div class="sig-block">
+      <div class="sig-row">${sig.map(s=>`<button class="sig-pill on" data-sig="${esc(s)}" data-act="remove">${esc(s)} ×</button>`).join('')}<button class="sig-add" id="sig-picker-btn">+ Add</button></div>
+      <div class="sig-hint">${sig.length} signal${sig.length===1?'':'s'} tagged</div>
+    </div>
+    <div class="rca-divider"></div>
+    <div class="sec-title">Escalation</div>
+    <div class="grid2">
+      <div class="field"><div class="field-label">Raised with team</div><input class="fi" id="f-raisedTeam1" value="${esc(f.raisedTeam1||'')}"></div>
+      <div class="field"><div class="field-label">Link</div><input class="fi" id="f-raisedLink1" value="${esc(f.raisedLink1||'')}"></div>
+      <div class="field"><div class="field-label">Second team</div><input class="fi" id="f-raisedTeam2" value="${esc(f.raisedTeam2||'')}"></div>
+      <div class="field"><div class="field-label">Link</div><input class="fi" id="f-raisedLink2" value="${esc(f.raisedLink2||'')}"></div>
+    </div>
+    <div class="rca-divider"></div>
+    <div class="sec-title">Insights</div>
+    <div class="grid2">
+      <div class="field"><div class="field-label">Bookings impacted <span class="ai-badge">AI</span></div><input class="fi" id="f-bookingsImpacted" value="${esc(f.bookingsImpacted||'')}"></div>
+      <div class="field"><div class="field-label">Similar queries <span class="ai-badge">AI</span></div><input class="fi" id="f-similarQueries" value="${esc(f.similarQueries||'')}"></div>
+      <div class="field"><div class="field-label">Avg rating <span class="ai-badge">AI</span></div><input class="fi" id="f-avgRating" value="${esc(f.avgRating||'')}"></div>
+      <div class="field"><div class="field-label">DSS covers?</div><select class="fi" id="f-dssCovers"><option ${f.dssCovers==='Yes'?'selected':''}>Yes</option><option ${f.dssCovers==='No'?'selected':''}>No</option><option ${f.dssCovers==='Partial'?'selected':''}>Partial</option></select></div>
+    </div>
+    <div class="field"><div class="field-label">Other comments</div><textarea class="fi" id="f-otherComments">${esc(f.otherComments||'')}</textarea></div>
+  </div>
+  <div class="resp-panel">
+    <div class="resp-head">
+      <div><div class="resp-title">Guest Response <span class="ai-badge">AI</span></div><div class="resp-sub">Drafted from canned-response library · Edit before sending</div></div>
+    </div>
+    <textarea class="fi lg" id="f-final-response" style="min-height:120px">${esc(fin)}</textarea>
+    <p style="font-size:10px;color:var(--text3);margin-top:5px">This reply goes out via Trustpilot's Slack integration when you click Send.</p>
+  </div>`;
+}
+
+function buildRaw(){
+  const r=S.current.review, d=S.current.draft;
+  const f=d.rca_fields||{}, b=d.booking||{}, sig=d.signals||[];
+  const div='_'.repeat(61), nl='\n';
+  const sigBlock=sig.length?`${div}${nl}*Signals*${nl}${sig.map(s=>'• '+s).join(nl)}${nl}`:'';
+  const text=`*Case Facts* @reviewteam \n\n*Query/Issue Type:*\n${f.queryIssueType||''}\n${div}\n*Booking Details*\n\nBooking ID: ${b.id||'—'}\nExperience Name: ${b.experienceName||'—'}\nTGID: ${b.tgid||'—'}\nTID: ${b.tid||'—'}\nDate of Booking: ${b.bookedOn||'—'}\nDate of Visit: ${b.visitDate||'—'}\nSupply Partner: ${b.partner||'—'}\n${div}\n*Case Details*\n\n*What went wrong:*\n${f.whatWentWrong||''}\n\n*Customer interaction with CO:*\n${f.customerInteractionCO||''}\n\n*SP's Issue/Interaction:*\n${f.spIssueInteraction||'None'}\n\n*Area of Improving:*\n${f.areaOfImproving||''}\n\n*Solution Offered:*\n${f.solutionOffered||''}\n\n*Follow-up needed?*\n${f.followUpNeeded||'No'}\n\n*Review Takedown Sent?*\n${f.reviewTakedownSent||'Yes'}\n${sigBlock}${div}\n*Raised with the team responsible?*\n${f.raisedTeam1||'NA'}\n\n*Raised with second team?*\n${f.raisedTeam2||''}\n${div}\n*Insights*\n\n*Bookings Impacted:* ${f.bookingsImpacted||''}\n*Similar Queries:* ${f.similarQueries||''}\n*Avg Rating:* ${f.avgRating||''}\n*Does DSS cover this?* ${f.dssCovers||'Yes'}\n*Other comments:* ${f.otherComments||''}`;
+  return`<div class="raw-view">${esc(text).replace(/\*([^*\n]+)\*/g,'<b>$1</b>').replace(/@(\S+)/g,'<span style="color:var(--info)">@$1</span>')}</div>
+  <div class="resp-panel">
+    <div class="resp-head"><div class="resp-title">Guest Response (preview)</div></div>
+    <div class="raw-view" style="margin-top:0">${esc(d.final_response||d.suggested_response||'')}</div>
+  </div>`;
+}
+
+function buildSendBar(){
+  const d=S.current?.draft;
+  const ready=d?.rca_fields?.queryIssueType&&d?.rca_fields?.whatWentWrong;
+  return`<div class="send-bar">
+    <div class="sb-info">RCA posts to the Slack thread · guest response goes out via Trustpilot's Slack integration</div>
+    <div class="sb-btns">
+      <button class="btn btn-ghost" id="btn-preview" ${!ready?'disabled':''}>Preview</button>
+      <button class="btn btn-send" id="btn-send" ${!ready?'disabled':''}>Send ↑</button>
+    </div>
+  </div>`;
+}
+
+async function renderReporting(ma){
+  ma.innerHTML='<div class="empty"><p>Loading report…</p></div>';
+  const data=await API.reporting().catch(()=>null);
+  if(!data){ma.innerHTML='<div class="empty"><p>Could not load reporting data</p></div>';return}
+  const maxSig=data.top_signals?.length?Math.max(...data.top_signals.map(([,n])=>n)):1;
+  ma.innerHTML=`<div style="overflow-y:auto;padding:20px 28px;flex:1;max-width:900px">
+    <h1 style="font-size:18px;font-weight:600;margin-bottom:16px">Review Stats</h1>
+    <div class="report-grid">
+      <div class="r-stat"><div class="r-stat-l">Total reviews</div><div class="r-stat-v">${data.total||0}</div></div>
+      <div class="r-stat"><div class="r-stat-l">Sent</div><div class="r-stat-v" style="color:var(--good)">${data.sent||0}</div></div>
+      <div class="r-stat"><div class="r-stat-l">Auto-matched</div><div class="r-stat-v" style="color:var(--info)">${data.auto_matched||0}</div></div>
+      <div class="r-stat"><div class="r-stat-l">Avg time (min)</div><div class="r-stat-v">${data.avg_minutes_to_send??'—'}</div><div class="r-stat-s">review → sent</div></div>
+    </div>
+    ${data.top_signals?.length?`<div class="r-section">
+      <div class="r-sec-title">Top signals</div>
+      ${data.top_signals.map(([s,n])=>`<div class="bar-row">
+        <div class="bar-label">${esc(s)}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${Math.round(n/maxSig*100)}%"></div></div>
+        <div class="bar-count">${n}</div>
+      </div>`).join('')}
+    </div>`:''}
+    ${data.tier_breakdown&&Object.keys(data.tier_breakdown).length?`<div class="r-section">
+      <div class="r-sec-title">Booking match by tier</div>
+      ${Object.entries(data.tier_breakdown).map(([k,n])=>`<div class="bar-row">
+        <div class="bar-label">${esc(k)}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${Math.round(n/data.total*100)}%;background:var(--warn)"></div></div>
+        <div class="bar-count">${n}</div>
+      </div>`).join('')}
+    </div>`:''}
+    ${data.by_rating&&Object.keys(data.by_rating).length?`<div class="r-section">
+      <div class="r-sec-title">Volume by rating</div>
+      ${Object.entries(data.by_rating).sort().map(([k,n])=>`<div class="bar-row">
+        <div class="bar-label">${'★'.repeat(parseInt(k)||1)} (${k} star)</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${Math.round(n/data.total*100)}%;background:var(--accent)"></div></div>
+        <div class="bar-count">${n}</div>
+      </div>`).join('')}
+    </div>`:''}
+  </div>`;
+}
+
+function wireMain(){
+  $$('#vtoggle .vt-btn').forEach(b=>b.addEventListener('click',()=>{S.view=b.dataset.v;renderMain()}));
+  $$('input[id^="f-"],textarea[id^="f-"],select[id^="f-"]').forEach(el=>{
+    el.addEventListener('input',()=>schedSave());
+    el.addEventListener('change',()=>schedSave());
+  });
+  $$('.sig-pill[data-act]').forEach(p=>p.addEventListener('click',()=>removeSig(p.dataset.sig)));
+  $('#sig-picker-btn')?.addEventListener('click',openSigPicker);
+  $('#btn-send')?.addEventListener('click',doSend);
+  $('#btn-preview')?.addEventListener('click',()=>{S.view='raw';renderMain()});
+}
+
+function collectFields(){
+  const out={};
+  $$('input[id^="f-"],textarea[id^="f-"],select[id^="f-"]').forEach(el=>{
+    const k=el.id.slice(2);
+    if(k!=='final-response') out[k]=el.value;
+  });
+  return out;
+}
+function schedSave(){clearTimeout(S.saveT);S.saveT=setTimeout(save,700)}
+async function save(){
+  if(!S.selectedId) return;
+  const fields=collectFields();
+  const finalResp=$('#f-final-response')?.value;
+  S.current.draft.rca_fields={...(S.current.draft.rca_fields||{}),...fields};
+  if(finalResp!=null) S.current.draft.final_response=finalResp;
+  await API.patch(S.selectedId,{rca_fields:fields,final_response:finalResp}).catch(()=>{});
+}
+async function removeSig(sig){
+  const sigs=(S.current.draft.signals||[]).filter(s=>s!==sig);
+  S.current.draft.signals=sigs;
+  await API.patch(S.selectedId,{signals:sigs});
+  renderMain();
+}
+async function doSend(){
+  if(!confirm('Send this RCA to Slack?')) return;
+  await save();
+  try{
+    await API.send(S.selectedId);
+    toast('Sent to Slack ✓');
+    await loadInbox();
+    selectReview(S.selectedId);
+  }catch(e){toast(e?.detail||'Send failed')}
+}
+
+function openSigPicker(){
+  const cur=S.current.draft.signals||[];
+  const render=(q='')=>{
+    const low=q.toLowerCase();
+    return Object.entries(S.taxonomy).map(([cat,sigs])=>{
+      const f=sigs.filter(s=>!q||s.toLowerCase().includes(low));
+      if(!f.length) return'';
+      return`<div class="sig-cat">${esc(cat)}</div><div class="sig-row">${f.map(s=>`<button class="sig-pill ${cur.includes(s)?'on':''}" data-pick="${esc(s)}">${esc(s)}</button>`).join('')}</div>`;
+    }).join('');
+  };
+  $('#m-title').textContent='Add signals';
+  $('#m-body').innerHTML=`<input class="sig-search fi" id="sig-search" placeholder="Search…"><div id="picker-content">${render()}</div>`;
+  $('#m-foot').innerHTML=`<button class="btn btn-ghost" id="m-done">Done</button>`;
+  $('#modal-bg').hidden=false;
+  const wire=()=>{
+    $$('[data-pick]').forEach(p=>p.addEventListener('click',async()=>{
+      const s=p.dataset.pick;
+      if(cur.includes(s)){S.current.draft.signals=cur.filter(x=>x!==s)}
+      else{cur.push(s)}
+      S.current.draft.signals=[...cur];
+      $('#picker-content').innerHTML=render($('#sig-search').value);
+      wire();
+    }));
+  };
+  wire();
+  $('#sig-search').addEventListener('input',e=>{$('#picker-content').innerHTML=render(e.target.value);wire()});
+  $('#m-done').addEventListener('click',async()=>{
+    await API.patch(S.selectedId,{signals:S.current.draft.signals});
+    closeModal(); renderMain();
+  });
+}
+function closeModal(){$('#modal-bg').hidden=true;$('#m-body').innerHTML='';$('#m-foot').innerHTML=''}
+$('#m-close').addEventListener('click',closeModal);
+$('#modal-bg').addEventListener('click',e=>{if(e.target===$('#modal-bg'))closeModal()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#modal-bg').hidden)closeModal()});
+
+// Filter tabs
+$$('#filters .filter').forEach(b=>b.addEventListener('click',()=>{
+  S.filter=b.dataset.f;
+  $$('#filters .filter').forEach(x=>x.classList.toggle('on',x===b));
+  loadInbox();
+}));
+
+// Reporting nav
+$('#nav-reporting').addEventListener('click',()=>{
+  S.page='reporting';
+  $('#bc').textContent='Reporting';
+  $$('.nav-btn').forEach(b=>b.classList.remove('on'));
+  $('#nav-reporting').classList.add('on');
+  renderMain();
+});
+
+// Manual review entry
+$('#nav-add').addEventListener('click',()=>{
+  $('#m-title').textContent='Add review manually';
+  $('#m-body').innerHTML=`
+    <p style="font-size:11px;color:var(--text3);margin-bottom:12px">
+      Paste the Trustpilot review text here. The pipeline will run the same as if it arrived in Slack.
+    </p>
+    <div class="field"><div class="field-label">Review text</div><textarea class="fi lg" id="man-body" placeholder="Paste the review text…" style="min-height:120px"></textarea></div>
+    <div class="grid2">
+      <div class="field"><div class="field-label">Rating (stars)</div>
+        <select class="fi" id="man-rating"><option value="1">1 ★</option><option value="2">2 ★★</option><option value="3">3 ★★★</option><option value="4">4 ★★★★</option><option value="5">5 ★★★★★</option></select>
+      </div>
+      <div class="field"><div class="field-label">Booking ID (if known)</div><input class="fi" id="man-ref" placeholder="e.g. 31246072"></div>
+    </div>
+    <div class="field"><div class="field-label">Slack channel ID</div><input class="fi" id="man-channel" placeholder="C0XXXXXXX — right-click channel → Copy link"></div>`;
+  $('#m-foot').innerHTML=`
+    <button class="btn btn-ghost" id="m-cancel">Cancel</button>
+    <button class="btn btn-send" id="m-submit">Run pipeline</button>`;
+  $('#modal-bg').hidden=false;
+  $('#m-cancel').addEventListener('click',closeModal);
+  $('#m-submit').addEventListener('click',async()=>{
+    const body=$('#man-body').value.trim();
+    if(!body){toast('Paste the review text first');return}
+    const rating=parseInt($('#man-rating').value)||1;
+    const ref=$('#man-ref').value.trim()||null;
+    const channel=$('#man-channel').value.trim()||'C_MANUAL';
+    const ts=Date.now()/1000+'';
+    try{
+      const res=await fetch('/api/reviews/manual',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({body,rating,reference_number:ref,slack_channel:channel,slack_ts:ts})
+      });
+      const d=await res.json();
+      closeModal();
+      toast('Running pipeline… check back in a few seconds');
+      setTimeout(async()=>{await loadInbox();if(d.review_id)selectReview(d.review_id)},4000);
+    }catch(e){toast('Failed to add review')}
+  });
+});
+
+init();
+</script>
+</body>
+</html>

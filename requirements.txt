@@ -1,0 +1,11 @@
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+anthropic==0.39.0
+slack-sdk==3.33.1
+google-cloud-bigquery==3.27.0
+zenpy==2.0.56
+sqlalchemy==2.0.36
+psycopg2-binary==2.9.10
+python-dotenv==1.0.1
+httpx==0.28.0
+pydantic==2.10.0

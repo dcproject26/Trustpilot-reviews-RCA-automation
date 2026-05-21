@@ -1,0 +1,118 @@
+import logging, os
+from datetime import datetime
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+
+from server.config import MOCK_MODE
+from server.db import init_db, SessionLocal, Review, RcaDraft, ReviewMetric
+from server.webhook import router as webhook_router
+from server.api     import router as api_router
+from server.services.mock_data import (
+    MOCK_REVIEWS, MOCK_BOOKINGS, MOCK_TIMELINES, MOCK_INSIGHTS,
+    MOCK_DSS, MOCK_RCA_FIELDS, MOCK_RESPONSES,
+)
+
+logging.basicConfig(level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+log = logging.getLogger(__name__)
+
+
+def seed_mocks():
+    db = SessionLocal()
+    try:
+        if db.query(Review).count() > 0:
+            return
+        log.info("Seeding mock reviews…")
+        for r in MOCK_REVIEWS:
+            review = Review(
+                id=r["id"], slack_ts=r["slack_ts"], slack_channel=r["slack_channel"],
+                rating=r["rating"], language=r["language"],
+                body_original=r["body_original"], body_english=r.get("body_english"),
+                reference_number=r.get("reference_number"),
+                received_at=datetime.fromisoformat(r["received_at"]),
+                status=r["status"],
+            )
+            db.add(review)
+
+            booking_raw = dict(MOCK_BOOKINGS.get(r["id"], {}))
+            match_meta  = booking_raw.pop("_match", {})
+            fields = dict(MOCK_RCA_FIELDS.get(r["id"], {}))
+            signals = fields.pop("signals", [])
+
+            draft = RcaDraft(
+                id=f"draft_{r['id']}", review_id=r["id"],
+                booking=booking_raw,
+                match_tier=match_meta.get("tier"),
+                match_confidence=match_meta.get("confidence"),
+                match_method=match_meta.get("method"),
+                timeline=MOCK_TIMELINES.get(r["id"], []),
+                insights=MOCK_INSIGHTS.get(r["id"], {}),
+                dss_rec=MOCK_DSS.get(r["id"], {}),
+                rca_fields=fields, signals=signals,
+                suggested_response=MOCK_RESPONSES.get(r["id"], ""),
+                generated_at=datetime.utcnow(),
+            )
+            db.add(draft)
+
+            db.add(ReviewMetric(
+                review_id=r["id"],
+                received_at=datetime.fromisoformat(r["received_at"]),
+                channel=r["slack_channel"], rating=r["rating"],
+                language=r["language"],
+                match_tier=match_meta.get("tier"),
+                match_confidence=match_meta.get("confidence"),
+                auto_matched=match_meta.get("tier") in (1, 2),
+                signals=signals, edit_count=0, sent=False,
+            ))
+        db.commit()
+        log.info(f"Seeded {len(MOCK_REVIEWS)} mock reviews")
+    finally:
+        db.close()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    log.info("Database ready")
+    if MOCK_MODE:
+        seed_mocks()
+    log.info(f"Mock mode: {'ON' if MOCK_MODE else 'OFF'}")
+    log.info("AI provider: Replit AI Integrations — Anthropic Claude (no API key needed)")
+    yield
+
+
+app = FastAPI(title="Headout ORM RCA", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"],
+                   allow_methods=["*"], allow_headers=["*"])
+app.include_router(webhook_router)
+app.include_router(api_router)
+
+CLIENT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "client")
+
+@app.get("/")
+def root():
+    return FileResponse(os.path.join(CLIENT_DIR, "index.html"))
+
+@app.get("/review/{review_id}")
+def review_page(review_id: str):
+    return FileResponse(os.path.join(CLIENT_DIR, "index.html"))
+
+@app.get("/reporting")
+def reporting_page():
+    return FileResponse(os.path.join(CLIENT_DIR, "index.html"))
+
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
+
+if os.path.isdir(os.path.join(CLIENT_DIR, "static")):
+    app.mount("/static", StaticFiles(
+        directory=os.path.join(CLIENT_DIR, "static")), name="static")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("server.main:app", host="0.0.0.0",
+                port=int(os.getenv("PORT", "8000")), reload=True)
