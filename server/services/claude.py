@@ -1,11 +1,11 @@
 """
 Claude wrapper using Replit AI Integrations.
 
-When running on Replit with AI Integrations enabled (already confirmed ON for
-Headout's workspace), the Anthropic SDK picks up managed credentials automatically.
+When running on Replit with AI Integrations enabled (confirmed ON for Headout's
+workspace), the Anthropic SDK picks up managed credentials automatically.
 No ANTHROPIC_API_KEY needed in Secrets.
 
-Falls back to mock data if the SDK call fails or MOCK_MODE is on.
+Falls back to mock data if MOCK_MODE is on or the SDK is unavailable.
 """
 import json, logging
 from server.config import MOCK_MODE, ANTHROPIC_MODEL
@@ -15,11 +15,11 @@ log = logging.getLogger(__name__)
 
 try:
     from anthropic import Anthropic
-    _client = Anthropic()   # No api_key — Replit injects credentials
+    _client    = Anthropic()   # No api_key — Replit injects credentials
     _available = True
 except Exception as e:
     log.warning(f"Anthropic SDK unavailable: {e}")
-    _client = None
+    _client    = None
     _available = False
 
 
@@ -61,13 +61,23 @@ async def generate_rca(review_text, booking, timeline,
                 review_text, booking, timeline, insights, dss)}],
         )
         text = "".join(b.text for b in msg.content if b.type == "text").strip()
-        if text.startswith("```"):
+        # Strip markdown fences if Claude adds them despite instructions
+        if "```" in text:
             parts = text.split("```")
-            text = parts[1][4:] if parts[1].startswith("json") else parts[1]
+            for part in parts:
+                stripped = part.strip()
+                if stripped.startswith("{"):
+                    text = stripped
+                    break
         return json.loads(text.strip())
     except json.JSONDecodeError:
-        log.error(f"Invalid JSON from Claude. Raw: {text[:300]}")
-        return {"queryIssueType": "Other", "whatWentWrong": text[:500], "signals": []}
+        log.error(f"Invalid JSON from Claude RCA. Raw (first 400): {text[:400]}")
+        # Return a partial dict so the dashboard still shows something
+        return {
+            "queryIssueType": "Other",
+            "whatWentWrong":  text[:800] if text else "(generation failed)",
+            "signals": [],
+        }
     except Exception as e:
         log.exception(f"RCA generation failed: {e}")
         return {"queryIssueType": "Other", "whatWentWrong": "(generation failed)", "signals": []}
@@ -75,16 +85,21 @@ async def generate_rca(review_text, booking, timeline,
 
 async def draft_response(review_text: str, issue_type: str,
                           solution: str, canned: str,
-                          review_id: str = None) -> str:
+                          review_id: str = None,
+                          guest_name: str = "") -> str:
     if not _live():
-        return MOCK_RESPONSES.get(review_id, "We apologise for your experience. Our team is looking into this.")
+        return MOCK_RESPONSES.get(
+            review_id, "We apologise for your experience. Our team is looking into this.")
 
-    from server.prompts import response_draft_prompt
+    from server.prompts import response_draft_prompt, EMBEDDED_CANNED
+    # Use the Sheet canned responses if available, otherwise fall back to embedded ones
+    canned_to_use = canned.strip() if canned and len(canned.strip()) > 100 else EMBEDDED_CANNED
+
     try:
         msg = _client.messages.create(
-            model=ANTHROPIC_MODEL, max_tokens=500,
+            model=ANTHROPIC_MODEL, max_tokens=600,
             messages=[{"role": "user", "content": response_draft_prompt(
-                review_text, issue_type, solution, canned)}],
+                review_text, issue_type, solution, canned_to_use, guest_name)}],
         )
         return "".join(b.text for b in msg.content if b.type == "text").strip()
     except Exception as e:

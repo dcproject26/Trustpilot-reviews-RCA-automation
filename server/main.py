@@ -30,6 +30,7 @@ def seed_mocks():
             review = Review(
                 id=r["id"], slack_ts=r["slack_ts"], slack_channel=r["slack_channel"],
                 rating=r["rating"], language=r["language"],
+                author=r.get("author"),
                 body_original=r["body_original"], body_english=r.get("body_english"),
                 reference_number=r.get("reference_number"),
                 received_at=datetime.fromisoformat(r["received_at"]),

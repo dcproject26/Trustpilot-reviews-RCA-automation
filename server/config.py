@@ -27,14 +27,25 @@ SLACK_CHANNEL_ALERT   = os.getenv("SLACK_CHANNEL_ALERT", "")  # #alert-customerl
 TRUSTPILOT_BOT_USER_ID = os.getenv("TRUSTPILOT_BOT_USER_ID", "")
 
 # BigQuery
-GCP_SERVICE_ACCOUNT_JSON = os.getenv("GCP_SERVICE_ACCOUNT_JSON", "")
-BIGQUERY_BOOKINGS_TABLE  = os.getenv("BIGQUERY_BOOKINGS_TABLE", "")
+GCP_SERVICE_ACCOUNT_JSON  = os.getenv("GCP_SERVICE_ACCOUNT_JSON", "")
+BIGQUERY_BOOKINGS_TABLE   = os.getenv("BIGQUERY_BOOKINGS_TABLE",
+                                       "headout-analytics.analytics_reporting.fct_bookings")
+BIGQUERY_REVIEWS_TABLE    = os.getenv("BIGQUERY_REVIEWS_TABLE",
+                                       "headout-analytics.analytics_reporting.fct_reviews")
+BIGQUERY_FULFILMENTS_TABLE = os.getenv("BIGQUERY_FULFILMENTS_TABLE",
+                                        "headout-analytics.analytics_reporting.fct_fulfilments")
 
 # Zendesk
-ZENDESK_SUBDOMAIN      = os.getenv("ZENDESK_SUBDOMAIN", "")
-ZENDESK_EMAIL          = os.getenv("ZENDESK_EMAIL", "")
-ZENDESK_API_TOKEN      = os.getenv("ZENDESK_API_TOKEN", "")
-ZENDESK_BOOKING_FIELD_ID = os.getenv("ZENDESK_BOOKING_FIELD_ID", "")
+ZENDESK_SUBDOMAIN        = os.getenv("ZENDESK_SUBDOMAIN", "headout")
+ZENDESK_EMAIL            = os.getenv("ZENDESK_EMAIL", "")
+ZENDESK_API_TOKEN        = os.getenv("ZENDESK_API_TOKEN", "")
+ZENDESK_BOOKING_FIELD_ID = os.getenv("ZENDESK_BOOKING_FIELD_ID", "360021524471")
+
+# Google Apps Script — fetches full comments for multiple Zendesk tickets in one call
+APPS_SCRIPT_URL = os.getenv(
+    "APPS_SCRIPT_URL",
+    "https://script.google.com/macros/s/AKfycbyfYMqIcsihcxRVBAznpyrXtyZMvlITCDpPB7Uarc_cMz8mWgCCbg_O9WZQMJeFjCFqOA/exec"
+)
 
 # Retool DSS
 DSS_WEBHOOK_URL = os.getenv("DSS_WEBHOOK_URL", "")
@@ -57,6 +68,7 @@ def is_live(service: str) -> bool:
         "slack_outbound": bool(SLACK_USER_TOKEN),
         "bigquery":       bool(GCP_SERVICE_ACCOUNT_JSON and BIGQUERY_BOOKINGS_TABLE),
         "zendesk":        bool(ZENDESK_SUBDOMAIN and ZENDESK_API_TOKEN),
+        "apps_script":    bool(APPS_SCRIPT_URL),
         "dss":            bool(DSS_WEBHOOK_URL),
         "canned":         bool(CANNED_RESPONSES_SHEET_ID),
     }

@@ -48,6 +48,7 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
             slack_channel    = parsed["slack_channel"],
             rating           = parsed["rating"],
             language         = parsed["language"],
+            author           = parsed.get("author") or None,
             body_original    = parsed["body_original"],
             reference_number = parsed["reference_number"],
         )

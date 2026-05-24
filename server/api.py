@@ -16,6 +16,7 @@ router = APIRouter()
 class ManualReview(BaseModel):
     body: str
     rating: int = 1
+    author: str | None = None
     reference_number: str | None = None
     slack_channel: str = "C_MANUAL"
     slack_ts: str | None = None
@@ -96,6 +97,7 @@ async def add_manual_review(
         slack_channel=data.slack_channel,
         rating=data.rating,
         language="en",
+        author=data.author or None,
         body_original=data.body,
         reference_number=data.reference_number,
         status="new",
