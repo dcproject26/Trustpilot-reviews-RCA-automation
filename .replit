@@ -14,10 +14,6 @@ deploymentTarget = "autoscale"
 localPort = 5000
 externalPort = 80
 
-[[ports]]
-localPort = 8000
-externalPort = 80
-
 [env]
 PYTHONPATH = "${REPL_HOME}"
 PYTHONUNBUFFERED = "1"
@@ -46,10 +42,10 @@ args = "Start application"
 name = "Start application"
 author = "agent"
 
+[workflows.workflow.metadata]
+outputType = "webview"
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "PORT=5000 python -m server.main"
 waitForPort = 5000
-
-[workflows.workflow.metadata]
-outputType = "webview"
