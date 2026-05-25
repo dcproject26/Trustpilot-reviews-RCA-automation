@@ -92,7 +92,6 @@ async def find_booking(review: dict) -> dict | None:
         LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
                ON b.vendor_id = v.vendor_id
         WHERE LOWER(b.customer_name) LIKE LOWER(CONCAT('%', @name, '%'))
-          AND DATE(b.created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY)
         ORDER BY b.created_at DESC
         LIMIT 5
         """
@@ -100,7 +99,7 @@ async def find_booking(review: dict) -> dict | None:
         if len(rows) == 1:
             b = _row_to_dict(rows[0])
             b["_match"] = {"tier": 2, "confidence": "med",
-                           "method": "Single name match (last 60 days)"}
+                           "method": "Single name match"}
             return b
         elif len(rows) > 1:
             return {
