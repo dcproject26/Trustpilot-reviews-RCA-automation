@@ -7,7 +7,6 @@ Three prompts:
   3. response_draft_prompt   — public Trustpilot reply from canned scenarios
 """
 import json
-from server.signals import ALL_SIGNALS
 
 
 def translation_prompt(body: str, lang: str) -> str:
@@ -103,8 +102,7 @@ RULES — follow exactly:
    "No direct interaction found between the customer and the support team."
 6. For "spIssueInteraction": only populate if the SP was directly involved.
    Otherwise write exactly: None
-7. Signals must only come from this exact list — do not invent labels:
-{json.dumps(ALL_SIGNALS, indent=2)}
+7. Leave the "signals" field as an empty list for now: []
 
 Return ONLY a valid JSON object with these exact keys. No markdown, no fences, no preamble:
 {{
@@ -123,7 +121,7 @@ Return ONLY a valid JSON object with these exact keys. No markdown, no fences, n
   "reviewTakedownSent":    "Yes or No or Pending",
   "dssCovers":             "Yes or No or Partial",
   "otherComments":         "Anything else worth flagging. Empty string if nothing.",
-  "signals":               ["3 to 8 labels from the approved signal list only"]
+  "signals":               []
 }}"""
 
 
