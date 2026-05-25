@@ -86,7 +86,8 @@ async def generate_rca(review_text, booking, timeline,
 async def draft_response(review_text: str, issue_type: str,
                           solution: str, canned: str,
                           review_id: str = None,
-                          guest_name: str = "") -> str:
+                          guest_name: str = "",
+                          dss_rec: dict | None = None) -> str:
     if not _live():
         return MOCK_RESPONSES.get(
             review_id, "We apologise for your experience. Our team is looking into this.")
@@ -99,7 +100,7 @@ async def draft_response(review_text: str, issue_type: str,
         msg = _client.messages.create(
             model=ANTHROPIC_MODEL, max_tokens=600,
             messages=[{"role": "user", "content": response_draft_prompt(
-                review_text, issue_type, solution, canned_to_use, guest_name)}],
+                review_text, issue_type, solution, canned_to_use, guest_name, dss_rec)}],
         )
         return "".join(b.text for b in msg.content if b.type == "text").strip()
     except Exception as e:

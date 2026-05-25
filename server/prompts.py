@@ -102,7 +102,7 @@ RULES — follow exactly:
    "No direct interaction found between the customer and the support team."
 6. For "spIssueInteraction": only populate if the SP was directly involved.
    Otherwise write exactly: None
-7. Leave the "signals" field as an empty list for now: []
+7. Leave the signals field as an empty list: []
 
 Return ONLY a valid JSON object with these exact keys. No markdown, no fences, no preamble:
 {{
@@ -127,8 +127,22 @@ Return ONLY a valid JSON object with these exact keys. No markdown, no fences, n
 
 def response_draft_prompt(review_text: str, rca_issue_type: str,
                            solution: str, canned_responses: str,
-                           guest_name: str = "") -> str:
+                           guest_name: str = "",
+                           dss_rec: dict | None = None) -> str:
     name_hint = f"The guest's name is {guest_name}." if guest_name else ""
+
+    dss_rec = dss_rec or {}
+    has_dss = bool(dss_rec) and any(
+        dss_rec.get(k) for k in ("compensation_type", "amount", "recommended_action")
+    )
+    if has_dss:
+        dss_block = f"""DSS RECOMMENDATION (authoritative — use these exact values):
+Compensation type:   {dss_rec.get("compensation_type", "")}
+Amount:              {dss_rec.get("amount", "")}
+Recommended action:  {dss_rec.get("recommended_action", "")}
+"""
+    else:
+        dss_block = "DSS RECOMMENDATION: (none available — do not mention any compensation, refund, credit, or coupon in the reply)"
 
     return f"""You are drafting a public reply to a Trustpilot review on behalf of Headout's CX team.
 This reply will appear publicly on Trustpilot. Write it accordingly — professional, warm, specific.
@@ -141,24 +155,28 @@ Issue type: {rca_issue_type}
 Solution offered: {solution}
 {name_hint}
 
-CANNED RESPONSE SCENARIOS:
+{dss_block}
+
+CANNED RESPONSE LIBRARY (tone and structure guide ONLY — not a template to fill in):
 {canned_responses}
 
 INSTRUCTIONS:
-1. Match the issue to the most relevant canned scenario from the library above.
-2. Use that scenario as your base — do not invent a response from scratch.
-3. Personalise it: reference the specific issue and the resolution that was actually given.
+1. The canned response library is a TONE and STRUCTURE guide only — it is NOT a template.
+   Do not copy its phrasing or fill in its placeholders. The actual content of your reply
+   must come from the specific review text and the DSS recommendation above.
+2. Directly acknowledge what the guest said in their review. Reference their SPECIFIC
+   complaint in their own terms — not a generic version of it.
+3. Compensation must match the DSS recommendation EXACTLY — do not invent amounts,
+   percentages, refund types, or credits. If the DSS recommendation is empty or
+   unavailable, do not mention compensation at all (no refund, no credits, no coupon,
+   no percentage off).
 4. Acknowledge the guest's frustration genuinely. Do not be defensive.
-5. Fill in ALL placeholders with real values:
-   - <Name> or <first name> → use the guest's actual name if known, otherwise remove it
-   - {{date}} or <DATE> → use the date from the solution or review context
-   - <X%> or <X> → use the actual percentage or amount from the solution offered
-   - <ETA> → use the actual timeframe from the solution
-   - <$X> or <amount> → use the actual credit/refund amount
-   - If any placeholder value is genuinely unknown, remove the placeholder entirely
-   - NEVER leave a placeholder like <Name> or {{date}} in the final output
+5. Use the guest's name if known; otherwise open warmly without a placeholder.
+   NEVER leave a literal placeholder like <Name>, <first name>, {{date}}, <X%>, <$X>
+   or <ETA> in the final output.
 6. Keep it 3–5 sentences. No bullet points. No headings.
-7. Do NOT promise anything that was not in the solution offered.
+7. Do NOT promise anything that is not supported by the DSS recommendation or the
+   solution offered.
 8. Return ONLY the reply text. Nothing else.
 """
 

@@ -128,6 +128,7 @@ async def process_review(review_id: str):
                 canned,
                 review_id,
                 guest_name=(booking or {}).get("guestName") or (review.author or ""),
+                dss_rec=dss_rec,
             )
         except Exception as e:
             log.exception(f"Response draft failed: {e}")
