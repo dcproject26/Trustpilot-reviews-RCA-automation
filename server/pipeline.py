@@ -157,16 +157,12 @@ async def process_review(review_id: str):
         # ── 9. Post RCA draft to the Slack thread — team opens dashboard directly to action.
         if is_live("slack_inbound") and review.slack_channel != "C_MANUAL":
             try:
-                dashboard_url    = f"https://{_replit_host()}/review/{review_id}"
-                match_label      = _match.get("confidence", "?")
-                match_method_str = _match.get("method", "?")
-                notify_text = (
-                    f":robot_face: RCA draft ready — "
-                    f"*{match_label} confidence* via {match_method_str}\n"
-                    f"<{dashboard_url}|Open in dashboard>"
-                )
                 await slk.post_to_thread(
-                    review.slack_channel, review.slack_ts, notify_text, as_user=False)
+                    review.slack_channel,
+                    review.slack_ts,
+                    ":robot_face: RCA draft ready — open the dashboard to review and send.",
+                    as_user=False,
+                )
             except Exception as e:
                 log.exception(f"Slack thread post failed: {e}")
 

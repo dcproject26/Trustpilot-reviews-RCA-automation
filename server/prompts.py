@@ -102,7 +102,6 @@ RULES — follow exactly:
    "No direct interaction found between the customer and the support team."
 6. For "spIssueInteraction": only populate if the SP was directly involved.
    Otherwise write exactly: None
-7. Leave the signals field as an empty list: []
 
 Return ONLY a valid JSON object with these exact keys. No markdown, no fences, no preamble:
 {{
@@ -131,19 +130,6 @@ def response_draft_prompt(review_text: str, rca_issue_type: str,
                            dss_rec: dict | None = None) -> str:
     name_hint = f"The guest's name is {guest_name}." if guest_name else ""
 
-    dss_rec = dss_rec or {}
-    has_dss = bool(dss_rec) and any(
-        dss_rec.get(k) for k in ("compensation_type", "amount", "recommended_action")
-    )
-    if has_dss:
-        dss_block = f"""DSS RECOMMENDATION (authoritative — use these exact values):
-Compensation type:   {dss_rec.get("compensation_type", "")}
-Amount:              {dss_rec.get("amount", "")}
-Recommended action:  {dss_rec.get("recommended_action", "")}
-"""
-    else:
-        dss_block = "DSS RECOMMENDATION: (none available — do not mention any compensation, refund, credit, or coupon in the reply)"
-
     return f"""You are drafting a public reply to a Trustpilot review on behalf of Headout's CX team.
 This reply will appear publicly on Trustpilot. Write it accordingly — professional, warm, specific.
 
@@ -155,7 +141,8 @@ Issue type: {rca_issue_type}
 Solution offered: {solution}
 {name_hint}
 
-{dss_block}
+DSS RECOMMENDATION:
+{json.dumps(dss_rec or {}, indent=2)}
 
 CANNED RESPONSE LIBRARY (tone and structure guide ONLY — not a template to fill in):
 {canned_responses}
@@ -166,17 +153,13 @@ INSTRUCTIONS:
    must come from the specific review text and the DSS recommendation above.
 2. Directly acknowledge what the guest said in their review. Reference their SPECIFIC
    complaint in their own terms — not a generic version of it.
-3. Compensation must match the DSS recommendation EXACTLY — do not invent amounts,
-   percentages, refund types, or credits. If the DSS recommendation is empty or
-   unavailable, do not mention compensation at all (no refund, no credits, no coupon,
-   no percentage off).
+3. The compensation mentioned in the reply must come from the DSS recommendation above — use the exact amount, percentage, or credit figure. Do not invent or estimate compensation.
 4. Acknowledge the guest's frustration genuinely. Do not be defensive.
 5. Use the guest's name if known; otherwise open warmly without a placeholder.
    NEVER leave a literal placeholder like <Name>, <first name>, {{date}}, <X%>, <$X>
    or <ETA> in the final output.
 6. Keep it 3–5 sentences. No bullet points. No headings.
-7. Do NOT promise anything that is not supported by the DSS recommendation or the
-   solution offered.
+7. Do NOT promise anything not confirmed in the DSS recommendation. If DSS recommendation is empty, do not mention any specific compensation amount.
 8. Return ONLY the reply text. Nothing else.
 """
 
