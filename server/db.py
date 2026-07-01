@@ -1,8 +1,8 @@
 """
-Three tables:
-  reviews     — one row per review, cleared after sent (no long-term PII)
-  rca_drafts  — the working draft
-  metrics     — per-review stats retained for reporting (no PII)
+REPLACES existing server/db.py
+
+Same three tables, but RcaDraft now carries the demo-parity structured RCA fields.
+Existing installations should run migrations/001_add_rca_v2_fields.sql first.
 """
 import os
 from datetime import datetime
@@ -26,7 +26,7 @@ class Review(Base):
     slack_channel    = Column(String)
     rating           = Column(Integer)
     language         = Column(String)
-    author           = Column(String, nullable=True)   # reviewer display name from Slack
+    author           = Column(String, nullable=True)
     body_original    = Column(Text)
     body_english     = Column(Text, nullable=True)
     reference_number = Column(String, nullable=True)
@@ -39,20 +39,54 @@ class RcaDraft(Base):
     __tablename__ = "rca_drafts"
     id               = Column(String, primary_key=True)
     review_id        = Column(String, ForeignKey("reviews.id"), unique=True)
+
+    # ── Booking match ──
     booking          = Column(JSON, nullable=True)
     match_tier       = Column(Integer, nullable=True)
     match_confidence = Column(String, nullable=True)
     match_method     = Column(String, nullable=True)
-    timeline         = Column(JSON, nullable=True)
-    insights         = Column(JSON, nullable=True)
-    dss_rec          = Column(JSON, nullable=True)
-    rca_fields       = Column(JSON, default=dict)
-    signals          = Column(JSON, default=list)
-    suggested_response  = Column(Text, nullable=True)
-    final_response   = Column(Text, nullable=True)
-    generated_at     = Column(DateTime, nullable=True)
-    sent_at          = Column(DateTime, nullable=True)
-    review           = relationship("Review", back_populates="draft")
+    candidates_list  = Column(JSON, default=list)       # top BQ candidates for Tier 2/3
+    candidate_state  = Column(Boolean, default=False)   # True = picker active
+    selected_candidate_bid = Column(String, nullable=True)
+    confidence_trail = Column(JSON, default=list)       # step-by-step signal-extraction trail
+
+    # ── Context ──
+    timeline         = Column(JSON, default=list)
+    insights         = Column(JSON, default=dict)
+    similar_support  = Column(JSON, default=list)
+    similar_reviews  = Column(JSON, default=list)
+    dss_rec          = Column(JSON, default=dict)
+    dss_connected_at = Column(DateTime, nullable=True)
+
+    # ── Structured RCA (demo parity) ──
+    stated_issue                = Column(Text, nullable=True)
+    l1                          = Column(String, nullable=True)
+    l2                          = Column(String, nullable=True)
+    l1_reasoning                = Column(Text, nullable=True)
+    diagnostic_checks           = Column(JSON, default=list)
+    what_went_wrong_bullets     = Column(JSON, default=list)
+    support_interaction_frames  = Column(JSON, default=list)
+    support_summary             = Column(Text, nullable=True)
+    sp_interaction_frames       = Column(JSON, default=list)
+    area_of_improving           = Column(JSON, default=list)
+    actions_taken               = Column(JSON, default=lambda: {
+        "sp": [], "customer": [], "business": [], "product": [], "ce": []
+    })
+    resolution                  = Column(Text, nullable=True)
+
+    # ── Flag to Biz ──
+    flag_to_biz_state           = Column(String, default="off")  # off | drafted | sent
+    flag_to_biz_message         = Column(Text, nullable=True)
+
+    # ── Legacy fields still used by the v1 flow ──
+    rca_fields         = Column(JSON, default=dict)
+    signals            = Column(JSON, default=list)
+    suggested_response = Column(Text, nullable=True)
+    final_response     = Column(Text, nullable=True)
+
+    generated_at = Column(DateTime, nullable=True)
+    sent_at      = Column(DateTime, nullable=True)
+    review       = relationship("Review", back_populates="draft")
 
 
 class ReviewMetric(Base):
@@ -67,10 +101,14 @@ class ReviewMetric(Base):
     match_tier       = Column(Integer, nullable=True)
     match_confidence = Column(String, nullable=True)
     auto_matched     = Column(Boolean, default=False)
+    l1               = Column(String, nullable=True)
+    l2               = Column(String, nullable=True)
     signals          = Column(JSON, default=list)
     edit_count       = Column(Integer, default=0)
     minutes_to_send  = Column(Float, nullable=True)
     sent             = Column(Boolean, default=False)
+    dss_connected    = Column(Boolean, default=False)
+    flagged_to_biz   = Column(Boolean, default=False)
 
 
 def init_db():

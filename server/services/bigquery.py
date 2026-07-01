@@ -102,15 +102,38 @@ async def find_booking(review: dict) -> dict | None:
                            "method": "Single name match"}
             return b
         elif len(rows) > 1:
-            return {
-                "_match": {
-                    "tier": 3, "confidence": "low",
-                    "method": f"Name matched {len(rows)} bookings — associate must confirm",
-                    "candidates": [_row_to_dict(r) for r in rows],
-                }
-            }
+            candidates = []
+            for r in rows[:5]:
+                d = _row_to_dict(r)
+                candidates.append({
+                    "id":             d["id"],
+                    "score":          None,   # TODO: scoring formula (Data Team, Sprint 2)
+                    "matchReasons":   ["Guest name match"],
+                    "experience":     d["experienceName"],
+                    "tgid":           d["tgid"],
+                    "tid":            d["tid"],
+                    "vendorName":     d["partner"],
+                    "experienceDate": d["visitDate"],
+                    "creationDate":   d["bookedOn"],
+                    "status":         "",     # not in current query
+                    "leadTime":       "",     # not in current query
+                    "_match": {"tier": 2, "confidence": "med",
+                               "method": f"Name matched {len(rows)} bookings — associate must confirm"},
+                    **d,
+                })
+            return {"candidates": candidates}
 
     return None
+
+
+async def get_similar_complaints(booking: dict) -> tuple[list, list]:
+    """Returns (similar_support_tickets, similar_trustpilot_reviews).
+
+    Delegates to the bigquery_patch implementation, which handles the live
+    BigQuery queries and the MOCK_MODE placeholder fallback.
+    """
+    from server.services.bigquery_patch import get_similar_complaints as _impl
+    return await _impl(booking)
 
 
 async def get_insights(booking: dict) -> dict:

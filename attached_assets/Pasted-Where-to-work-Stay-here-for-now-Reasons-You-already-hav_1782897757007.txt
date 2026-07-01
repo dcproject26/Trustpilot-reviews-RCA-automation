@@ -1,0 +1,80 @@
+Where to work
+Stay here for now. Reasons:
+
+You already have context loaded (memory, past transcripts, the demo evolution)
+We're at the "handoff to Replit agent" stage — you don't need heavy coding sessions
+Claude Code shines when you're inside a repo doing multi-file edits with a live filesystem. That's more useful after the code is on Replit and needs iterative debugging with real credentials
+Moving now = you lose the demo/decision history
+
+Shift to Claude Code when:
+
+The code is on Replit and you want to test/debug with real data
+You want me to actually SSH-equivalent into a working repo instead of producing patch zips
+
+For now — one shared context = faster iteration.
+
+What to tell the Replit agent
+Here's the paste-ready brief. Send this to the Replit agent as one message, then upload the delta zip:
+
+Paste this to Replit agent:
+
+I'm evolving my existing ORM RCA project. I have a delta package to apply on top of the current codebase.
+The current project structure is:
+server/ (FastAPI backend with main.py, api.py, webhook.py, pipeline.py, prompts.py, db.py, config.py, services/*)
+client/index.html (dashboard)
+I'm uploading a zip called orm-rca-delta-v1.zip. Please:
+1. Extract the delta zip
+2. Apply the file changes as follows:
+
+REPLACE these files with the versions from the delta:
+
+server/db.py
+server/prompts.py
+server/pipeline.py
+server/api.py
+server/services/claude.py
+server/services/dss.py
+client/index.html
+
+
+ADD these new files:
+
+server/taxonomy.py
+server/services/bigquery_patch.py
+migrations/001_add_rca_v2_fields.sql
+
+
+
+3. Patch the existing server/services/bigquery.py:
+
+The existing find_booking() function currently returns a single booking dict. Modify it so that when it has multiple close-scoring candidates (top score below 0.85), it returns {"candidates": [...]} instead — a list of up to 5 candidates each with fields: id, score, matchReasons, experience, tgid, tid, vendorName, experienceDate, creationDate, status, leadTime. Single confident matches still return the booking dict as before.
+
+Also merge in the two new methods from server/services/bigquery_patch.py: get_similar_complaints(booking). Keep the existing _client and config imports.
+4. Run the Postgres migration:
+
+Execute migrations/001_add_rca_v2_fields.sql against the Replit Postgres database. It uses IF NOT EXISTS so it's safe to re-run.
+5. Verify:
+
+pip install -r requirements.txt (no new deps expected, all existing)
+Start the Repl
+Confirm the server boots (health check: curl localhost:3000/api/health)
+Confirm curl localhost:3000/api/taxonomy returns the L1/L2/checks structure
+Open the dashboard — should render in MOCK_MODE with the demo layout
+
+6. Report back:
+
+Any files that failed to apply
+Migration output
+Server boot logs
+The /api/health response
+Screenshot or description of the dashboard rendering
+
+7. Do NOT do these yet:
+
+Don't wire client/index.html to the backend API (that's the next step, described in client/WIRING.md)
+Don't ask about credentials — MOCK_MODE handles everything
+Don't touch server/services/mock_data.py, server/services/canned.py, server/services/slack.py, server/services/zendesk.py, server/services/bigquery.py beyond the specific find_booking patch above
+Don't create new dependencies or restructure files
+
+Read README.md first if there's any doubt about scope. The delta is intentionally minimal — everything not listed above stays as-is.
+

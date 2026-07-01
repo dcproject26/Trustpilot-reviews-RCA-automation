@@ -1,0 +1,1 @@
+- [LLM JSON sanitizing](llm-json-sanitizing.md) — LLM JSON cleanup must be string-aware; regex comment-stripping corrupts URLs/commas inside string values.

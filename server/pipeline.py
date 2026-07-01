@@ -1,27 +1,47 @@
 """
-The pipeline. Called for every new review.
-Each step is wrapped in try/except — one failure never kills the rest.
+REPLACES existing server/pipeline.py
+
+The pipeline for a new review. Wraps every step in try/except so one failure
+doesn't kill the rest of the flow.
+
+Steps:
+  1.  Translate (if non-English)
+  2.  BID regex (Tier 1)
+  3.  Signal extraction (Claude) — only if no BID
+  4.  BigQuery match (Tier 1 lookup or Tier 2 fuzzy search)
+  5.  Persist candidate list + confidence trail (Tier 2 → picker state)
+  6.  Zendesk timeline
+  7.  Insights (BigQuery)
+  8.  Similar complaints (BigQuery + Trustpilot)
+  9.  DSS webhook (called eagerly for context; associate can also reconnect on-demand)
+  10. Stated Issue summary
+  11. Classification (L1/L2)
+  12. Full RCA generation
+  13. Response draft
+  14. Save + post-back to Slack thread
+  15. Metrics
 """
-import logging, re
+import asyncio, logging, re
 from datetime import datetime
+
 from server.config import is_live
 from server.db import SessionLocal, Review, RcaDraft, ReviewMetric
 from server.services import claude, bigquery as bq, zendesk, dss, slack as slk
 from server.services.canned import get_canned_responses
+from server.taxonomy import DIAGNOSTIC_CHECKS
 
 log = logging.getLogger(__name__)
 
 
 async def process_review(review_id: str):
     db = SessionLocal()
-    started = datetime.utcnow()
     try:
         review = db.query(Review).filter(Review.id == review_id).first()
         if not review:
             log.error(f"Review {review_id} not found")
             return
 
-        log.info(f"[pipeline] Processing {review_id}")
+        log.info(f"[pipeline] {review_id} — start")
 
         # ── 1. Translate ──────────────────────────────────────────────────────
         if review.language and review.language != "en" and not review.body_english:
@@ -34,64 +54,100 @@ async def process_review(review_id: str):
 
         review_text = review.body_english or review.body_original
 
-        # ── 2. Booking match ──────────────────────────────────────────────────
-        # Tier 1: booking ID regex in review text (any 8-digit number)
-        booking     = None
-        match_tier  = None
-        try:
-            ref_match = re.search(r'\b\d{8}\b', review_text or "")
-            if ref_match and not review.reference_number:
+        # ── 2. BID regex (Tier 1) ─────────────────────────────────────────────
+        confidence_trail = []
+        ref_match = re.search(r'\b\d{8}\b', review_text or "")
+        if ref_match:
+            confidence_trail.append({
+                "mark": "pass",
+                "text": f"<strong>BID regex</strong> — matched {ref_match.group(0)} in review text",
+            })
+            if not review.reference_number:
                 review.reference_number = ref_match.group(0)
                 db.commit()
+        else:
+            confidence_trail.append({
+                "mark": "pass",
+                "text": "<strong>BID regex</strong> — no 8-digit number in text",
+            })
 
-            booking = await bq.find_booking({
+        # ── 3. Signal extraction (Tier 2, only if no BID) ────────────────────
+        signals = None
+        if not ref_match:
+            try:
+                signals = await claude.extract_signals(review_text, review_id)
+                bits = []
+                if signals.get("guest_name"):      bits.append(f'name "{signals["guest_name"]}"')
+                if signals.get("experience_hint"): bits.append(f'experience "{signals["experience_hint"]}"')
+                if signals.get("venue_or_city"):   bits.append(f'venue "{signals["venue_or_city"]}"')
+                if bits:
+                    confidence_trail.append({
+                        "mark": "pass",
+                        "text": "<strong>Claude signal extraction:</strong> " + " · ".join(bits),
+                    })
+            except Exception as e:
+                log.exception(f"Signal extraction failed: {e}")
+
+        # ── 4. Booking match ──────────────────────────────────────────────────
+        booking          = None
+        match_tier       = None
+        candidates       = []
+        candidate_state  = False
+        try:
+            search_ctx = {
                 "id":               review_id,
                 "author":           review.author or "",
                 "reference_number": review.reference_number,
-            })
-            if booking:
+                "signals":          signals or {},
+            }
+            match_result = await bq.find_booking(search_ctx)
+
+            # Contract: find_booking returns either a single booking dict OR
+            # a dict with {"candidates": [...]} when confidence is medium.
+            if match_result and match_result.get("candidates"):
+                candidates      = match_result["candidates"]
+                candidate_state = True
+                confidence_trail.append({
+                    "mark": "pass",
+                    "text": f"<strong>BigQuery:</strong> {len(candidates)} candidates returned",
+                })
+                confidence_trail.append({
+                    "mark": "warn",
+                    "text": "<strong>Confidence:</strong> medium — associate to confirm",
+                })
+                # Pre-select the top candidate so the pipeline can continue to build context.
+                # The associate will confirm/change via /select-candidate endpoint.
+                booking = candidates[0]
+                match_tier = 2
+            elif match_result:
+                booking = match_result
                 match_tier = booking.get("_match", {}).get("tier")
+                confidence_trail.append({
+                    "mark": "pass",
+                    "text": f"<strong>BigQuery:</strong> Tier {match_tier} match — BID {booking.get('id')}",
+                })
         except Exception as e:
             log.exception(f"Booking match failed: {e}")
 
-        # ── 3. Zendesk timeline ───────────────────────────────────────────────
-        # Fetch even without a confident booking match — we use what we find.
-        # extracted_bk contains booking fields parsed from the first ZD comment.
+        # ── 6. Zendesk timeline ──────────────────────────────────────────────
         timeline      = []
         extracted_bk  = {}
-        booking_id_for_zd = (booking or {}).get("id") or review.reference_number
-        if booking_id_for_zd:
+        bid_for_zd    = (booking or {}).get("id") or review.reference_number
+        if bid_for_zd:
             try:
-                timeline, extracted_bk = await zendesk.get_timeline(
-                    booking_id_for_zd, review_id)
-                log.info(f"[pipeline] timeline: {len(timeline)} events, "
-                         f"extracted: {list(extracted_bk.keys())}")
+                timeline, extracted_bk = await zendesk.get_timeline(bid_for_zd, review_id)
+                log.info(f"[pipeline] timeline: {len(timeline)} events")
             except Exception as e:
                 log.exception(f"Zendesk failed: {e}")
 
-        # Merge extracted booking fields as fallback for missing BigQuery fields
+        # Merge Zendesk-extracted fields as fallback for missing BQ fields
         if extracted_bk and booking:
-            for key in ["tgid", "tid", "experienceName", "visitDate", "vid", "vendorName", "pax"]:
+            for key in ("tgid", "tid", "vid", "experienceName", "visitDate",
+                        "vendorName", "pax"):
                 if not booking.get(key) and extracted_bk.get(key):
                     booking[key] = extracted_bk[key]
-        elif extracted_bk and not booking:
-            # No BigQuery match but we have something from ZD — use it
-            booking = {
-                "id":             review.reference_number or "unknown",
-                "experienceName": extracted_bk.get("experienceName", ""),
-                "tgid":           extracted_bk.get("tgid", ""),
-                "tid":            extracted_bk.get("tid", ""),
-                "vid":            extracted_bk.get("vid", ""),
-                "vidName":        extracted_bk.get("vendorName", ""),
-                "partner":        extracted_bk.get("vendorName", ""),
-                "visitDate":      extracted_bk.get("visitDate", ""),
-                "pax":            extracted_bk.get("pax", ""),
-                "_match":         {"tier": None, "confidence": "low",
-                                   "method": "Extracted from Zendesk comment"},
-            }
-            match_tier = None
 
-        # ── 4. Insights ───────────────────────────────────────────────────────
+        # ── 7. Insights ──────────────────────────────────────────────────────
         insights = {}
         if booking and booking.get("tgid"):
             try:
@@ -99,62 +155,103 @@ async def process_review(review_id: str):
             except Exception as e:
                 log.exception(f"Insights failed: {e}")
 
-        # ── 5. DSS ────────────────────────────────────────────────────────────
+        # ── 8. Similar complaints ─────────────────────────────────────────────
+        similar_support = []
+        similar_reviews = []
+        if booking:
+            try:
+                similar_support, similar_reviews = await bq.get_similar_complaints(booking)
+            except Exception as e:
+                log.exception(f"Similar complaints failed: {e}")
+
+        # ── 9. DSS (eager) ────────────────────────────────────────────────────
         dss_rec = {}
         try:
             dss_rec = await dss.get_recommendation(booking or {}, review_id)
         except Exception as e:
             log.exception(f"DSS failed: {e}")
 
-        # ── 6. RCA generation ─────────────────────────────────────────────────
-        rca_fields = {}
-        signals    = []
+        # ── 10. Stated Issue ──────────────────────────────────────────────────
+        stated_issue = ""
         try:
-            result  = await claude.generate_rca(
-                review_text, booking, timeline, insights, dss_rec, review_id)
-            signals    = result.pop("signals", [])
-            rca_fields = result
+            stated_issue = await claude.stated_issue(review_text, review_id)
         except Exception as e:
-            log.exception(f"RCA generation failed: {e}")
+            log.exception(f"Stated issue failed: {e}")
 
-        # ── 7. Response draft ─────────────────────────────────────────────────
+        # ── 11. Classification ────────────────────────────────────────────────
+        l1, l2, l1_reasoning = "", "", ""
+        try:
+            cls = await claude.classify(review_text, booking, timeline, review_id)
+            l1 = cls.get("l1", "")
+            l2 = cls.get("l2", "")
+            l1_reasoning = cls.get("l1_reasoning", "")
+        except Exception as e:
+            log.exception(f"Classification failed: {e}")
+
+        # ── 12. Full structured RCA ───────────────────────────────────────────
+        rca_v2 = {}
+        try:
+            rca_v2 = await claude.generate_rca_v2(
+                review_text, booking, timeline, insights, dss_rec, l1, l2, review_id)
+        except Exception as e:
+            log.exception(f"RCA v2 generation failed: {e}")
+
+        # ── 13. Response draft ────────────────────────────────────────────────
         response_draft = ""
         try:
             canned         = await get_canned_responses()
-            response_draft = await claude.draft_response(
-                review_text,
-                rca_fields.get("queryIssueType", ""),
-                rca_fields.get("solutionOffered", ""),
-                canned,
-                review_id,
+            response_draft = await claude.draft_response_v2(
+                review_text=review_text,
+                l1=l1,
+                l2=l2,
+                resolution=rca_v2.get("resolution", ""),
+                canned_responses=canned,
+                review_id=review_id,
                 guest_name=(booking or {}).get("guestName") or (review.author or ""),
                 dss_rec=dss_rec,
             )
         except Exception as e:
             log.exception(f"Response draft failed: {e}")
 
-        # ── 8. Save draft ──────────────────────────────────────────────────────
+        # ── 14. Save ──────────────────────────────────────────────────────────
         draft = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
         if not draft:
             draft = RcaDraft(id=f"draft_{review_id}", review_id=review_id)
             db.add(draft)
 
         _match = (booking or {}).get("_match", {})
-        draft.booking            = {k: v for k, v in (booking or {}).items() if k != "_match"}
-        draft.match_tier         = _match.get("tier")
-        draft.match_confidence   = _match.get("confidence")
-        draft.match_method       = _match.get("method")
-        draft.timeline           = timeline
-        draft.insights           = insights
-        draft.dss_rec            = dss_rec
-        draft.rca_fields         = rca_fields
-        draft.signals            = signals
-        draft.suggested_response = response_draft
-        draft.generated_at       = datetime.utcnow()
-        review.status            = "draft"
+        draft.booking          = {k: v for k, v in (booking or {}).items() if k != "_match"}
+        draft.match_tier       = match_tier or _match.get("tier")
+        draft.match_confidence = _match.get("confidence")
+        draft.match_method     = _match.get("method")
+        draft.candidates_list  = candidates
+        draft.candidate_state  = candidate_state
+        draft.confidence_trail = confidence_trail
+        draft.timeline         = timeline
+        draft.insights         = insights
+        draft.similar_support  = similar_support
+        draft.similar_reviews  = similar_reviews
+        draft.dss_rec          = dss_rec
+
+        draft.stated_issue                = stated_issue
+        draft.l1                          = l1
+        draft.l2                          = l2
+        draft.l1_reasoning                = l1_reasoning
+        draft.diagnostic_checks           = rca_v2.get("diagnosticChecks", [])
+        draft.what_went_wrong_bullets     = rca_v2.get("whatWentWrongBullets", [])
+        draft.support_interaction_frames  = rca_v2.get("supportInteractionFrames", [])
+        draft.support_summary             = rca_v2.get("supportSummary", "")
+        draft.sp_interaction_frames       = rca_v2.get("spInteractionFrames", [])
+        draft.area_of_improving           = rca_v2.get("areaOfImproving", [])
+        draft.actions_taken               = rca_v2.get("actionsTaken",
+                                              {"sp":[],"customer":[],"business":[],"product":[],"ce":[]})
+        draft.resolution                  = rca_v2.get("resolution", "")
+        draft.suggested_response          = response_draft
+        draft.generated_at                = datetime.utcnow()
+        review.status                     = "draft"
         db.commit()
 
-        # ── 9. Post RCA draft to the Slack thread — team opens dashboard directly to action.
+        # ── 15. Post-back to Slack thread ─────────────────────────────────────
         if is_live("slack_inbound") and review.slack_channel != "C_MANUAL":
             try:
                 await slk.post_to_thread(
@@ -166,32 +263,24 @@ async def process_review(review_id: str):
             except Exception as e:
                 log.exception(f"Slack thread post failed: {e}")
 
-        # ── 10. Log metrics (no PII) ───────────────────────────────────────────
+        # ── 16. Metrics ───────────────────────────────────────────────────────
         try:
-            db.add(ReviewMetric(
-                review_id        = review_id,
-                received_at      = review.received_at,
-                channel          = review.slack_channel,
-                rating           = review.rating,
-                language         = review.language,
-                match_tier       = draft.match_tier,
-                match_confidence = draft.match_confidence,
-                auto_matched     = draft.match_tier in (1, 2),
-                signals          = signals,
-                edit_count       = 0,
-                minutes_to_send  = None,
-                sent             = False,
-            ))
+            m = db.query(ReviewMetric).filter(ReviewMetric.review_id == review_id).first()
+            if not m:
+                m = ReviewMetric(review_id=review_id)
+                db.add(m)
+            m.received_at      = review.received_at
+            m.channel          = review.slack_channel
+            m.rating           = review.rating
+            m.language         = review.language
+            m.match_tier       = draft.match_tier
+            m.match_confidence = draft.match_confidence
+            m.auto_matched     = draft.match_tier in (1, 2)
+            m.l1               = l1
+            m.l2               = l2
             db.commit()
         except Exception as e:
             log.exception(f"Metrics write failed: {e}")
 
     finally:
         db.close()
-
-
-def _replit_host() -> str:
-    import os
-    slug  = os.getenv("REPL_SLUG", "your-repl")
-    owner = os.getenv("REPL_OWNER", "your-username")
-    return f"{slug}.{owner}.repl.co"

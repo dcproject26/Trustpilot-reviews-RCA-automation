@@ -1,14 +1,23 @@
 """
-All Claude prompts. Edit these in Replit to tune output quality.
+REPLACES existing server/prompts.py
 
-Three prompts:
-  1. translation_prompt      — translate review to English, preserve tone
-  2. rca_generation_prompt   — full RCA + signals from all context
-  3. response_draft_prompt   — public Trustpilot reply from canned scenarios
+Six prompts:
+  1. translation_prompt      — translate review to English (unchanged)
+  2. signal_extraction_prompt — extract name/experience/venue/date from review text
+                                (for Tier 2 candidate matching)
+  3. stated_issue_prompt      — 1-line summary of what the guest is complaining about
+  4. classification_prompt    — L1 + L2 constrained to taxonomy
+  5. rca_generation_prompt    — full structured RCA in the demo schema
+  6. response_draft_prompt    — public Trustpilot reply (unchanged tone rules)
+  7. flag_to_biz_prompt       — Slack message when completion rate is below market
 """
 import json
+from server.taxonomy import (
+    L1_CATEGORIES, L2_OPTIONS, DIAGNOSTIC_CHECKS, GAP_TAXONOMY, SIGNAL_FIELDS,
+)
 
 
+# ─── 1. Translation (unchanged) ─────────────────────────────────────────────
 def translation_prompt(body: str, lang: str) -> str:
     return f"""Translate this Trustpilot review into clear English.
 Preserve tone exactly — frustration, sarcasm, urgency. Translate, do not paraphrase.
@@ -18,116 +27,229 @@ Original ({lang}):
 {body}"""
 
 
-def rca_generation_prompt(review_text, booking, timeline, insights, dss) -> str:
+# ─── 2. Signal extraction (Tier 2 candidate matching) ─────────────────────────
+def signal_extraction_prompt(review_text: str) -> str:
+    return f"""Extract structured signals from this Trustpilot review so we can search BigQuery for the booking.
+
+REVIEW:
+{review_text}
+
+Extract these fields. Use null if the review does not clearly mention that field. Do NOT invent.
+
+Return ONLY a valid JSON object. No markdown, no preamble.
+
+{{
+  "guest_name":       "string or null (only if explicitly named)",
+  "experience_hint":  "string or null (e.g. 'Vatican Museums', 'Eiffel summit')",
+  "venue_or_city":    "string or null",
+  "visit_date_hint":  "string or null (any date phrase, may be relative like 'today')",
+  "group_size":       "integer or null (number of guests if stated)",
+  "issue_summary":    "one short sentence describing the guest's complaint"
+}}"""
+
+
+# ─── 3. Stated Issue (1-line summary) ───────────────────────────────────────
+def stated_issue_prompt(review_text: str) -> str:
+    return f"""Summarise this Trustpilot review in 1-2 sentences. State what the guest is complaining about.
+Neutral tone. Facts only. Do not adopt or defend the guest's framing.
+
+REVIEW:
+{review_text}
+
+Return ONLY the summary text. No label, no preamble."""
+
+
+# ─── 4. Classification (L1 + L2) ────────────────────────────────────────────
+def classification_prompt(review_text: str, booking: dict, timeline: list) -> str:
+    l1_list = "\n".join(f"  - {l1}" for l1 in L1_CATEGORIES)
+    l2_map = "\n".join(
+        f"  {l1}: {', '.join(opts) if opts else '(none defined)'}"
+        for l1, opts in L2_OPTIONS.items()
+    )
+
+    return f"""Classify this case into the CX taxonomy below. Use ONLY the categories listed. Do not invent.
+
+REVIEW (English):
+{review_text}
+
+BOOKING:
+{json.dumps(booking or {}, indent=2)}
+
+TIMELINE (chronological events from Zendesk):
+{json.dumps(timeline or [], indent=2)}
+
+AVAILABLE L1 CATEGORIES:
+{l1_list}
+
+AVAILABLE L2 SUB-CATEGORIES:
+{l2_map}
+
+Return ONLY a valid JSON object. No markdown.
+
+{{
+  "l1":           "exact L1 from the list above",
+  "l2":           "exact L2 from the list under that L1",
+  "l1_reasoning": "1-2 sentence justification, citing evidence from the timeline or review"
+}}"""
+
+
+# ─── 5. Full RCA generation (structured demo-parity output) ─────────────────
+def rca_generation_prompt(
+    review_text: str,
+    booking: dict,
+    timeline: list,
+    insights: dict,
+    dss_rec: dict,
+    l1: str,
+    l2: str,
+) -> str:
     """
-    Passes the full Zendesk timeline split three ways so Claude has the complete
-    picture: full chronological log, guest-only messages, CO-only messages, SP-only.
-
-    The customerInteractionCO field uses the exact format validated by the Headout
-    team in the Retool workflow: chronological bullet points with date/time, actor,
-    action, and resolution. No AI editorialising.
+    Produces the demo's structured RCA output. Each field is a placeholder
+    that the demo dashboard renders directly.
     """
-    guest_events = []
-    co_events    = []
-    sp_events    = []
-    all_events   = []
+    checks_for_l1 = DIAGNOSTIC_CHECKS.get(l1, [])
+    checks_json   = json.dumps([
+        {"key": c["key"], "question": c["question"]} for c in checks_for_l1
+    ], indent=2)
 
-    for t in (timeline or []):
-        time_str    = t.get("time", "")
-        actor_label = t.get("actor_label", t.get("actor", "?"))
-        text        = t.get("summary", "")
-        flag        = f"  ⚑ {t['flag'].upper()}" if t.get("flag") else ""
-        is_internal = not t.get("public", True)
-        vis         = " [internal note]" if is_internal else ""
+    gap_list = "\n".join(f"  - {g}" for g in GAP_TAXONOMY)
 
-        line = f"{time_str}  [{actor_label}{vis}]{flag}\n  {text}"
-        all_events.append(line)
-
-        actor_key = t.get("actor", "")
-        if actor_key == "guest":
-            guest_events.append(line)
-        elif actor_key in ("co", "system"):
-            co_events.append(line)
-        elif actor_key == "sp":
-            sp_events.append(line)
-
-    sep          = "\n" + "─" * 40 + "\n"
-    timeline_str = sep.join(all_events)    if all_events   else "(no Zendesk events found)"
-    guest_str    = sep.join(guest_events)  if guest_events else "None found"
-    co_str       = sep.join(co_events)     if co_events    else "None found"
-    sp_str       = sep.join(sp_events)     if sp_events    else "No SP interaction found"
+    guest_events = [t for t in (timeline or []) if t.get("actor") == "guest"]
+    co_events    = [t for t in (timeline or []) if t.get("actor") in ("co", "system")]
+    sp_events    = [t for t in (timeline or []) if t.get("actor") == "sp"]
 
     return f"""You are writing a Root Cause Analysis (RCA) for a Trustpilot review at Headout.
 Headout is a booking intermediary that sells tours and tickets operated by supply partners (SPs).
 
-=== TRUSTPILOT REVIEW (English) ===
+Your output will be rendered directly on an internal RCA dashboard for a CX associate to review.
+Every field must be based ONLY on the evidence below. Do NOT invent times, names, amounts, or events.
+
+=== REVIEW (English) ===
 {review_text}
 
 === BOOKING ===
 {json.dumps(booking or {}, indent=2)}
 
-=== FULL ZENDESK TIMELINE (all actors, chronological) ===
-{timeline_str}
+=== FULL TIMELINE ===
+{json.dumps(timeline or [], indent=2)}
 
-=== GUEST MESSAGES ONLY ===
-{guest_str}
+=== GUEST EVENTS ONLY ===
+{json.dumps(guest_events, indent=2)}
 
-=== CO / SUPPORT TEAM MESSAGES ONLY ===
-{co_str}
+=== CO/SUPPORT EVENTS ONLY ===
+{json.dumps(co_events, indent=2)}
 
-=== SP / SUPPLY PARTNER MESSAGES ONLY ===
-{sp_str}
+=== SP EVENTS ONLY ===
+{json.dumps(sp_events, indent=2)}
 
-=== INSIGHTS (last 90 days) ===
+=== INSIGHTS (from BigQuery) ===
 {json.dumps(insights or {}, indent=2)}
 
 === DSS POLICY RECOMMENDATION ===
-{json.dumps(dss or {}, indent=2)}
+{json.dumps(dss_rec or {}, indent=2)}
+
+=== CASE CLASSIFICATION ===
+L1: {l1}
+L2: {l2}
+
+=== DIAGNOSTIC CHECKS TO RUN (based on L1) ===
+For each check below, answer strictly Yes / No / Unknown. Do NOT elaborate — the associate reviews.
+{checks_json}
+
+=== ALLOWED GAP LABELS (for support interaction gap tags) ===
+{gap_list}
 
 ---
 
 RULES — follow exactly:
-1. Only use facts from the data above. Do not invent anything not in the timeline or booking.
-2. Use exact timestamps from the timeline. Do not paraphrase times.
-3. If the review contradicts the timeline, note the discrepancy factually — do not take sides.
-4. For "whatWentWrong": walk through events chronologically. State the root cause at the end.
-   No adjectives, no judgement — only what happened and when.
-5. For "customerInteractionCO": generate concise bullet points, one per interaction,
-   listed chronologically. Each bullet must include:
-   - Date and time (from the timeline — if not detectable, omit it)
-   - What the customer said or did
-   - How the support team responded and what solution was offered
-   If Minded AI handled any interaction, name it explicitly.
-   If no direct communication is found, write exactly:
-   "No direct interaction found between the customer and the support team."
-6. For "spIssueInteraction": only populate if the SP was directly involved.
-   Otherwise write exactly: None
 
-Return ONLY a valid JSON object with these exact keys. No markdown, no fences, no preamble:
+1. Only use facts from the data above. Do NOT invent timestamps, comp amounts, handle names,
+   ticket numbers, or people's names beyond what appears in the source data.
+
+2. For diagnostic checks: return one row per check listed above. Answer is Yes/No/Unknown ONLY —
+   short justification if Unknown or No, one clause only.
+
+3. For "whatWentWrong": bullet list. Each bullet is a fact from the timeline. No adjectives,
+   no judgement, no invented resolution. Do NOT restate what the CX system is doing about it —
+   that goes in areaOfImproving. Do NOT include wider-pattern insights — those live in the
+   Insights section on the dashboard.
+
+4. For "supportInteractionFrames": one frame per distinct back-and-forth thread
+   (chat, email #1, email #2, phone). Chronologically ordered.
+   Each frame:
+     - type: "chat" | "email" | "call"
+     - time: exact timestamp from timeline
+     - label: short human-readable title, e.g. "Email #1 — handled by Minded AI"
+     - guest_said: one sentence, the guest's message summarised
+     - we_did: one sentence, what we (CE/AI) did in response
+     - guest_reply: one sentence, what the guest said back (or "—" if no reply)
+     - gap: null OR one label from the allowed gap labels list above
+   IMPORTANT: Do NOT put SP-side exchanges in this list. They go in spInteractionFrames.
+
+5. For "spInteractionFrames": one frame per SP exchange (CE → SP, SP → CE).
+   Each frame:
+     - time: exact timestamp
+     - label: "CE → SP (vendor name)" or "SP → CE (vendor name)"
+     - summary: one sentence
+     - comp: string if compensation was mentioned, else null
+
+6. For "areaOfImproving": ONLY things WE need to raise going forward. Not what others already did.
+   Not what Tanaz / Carlo / anyone else already actioned in Slack. Bullet list, 2-5 items.
+   Each bullet starts with a verb: "Raise...", "Check...", "Flag..."
+
+7. For "actionsTaken": five arrays, one per tab (sp, customer, business, product, ce).
+   Only include actions we STILL NEED TO RAISE from this case forward. If the SP already refunded
+   on this specific case, sp = []. If comp was already issued, customer = [].
+   Each action:
+     - with: short label of what to raise
+     - handle: "[handle placeholder]" if unknown — do NOT invent handles
+     - time: "[to be raised]" or actual time if already done
+     - context: 1-2 sentence context tying the action back to this case
+     - where: "slack.com/[channel]/[placeholder]" — do not invent thread IDs
+
+8. For "resolution": one line. Just what comp was given, e.g. "Refund + 25% HOC" or
+   "No comp issued — guest error". Do NOT elaborate with dates/processing steps beyond
+   what's in the timeline.
+
+9. For "supportSummary": 1-2 sentences summarising the overall support handling with gaps + resolution.
+   Use <strong>...</strong> HTML tags to bold key phrases (the demo renders these).
+
+Return ONLY a valid JSON object with these exact keys. No markdown, no fences, no preamble.
+
 {{
-  "queryIssueType":        "Short label e.g. 'Delayed FF — Did not receive tickets'",
-  "whatWentWrong":         "Chronological account. Root cause stated at the end. Facts only.",
-  "customerInteractionCO": "Chronological bullet points: date/time · actor · what was said/done · resolution.",
-  "spIssueInteraction":    "SP involvement with timestamps. Or: None",
-  "areaOfImproving":       "The specific process, system, or monitoring gap that caused this.",
-  "solutionOffered":       "Exactly what was given — refund amount, HOC %, replacement tickets, credits.",
-  "raisedTeam1":           "Primary team handle e.g. '@inv-ops-on-call'",
-  "raisedTeam2":           "Secondary team handle or empty string",
-  "bookingsImpacted":      "From insights — e.g. '2 of 18 bookings same VID same day'",
-  "similarQueries":        "From insights — number of similar open tickets",
-  "avgRating":             "From insights — e.g. 'TGID 4.5 · TID-VID 4.2 (last 90d)'",
-  "followUpNeeded":        "Yes or No",
-  "reviewTakedownSent":    "Yes or No or Pending",
-  "dssCovers":             "Yes or No or Partial",
-  "otherComments":         "Anything else worth flagging. Empty string if nothing.",
-  "signals":               []
+  "diagnosticChecks": [
+    {{"key": "...", "check": "pass"|"fail"|"warn", "question": "...", "answer": "Yes"|"No"|"Unknown"|"No — <short reason>"}}
+  ],
+  "whatWentWrongBullets": ["bullet 1", "bullet 2", "..."],
+  "supportInteractionFrames": [
+    {{"type": "email"|"chat"|"call", "time": "...", "label": "...", "guest_said": "...", "we_did": "...", "guest_reply": "...", "gap": "..." or null}}
+  ],
+  "supportSummary": "1-2 sentences with <strong>...</strong> tags.",
+  "spInteractionFrames": [
+    {{"time": "...", "label": "...", "summary": "...", "comp": "..." or null}}
+  ],
+  "areaOfImproving": ["bullet 1", "bullet 2", "..."],
+  "actionsTaken": {{
+    "sp":       [{{"with":"...","handle":"...","time":"...","context":"...","where":"..."}}],
+    "customer": [...],
+    "business": [...],
+    "product":  [...],
+    "ce":       [...]
+  }},
+  "resolution": "Short line — comp given or 'No comp'"
 }}"""
 
 
-def response_draft_prompt(review_text: str, rca_issue_type: str,
-                           solution: str, canned_responses: str,
-                           guest_name: str = "",
-                           dss_rec: dict | None = None) -> str:
+# ─── 6. Response draft (public Trustpilot reply) ────────────────────────────
+def response_draft_prompt(
+    review_text: str,
+    l1: str,
+    l2: str,
+    resolution: str,
+    canned_responses: str,
+    guest_name: str = "",
+    dss_rec: dict | None = None,
+) -> str:
     name_hint = f"The guest's name is {guest_name}." if guest_name else ""
 
     return f"""You are drafting a public reply to a Trustpilot review on behalf of Headout's CX team.
@@ -136,65 +258,57 @@ This reply will appear publicly on Trustpilot. Write it accordingly — professi
 REVIEW:
 {review_text}
 
-WHAT HAPPENED (from RCA):
-Issue type: {rca_issue_type}
-Solution offered: {solution}
-{name_hint}
+CASE CLASSIFICATION:
+L1: {l1}
+L2: {l2}
+
+WHAT WAS RESOLVED:
+{resolution}
 
 DSS RECOMMENDATION:
 {json.dumps(dss_rec or {}, indent=2)}
+
+{name_hint}
 
 CANNED RESPONSE LIBRARY (tone and structure guide ONLY — not a template to fill in):
 {canned_responses}
 
 INSTRUCTIONS:
-1. The canned response library is a TONE and STRUCTURE guide only — it is NOT a template.
-   Do not copy its phrasing or fill in its placeholders. The actual content of your reply
-   must come from the specific review text and the DSS recommendation above.
-2. Directly acknowledge what the guest said in their review. Reference their SPECIFIC
-   complaint in their own terms — not a generic version of it.
-3. The compensation mentioned in the reply must come from the DSS recommendation above — use the exact amount, percentage, or credit figure. Do not invent or estimate compensation.
-4. Acknowledge the guest's frustration genuinely. Do not be defensive.
+1. The canned response library is a TONE guide only. Do not copy phrasing.
+2. Reference the guest's SPECIFIC complaint in their own terms.
+3. The compensation mentioned must match the resolution string exactly.
+   Do NOT invent amounts. If resolution says "No comp issued", do NOT mention comp.
+4. Genuine, non-defensive acknowledgement.
 5. Use the guest's name if known; otherwise open warmly without a placeholder.
-   NEVER leave a literal placeholder like <Name>, <first name>, {{date}}, <X%>, <$X>
-   or <ETA> in the final output.
-6. Keep it 3–5 sentences. No bullet points. No headings.
-7. Do NOT promise anything not confirmed in the DSS recommendation. If DSS recommendation is empty, do not mention any specific compensation amount.
-8. Return ONLY the reply text. Nothing else.
+   NEVER leave literal placeholders (<Name>, <first name>, {{date}}, <X%>) in the output.
+6. 3-5 sentences. No bullets. No headings.
+7. Return ONLY the reply text. Nothing else.
 """
 
 
-# ── Embedded canned scenarios (fallback when Sheet is unavailable) ──────────
-# These are the 10 confirmed scenarios from the ORM Response Generator,
-# cleaned and deduplicated. The Sheet version takes priority when available.
-EMBEDDED_CANNED = """
-[UNABLE TO TRACE BOOKING]
-Hey <Name>, I'm sorry things didn't go as planned, and I'd love to fix this for you right away. Please share your email ID or the booking ID used for your booking here — https://bit.ly/hedout. Once we have your details, our team will dive right in to resolve it ASAP. Thank you so much for your understanding and patience. I'll make sure we turn this around for you!
+# ─── 7. Flag-to-Biz Slack message draft ─────────────────────────────────────
+def flag_to_biz_prompt(
+    vendor_name: str,
+    vid: str,
+    completion_pct: str,
+    market_avg: str,
+    l1: str,
+    l2: str,
+    review_bid: str,
+) -> str:
+    return f"""Draft a short Slack message for the Biz / Supply team flagging a low completion rate on a VID.
 
-[TICKETS ALREADY SENT — RESEND]
-Hey <first name>, oh no, I'm sorry to hear you didn't receive your tickets. I've just checked our system, which confirms the tickets were sent to you on {date}. Please could you check your Spam folder, just in case? I've resent them now — you should receive them shortly. I hope you have a wonderful experience!
+CONTEXT:
+Vendor: {vendor_name} (VID {vid})
+Current completion rate: {completion_pct}
+Market average: {market_avg}
+Related review BID: {review_bid}
+Case classification: L1={l1}, L2={l2}
 
-[DELAYED TICKETS — NOT YET SENT]
-Hey <Name>, I'm so sorry for the delay. Due to a technical constraint, we weren't able to send your tickets as quickly as we usually do. Not to worry — our team is working on it and you should receive your tickets via email within the next <ETA>. I've also added a coupon for <X%> off your next experience with us as an apology.
+INSTRUCTIONS:
+- Direct, factual, no emoji or fluff
+- 3-4 short paragraphs max
+- Ask for supply allocation review + escalation team follow-up
+- No made-up names or handles
 
-[WRONG / INVALID TICKETS — REFUND]
-Hey <first name>, I sincerely apologise for the oversight on our part. This is definitely not the Headout experience we'd want you to have. I've refunded the full amount to your original payment method — this will reflect within 2–3 business days depending on your bank. I've also emailed you a coupon for <X%> off your next Headout experience.
-
-[OUR ERROR — REFUND + CREDITS]
-Hey <first name>, I'm very sorry for what happened. This is not the Headout experience we strive to provide, and I've personally flagged this with all concerned teams. I've refunded the full amount to your original payment method and added <$X> in Headout credits to your account as compensation. You'll receive email confirmation of both shortly.
-
-[SP CANCELLED LAST MINUTE]
-Hey <first name>, I've processed a full refund for your booking and added 25% Headout credits to your account as an apology for the cancellation. I'm truly sorry for the disruption to your plans — this is not the standard we hold our partners to, and we're addressing this with them directly.
-
-[OVERCROWDED / VENUE ISSUE]
-Hey <name>, I'm very sorry for the experience you had with us. During peak seasons, the venue does open entry to a larger number of people, which we know can affect your experience. We'll work with the venue on improving crowd management going forward. I've emailed you a coupon for <X%> off your next experience with us. I hope this helps brighten your day!
-
-[REFUND DELAY]
-Hi <name>, I'm very sorry to hear that you haven't received the refund yet. I can confirm that the refund was processed from our end on {date}. The Acquirer Reference Number (ARN) for your refund is: <ARN>. Please have a chat with your bank quoting this reference — they'll be able to confirm the status. Apologies for the inconvenience.
-
-[CUSTOMER ERROR / MISSED TOUR]
-Hey <first name>, I'm sorry to hear you missed your experience. I've added <$X> in Headout credits to your account for your next booking with us. I hope we get the chance to give you the experience you deserve soon!
-
-[GENERAL COMPLAINT — INVESTIGATION]
-Hey <Name>, I really appreciate you sharing your feedback with us. I'm sorry your experience didn't meet expectations — this is not the standard we strive to provide. I've shared this with our team and we're looking into it. If there's anything specific I can help you with, please don't hesitate to reach out.
-"""
+Return ONLY the Slack message text."""
