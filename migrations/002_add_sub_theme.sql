@@ -1,0 +1,1 @@
+ALTER TABLE rca_drafts ADD COLUMN IF NOT EXISTS sub_theme TEXT;

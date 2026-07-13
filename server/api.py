@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from server.db import get_session, Review, RcaDraft, ReviewMetric
-from server.taxonomy import L1_CATEGORIES, L2_OPTIONS, DIAGNOSTIC_CHECKS, ACTION_TABS
+from server.taxonomy import L1_CATEGORIES, L2_OPTIONS, DIAGNOSTIC_CHECKS, ACTION_TABS, SUB_THEME_REGISTRY
 from server.config import status_summary
 from server.services.slack import format_rca_slack, post_to_thread
 from server.services.claude import flag_to_biz_message
@@ -227,10 +227,11 @@ def get_review(review_id: str, db: Session = Depends(get_session)):
 @router.get("/api/taxonomy")
 def get_taxonomy():
     return {
-        "l1_categories":     L1_CATEGORIES,
-        "l2_options":        L2_OPTIONS,
-        "diagnostic_checks": DIAGNOSTIC_CHECKS,
-        "action_tabs":       ACTION_TABS,
+        "l1_categories":       L1_CATEGORIES,
+        "l2_options":          L2_OPTIONS,
+        "diagnostic_checks":   DIAGNOSTIC_CHECKS,
+        "action_tabs":         ACTION_TABS,
+        "sub_theme_frameworks": {f"{k[0]}::{k[1]}": v for k, v in SUB_THEME_REGISTRY.items()},
     }
 
 

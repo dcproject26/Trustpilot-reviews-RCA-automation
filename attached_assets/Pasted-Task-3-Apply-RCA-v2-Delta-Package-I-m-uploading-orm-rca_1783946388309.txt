@@ -1,0 +1,75 @@
+Task #3 — Apply RCA v2 Delta Package
+I'm uploading orm-rca-delta-v2.zip. This builds on top of the v1 delta already applied.
+Extract and apply:
+
+Replace files:
+
+server/taxonomy.py (v2 — adds sub-theme frameworks + validators)
+server/prompts.py (v2 — single-call classification prompt)
+
+
+Add new files:
+
+server/services/classifier.py — the validator + salvage layer
+tests/test_classification_accuracy.py — 14 golden reviews
+tests/test_classifier_validators.py — 23 unit tests
+
+
+Schema change — add one column to rca_drafts:
+sqlALTER TABLE rca_drafts ADD COLUMN IF NOT EXISTS sub_theme TEXT;
+And in server/db.py::RcaDraft, add: sub_theme = Column(String, nullable=True)
+Update server/pipeline.py step 11 to use the new classifier:
+python# OLD:
+cls = await claude.classify(review_text, booking, timeline, review_id)
+l1, l2, l1_reasoning = cls.get("l1", ""), cls.get("l2", ""), cls.get("l1_reasoning", "")
+
+# NEW:
+from server.services.classifier import classify as classify_v2
+from server.services.claude import _call as claude_call
+result = await classify_v2(review_text, booking, timeline, claude_call, review_id)
+l1, l2 = result.l1, result.l2
+sub_theme = result.sub_theme
+l1_reasoning = result.reasoning
+# log any validator warnings
+for w in result.warnings:
+    log.warning(f"[classify {review_id}] {w}")
+Then persist sub_theme on the draft: draft.sub_theme = sub_theme
+Also update /api/taxonomy endpoint in server/api.py to expose sub-theme registry:
+pythonfrom server.taxonomy import SUB_THEME_REGISTRY
+# in the taxonomy dict:
+"sub_theme_frameworks": {f"{k[0]}::{k[1]}": v for k, v in SUB_THEME_REGISTRY.items()}
+
+Verify:
+
+pip install -r requirements.txt (no new deps expected)
+python -m tests.test_classifier_validators → should print 23 passed
+python -m tests.test_classification_accuracy → should print 14/14 on all levels (mock mode)
+Restart the Repl
+curl localhost:5000/api/health → 200
+curl localhost:5000/api/taxonomy → now includes sub_theme_frameworks key
+Dashboard still renders (no client changes)
+
+
+Report back:
+
+Test results (both suites)
+Migration output
+/api/health and /api/taxonomy sample response
+Any files that failed to apply
+
+
+
+Notes:
+
+The BID regex is now \b\d{7,12}\b (was \b\d{8}\b). This picks up 11-digit BIDs like 33644632370 seen in real reviews. If Data team says this is wrong later, we'll narrow it.
+The mock accuracy test hitting 14/14 does NOT prove real Claude accuracy. It proves plumbing. Real accuracy needs REAL_CLAUDE=1 ANTHROPIC_API_KEY=... python -m tests.test_classification_accuracy — do NOT run this yet unless we have Anthropic access confirmed.
+Frameworks for Customer Support Issues and Content/Misleading Info are drafted but not yet in this delta (waiting on CX sign-off). They'll ship as a v3 delta later.
+/api/signals still returns a 404 — leftover from pre-v1. Not fixed in this delta. Ignore.
+
+Out of scope for this delta:
+
+Client wiring (still Task #4, deferred until real reviews flow)
+Any credential wiring — MOCK_MODE stays on
+Any changes to mock_data.py, canned.py, slack.py, zendesk.py, bigquery.py
+
+

@@ -1,133 +1,286 @@
 """
-ADD as server/taxonomy.py
+REPLACES server/taxonomy.py — v2 with full L1/L2 rules + sub-theme frameworks.
 
-The single source of truth for L1/L2 classification and diagnostic checks.
-This file is READ from Claude prompts and API responses.
+Source of truth for classification. Read by prompts.py and by validators
+in services/claude.py.
 
-┌────────────────────────────────────────────────────────────────────────┐
-│ STAKEHOLDER INPUT REQUIRED — CX Lead                                   │
-│                                                                        │
-│ Everything here is placeholder based on the demo. Before Sprint 1 you  │
-│ need to replace the placeholder values with the real CX taxonomy.      │
-│                                                                        │
-│ Editing this file is safe — the API + prompts read from these dicts   │
-│ dynamically. No other code changes needed.                             │
-└────────────────────────────────────────────────────────────────────────┘
+STAKEHOLDER STATUS:
+  L1/L2 catalogue + priority rules: RECEIVED from CX Lead
+  MP sub-theme framework:           RECEIVED
+  Ticket sub-theme framework:       RECEIVED
+  Audio Guide sub-theme framework:  RECEIVED
+  SP sub-theme framework:           RECEIVED
+  Customer Support Issues framework: PENDING
+  Content / Misleading Info framework: PENDING
+  Venue closure sub-theme framework:  PENDING
+  Guide No Show sub-theme framework:  PENDING (may reuse SP framework)
+  Venue Related sub-theme framework:  PENDING
+  External Factor sub-theme framework: PENDING
+  Miscellaneous sub-theme framework:   PENDING
 """
 
-# ─────────────────────────────────────────────────────────────────────────
-# L1 categories — top-level RCA classification
-# ─────────────────────────────────────────────────────────────────────────
-L1_CATEGORIES = [
-    "SP issue",
-    "Customer error",
-    "CO miss",
-    "Product/UX",
-    "Payment",
-    "Untraceable",
-    "Other",
+# ═════════════════════════════════════════════════════════════════════════
+# L1 CATEGORIES — priority order (higher = wins ties)
+# ═════════════════════════════════════════════════════════════════════════
+L1_PRIORITY_ORDER = [
+    "Operations Issue",
+    "Product Issue",
+    "Supply Partner Issue",
+    "Venue Related Issue",
+    "Business Issue",
+    "External Factor",
+    "Miscellaneous Issue",
+]
+L1_CATEGORIES = list(L1_PRIORITY_ORDER)
+
+# ═════════════════════════════════════════════════════════════════════════
+# Within Operations Issue, L2 priority sub-order (higher = wins ties)
+# ═════════════════════════════════════════════════════════════════════════
+OPERATIONS_L2_PRIORITY_ORDER = [
+    "Meeting Point Issues",
+    "Ticket Issues",
+    "Content - Instructions not clear / Misleading Info",
+    "Customer expectation mismatch",
+    "Customer Support Issues",
+    "Inventory Listing Issue",
+    "Venue closure",  # Only when Headout proactively communicated or unforeseeable
 ]
 
-# ─────────────────────────────────────────────────────────────────────────
-# L2 sub-categories per L1
-# TODO(cx-lead): Confirm/expand the list under each L1.
-# ─────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════
+# Full L2 options per L1
+# ═════════════════════════════════════════════════════════════════════════
 L2_OPTIONS = {
-    "SP issue": [
+    "Operations Issue": [
+        "Meeting Point Issues",
+        "Ticket Issues",
+        "Content - Instructions not clear / Misleading Info",
+        "Customer expectation mismatch",
+        "Customer Support Issues",
+        "Inventory Listing Issue",
         "Venue closure",
-        "Did not receive tickets",
-        "Redemption denied at venue",
-        "SP did not pick up calls",
-        "SP cancelled last-minute",
-        "Wrong tickets issued",
-        "SP system outage",
-        # TODO(cx-lead): add more
     ],
-    "Customer error": [
-        "Misunderstood inclusions (upsell not selected)",
-        "Wrong date/time selected",
-        "Missed the tour",
-        "Wrong location",
-        # TODO(cx-lead): add more
+    "Product Issue": [
+        "Audio Guide Issues",
+        "App and Website Issues",
     ],
-    "CO miss": [
-        "Minded AI wrong canned response",
-        "Minded AI wrong reschedule guidance",
-        "CE delay",
-        "No escalation raised",
-        "TAT breach",
-        # TODO(cx-lead): add more
+    "Supply Partner Issue": [
+        "Guide No Show",
+        "Guide providing irrelevant/inexperienced/not clear",
+        "Guide Behaviour Issues",
+        "Guide Left / Abandoned Tour",
+        "Timing Issues",
+        "Tour Cancelled by Operator",
+        "Seating Issues",
+        "Food & Catering",
     ],
-    "Product/UX": [
-        "Misleading listing name",
-        "Confusing checkout flow",
-        "Missing information on PDP",
-        # TODO(cx-lead): add more
+    "Venue Related Issue": [
+        "Venue facility issue",
+        "Venue Overcrowding (Venue)",
+        "Venue closure",
     ],
-    "Payment": [
-        "Failed payment",
-        "Duplicate charge",
-        "Refund delay",
-        # TODO(cx-lead): add more
+    "Business Issue": [
+        "Pricing Issues",
     ],
-    "Untraceable": [
-        "No BID + no signals",
-        "BigQuery returned no candidates",
+    "External Factor": [
+        "Customer Late",
+        "Customer Error",
+        "Weather Related",
+        "Venue Overcrowding (External)",
+        "Force Majeure",
+        "Sold Free / Discounted Admission",
+        "Rating Mismatch",
+        "Gibberish / Profanity",
     ],
-    "Other": [
-        "General complaint",
+    "Miscellaneous Issue": [
+        "Vague review",
+        "Negative Headout",
+        "General negative exp",
     ],
 }
 
-# ─────────────────────────────────────────────────────────────────────────
-# Diagnostic checks — one list per L1
+# ═════════════════════════════════════════════════════════════════════════
+# Sub-theme frameworks — for L2s that have their own sub-classification
 #
-# Structure: {"key": "unique_id", "question": "...", "data_source": "..."}
-# The AI runs each check by looking up the data_source in the context bundle
-# (booking record, timeline events, insights) and returning yes/no.
-#
-# TODO(cx-lead): Confirm the full check list per L1 with CX Ops.
-# ─────────────────────────────────────────────────────────────────────────
+# Each framework: {
+#   "exclusion": [keywords] -> maps to exclusion_label,
+#   "exclusion_label": "H. Irrelevant" or similar,
+#   "sub_themes": [(code, name, cue_keywords_list), ...] in priority order,
+# }
+# ═════════════════════════════════════════════════════════════════════════
+
+MP_SUB_THEMES = {
+    "l2_key":         "Meeting Point Issues",
+    "exclusion":      ["long queue", "waiting time", "crowding", "congestion",
+                        "overcrowding", "high pricing"],
+    "exclusion_label": "G. Irrelevant",
+    "sub_themes": [
+        ("A", "Meeting Point Instruction Mismatches",
+            ["wrong address", "incorrect google maps", "inconsistent location",
+             "voucher and email showing different", "incorrect meeting location"]),
+        ("B", "Contact Issues",
+            ["contact number missing", "no phone number", "phone number not working",
+             "could not reach operator"]),
+        ("C", "Guide or Host Issues",
+            ["guide absent", "host not present", "guide standing elsewhere",
+             "could not identify guide", "guide left before customer arrived",
+             "no one at meeting point", "pickup did not arrive",
+             "operator abandoned", "guide didn't show up"]),
+        ("D", "Meeting Point Instructions Unclear",
+            ["unclear instructions", "confusing directions", "could not understand where to go",
+             "no clear landmark", "generic instructions", "difficult to locate"]),
+        ("E", "Conflicting or Incorrect Timing Information",
+            ["time changed", "rescheduled without notice", "wrong time provided",
+             "last-minute time change", "unclear timing"]),
+        ("F", "Any Other Meeting Point Issue", []),
+    ],
+}
+
+TICKET_SUB_THEMES = {
+    "l2_key":         "Ticket Issues",
+    "exclusion":      ["long queue", "waiting time", "crowding", "congestion",
+                        "overcrowding", "high pricing", "venue closed", "closure"],
+    "exclusion_label": "H. Irrelevant",
+    "sub_themes": [
+        ("A", "Ticket Invalid / Not Working",
+            ["ticket did not work", "qr code not scanning", "barcode failed",
+             "ticket already redeemed", "invalid ticket", "could not enter using ticket",
+             "entry denied due to ticket", "qr codes didn't work"]),
+        ("B", "Ticket Not Received",
+            ["ticket not received", "tickets were not sent", "did not receive ticket",
+             "no ticket email", "ticket missing", "waiting but ticket not delivered",
+             "booking not processed"]),
+        ("C", "Ticket Delayed",
+            ["ticket received late", "last minute ticket delivery",
+             "tickets sent just before entry", "delay in ticket delivery"]),
+        ("D", "Wrong Ticket (Date / Time / Variant)",
+            ["wrong date ticket", "wrong time ticket", "different experience than booked",
+             "incorrect ticket issued", "booking not honored correctly",
+             "shifted to", "different variant", "only got park", "combo mismatch"]),
+        ("E", "Alts related",
+            ["accepted a different date", "agreed to reschedule",
+             "issue related to previously accepted change"]),
+        ("F", "Ticket Instructions / Information Unclear",
+            ["unclear ticket redemption", "confusing redemption steps",
+             "missing ticket instructions", "no clear entry process"]),
+        ("G", "Any Other Ticket Issue", []),
+    ],
+    # Tiebreak: if no ticket produced -> B; if ticket produced but wrong -> D
+    "tiebreak_rule": "B if no ticket produced; D if wrong ticket produced",
+}
+
+AG_SUB_THEMES = {
+    "l2_key":         "Audio Guide Issues",
+    "exclusion":      ["internet issues", "waiting time", "long queue",
+                        "overcrowding", "downloading issues"],
+    "exclusion_label": "G. Irrelevant",
+    "sub_themes": [
+        ("A", "AG Not Sent / Not Received",
+            ["audio guide not sent", "never received audio guide link",
+             "audio guide purchased but not delivered"]),
+        ("B", "AG App / Technical Issues",
+            ["app not opening", "app crashing", "app stuck", "audio guide lagging",
+             "stopped mid-tour", "login not working"]),
+        ("C", "AG Redemption Instruction Issues",
+            ["unclear audio guide activation", "activation steps missing"]),
+        ("D", "AG Language Issues",
+            ["selected language not available", "wrong language playing",
+             "language option missing", "not in selected language"]),
+        ("E", "AG Quality & Content Issues",
+            ["poor narration", "low audio quality", "shallow explanation",
+             "irrelevant content", "incomplete content", "not in sync with venue",
+             "navigation issues", "boring narration"]),
+        ("F", "Any Other Audio Guide Issue", []),
+    ],
+    "tiebreak_rule": "A if never obtained; B if obtained then failed during use",
+}
+
+SP_SUB_THEMES = {
+    "l2_key":         None,  # Applies across all SP-level L2s
+    "applies_to_l2":  ["Guide No Show", "Guide providing irrelevant/inexperienced/not clear",
+                        "Guide Behaviour Issues", "Guide Left / Abandoned Tour",
+                        "Timing Issues", "Tour Cancelled by Operator"],
+    "exclusion":      ["long queue", "waiting time", "crowding", "congestion",
+                        "overcrowding", "high pricing", "venue closure", "venue closed"],
+    "exclusion_label": "H. Irrelevant",
+    "sub_themes": [
+        ("A", "Guide No Show",
+            ["guide never arrived", "nobody at meeting point", "guide did not turn up",
+             "guide did not appear"]),
+        ("B", "Guide Left Mid Tour",
+            ["guide abandoned the group", "guide left in the middle", "walked off midway"]),
+        ("C", "Guide Behaviour Issue",
+            ["rude guide", "unprofessional guide", "impolite guide"]),
+        ("D", "Guide Timing Issue",
+            ["tour started late", "time changed", "started 45 mins late"]),
+        ("E", "Guide Quality Issue",
+            ["poor explanation", "bad guiding", "guide unclear",
+             "guide couldn't answer questions"]),
+        ("F", "Contact Issue",
+            ["phone unreachable", "operator not responding", "could not reach"]),
+        ("G", "Other Supply Partner Issue", []),
+    ],
+}
+
+# Registry: which sub-theme framework applies to which L1/L2
+SUB_THEME_REGISTRY = {
+    ("Operations Issue", "Meeting Point Issues"): MP_SUB_THEMES,
+    ("Operations Issue", "Ticket Issues"):        TICKET_SUB_THEMES,
+    ("Product Issue",    "Audio Guide Issues"):   AG_SUB_THEMES,
+    # SP-wide framework — one framework covers many L2s
+    ("Supply Partner Issue", "Guide No Show"):                                    SP_SUB_THEMES,
+    ("Supply Partner Issue", "Guide providing irrelevant/inexperienced/not clear"): SP_SUB_THEMES,
+    ("Supply Partner Issue", "Guide Behaviour Issues"):                           SP_SUB_THEMES,
+    ("Supply Partner Issue", "Guide Left / Abandoned Tour"):                      SP_SUB_THEMES,
+    ("Supply Partner Issue", "Timing Issues"):                                    SP_SUB_THEMES,
+    ("Supply Partner Issue", "Tour Cancelled by Operator"):                       SP_SUB_THEMES,
+}
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# Diagnostic checks per L1 — for the RCA panel
+# ═════════════════════════════════════════════════════════════════════════
 DIAGNOSTIC_CHECKS = {
-    "SP issue": [
-        {"key": "tickets_sent_on_time",     "question": "Were tickets sent on time?",                            "data_source": "timeline.tickets_sent"},
-        {"key": "guest_arrived_on_time",    "question": "Did the guest arrive at the meeting point on time?",   "data_source": "timeline + review_text"},
-        {"key": "sp_informed_proactively",  "question": "Did the SP inform Headout of the cancellation proactively?", "data_source": "timeline.sp_events"},
-        {"key": "retry_fallback_available", "question": "Was a retry / fallback path available at the venue?",  "data_source": "timeline.sp_events"},
-        {"key": "minded_ai_handled",        "question": "Did Minded AI handle the email correctly?",            "data_source": "timeline.ai_events"},
-        {"key": "ce_escalated",             "question": "Did CE escalate to the SP on the chat thread?",        "data_source": "timeline.co_events"},
+    "Operations Issue": [
+        {"key": "tickets_sent_on_time", "question": "Were tickets sent on time?",
+         "data_source": "timeline.tickets_sent"},
+        {"key": "voucher_matches_experience", "question": "Did the voucher match the experience booked?",
+         "data_source": "booking + timeline"},
+        {"key": "meeting_point_info_correct", "question": "Was the meeting point info on the voucher correct?",
+         "data_source": "voucher content"},
+        {"key": "ce_handled_correctly", "question": "Did CE handle the case within playbook?",
+         "data_source": "timeline.co_events"},
     ],
-    "Customer error": [
-        {"key": "tickets_sent_on_time",  "question": "Were tickets sent on time?",                                          "data_source": "timeline.tickets_sent"},
-        {"key": "voucher_matches",       "question": "Does the voucher match what the guest received at the venue?",       "data_source": "booking + timeline"},
-        {"key": "sp_applied_policy",     "question": "Did the SP apply policy correctly?",                                  "data_source": "timeline.sp_events"},
-        {"key": "ce_explained_accurately","question": "Did the CE explain the booking accurately?",                         "data_source": "timeline.co_events"},
-        {"key": "upsell_selected",       "question": "Did the guest select the relevant upsell at checkout?",              "data_source": "booking.upsells_applied"},
+    "Supply Partner Issue": [
+        {"key": "sp_informed_proactively", "question": "Did the SP inform Headout of the issue proactively?",
+         "data_source": "timeline.sp_events"},
+        {"key": "guide_showed_up", "question": "Did the guide show up at the meeting point?",
+         "data_source": "review_text + timeline"},
+        {"key": "retry_available", "question": "Was a retry / fallback available at the venue?",
+         "data_source": "timeline.sp_events"},
+        {"key": "ce_escalated", "question": "Did CE escalate to the SP?",
+         "data_source": "timeline.co_events"},
     ],
-    "CO miss": [
-        # TODO(cx-lead): populate
-        {"key": "tat_breach",            "question": "Was TAT breached?",                                                  "data_source": "timeline"},
-        {"key": "correct_playbook",      "question": "Was the correct playbook followed?",                                 "data_source": "timeline.co_events"},
+    "Product Issue": [
+        {"key": "tickets_sent_on_time", "question": "Were tickets sent on time?",
+         "data_source": "timeline.tickets_sent"},
+        {"key": "audio_guide_provisioned", "question": "Was the audio guide provisioned correctly?",
+         "data_source": "booking + timeline"},
     ],
-    "Product/UX": [
-        # TODO(cx-lead): populate
-        {"key": "listing_matches",       "question": "Does the listing name accurately describe what's included?",        "data_source": "booking.experience_name"},
+    "Venue Related Issue": [
+        {"key": "venue_condition_pre_flagged", "question": "Was the venue condition pre-flagged internally?",
+         "data_source": "insights + historical reviews"},
     ],
-    "Payment": [
-        # TODO(cx-lead): populate
+    "Business Issue": [
+        {"key": "pricing_disclosed", "question": "Was the price transparently disclosed at checkout?",
+         "data_source": "booking flow"},
     ],
-    "Untraceable": [],
-    "Other":       [],
+    "External Factor": [],
+    "Miscellaneous Issue": [],
 }
 
-# ─────────────────────────────────────────────────────────────────────────
-# Support Interaction gap taxonomy — labelled gap types
-#
-# When Claude summarises a support interaction frame and detects an issue,
-# it must tag it with one of these values (or omit if no gap).
-#
-# TODO(cx-lead): Confirm final list.
-# ─────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════
+# Support Interaction gap taxonomy
+# ═════════════════════════════════════════════════════════════════════════
 GAP_TAXONOMY = [
     "Minded AI wrong canned response",
     "Minded AI missed escalation trigger",
@@ -137,29 +290,23 @@ GAP_TAXONOMY = [
     "SP not looped in",
     "Chargeback initiated",
     "TAT breach",
-    # TODO(cx-lead): add more
 ]
 
-# ─────────────────────────────────────────────────────────────────────────
-# Signal extraction — the fields Claude pulls from review text when no BID.
-#
-# TODO(cx-lead): Confirm/expand these.
-# ─────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════
+# Signal extraction fields
+# ═════════════════════════════════════════════════════════════════════════
 SIGNAL_FIELDS = [
     "guest_name",
-    "experience_hint",   # e.g. "Vatican Museums", "Eiffel summit"
+    "experience_hint",
     "venue_or_city",
-    "visit_date_hint",   # any date phrases; may be "today", "yesterday"
+    "visit_date_hint",
     "group_size",
-    "issue_summary",     # 1-line: what went wrong from guest's POV
+    "issue_summary",
 ]
 
-# ─────────────────────────────────────────────────────────────────────────
-# Action Taken tabs → which team lives under each tab.
-# Handles are placeholders — replace with real Slack handles.
-#
-# TODO(cx-lead): confirm team names + real Slack handles per tab.
-# ─────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════
+# Action Taken tabs
+# ═════════════════════════════════════════════════════════════════════════
 ACTION_TABS = {
     "sp":       {"label": "SP",       "default_handle": "[SP handle placeholder]"},
     "customer": {"label": "Customer", "default_handle": "[CE handle placeholder]"},
@@ -168,21 +315,51 @@ ACTION_TABS = {
     "ce":       {"label": "CE",       "default_handle": "[CE handle placeholder]"},
 }
 
-# ─────────────────────────────────────────────────────────────────────────
-# Similar complaints matching rule
-#
-# TODO(cx-lead): Confirm — currently: same TID+VID, same L1, last 30 days.
-# ─────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════
+# Similar complaints match rule
+# ═════════════════════════════════════════════════════════════════════════
 SIMILAR_MATCH_RULE = {
-    "match_on":    ["tid", "vid"],   # BigQuery fields to match on
-    "same_l1":     True,              # also require same L1 classification
+    "match_on":    ["tid", "vid"],
+    "same_l1":     True,
     "window_days": 30,
     "max_results": 5,
 }
 
 
+# ═════════════════════════════════════════════════════════════════════════
+# BID regex — widened to accept 7-12 digits (Angela's review had 11-digit BID)
+# ═════════════════════════════════════════════════════════════════════════
+BID_REGEX = r'\b\d{7,12}\b'
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# Validators — the cheap "confidence gate" so hallucinated output doesn't
+# poison downstream steps. These are what give you multi-agent resilience
+# without the multi-agent cost.
+# ═════════════════════════════════════════════════════════════════════════
+def is_valid_l1(l1: str) -> bool:
+    return l1 in L1_CATEGORIES
+
+
 def is_valid_l1_l2(l1: str, l2: str) -> bool:
     return l1 in L1_CATEGORIES and l2 in L2_OPTIONS.get(l1, [])
+
+
+def is_valid_sub_theme(l1: str, l2: str, sub_theme_code: str) -> bool:
+    fw = SUB_THEME_REGISTRY.get((l1, l2))
+    if not fw:
+        return sub_theme_code in (None, "", "N/A")
+    valid_codes = [f"{code}. {name}" for code, name, _ in fw["sub_themes"]]
+    valid_codes.append(fw["exclusion_label"])
+    return sub_theme_code in valid_codes
+
+
+def has_sub_theme_framework(l1: str, l2: str) -> bool:
+    return (l1, l2) in SUB_THEME_REGISTRY
+
+
+def sub_theme_framework(l1: str, l2: str):
+    return SUB_THEME_REGISTRY.get((l1, l2))
 
 
 def l2_options_for(l1: str) -> list:

@@ -1,23 +1,18 @@
 """
-REPLACES existing server/prompts.py
+REPLACES server/prompts.py (v2 — Task #3).
 
-Six prompts:
-  1. translation_prompt      — translate review to English (unchanged)
-  2. signal_extraction_prompt — extract name/experience/venue/date from review text
-                                (for Tier 2 candidate matching)
-  3. stated_issue_prompt      — 1-line summary of what the guest is complaining about
-  4. classification_prompt    — L1 + L2 constrained to taxonomy
-  5. rca_generation_prompt    — full structured RCA in the demo schema
-  6. response_draft_prompt    — public Trustpilot reply (unchanged tone rules)
-  7. flag_to_biz_prompt       — Slack message when completion rate is below market
+Adds: full priority-order classification prompt that outputs L1 + L2 + sub_theme
+in one call. Existing prompts (translation, stated_issue, rca_generation,
+response_draft, flag_to_biz) unchanged; only classification_prompt is upgraded.
 """
 import json
 from server.taxonomy import (
-    L1_CATEGORIES, L2_OPTIONS, DIAGNOSTIC_CHECKS, GAP_TAXONOMY, SIGNAL_FIELDS,
+    L1_PRIORITY_ORDER, L2_OPTIONS, OPERATIONS_L2_PRIORITY_ORDER,
+    DIAGNOSTIC_CHECKS, GAP_TAXONOMY, SIGNAL_FIELDS, SUB_THEME_REGISTRY,
 )
 
 
-# ─── 1. Translation (unchanged) ─────────────────────────────────────────────
+# ─── 1. Translation ─────────────────────────────────────────────────────────
 def translation_prompt(body: str, lang: str) -> str:
     return f"""Translate this Trustpilot review into clear English.
 Preserve tone exactly — frustration, sarcasm, urgency. Translate, do not paraphrase.
@@ -27,7 +22,7 @@ Original ({lang}):
 {body}"""
 
 
-# ─── 2. Signal extraction (Tier 2 candidate matching) ─────────────────────────
+# ─── 2. Signal extraction ───────────────────────────────────────────────────
 def signal_extraction_prompt(review_text: str) -> str:
     return f"""Extract structured signals from this Trustpilot review so we can search BigQuery for the booking.
 
@@ -48,7 +43,7 @@ Return ONLY a valid JSON object. No markdown, no preamble.
 }}"""
 
 
-# ─── 3. Stated Issue (1-line summary) ───────────────────────────────────────
+# ─── 3. Stated Issue ───────────────────────────────────────────────────────
 def stated_issue_prompt(review_text: str) -> str:
     return f"""Summarise this Trustpilot review in 1-2 sentences. State what the guest is complaining about.
 Neutral tone. Facts only. Do not adopt or defend the guest's framing.
@@ -59,41 +54,128 @@ REVIEW:
 Return ONLY the summary text. No label, no preamble."""
 
 
-# ─── 4. Classification (L1 + L2) ────────────────────────────────────────────
+# ─── 4. Classification — L1 + L2 + sub-theme in ONE call ───────────────────
 def classification_prompt(review_text: str, booking: dict, timeline: list) -> str:
-    l1_list = "\n".join(f"  - {l1}" for l1 in L1_CATEGORIES)
+    """
+    Single call outputs: l1, l2, sub_theme (nullable), review_summary, reasoning.
+
+    The prompt embeds the FULL taxonomy + priority rules + sub-theme frameworks
+    (only for L2s that have one). Validators in services/claude.py catch any
+    output that violates the taxonomy and fall back cleanly.
+    """
+    # Build the sub-theme frameworks section — only include the L2s that have one
+    sub_theme_sections = []
+    seen_frameworks = set()
+    for (l1, l2), fw in SUB_THEME_REGISTRY.items():
+        # Deduplicate SP framework which applies to many L2s
+        fw_id = id(fw)
+        if fw_id in seen_frameworks:
+            continue
+        seen_frameworks.add(fw_id)
+
+        applies_str = f"L1={l1}, L2={l2}"
+        if fw.get("applies_to_l2"):
+            applies_str = f"L1={l1}, any of L2: {', '.join(fw['applies_to_l2'])}"
+
+        exclusion_kw = ", ".join(fw["exclusion"])
+        st_lines = []
+        for code, name, cues in fw["sub_themes"]:
+            cue_str = "; ".join(cues) if cues else "catchall — anything clearly on-topic that doesn't fit A-E"
+            st_lines.append(f"  {code}. {name} — cues: {cue_str}")
+
+        tiebreak = fw.get("tiebreak_rule", "")
+        tiebreak_line = f"\nTiebreak: {tiebreak}" if tiebreak else ""
+
+        sub_theme_sections.append(f"""
+--- Sub-theme framework for {applies_str} ---
+STEP 1 (exclusion): If PRIMARY complaint is any of: {exclusion_kw}
+  → sub_theme = "{fw['exclusion_label']}"
+  (NOTE: only if primary complaint, not if mentioned in passing as consequence)
+STEP 2 (in strict priority order, stop at first match):
+{chr(10).join(st_lines)}{tiebreak_line}""")
+
+    sub_theme_block = "\n".join(sub_theme_sections)
+
+    # Build the L1 priority list
+    l1_priority = " > ".join(L1_PRIORITY_ORDER)
+    ops_priority = " → ".join(OPERATIONS_L2_PRIORITY_ORDER)
+
     l2_map = "\n".join(
-        f"  {l1}: {', '.join(opts) if opts else '(none defined)'}"
+        f"  {l1}: {', '.join(opts) if opts else '(none)'}"
         for l1, opts in L2_OPTIONS.items()
     )
 
-    return f"""Classify this case into the CX taxonomy below. Use ONLY the categories listed. Do not invent.
+    return f"""You are a review issue classifier for Headout (an experiences booking platform).
 
-REVIEW (English):
+Your task: assign exactly ONE L1 + exactly ONE L2 + (when applicable) exactly ONE sub_theme.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PRIORITY RULE — READ THIS FIRST
+Each review gets exactly ONE L1. If multiple L1s match, use the highest priority:
+  {l1_priority}
+Within Operations Issue, check L2s in this order (stop at first match):
+  {ops_priority}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+REVIEW (translated to English if needed):
 {review_text}
 
-BOOKING:
+BOOKING (may be empty):
 {json.dumps(booking or {}, indent=2)}
 
-TIMELINE (chronological events from Zendesk):
+TIMELINE (may be empty):
 {json.dumps(timeline or [], indent=2)}
 
-AVAILABLE L1 CATEGORIES:
-{l1_list}
+AVAILABLE L1 CATEGORIES: {L1_PRIORITY_ORDER}
 
 AVAILABLE L2 SUB-CATEGORIES:
 {l2_map}
 
-Return ONLY a valid JSON object. No markdown.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+KEY BOUNDARY RULES (apply during L1/L2 choice):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Meeting Point: physical inability to connect with guide/pickup → Operations / Meeting Point Issues.
+  Beats Content, Customer Support Issues, and SP Guide No Show when guest couldn't find/reach.
+- Ticket Issues: any ticket delivery, validity, wrong-attraction, wrong-date/time, or QR failure
+  caused by Headout's system → Operations / Ticket Issues.
+- Guide No Show: guest confirms guide simply didn't appear (not that they couldn't find guide)
+  → Supply Partner / Guide No Show.
+- Skip-the-line/priority failures at venue → Venue Related / Venue Overcrowding (Venue), NOT content.
+- Support unresponsive / refund denied / wrong info given → Operations / Customer Support Issues.
+  Even if the ORIGINAL issue was External Factor (e.g. force majeure), if the guest's main
+  complaint is that support failed to help, classify as Customer Support Issues.
+- Positive review with low stars → External Factor / Rating Mismatch. Never leave L2 blank.
+- Gibberish / raw URLs / profanity-only → External Factor / Gibberish / Profanity.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SUB-THEME FRAMEWORKS
+Only populate sub_theme if the chosen (L1, L2) has a framework below.
+Otherwise sub_theme = null.
+
+For each framework: apply Step 1 (exclusion) first. If exclusion applies, use its label.
+Otherwise apply Step 2 in strict priority order and stop at the first match.
+
+IMPORTANT on exclusions: exclusion applies only when the listed keywords describe the
+PRIMARY complaint, not when they appear as consequence of the actual complaint.
+Example: "guide didn't show up so we waited 30 minutes" — the primary complaint is
+guide no-show, not the wait. Do NOT apply exclusion.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{sub_theme_block}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Return ONLY valid JSON, no preamble, no markdown fences:
 
 {{
-  "l1":           "exact L1 from the list above",
-  "l2":           "exact L2 from the list under that L1",
-  "l1_reasoning": "1-2 sentence justification, citing evidence from the timeline or review"
+  "l1": "exact L1 from list above",
+  "l2": "exact L2 from that L1's list above",
+  "sub_theme": "exact code + name like 'A. Guide No Show', OR null if no framework applies",
+  "review_summary": "max 15 words in English summarising the core complaint. If positive: 'Positive experience with no issues reported.'",
+  "reasoning": "1-2 sentence justification citing evidence from the review or timeline"
 }}"""
 
 
-# ─── 5. Full RCA generation (structured demo-parity output) ─────────────────
+# ─── 5. Full RCA generation (unchanged from v1 delta) ──────────────────────
 def rca_generation_prompt(
     review_text: str,
     booking: dict,
@@ -103,15 +185,10 @@ def rca_generation_prompt(
     l1: str,
     l2: str,
 ) -> str:
-    """
-    Produces the demo's structured RCA output. Each field is a placeholder
-    that the demo dashboard renders directly.
-    """
     checks_for_l1 = DIAGNOSTIC_CHECKS.get(l1, [])
     checks_json   = json.dumps([
         {"key": c["key"], "question": c["question"]} for c in checks_for_l1
     ], indent=2)
-
     gap_list = "\n".join(f"  - {g}" for g in GAP_TAXONOMY)
 
     guest_events = [t for t in (timeline or []) if t.get("actor") == "guest"]
@@ -119,9 +196,7 @@ def rca_generation_prompt(
     sp_events    = [t for t in (timeline or []) if t.get("actor") == "sp"]
 
     return f"""You are writing a Root Cause Analysis (RCA) for a Trustpilot review at Headout.
-Headout is a booking intermediary that sells tours and tickets operated by supply partners (SPs).
-
-Your output will be rendered directly on an internal RCA dashboard for a CX associate to review.
+Your output will be rendered directly on an internal RCA dashboard.
 Every field must be based ONLY on the evidence below. Do NOT invent times, names, amounts, or events.
 
 === REVIEW (English) ===
@@ -142,173 +217,113 @@ Every field must be based ONLY on the evidence below. Do NOT invent times, names
 === SP EVENTS ONLY ===
 {json.dumps(sp_events, indent=2)}
 
-=== INSIGHTS (from BigQuery) ===
+=== INSIGHTS ===
 {json.dumps(insights or {}, indent=2)}
 
-=== DSS POLICY RECOMMENDATION ===
+=== DSS ===
 {json.dumps(dss_rec or {}, indent=2)}
 
-=== CASE CLASSIFICATION ===
+=== CLASSIFICATION ===
 L1: {l1}
 L2: {l2}
 
-=== DIAGNOSTIC CHECKS TO RUN (based on L1) ===
-For each check below, answer strictly Yes / No / Unknown. Do NOT elaborate — the associate reviews.
+=== DIAGNOSTIC CHECKS TO RUN ===
+Answer strictly Yes / No / Unknown. Do NOT elaborate — the associate reviews.
 {checks_json}
 
-=== ALLOWED GAP LABELS (for support interaction gap tags) ===
+=== ALLOWED GAP LABELS ===
 {gap_list}
 
 ---
 
-RULES — follow exactly:
+RULES:
 
 1. Only use facts from the data above. Do NOT invent timestamps, comp amounts, handle names,
    ticket numbers, or people's names beyond what appears in the source data.
 
-2. For diagnostic checks: return one row per check listed above. Answer is Yes/No/Unknown ONLY —
-   short justification if Unknown or No, one clause only.
+2. Diagnostic checks: one row per check listed above. Answer Yes/No/Unknown only.
+   Optional short justification (one clause) if Unknown or No.
 
-3. For "whatWentWrong": bullet list. Each bullet is a fact from the timeline. No adjectives,
-   no judgement, no invented resolution. Do NOT restate what the CX system is doing about it —
-   that goes in areaOfImproving. Do NOT include wider-pattern insights — those live in the
-   Insights section on the dashboard.
+3. whatWentWrong: bullet list of facts from timeline. No adjectives, no invented resolution,
+   no wider-pattern insights (those live in the Insights section on the dashboard).
 
-4. For "supportInteractionFrames": one frame per distinct back-and-forth thread
-   (chat, email #1, email #2, phone). Chronologically ordered.
-   Each frame:
-     - type: "chat" | "email" | "call"
-     - time: exact timestamp from timeline
-     - label: short human-readable title, e.g. "Email #1 — handled by Minded AI"
-     - guest_said: one sentence, the guest's message summarised
-     - we_did: one sentence, what we (CE/AI) did in response
-     - guest_reply: one sentence, what the guest said back (or "—" if no reply)
-     - gap: null OR one label from the allowed gap labels list above
-   IMPORTANT: Do NOT put SP-side exchanges in this list. They go in spInteractionFrames.
+4. supportInteractionFrames: one frame per distinct chat/email/call thread, chronological.
+   NOT SP-side exchanges — those go in spInteractionFrames.
+   Fields: type, time, label, guest_said, we_did, guest_reply, gap (or null).
 
-5. For "spInteractionFrames": one frame per SP exchange (CE → SP, SP → CE).
-   Each frame:
-     - time: exact timestamp
-     - label: "CE → SP (vendor name)" or "SP → CE (vendor name)"
-     - summary: one sentence
-     - comp: string if compensation was mentioned, else null
+5. spInteractionFrames: one frame per SP exchange. Fields: time, label, summary, comp.
 
-6. For "areaOfImproving": ONLY things WE need to raise going forward. Not what others already did.
-   Not what Tanaz / Carlo / anyone else already actioned in Slack. Bullet list, 2-5 items.
-   Each bullet starts with a verb: "Raise...", "Check...", "Flag..."
+6. areaOfImproving: only things WE need to raise going forward. Not what others already did.
+   Bullet list, verb-first. 2-5 items.
 
-7. For "actionsTaken": five arrays, one per tab (sp, customer, business, product, ce).
-   Only include actions we STILL NEED TO RAISE from this case forward. If the SP already refunded
-   on this specific case, sp = []. If comp was already issued, customer = [].
-   Each action:
-     - with: short label of what to raise
-     - handle: "[handle placeholder]" if unknown — do NOT invent handles
-     - time: "[to be raised]" or actual time if already done
-     - context: 1-2 sentence context tying the action back to this case
-     - where: "slack.com/[channel]/[placeholder]" — do not invent thread IDs
+7. actionsTaken: five arrays (sp, customer, business, product, ce). Only things still to raise.
+   If SP already refunded on this specific case, sp = []. If comp was already issued, customer = [].
+   Do NOT invent handles — use "[handle placeholder]" if unknown.
 
-8. For "resolution": one line. Just what comp was given, e.g. "Refund + 25% HOC" or
-   "No comp issued — guest error". Do NOT elaborate with dates/processing steps beyond
-   what's in the timeline.
+8. resolution: one line. Just what comp was given, e.g. "Refund + 25% HOC" or "No comp — guest error".
 
-9. For "supportSummary": 1-2 sentences summarising the overall support handling with gaps + resolution.
-   Use <strong>...</strong> HTML tags to bold key phrases (the demo renders these).
+9. supportSummary: 1-2 sentences with <strong>...</strong> tags on key phrases.
 
-Return ONLY a valid JSON object with these exact keys. No markdown, no fences, no preamble.
+Return ONLY valid JSON, no markdown:
 
 {{
-  "diagnosticChecks": [
-    {{"key": "...", "check": "pass"|"fail"|"warn", "question": "...", "answer": "Yes"|"No"|"Unknown"|"No — <short reason>"}}
-  ],
-  "whatWentWrongBullets": ["bullet 1", "bullet 2", "..."],
-  "supportInteractionFrames": [
-    {{"type": "email"|"chat"|"call", "time": "...", "label": "...", "guest_said": "...", "we_did": "...", "guest_reply": "...", "gap": "..." or null}}
-  ],
-  "supportSummary": "1-2 sentences with <strong>...</strong> tags.",
-  "spInteractionFrames": [
-    {{"time": "...", "label": "...", "summary": "...", "comp": "..." or null}}
-  ],
-  "areaOfImproving": ["bullet 1", "bullet 2", "..."],
-  "actionsTaken": {{
-    "sp":       [{{"with":"...","handle":"...","time":"...","context":"...","where":"..."}}],
-    "customer": [...],
-    "business": [...],
-    "product":  [...],
-    "ce":       [...]
-  }},
-  "resolution": "Short line — comp given or 'No comp'"
+  "diagnosticChecks": [{{"key":"...","check":"pass"|"fail"|"warn","question":"...","answer":"Yes"|"No"|"Unknown"|"No — <short>"}}],
+  "whatWentWrongBullets": ["..."],
+  "supportInteractionFrames": [{{"type":"email"|"chat"|"call","time":"...","label":"...","guest_said":"...","we_did":"...","guest_reply":"...","gap":"..." or null}}],
+  "supportSummary": "1-2 sentences.",
+  "spInteractionFrames": [{{"time":"...","label":"...","summary":"...","comp":"..." or null}}],
+  "areaOfImproving": ["..."],
+  "actionsTaken": {{"sp":[],"customer":[],"business":[],"product":[],"ce":[]}},
+  "resolution": "one line"
 }}"""
 
 
-# ─── 6. Response draft (public Trustpilot reply) ────────────────────────────
+# ─── 6. Response draft (unchanged) ─────────────────────────────────────────
 def response_draft_prompt(
-    review_text: str,
-    l1: str,
-    l2: str,
-    resolution: str,
-    canned_responses: str,
-    guest_name: str = "",
+    review_text: str, l1: str, l2: str, resolution: str,
+    canned_responses: str, guest_name: str = "",
     dss_rec: dict | None = None,
 ) -> str:
     name_hint = f"The guest's name is {guest_name}." if guest_name else ""
-
     return f"""You are drafting a public reply to a Trustpilot review on behalf of Headout's CX team.
-This reply will appear publicly on Trustpilot. Write it accordingly — professional, warm, specific.
 
 REVIEW:
 {review_text}
 
-CASE CLASSIFICATION:
-L1: {l1}
-L2: {l2}
-
-WHAT WAS RESOLVED:
-{resolution}
-
-DSS RECOMMENDATION:
-{json.dumps(dss_rec or {}, indent=2)}
-
+CLASSIFICATION: L1={l1}, L2={l2}
+RESOLUTION: {resolution}
+DSS: {json.dumps(dss_rec or {}, indent=2)}
 {name_hint}
 
-CANNED RESPONSE LIBRARY (tone and structure guide ONLY — not a template to fill in):
+TONE GUIDE (do not copy, structure only):
 {canned_responses}
 
 INSTRUCTIONS:
-1. The canned response library is a TONE guide only. Do not copy phrasing.
+1. Tone guide only. Do not copy phrasing.
 2. Reference the guest's SPECIFIC complaint in their own terms.
-3. The compensation mentioned must match the resolution string exactly.
-   Do NOT invent amounts. If resolution says "No comp issued", do NOT mention comp.
-4. Genuine, non-defensive acknowledgement.
-5. Use the guest's name if known; otherwise open warmly without a placeholder.
-   NEVER leave literal placeholders (<Name>, <first name>, {{date}}, <X%>) in the output.
+3. Compensation mentioned must match the resolution string exactly. Do NOT invent amounts.
+4. Non-defensive acknowledgement.
+5. Use guest's name if known; otherwise open warmly. Never leave literal placeholders.
 6. 3-5 sentences. No bullets. No headings.
-7. Return ONLY the reply text. Nothing else.
-"""
+7. Return ONLY the reply text."""
 
 
-# ─── 7. Flag-to-Biz Slack message draft ─────────────────────────────────────
+# ─── 7. Flag-to-Biz Slack message ──────────────────────────────────────────
 def flag_to_biz_prompt(
-    vendor_name: str,
-    vid: str,
-    completion_pct: str,
-    market_avg: str,
-    l1: str,
-    l2: str,
-    review_bid: str,
+    vendor_name: str, vid: str, completion_pct: str, market_avg: str,
+    l1: str, l2: str, review_bid: str,
 ) -> str:
-    return f"""Draft a short Slack message for the Biz / Supply team flagging a low completion rate on a VID.
+    return f"""Draft a short Slack message flagging low completion on a VID.
 
-CONTEXT:
 Vendor: {vendor_name} (VID {vid})
-Current completion rate: {completion_pct}
-Market average: {market_avg}
+Current completion: {completion_pct}  | Market avg: {market_avg}
 Related review BID: {review_bid}
-Case classification: L1={l1}, L2={l2}
+Classification: L1={l1} / L2={l2}
 
 INSTRUCTIONS:
-- Direct, factual, no emoji or fluff
+- Direct, factual, no emoji
 - 3-4 short paragraphs max
 - Ask for supply allocation review + escalation team follow-up
 - No made-up names or handles
 
-Return ONLY the Slack message text."""
+Return ONLY the Slack message."""

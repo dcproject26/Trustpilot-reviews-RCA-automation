@@ -179,12 +179,17 @@ async def process_review(review_id: str):
             log.exception(f"Stated issue failed: {e}")
 
         # ── 11. Classification ────────────────────────────────────────────────
-        l1, l2, l1_reasoning = "", "", ""
+        l1, l2, l1_reasoning, sub_theme = "", "", "", None
         try:
-            cls = await claude.classify(review_text, booking, timeline, review_id)
-            l1 = cls.get("l1", "")
-            l2 = cls.get("l2", "")
-            l1_reasoning = cls.get("l1_reasoning", "")
+            from server.services.classifier import classify as classify_v2
+            from server.services.claude import _call as claude_call
+            result = await classify_v2(review_text, booking, timeline, claude_call, review_id)
+            l1 = result.l1
+            l2 = result.l2
+            sub_theme = result.sub_theme
+            l1_reasoning = result.reasoning
+            for w in result.warnings:
+                log.warning(f"[classify {review_id}] {w}")
         except Exception as e:
             log.exception(f"Classification failed: {e}")
 
@@ -237,6 +242,7 @@ async def process_review(review_id: str):
         draft.l1                          = l1
         draft.l2                          = l2
         draft.l1_reasoning                = l1_reasoning
+        draft.sub_theme                   = sub_theme
         draft.diagnostic_checks           = rca_v2.get("diagnosticChecks", [])
         draft.what_went_wrong_bullets     = rca_v2.get("whatWentWrongBullets", [])
         draft.support_interaction_frames  = rca_v2.get("supportInteractionFrames", [])

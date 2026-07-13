@@ -73,6 +73,7 @@ class RcaDraft(Base):
         "sp": [], "customer": [], "business": [], "product": [], "ce": []
     })
     resolution                  = Column(Text, nullable=True)
+    sub_theme                   = Column(String, nullable=True)
 
     # ── Flag to Biz ──
     flag_to_biz_state           = Column(String, default="off")  # off | drafted | sent
