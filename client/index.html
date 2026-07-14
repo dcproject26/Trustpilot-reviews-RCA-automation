@@ -1689,6 +1689,7 @@ const REVIEWS = [
     rca: {
       issueL1: 'Customer error',
       issueL2: 'Misunderstood inclusions (upsell not selected)',
+      subTheme: null, // maps from draft.sub_theme
       reasoning: 'Booking record + voucher both show 2nd Floor only. Summit was an optional upsell that was not selected at checkout. SP fulfilled the booking exactly as issued. No service failure on Headout or SP side.',
       checks: [
         { check: 'pass', question: 'Were tickets sent on time?', answer: 'Yes' },
@@ -1812,6 +1813,7 @@ const REVIEWS = [
     rca: {
       issueL1: 'SP issue',
       issueL2: 'Venue closure',
+      subTheme: null, // maps from draft.sub_theme
       reasoning: 'SP guide refused entry citing cancellations. SP confirmed outage. Same-day VID metrics: 7 of 24 failures.',
       checks: [
         { check: 'pass', question: 'Were tickets sent on time?', answer: 'Yes' },
@@ -2374,7 +2376,7 @@ function renderRcaCol() {
         ${(rca.subTheme || (SUB_THEME_OPTIONS[rca.issueL1 + '::' + rca.issueL2] || []).length) ? `
         <div class="classify-row">
           <span class="classify-label">Sub-theme</span>
-          <select class="classify-select">
+          <select class="classify-select" data-subtheme-select>
             ${rca.subTheme ? `<option>${rca.subTheme}</option>` : `<option value="">— none —</option>`}
             ${(SUB_THEME_OPTIONS[rca.issueL1 + '::' + rca.issueL2] || [])
                 .filter(o => o !== rca.subTheme)
@@ -2507,6 +2509,21 @@ function renderRcaCol() {
       renderRcaCol();
     });
   });
+
+  const subThemeSel = col.querySelector('[data-subtheme-select]');
+  if (subThemeSel) {
+    subThemeSel.addEventListener('change', async () => {
+      const val = subThemeSel.value || null;
+      rca.subTheme = val;
+      try {
+        await fetch(`/api/reviews/${r.id}/draft-v2`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sub_theme: val }),
+        });
+      } catch (e) { /* keep local edit; server save retried on next change */ }
+    });
+  }
 
   col.querySelectorAll('[data-add-action]').forEach(btn => {
     btn.addEventListener('click', () => {
