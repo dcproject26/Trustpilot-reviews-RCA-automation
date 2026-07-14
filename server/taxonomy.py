@@ -221,6 +221,62 @@ SP_SUB_THEMES = {
     ],
 }
 
+# ─────────────────────────────────────────────────────────────────────────
+# Content / Misleading Info — sub-theme categorization from VS "Content Issues
+# - Samson Copy" (13-theme structure). Text-based classifier: runs on the
+# review text alone, exactly like MP/SP/Ticket/AG.
+#
+# What was taken vs dropped: only the sub-theme CATEGORIZATION is ported. The
+# VS pipeline's metadata-validation stages (comparing the review against
+# BigQuery content fields — inclusions/faq/validity/etc.) are NOT ported, so:
+#   - "Unsupported Content Claim" (a metadata state) is not a text sub-theme here.
+#   - E "Missing FAQ/KBYG" vs F "Misleading FAQ/KBYG" may blur from text alone,
+#     since the true distinction is whether the faq field exists (metadata).
+# Codes A–M are assigned for registry/validator uniformity (source emits the
+# plain names). "N. Irrelevant" is the exclusion state.
+# ─────────────────────────────────────────────────────────────────────────
+CONTENT_SUB_THEMES = {
+    "l2_key":         "Content - Instructions not clear / Misleading Info",
+    "exclusion":      ["long queues", "crowding", "weather", "guide behaviour",
+                       "guide quality", "customer support", "app bugs",
+                       "cancellations by operator", "timing delays",
+                       "customer mistakes", "late arrival", "transport",
+                       "meeting point", "audio guide functionality",
+                       "ticket delivery", "qr code issues", "ticket not working",
+                       "ticket not received", "ticket received late",
+                       "food quality/taste/quantity", "broken seats",
+                       "venue facilities"],
+    "exclusion_label": "N. Irrelevant",
+    "sub_themes": [
+        ("A", "Misleading Food Information",
+            ["food/meal inclusion mismatch", "advertised food not provided"]),
+        ("B", "Misleading Seating Information",
+            ["seating category mismatch", "view different from advertised"]),
+        ("C", "Misleading Inclusions",
+            ["incorrect inclusions", "advertised benefit not provided"]),
+        ("D", "Misleading Exclusions",
+            ["incorrect exclusions", "unexpected exclusion"]),
+        ("E", "Missing FAQ/KBYG Information",
+            ["restriction not mentioned", "process detail missing", "faq field missing"]),
+        ("F", "Misleading FAQ/KBYG Information",
+            ["faq present but misleading", "kbyg contradicts experience"]),
+        ("G", "Misleading Validity Information",
+            ["incorrect validity", "validity not as stated"]),
+        ("H", "Misleading Cancellation Information",
+            ["cancellation policy unclear from content", "cancellation confusion"]),
+        ("I", "Misleading Ticket Delivery Information",
+            ["ticket delivery info wrong", "delivery method not as stated"]),
+        ("J", "Misleading Confirmed Ticket Information",
+            ["confirmed ticket info incorrect"]),
+        ("K", "Hosted Entry / Fast-Track Content Mismatch",
+            ["skip-the-line misleading", "hosted entry not as described", "priority entry mismatch"]),
+        ("L", "Misleading Experience Description",
+            ["description does not match experience", "highlights/summary misleading"]),
+        ("M", "General Content Mismatch", []),
+    ],
+    "tiebreak_rule": "Prefer the most specific theme (food/seating/inclusions) over General Content Mismatch.",
+}
+
 # Registry: which sub-theme framework applies to which L1/L2
 SUB_THEME_REGISTRY = {
     ("Operations Issue", "Meeting Point Issues"): MP_SUB_THEMES,
@@ -233,6 +289,7 @@ SUB_THEME_REGISTRY = {
     ("Supply Partner Issue", "Guide Left / Abandoned Tour"):                      SP_SUB_THEMES,
     ("Supply Partner Issue", "Timing Issues"):                                    SP_SUB_THEMES,
     ("Supply Partner Issue", "Tour Cancelled by Operator"):                       SP_SUB_THEMES,
+    ("Operations Issue", "Content - Instructions not clear / Misleading Info"):   CONTENT_SUB_THEMES,
 }
 
 
