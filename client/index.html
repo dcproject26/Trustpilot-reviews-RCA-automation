@@ -1608,6 +1608,30 @@ const L2_OPTIONS = {
   'Other': ['(placeholder)'],
 };
 
+// Keyed "L1::L2" -> ["A. Name", …, "N. Irrelevant"].
+// Populated from /api/taxonomy (which already returns `sub_theme_frameworks`
+// in exactly this "L1::L2" key form) so the frontend never duplicates taxonomy.
+// Empty is safe: the row still shows the classified sub_theme; the editable
+// options simply fill in once the taxonomy loads.
+const SUB_THEME_OPTIONS = {};
+
+async function loadSubThemeOptions() {
+  try {
+    const t = await (await fetch('/api/taxonomy')).json();
+    const fw = t.sub_theme_frameworks || {};
+    for (const key in fw) {
+      const f = fw[key];
+      const opts = (f.sub_themes || []).map(([code, name]) => `${code}. ${name}`);
+      if (f.exclusion_label) opts.push(f.exclusion_label);
+      SUB_THEME_OPTIONS[key] = opts;
+    }
+  } catch (e) { /* leave empty — row still shows the assigned sub_theme */ }
+  // re-render so the sub-theme row appears once options are available
+  if (typeof renderRcaCol === 'function' && state.selected) renderRcaCol();
+}
+// call once on load; re-render picks up options after taxonomy resolves
+loadSubThemeOptions();
+
 const REVIEWS = [
   {
     id: 'tp_001',
@@ -2347,6 +2371,16 @@ function renderRcaCol() {
             ${(L2_OPTIONS[rca.issueL1] || []).filter(o => o !== rca.issueL2).map(o => `<option>${o}</option>`).join('')}
           </select>
         </div>
+        ${(rca.subTheme || (SUB_THEME_OPTIONS[rca.issueL1 + '::' + rca.issueL2] || []).length) ? `
+        <div class="classify-row">
+          <span class="classify-label">Sub-theme</span>
+          <select class="classify-select">
+            ${rca.subTheme ? `<option>${rca.subTheme}</option>` : `<option value="">— none —</option>`}
+            ${(SUB_THEME_OPTIONS[rca.issueL1 + '::' + rca.issueL2] || [])
+                .filter(o => o !== rca.subTheme)
+                .map(o => `<option>${o}</option>`).join('')}
+          </select>
+        </div>` : ''}
         <div class="reasoning-text editable-text" contenteditable="true" spellcheck="false">${rca.reasoning}</div>
       </div>
     </div>

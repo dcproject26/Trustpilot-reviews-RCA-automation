@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Headout ORM RCA — System Overview</title>
+<style>
+:root{--bg:#0d1117;--panel:#161b22;--border:#2d333b;--text:#e6edf3;--dim:#9da7b3;--accent:#4ade80;--amber:#fbbf24;--blue:#60a5fa}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font:15px/1.6 -apple-system,'Segoe UI',Roboto,sans-serif;padding:40px 20px}
+.wrap{max-width:960px;margin:0 auto}
+h1{font-size:28px;margin-bottom:4px} .sub{color:var(--dim);margin-bottom:32px}
+h2{font-size:20px;margin:36px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--border);color:var(--accent)}
+h3{font-size:16px;margin:20px 0 8px} h4{font-size:14px;margin:0}
+p,li{color:var(--text)} .dim{color:var(--dim)}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
+th,td{text-align:left;padding:8px 10px;border:1px solid var(--border);vertical-align:top}
+th{background:var(--panel);color:var(--dim);font-weight:600}
+td.num{color:var(--dim);width:36px;text-align:center}
+code,.mono{font-family:ui-monospace,Menlo,monospace;font-size:13px;background:var(--panel);padding:1px 6px;border-radius:4px;border:1px solid var(--border)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:14px}
+.card-head{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+.pill{align-self:flex-start;font-size:11px;background:#1f2a37;color:var(--blue);border:1px solid var(--border);padding:1px 8px;border-radius:99px}
+.themes{list-style:none} .themes li{padding:2px 0;font-size:13px}
+.code{display:inline-block;width:20px;color:var(--amber);font-family:ui-monospace,monospace;font-weight:700}
+.code.excl{color:var(--dim)}
+.flow{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px;margin:12px 0}
+.flow ol{margin-left:22px} .flow li{padding:3px 0}
+.ok{color:var(--accent)} .warn{color:var(--amber)}
+.badges span{display:inline-block;background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:4px 10px;margin:3px 4px 3px 0;font-size:13px}
+@media(max-width:720px){.grid{grid-template-columns:1fr}}
+</style></head><body><div class="wrap">
+
+<h1>Headout ORM RCA</h1>
+<p class="sub">AI-assisted root-cause analysis for Trustpilot reviews — system overview · July 2026</p>
+
+<h2>What it does</h2>
+<p>Reviews land from Trustpilot (via Slack channels), get matched to a booking, classified against the CX taxonomy,
+and turned into a structured RCA draft plus a suggested customer response — all reviewed and sent by a CE associate
+from a single dashboard. Runs in <code>MOCK_MODE</code> today; each connector flips to live independently.</p>
+<div class="badges">
+<span>FastAPI · Python 3.11</span><span>Vanilla JS SPA</span><span>PostgreSQL 16</span><span>Claude (Anthropic)</span><span>Slack · BigQuery · Zendesk · DSS (mockable)</span>
+</div>
+
+<h2>The pipeline (per review)</h2>
+<div class="flow"><ol>
+<li><strong>Ingest &amp; translate</strong> — non-English reviews translated before analysis.</li>
+<li><strong>Booking match, tiered</strong> — <span class="ok">Tier 1</span>: BID regex <code>\b\d{7,12}\b</code> (7–12 digits, catches 11-digit BIDs) ·
+<span class="ok">Tier 2</span>: signal extraction + BigQuery name match — single hit auto-matches, multiple hits open a candidate picker for the associate ·
+<span class="warn">Untraceable</span> if nothing matches. Every step is logged to a confidence trail shown in the UI.</li>
+<li><strong>Context pull</strong> — booking timeline, experience insights, similar support tickets &amp; reviews (same vendor, recent window), DSS policy recommendation.</li>
+<li><strong>Classification (single Claude call)</strong> — L1 category, L2 issue type, and sub-theme in one shot, then a <em>validator + salvage layer</em> checks every field against the taxonomy: invalid L1 recovered from a valid L2, sub-themes salvaged by code prefix or fuzzy name, malformed JSON (fences, comments, trailing commas, arrays-instead-of-objects) repaired or safely degraded — the pipeline never breaks on a bad model response.</li>
+<li><strong>Structured RCA draft</strong> — stated issue, diagnostic checks, what-went-wrong, support/SP interaction frames, areas of improvement, actions taken (SP / customer / business / product / CE), resolution. Every field editable in the dashboard.</li>
+<li><strong>Response draft + actions</strong> — suggested public reply, optional flag-to-business message, RCA posted back to the Slack thread on send.</li>
+</ol></div>
+
+<h2>Taxonomy — 7 L1 categories (priority order)</h2>
+<table><tr><th>#</th><th>L1 category</th><th>L2 options</th></tr><tr><td class='num'>1</td><td><strong>Operations Issue</strong></td><td>Meeting Point Issues, Ticket Issues, Content - Instructions not clear / Misleading Info, Customer expectation mismatch, Customer Support Issues, Inventory Listing Issue, Venue closure</td></tr><tr><td class='num'>2</td><td><strong>Product Issue</strong></td><td>Audio Guide Issues, App and Website Issues</td></tr><tr><td class='num'>3</td><td><strong>Supply Partner Issue</strong></td><td>Guide No Show, Guide providing irrelevant/inexperienced/not clear, Guide Behaviour Issues, Guide Left / Abandoned Tour, Timing Issues, Tour Cancelled by Operator, Seating Issues, Food &amp; Catering</td></tr><tr><td class='num'>4</td><td><strong>Venue Related Issue</strong></td><td>Venue facility issue, Venue Overcrowding (Venue), Venue closure</td></tr><tr><td class='num'>5</td><td><strong>Business Issue</strong></td><td>Pricing Issues</td></tr><tr><td class='num'>6</td><td><strong>External Factor</strong></td><td>Customer Late, Customer Error, Weather Related, Venue Overcrowding (External), Force Majeure, Sold Free / Discounted Admission, Rating Mismatch, Gibberish / Profanity</td></tr><tr><td class='num'>7</td><td><strong>Miscellaneous Issue</strong></td><td>Vague review, Negative Headout, General negative exp</td></tr></table>
+<p class="dim">Higher priority wins ties. Within Operations, L2s carry their own sub-order (Meeting Point &gt; Ticket &gt; Content &gt; …).</p>
+
+<h2>Sub-theme frameworks — 5 frameworks across 10 L2s</h2>
+<p class="dim">Each framework gives the classifier a closed list of coded sub-themes plus an exclusion state; validators reject anything outside it.</p>
+<div class="grid">
+    <div class="card">
+      <div class="card-head"><span class="pill">Operations Issue</span><h4>Meeting Point Issues</h4></div>
+      <ul class="themes"><li><span class='code'>A</span> Meeting Point Instruction Mismatches</li><li><span class='code'>B</span> Contact Issues</li><li><span class='code'>C</span> Guide or Host Issues</li><li><span class='code'>D</span> Meeting Point Instructions Unclear</li><li><span class='code'>E</span> Conflicting or Incorrect Timing Information</li><li><span class='code'>F</span> Any Other Meeting Point Issue</li><li><span class="code excl">G</span> Irrelevant <em>(exclusion)</em></li></ul>
+    </div>
+    <div class="card">
+      <div class="card-head"><span class="pill">Operations Issue</span><h4>Ticket Issues</h4></div>
+      <ul class="themes"><li><span class='code'>A</span> Ticket Invalid / Not Working</li><li><span class='code'>B</span> Ticket Not Received</li><li><span class='code'>C</span> Ticket Delayed</li><li><span class='code'>D</span> Wrong Ticket (Date / Time / Variant)</li><li><span class='code'>E</span> Alts related</li><li><span class='code'>F</span> Ticket Instructions / Information Unclear</li><li><span class='code'>G</span> Any Other Ticket Issue</li><li><span class="code excl">H</span> Irrelevant <em>(exclusion)</em></li></ul>
+    </div>
+    <div class="card">
+      <div class="card-head"><span class="pill">Product Issue</span><h4>Audio Guide Issues</h4></div>
+      <ul class="themes"><li><span class='code'>A</span> AG Not Sent / Not Received</li><li><span class='code'>B</span> AG App / Technical Issues</li><li><span class='code'>C</span> AG Redemption Instruction Issues</li><li><span class='code'>D</span> AG Language Issues</li><li><span class='code'>E</span> AG Quality &amp; Content Issues</li><li><span class='code'>F</span> Any Other Audio Guide Issue</li><li><span class="code excl">G</span> Irrelevant <em>(exclusion)</em></li></ul>
+    </div>
+    <div class="card">
+      <div class="card-head"><span class="pill">Supply Partner Issue</span><h4>Supply Partner — one framework, 6 L2s</h4></div>
+      <ul class="themes"><li><span class='code'>A</span> Guide No Show</li><li><span class='code'>B</span> Guide Left Mid Tour</li><li><span class='code'>C</span> Guide Behaviour Issue</li><li><span class='code'>D</span> Guide Timing Issue</li><li><span class='code'>E</span> Guide Quality Issue</li><li><span class='code'>F</span> Contact Issue</li><li><span class='code'>G</span> Other Supply Partner Issue</li><li><span class="code excl">H</span> Irrelevant <em>(exclusion)</em></li></ul>
+      <p class="dim" style="font-size:12px;margin-top:8px">One framework applied across 6 L2s: Guide No Show · Guide providing irrelevant/inexperienced/not clear · Guide Behaviour Issues · Guide Left / Abandoned Tour · Timing Issues · Tour Cancelled by Operator.</p>
+    </div>
+    <div class="card">
+      <div class="card-head"><span class="pill">Operations Issue</span><h4>Content - Instructions not clear / Misleading Info</h4></div>
+      <ul class="themes"><li><span class='code'>A</span> Misleading Food Information</li><li><span class='code'>B</span> Misleading Seating Information</li><li><span class='code'>C</span> Misleading Inclusions</li><li><span class='code'>D</span> Misleading Exclusions</li><li><span class='code'>E</span> Missing FAQ/KBYG Information</li><li><span class='code'>F</span> Misleading FAQ/KBYG Information</li><li><span class='code'>G</span> Misleading Validity Information</li><li><span class='code'>H</span> Misleading Cancellation Information</li><li><span class='code'>I</span> Misleading Ticket Delivery Information</li><li><span class='code'>J</span> Misleading Confirmed Ticket Information</li><li><span class='code'>K</span> Hosted Entry / Fast-Track Content Mismatch</li><li><span class='code'>L</span> Misleading Experience Description</li><li><span class='code'>M</span> General Content Mismatch</li><li><span class="code excl">N</span> Irrelevant <em>(exclusion)</em></li></ul>
+    </div></div>
+<p class="dim" style="margin-top:10px">Pending from CX: Customer Support Issues, Venue closure, Venue Related, External Factor, Miscellaneous (Guide No Show may reuse the SP framework).</p>
+
+<h2>Quality gates</h2>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td>Validator unit tests (salvage, JSON repair, taxonomy checks)</td><td class="ok">23 / 23 passing</td></tr>
+<tr><td>Golden-set accuracy — 14 real reviews, human-verified labels (mock plumbing)</td><td class="ok">L1 14/14 · L2 14/14 · sub-theme 7/7</td></tr>
+<tr><td>Schema migrations (idempotent, Postgres)</td><td class="ok">001 + 002 applied</td></tr>
+<tr><td>Real-Claude accuracy run</td><td class="warn">Pending Anthropic access (<code>REAL_CLAUDE=1</code>)</td></tr>
+</table>
+
+<h2>Build history</h2>
+<table>
+<tr><th>Delta</th><th>What shipped</th></tr>
+<tr><td><strong>v1</strong></td><td>Demo-parity dashboard, structured RCA schema (20+ new draft fields), tiered booking match with candidate picker, similar-complaints, taxonomy endpoint, JSON-safe response sanitizing.</td></tr>
+<tr><td><strong>v2</strong></td><td>Single-call classification + validator/salvage layer, sub-theme support end-to-end (schema, pipeline, API), widened BID regex, both test suites.</td></tr>
+<tr><td><strong>Content framework</strong></td><td>13-theme Content / Misleading Info framework (A–M + Irrelevant) — the 5th distinct framework; brings L2 coverage to 10.</td></tr>
+<tr><td><strong>sub_theme API</strong></td><td>Task #4 (backend half): <code>sub_theme</code> exposed via <code>_draft_dict()</code>, accepted by <code>DraftPatchV2</code>, saved on patch; taxonomy-driven dashboard row prepared.</td></tr>
+</table>
+
+<h2>What's next</h2>
+<ul style="margin-left:22px">
+<li><strong>Task #4 — client wiring</strong>: <span class="ok">API done</span> — <code>sub_theme</code> now served by <code>_draft_dict()</code> and editable via <code>DraftPatchV2</code>. Remaining: render the sub-theme row in the dashboard classify-block and wire the real review flow.</li>
+<li><strong>Connectors</strong>: Slack (ingestion + post-back), Anthropic, BigQuery, Zendesk, DSS — each flips <code>is_live()</code> per-service via secrets.</li>
+<li><strong>v3 frameworks</strong> once CX signs off the pending categories.</li>
+</ul>
+
+<p class="dim" style="margin-top:36px;border-top:1px solid var(--border);padding-top:12px">Generated from the live codebase · Headout ORM RCA · mock mode</p>
+</div></body></html>

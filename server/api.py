@@ -52,6 +52,7 @@ class DraftPatchV2(BaseModel):
     stated_issue:               str  | None = None
     l1:                         str  | None = None
     l2:                         str  | None = None
+    sub_theme:                  str  | None = None
     l1_reasoning:               str  | None = None
     diagnostic_checks:          list | None = None
     what_went_wrong_bullets:    list | None = None
@@ -84,12 +85,10 @@ class FlagToBiz(BaseModel):
 
 # ── Utility ─────────────────────────────────────────────────────────────────
 
-# HANDOFF NOTE (Task #4 — client wiring):
-# Task #4 must extend _draft_dict() to include sub_theme, and DraftPatchV2 to
-# accept sub_theme edits. The v2 dashboard has a sub-theme display slot in the
-# RCA column that needs wiring. sub_theme is already classified, validated
-# (server/services/classifier.py) and persisted on RcaDraft — it is simply not
-# exposed through this API layer yet.
+# Task #4 (sub_theme wiring) — DONE: _draft_dict() returns sub_theme,
+# DraftPatchV2 accepts it, and the patch loop persists it. The dashboard
+# renders a taxonomy-driven Sub-theme row (options from /api/taxonomy
+# sub_theme_frameworks) in the Issue Classification block.
 
 def _draft_dict(d: RcaDraft) -> dict:
     return {
@@ -110,6 +109,7 @@ def _draft_dict(d: RcaDraft) -> dict:
         "stated_issue":                d.stated_issue,
         "l1":                          d.l1,
         "l2":                          d.l2,
+        "sub_theme":                   d.sub_theme,
         "l1_reasoning":                d.l1_reasoning,
         "diagnostic_checks":           d.diagnostic_checks or [],
         "what_went_wrong_bullets":     d.what_went_wrong_bullets or [],
@@ -253,7 +253,7 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
 
     edits = 0
     for field in (
-        "stated_issue", "l1", "l2", "l1_reasoning",
+        "stated_issue", "l1", "l2", "sub_theme", "l1_reasoning",
         "diagnostic_checks", "what_went_wrong_bullets",
         "support_interaction_frames", "support_summary",
         "sp_interaction_frames", "area_of_improving",
