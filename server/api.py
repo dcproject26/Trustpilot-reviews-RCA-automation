@@ -84,6 +84,13 @@ class FlagToBiz(BaseModel):
 
 # ── Utility ─────────────────────────────────────────────────────────────────
 
+# HANDOFF NOTE (Task #4 — client wiring):
+# Task #4 must extend _draft_dict() to include sub_theme, and DraftPatchV2 to
+# accept sub_theme edits. The v2 dashboard has a sub-theme display slot in the
+# RCA column that needs wiring. sub_theme is already classified, validated
+# (server/services/classifier.py) and persisted on RcaDraft — it is simply not
+# exposed through this API layer yet.
+
 def _draft_dict(d: RcaDraft) -> dict:
     return {
         "booking":            d.booking,

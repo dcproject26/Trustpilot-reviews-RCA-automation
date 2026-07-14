@@ -28,7 +28,7 @@ from server.config import is_live
 from server.db import SessionLocal, Review, RcaDraft, ReviewMetric
 from server.services import claude, bigquery as bq, zendesk, dss, slack as slk
 from server.services.canned import get_canned_responses
-from server.taxonomy import DIAGNOSTIC_CHECKS
+from server.taxonomy import DIAGNOSTIC_CHECKS, BID_REGEX
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ async def process_review(review_id: str):
 
         # ── 2. BID regex (Tier 1) ─────────────────────────────────────────────
         confidence_trail = []
-        ref_match = re.search(r'\b\d{8}\b', review_text or "")
+        ref_match = re.search(BID_REGEX, review_text or "")
         if ref_match:
             confidence_trail.append({
                 "mark": "pass",
@@ -68,7 +68,7 @@ async def process_review(review_id: str):
         else:
             confidence_trail.append({
                 "mark": "pass",
-                "text": "<strong>BID regex</strong> — no 8-digit number in text",
+                "text": "<strong>BID regex</strong> — no 7–12 digit number in text",
             })
 
         # ── 3. Signal extraction (Tier 2, only if no BID) ────────────────────

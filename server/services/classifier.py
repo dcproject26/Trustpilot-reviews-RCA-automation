@@ -75,7 +75,11 @@ async def classify(review_text: str, booking: dict, timeline: list,
 
     parsed = _safe_parse(raw)
     if not parsed:
-        result.warnings.append("Response was not valid JSON")
+        stripped = (raw or "").strip().lstrip("`").replace("json", "", 1).strip()
+        if stripped.startswith("["):
+            result.warnings.append("Response was JSON but not an object (got array)")
+        else:
+            result.warnings.append("Response was not valid JSON")
         return result
 
     l1 = (parsed.get("l1") or "").strip()
@@ -155,14 +159,19 @@ def _safe_parse(raw: str) -> Optional[dict]:
     text = re.sub(r',(\s*[}\]])', r'\1', text)
 
     try:
-        return json.loads(text)
+        parsed = json.loads(text)
+        if not isinstance(parsed, dict):
+            log.warning(f"Parsed JSON is not an object (got {type(parsed).__name__})")
+            return None
+        return parsed
     except json.JSONDecodeError as e:
         log.warning(f"JSON parse failed after cleanup: {e}")
         # Last-ditch: try to find the first {...} block
         m = re.search(r'\{.*\}', text, re.DOTALL)
         if m:
             try:
-                return json.loads(m.group(0))
+                parsed = json.loads(m.group(0))
+                return parsed if isinstance(parsed, dict) else None
             except json.JSONDecodeError:
                 pass
         return None

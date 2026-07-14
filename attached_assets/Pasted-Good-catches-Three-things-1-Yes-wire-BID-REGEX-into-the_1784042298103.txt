@@ -1,0 +1,43 @@
+Good catches. Three things:
+1. Yes — wire BID_REGEX into the pipeline. One-line fix.
+In server/pipeline.py, top of file:
+pythonfrom server.taxonomy import BID_REGEX
+Then at line 59 replace:
+pythonref_match = re.search(r'\b\d{8}\b', review_text or "")
+with:
+pythonref_match = re.search(BID_REGEX, review_text or "")
+Verify by running the accuracy test again — gs_06_angela_paris_boat has an 11-digit BID (33644632370). Its match_tier should be 1, not None, once wired.
+2. sub_theme in draft API — leave as-is, but log it. Correct call. Add this note in your handoff comment so it's picked up when we do Task #4 (client wiring): "Task #4 must extend _draft_dict() to include sub_theme, and DraftPatchV2 to accept sub_theme edits. The v2 dashboard has a sub-theme display slot in the RCA column that needs wiring."
+3. Yes — harden _safe_parse for the non-dict case.
+In server/services/classifier.py, in _safe_parse(), after each json.loads(...) call, add an isinstance check. The cleanest way:
+pythondef _safe_parse(raw: str) -> Optional[dict]:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    text = text.replace("```json", "").replace("```", "").strip()
+    text = _strip_comments_outside_strings(text)
+    text = re.sub(r',(\s*[}\]])', r'\1', text)
+    try:
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError as e:
+        log.warning(f"JSON parse failed after cleanup: {e}")
+        m = re.search(r'\{.*\}', text, re.DOTALL)
+        if m:
+            try:
+                parsed = json.loads(m.group(0))
+                return parsed if isinstance(parsed, dict) else None
+            except json.JSONDecodeError:
+                pass
+        return None
+Two isinstance checks, that's it. This closes the "never raises" contract properly. Also add a warning line — if parsed was valid JSON but not a dict (e.g. Claude returned [{...}] instead of {...}), the classifier should record it in warnings so we know it happened.
+Actually — while you're in there, also add this to the classify() function so the warning propagates:
+After parsed = _safe_parse(raw), when parsed is None, currently we say "Response was not valid JSON". Make it more specific: check if the raw string looked like JSON (starts with [ or {) — if starts with [, warn "Response was JSON but not an object (got array)". Cheap diagnostic.
+Verify after all three:
+
+python -m tests.test_classifier_validators — should still be 23/23
+python -m tests.test_classification_accuracy — should still be 14/14, and gs_06_angela_paris_boat should now show match_tier=1 in logs
+Restart Repl, boot clean, health check 200
+
+Report back with test outputs and one line confirming BID_REGEX is now imported and active.
+
