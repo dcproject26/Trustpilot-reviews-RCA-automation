@@ -55,15 +55,24 @@ _VNAME_RE  = re.compile(r'(?:Primary\s+)?Vendor.Name[:\s]+(.*?)[\n,]', re.I)
 _PAX_RE    = re.compile(r'Guest_Numbers[:\s]+(.*?)[\n,]', re.I)
 
 
-if is_live("zendesk"):
-    from zenpy import Zenpy
-    _z = Zenpy(
-        subdomain=ZENDESK_SUBDOMAIN,
-        email=ZENDESK_EMAIL,
-        token=ZENDESK_API_TOKEN,
-    )
-else:
-    _z = None
+def _get_client():
+    """
+    Zenpy client — Replit Zendesk connector first (OAuth, auto-refreshed),
+    falling back to env-var email/API-token auth. None when not live.
+    """
+    if not is_live("zendesk"):
+        return None
+    from server.services import zd_connector
+    if zd_connector.available():
+        return zd_connector.get_client()
+    if ZENDESK_SUBDOMAIN and ZENDESK_API_TOKEN:
+        from zenpy import Zenpy
+        return Zenpy(
+            subdomain=ZENDESK_SUBDOMAIN,
+            email=ZENDESK_EMAIL,
+            token=ZENDESK_API_TOKEN,
+        )
+    return None
 
 
 async def get_timeline(booking_id: str, review_id: str = None) -> tuple[list, dict]:
@@ -90,9 +99,24 @@ async def get_timeline(booking_id: str, review_id: str = None) -> tuple[list, di
     extracted = {}
 
     try:
+        _z = _get_client()
+        if _z is None:
+            log.warning("[ZD] No Zendesk client available")
+            return [], {}
+
         # ── Step 1: find tickets by booking ID custom field ──────────────────
         query = f'type:ticket fieldvalue:"{booking_id}"'
-        tickets = list(_z.search(query=query, type="ticket"))
+        try:
+            tickets = list(_z.search(query=query, type="ticket"))
+        except Exception as e:
+            # 401 recovery — connector token may have invalidated early;
+            # force a refresh, rebuild the client, retry once.
+            from server.services import zd_connector
+            if zd_connector.is_auth_error(e) and zd_connector.available():
+                _z = zd_connector.retry_client_on_auth_error()
+                tickets = list(_z.search(query=query, type="ticket"))
+            else:
+                raise
         log.info(f"[ZD] booking {booking_id}: {len(tickets)} tickets by field search")
 
         # ── Step 2: email fallback — catches chat tickets not tagged with booking ID ──
@@ -249,6 +273,7 @@ def _fetch_comments_direct(ticket_ids: list) -> dict:
     Fallback: fetch comments from Zendesk directly, one ticket at a time.
     Slower but always works when Apps Script is unavailable.
     """
+    _z = _get_client()
     if not _z:
         return {}
     result = {}

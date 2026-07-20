@@ -22,8 +22,19 @@ from server.services.mock_data import (
 
 log = logging.getLogger(__name__)
 
-# Replit AI Integrations injects ANTHROPIC_API_KEY automatically.
-_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY", ""))
+# Route 1 (preferred): Replit AI Integrations — AI_INTEGRATIONS_ANTHROPIC_BASE_URL
+# + AI_INTEGRATIONS_ANTHROPIC_API_KEY are injected automatically by the
+# python_anthropic_ai_integrations blueprint (no personal API key needed).
+# Route 2 (fallback): a user-supplied ANTHROPIC_API_KEY hitting api.anthropic.com.
+_AI_INT_BASE = os.getenv("AI_INTEGRATIONS_ANTHROPIC_BASE_URL", "")
+_AI_INT_KEY = os.getenv("AI_INTEGRATIONS_ANTHROPIC_API_KEY", "")
+
+if _AI_INT_BASE and _AI_INT_KEY:
+    ANTHROPIC_ROUTE = "replit_ai_integrations"
+    _client = Anthropic(api_key=_AI_INT_KEY, base_url=_AI_INT_BASE)
+else:
+    ANTHROPIC_ROUTE = "anthropic_api_key"
+    _client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY", ""))
 
 
 async def _call(prompt: str, max_tokens: int = 2400) -> str:

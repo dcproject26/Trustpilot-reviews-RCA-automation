@@ -20,7 +20,7 @@ PYTHONUNBUFFERED = "1"
 
 [agent]
 expertMode = true
-integrations = ["bigquery:1.0.0", "zendesk:1.0.0"]
+integrations = ["bigquery:1.0.0", "zendesk:1.0.0", "python_anthropic_ai_integrations:1.0.0"]
 
 [userenv]
 

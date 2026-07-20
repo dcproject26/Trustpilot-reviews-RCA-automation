@@ -14,7 +14,8 @@ load_dotenv()
 MOCK_MODE = os.getenv("MOCK_MODE", "false").lower() == "true"
 
 # Claude model — Replit AI Integrations injects credentials automatically
-ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+# Default model: claude-sonnet-4-6 is supported by Replit AI Integrations.
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
 # Slack
 SLACK_SIGNING_SECRET  = os.getenv("SLACK_SIGNING_SECRET", "")
@@ -70,16 +71,29 @@ def _bq_connector_available() -> bool:
         return False
 
 
+def _zd_connector_available() -> bool:
+    """Replit Zendesk integration (OAuth — no email/API-token pair needed)."""
+    try:
+        from server.services.zd_connector import available
+        return available()
+    except Exception:
+        return False
+
+
 def is_live(service: str) -> bool:
     if MOCK_MODE:
         return False
     checks = {
-        "anthropic":      True,  # Always live — Replit AI Integrations
+        "anthropic":      bool(
+                              (os.getenv("AI_INTEGRATIONS_ANTHROPIC_BASE_URL") and
+                               os.getenv("AI_INTEGRATIONS_ANTHROPIC_API_KEY"))
+                              or os.getenv("ANTHROPIC_API_KEY")),
         "slack_inbound":  bool(SLACK_SIGNING_SECRET and SLACK_BOT_TOKEN),
         "slack_outbound": bool(SLACK_USER_TOKEN),
         "bigquery":       bool(BIGQUERY_BOOKINGS_TABLE and
                                (GCP_SERVICE_ACCOUNT_JSON or _bq_connector_available())),
-        "zendesk":        bool(ZENDESK_SUBDOMAIN and ZENDESK_API_TOKEN),
+        "zendesk":        bool((ZENDESK_SUBDOMAIN and ZENDESK_API_TOKEN)
+                               or _zd_connector_available()),
         "apps_script":    bool(APPS_SCRIPT_URL),
         "dss":            bool(DSS_WEBHOOK_URL),
         "canned":         bool(CANNED_RESPONSES_SHEET_ID),
