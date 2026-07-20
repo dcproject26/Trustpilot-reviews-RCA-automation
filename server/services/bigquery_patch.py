@@ -13,7 +13,9 @@ since your existing find_booking already has the fuzzy match logic that just nee
 one small change at the return step.
 """
 import logging
-from server.config import is_live, BIGQUERY_BOOKINGS_TABLE, BIGQUERY_REVIEWS_TABLE
+from server.config import (
+    is_live, BIGQUERY_BOOKINGS_TABLE, BIGQUERY_REVIEWS_TABLE, BIGQUERY_SUPPORT_TABLE,
+)
 from server.taxonomy import SIMILAR_MATCH_RULE
 
 log = logging.getLogger(__name__)
@@ -50,27 +52,30 @@ async def get_similar_complaints(booking: dict) -> tuple[list, list]:
 
     support_sql = f"""
         SELECT
-          zendesk_ticket_id AS ref,
-          issue_summary     AS desc,
-          FORMAT_DATE('%d %b', DATE(created_at)) AS date
-        FROM `{BIGQUERY_BOOKINGS_TABLE}`  -- TODO: point to real Zendesk-linked table
-        WHERE tid = @tid
-          AND vid = @vid
-          AND created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {days} DAY)
-        ORDER BY created_at DESC
+          CONCAT('#ZD-', q.query_id) AS ref,
+          COALESCE(q.query_tag, q.query_type, q.contact_type) AS `desc`,
+          FORMAT_DATE('%d %b', DATE(q.query_created_at)) AS date
+        FROM `{BIGQUERY_SUPPORT_TABLE}` q
+        JOIN `{BIGQUERY_BOOKINGS_TABLE}` b
+          ON SAFE_CAST(q.booking_id AS INT64) = b.booking_id
+        WHERE q.tour_id = @tid
+          AND b.vendor_id = @vid
+          AND q.query_created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {days} DAY)
+        ORDER BY q.query_created_at DESC
         LIMIT {limit}
     """
     reviews_sql = f"""
         SELECT
-          CONCAT('#TP-', review_id)          AS ref,
-          CONCAT(LEFT(review_body, 60), '…') AS desc,
-          FORMAT_DATE('%d %b', DATE(review_date)) AS date
-        FROM `{BIGQUERY_REVIEWS_TABLE}`
-        WHERE tid = @tid
-          AND vid = @vid
-          AND review_date >= DATE_SUB(CURRENT_DATE(), INTERVAL {days} DAY)
-          AND rating <= 2
-        ORDER BY review_date DESC
+          CONCAT('#TP-', r.review_id)     AS ref,
+          CONCAT(LEFT(r.review, 60), '…') AS `desc`,
+          FORMAT_DATE('%d %b', DATE(r.reviewed_at)) AS date
+        FROM `{BIGQUERY_REVIEWS_TABLE}` r
+        JOIN `{BIGQUERY_BOOKINGS_TABLE}` b ON r.booking_id = b.booking_id
+        WHERE b.tour_id = @tid
+          AND b.vendor_id = @vid
+          AND r.reviewed_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {days} DAY)
+          AND r.rating <= 2
+        ORDER BY r.reviewed_at DESC
         LIMIT {limit}
     """
 

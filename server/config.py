@@ -34,6 +34,8 @@ BIGQUERY_REVIEWS_TABLE    = os.getenv("BIGQUERY_REVIEWS_TABLE",
                                        "headout-analytics.analytics_reporting.fct_reviews")
 BIGQUERY_FULFILMENTS_TABLE = os.getenv("BIGQUERY_FULFILMENTS_TABLE",
                                         "headout-analytics.analytics_reporting.fct_fulfilments")
+BIGQUERY_SUPPORT_TABLE     = os.getenv("BIGQUERY_SUPPORT_TABLE",
+                                        "headout-analytics.analytics_reporting.fct_support_queries")
 
 # Zendesk
 ZENDESK_SUBDOMAIN        = os.getenv("ZENDESK_SUBDOMAIN", "headout")

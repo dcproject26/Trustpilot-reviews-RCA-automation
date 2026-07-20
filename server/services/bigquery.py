@@ -62,7 +62,7 @@ async def find_booking(review: dict) -> dict | None:
             v.vendor_name,
             DATE(b.created_at)       AS booked_on,
             DATE(b.experience_date)  AS visit_date,
-            b.customer_name          AS guest_name,
+            b.primary_guest_name     AS guest_name,
             f.fulfilment_type
         FROM `{BIGQUERY_BOOKINGS_TABLE}` b
         LEFT JOIN `{BIGQUERY_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
@@ -90,13 +90,13 @@ async def find_booking(review: dict) -> dict | None:
             v.vendor_name,
             DATE(b.created_at)       AS booked_on,
             DATE(b.experience_date)  AS visit_date,
-            b.customer_name          AS guest_name,
+            b.primary_guest_name     AS guest_name,
             f.fulfilment_type
         FROM `{BIGQUERY_BOOKINGS_TABLE}` b
         LEFT JOIN `{BIGQUERY_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
         LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
                ON b.vendor_id = v.vendor_id
-        WHERE LOWER(b.customer_name) LIKE LOWER(CONCAT('%', @name, '%'))
+        WHERE LOWER(b.primary_guest_name) LIKE LOWER(CONCAT('%', @name, '%'))
         ORDER BY b.created_at DESC
         LIMIT 5
         """
@@ -209,6 +209,34 @@ async def get_insights(booking: dict) -> dict:
         log.exception(f"Insights query failed: {e}")
 
     return result
+
+
+async def get_l1_l2_by_bid(bid) -> dict:
+    """Warehouse L1/L2 tag for a booking, from fct_reviews.issues.
+
+    Uses the UNNEST(issues) + UNNEST(l2_issues) pattern from the ORM VS
+    pipeline SQL. Returns {"l1": <str or None>, "l2": <str or None>}.
+    """
+    empty = {"l1": None, "l2": None}
+    if not is_live("bigquery"):
+        return empty
+    try:
+        bid_int = int(str(bid).strip())
+    except (TypeError, ValueError):
+        return empty
+    sql = f"""
+    SELECT i.l1_issue AS l1, l2 AS l2
+    FROM `{BIGQUERY_REVIEWS_TABLE}` r,
+         UNNEST(r.issues) AS i,
+         UNNEST(i.l2_issues) AS l2
+    WHERE r.booking_id = @bid
+    ORDER BY r.reviewed_at DESC
+    LIMIT 1
+    """
+    rows = _run_query(sql, [_bqlib.ScalarQueryParameter("bid", "INT64", bid_int)])
+    if rows:
+        return {"l1": rows[0].l1, "l2": rows[0].l2}
+    return empty
 
 
 def _run_query(sql: str, params: list) -> list:

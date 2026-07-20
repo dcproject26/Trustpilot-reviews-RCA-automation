@@ -193,6 +193,18 @@ async def process_review(review_id: str):
         except Exception as e:
             log.exception(f"Classification failed: {e}")
 
+        # ── 11b. Warehouse L1/L2 comparison (log-only; Claude stays authoritative)
+        try:
+            _bid = (booking or {}).get("id")
+            if _bid:
+                _wh = await bq.get_l1_l2_by_bid(_bid)
+                if _wh.get("l1") or _wh.get("l2"):
+                    log.info(
+                        f"[classify {review_id}] L1/L2 comparison for BID {_bid} — "
+                        f"Claude: {l1!r} / {l2!r} | warehouse: {_wh['l1']!r} / {_wh['l2']!r}")
+        except Exception as e:
+            log.exception(f"Warehouse L1/L2 lookup failed: {e}")
+
         # ── 12. Full structured RCA ───────────────────────────────────────────
         rca_v2 = {}
         try:

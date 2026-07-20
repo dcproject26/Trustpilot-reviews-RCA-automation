@@ -18,3 +18,9 @@ id = "fcsMNQcRWYMKfJ4J6nlzo"
 uri = "file://exports/orm-rca-overview.zip"
 type = "unspecified"
 title = "Headout ORM RCA — System Overview (HTML)"
+
+[[outputs]]
+id = "T7NjZBk6gStB2Y343aLXc"
+uri = "file://exports/bigquery_wiring_delta.zip"
+type = "unspecified"
+title = "Changed files — BigQuery wiring + prompt ruleset delta"

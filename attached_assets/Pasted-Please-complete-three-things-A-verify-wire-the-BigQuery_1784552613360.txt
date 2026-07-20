@@ -1,0 +1,35 @@
+Please complete three things: (A) verify + wire the BigQuery Connector to pull real data, (B) queue up Slack + Zendesk connector wiring the same way, and (C) update the classification prompt with the new L1/L2 ruleset. Match the file paths and function names below exactly. Don't touch anything else.
+
+A. BigQuery — verify + wire into server/services/bigquery.py
+The BigQuery connector already exists on this Replit account. Please:
+
+Confirm connectivity to all 5 tables. Run SELECT 1 FROM ... LIMIT 1 against each of:
+headout-analytics.analytics_reporting.fct_reviews
+headout-analytics.analytics_reporting.fct_bookings
+headout-analytics.analytics_reporting.fct_fulfilments
+headout-analytics.analytics_reporting.fct_support_queries
+headout-analytics.analytics_reporting.dim_vendor_tours
+If any returns "access denied," report which — the connector needs bigquery.dataViewer on analytics_reporting for that table.
+
+Ensure is_live("bigquery") returns True when the connector is present (in server/config.py), so the existing mock fallback flips off cleanly.
+Verify these existing functions in server/services/bigquery.py run against real data (they were built already, just gated by mocks): find_booking(bid, signals), get_insights(booking), get_similar_complaints(booking). If any hits a schema/field mismatch against the tables above, fix the field names in the query — don't restructure the function.
+Add one new function: get_l1_l2_by_bid(bid) in bigquery.py that returns {"l1": <str or None>, "l2": <str or None>} from fct_reviews.issues for a given booking_id (using the UNNEST(issues) + UNNEST(l2_issues) pattern from the ORM VS pipeline SQL — you have that). Use it in pipeline.py after classification: if the warehouse tag exists for that BID, log both values (Claude's + warehouse's) but keep Claude's as authoritative for now. This gives us a comparison layer without changing behavior.
+Run python -m tests.test_classifier_validators and python -m tests.test_classification_accuracy after the change. Both must stay green.
+B. Slack + Zendesk — leave stubs, don't guess
+Do not create the Slack app or Zendesk token yourself. Just:
+
+Confirm the Slack ingestion endpoint exists at POST /webhook/slack in server/api.py and that its signature-verification uses SLACK_SIGNING_SECRET.
+Confirm the Zendesk client in server/services/zendesk.py reads ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_API_TOKEN, ZENDESK_BOOKING_FIELD_ID from env and falls back to mock otherwise.
+Report both back as "ready — awaiting secrets" if fine.
+C. L1/L2 ruleset — update the classification prompt
+Replace the L1/L2 rules block inside server/prompts.py::classification_prompt() with the version below verbatim. Keep the sub-theme framework block and the flat JSON output ({"l1", "l2", "sub_theme", "review_summary", "reasoning"}) — the classifier and validators depend on that exact shape. Do not change services/classifier.py, pipeline.py, or the output schema.
+
+[paste your L1/L2 ruleset here — the full text you sent me earlier that starts with "You are a review issue classifier for Headout…" and ends before the JSON output block]
+
+After the edit:
+
+Confirm the prompt still renders (python -c "from server import prompts; print(len(prompts.classification_prompt('test',{},[])))" should print a positive int).
+Run both test suites again.
+Deliverable
+When done, send back a zip of only the files you changed (so I don't have to guess). Include a one-line summary per file.
+
