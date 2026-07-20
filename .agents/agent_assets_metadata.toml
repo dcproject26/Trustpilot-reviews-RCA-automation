@@ -24,3 +24,9 @@ id = "T7NjZBk6gStB2Y343aLXc"
 uri = "file://exports/bigquery_wiring_delta.zip"
 type = "unspecified"
 title = "Changed files — BigQuery wiring + prompt ruleset delta"
+
+[[outputs]]
+id = "_6Bvt6rpCpU7dxZZa6dWk"
+uri = "file://exports/slack_wiring_delta.zip"
+type = "unspecified"
+title = "Slack wiring delta — changed files"

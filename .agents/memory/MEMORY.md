@@ -1,1 +1,3 @@
 - [LLM JSON sanitizing](llm-json-sanitizing.md) — LLM JSON cleanup must be string-aware; regex comment-stripping corrupts URLs/commas inside string values.
+- [Replit connector auth](replit-connector-auth.md) — connectors-first auth pattern (REST token fetch, TTL cache, 401 retry); AI Integrations model constraints.
+- [Env secret hygiene](env-secret-hygiene.md) — pasted Replit Secrets can carry trailing whitespace; always .strip() and never compare raw env values.

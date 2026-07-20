@@ -18,14 +18,15 @@ MOCK_MODE = os.getenv("MOCK_MODE", "false").lower() == "true"
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
 # Slack
-SLACK_SIGNING_SECRET  = os.getenv("SLACK_SIGNING_SECRET", "")
-SLACK_BOT_TOKEN       = os.getenv("SLACK_BOT_TOKEN", "")
-SLACK_USER_TOKEN      = os.getenv("SLACK_USER_TOKEN", "")
-SLACK_CHANNEL_ORM     = os.getenv("SLACK_CHANNEL_ORM", "")    # #team-orm-online-reputation
-SLACK_CHANNEL_ALERT   = os.getenv("SLACK_CHANNEL_ALERT", "")  # #alert-customerlove
+# .strip() — pasted secrets sometimes carry trailing whitespace/newlines
+SLACK_SIGNING_SECRET  = os.getenv("SLACK_SIGNING_SECRET", "").strip()
+SLACK_BOT_TOKEN       = os.getenv("SLACK_BOT_TOKEN", "").strip()
+SLACK_USER_TOKEN      = os.getenv("SLACK_USER_TOKEN", "").strip()
+SLACK_CHANNEL_ORM     = os.getenv("SLACK_CHANNEL_ORM", "").strip()    # #team-orm-trustpilot-social
+SLACK_CHANNEL_ALERT   = os.getenv("SLACK_CHANNEL_ALERT", "").strip()  # optional — unused for ingestion
 # Optional — only set this if you want to filter by a specific bot/app user.
 # Without it, the app detects reviews by star rating symbols (★/☆) in the message.
-TRUSTPILOT_BOT_USER_ID = os.getenv("TRUSTPILOT_BOT_USER_ID", "")
+TRUSTPILOT_BOT_USER_ID = os.getenv("TRUSTPILOT_BOT_USER_ID", "").strip()
 
 # BigQuery
 GCP_SERVICE_ACCOUNT_JSON  = os.getenv("GCP_SERVICE_ACCOUNT_JSON", "")
@@ -59,7 +60,9 @@ CANNED_RESPONSES_SHEET_ID = os.getenv("CANNED_RESPONSES_SHEET_ID", "")
 # Database (auto-injected by Replit Postgres)
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./local.db")
 
-ORM_CHANNELS = [c for c in [SLACK_CHANNEL_ORM, SLACK_CHANNEL_ALERT] if c]
+# Ingestion accepts events ONLY from SLACK_CHANNEL_ORM.
+# SLACK_CHANNEL_ALERT is optional and intentionally unused for ingestion.
+ORM_CHANNELS = [c for c in [SLACK_CHANNEL_ORM] if c]
 
 
 def _bq_connector_available() -> bool:
