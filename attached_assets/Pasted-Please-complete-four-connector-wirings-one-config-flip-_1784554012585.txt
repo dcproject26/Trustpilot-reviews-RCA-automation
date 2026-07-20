@@ -1,0 +1,34 @@
+Please complete four connector wirings + one config flip. Prefer Replit Connectors where they exist (like you did for BigQuery); only fall back to env-var secrets when no connector is available. Match the file paths and function names below exactly. Report which route each connector actually used.
+
+A. Anthropic — verify runtime AI
+The app calls Claude in server/services/claude.py. Please:
+
+Check: is Anthropic exposed via Replit AI Integrations on this workspace? If yes, services/claude.py::_call() should work through it with no raw key. If no, fall back to ANTHROPIC_API_KEY env var.
+Run a minimal live-call sanity check — one ~10-token completion via _call. Report the reply's shape/length. Do NOT run any test suite that spends significant tokens.
+If a live call succeeds, set is_live("anthropic") to True. Report the route used ("Replit Integration" vs "env key" vs "still mock").
+B. Slack — wire the credentials
+Assume all Slack values will be present as env vars in Replit Secrets:
+
+SLACK_SIGNING_SECRET
+SLACK_BOT_TOKEN            (xoxb-…)
+SLACK_USER_TOKEN           (xoxp-…)
+SLACK_CHANNEL_ORM          (C-id for #team-orm-online-reputation)
+SLACK_CHANNEL_ALERT        (C-id for #alert-customerlove)
+TRUSTPILOT_BOT_USER_ID     = URS4EC9BK
+Please:
+
+Confirm the POST /webhook/slack endpoint exists in server/webhook.py (or wherever it lives) and does Slack signature verification against SLACK_SIGNING_SECRET.
+Confirm server/services/slack.py reads all six vars and that is_live("slack_inbound") returns True when they're set.
+Confirm the URL-verification handshake (the challenge echo) works — a plain HTTP simulation is fine.
+Confirm the ingestion path filters messages by TRUSTPILOT_BOT_USER_ID (only Trustpilot-posted messages become reviews).
+Do NOT create the Slack app or generate tokens — that's being done externally.
+Report: is_live("slack_inbound") value, and any missing var names.
+
+C. Zendesk — try Replit Connector first, fall back to env
+Check if Zendesk is available as a Replit Connector on this account (same mechanism you used for BigQuery — list_available_connectors or the equivalent). If yes, wire it into server/services/zendesk.py the same way you wired BigQuery via bq_connector.py (i.e. a zd_connector.py that fetches auth from Replit Connectors and returns a live client).
+If no Zendesk connector exists, fall back to the env-var path already in zendesk.py:
+ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_API_TOKEN, ZENDESK_BOOKING_FIELD_ID (default 360021524471), and optional ZENDESK_BRAND_GUEST / ZENDESK_BRAND_SP.
+Verify get_timeline(bid, review_id) runs end-to-end with a test BID. If the SDK/HTTP call fails, report which env var or connector permission is missing.
+Confirm is_live("zendesk") returns True on the successful route.
+Report: which route (Connector vs env), and one successful get_timeline sample (event count, no PII).
+
