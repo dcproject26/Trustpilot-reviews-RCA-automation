@@ -42,7 +42,7 @@ async def get_similar_complaints(booking: dict) -> tuple[list, list]:
     if not tid or not vid:
         return [], []
 
-    from google.cloud import bigquery as gcb  # lazy import
+    from server.services.bigquery import _bqlib as gcb  # same lib as the live client
     client = _get_client()
 
     days = SIMILAR_MATCH_RULE["window_days"]

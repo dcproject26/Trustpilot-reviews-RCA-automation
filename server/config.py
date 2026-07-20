@@ -59,6 +59,15 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./local.db")
 ORM_CHANNELS = [c for c in [SLACK_CHANNEL_ORM, SLACK_CHANNEL_ALERT] if c]
 
 
+def _bq_connector_available() -> bool:
+    """Replit BigQuery integration (no service-account key needed)."""
+    try:
+        from server.services.bq_connector import available
+        return available()
+    except Exception:
+        return False
+
+
 def is_live(service: str) -> bool:
     if MOCK_MODE:
         return False
@@ -66,7 +75,8 @@ def is_live(service: str) -> bool:
         "anthropic":      True,  # Always live — Replit AI Integrations
         "slack_inbound":  bool(SLACK_SIGNING_SECRET and SLACK_BOT_TOKEN),
         "slack_outbound": bool(SLACK_USER_TOKEN),
-        "bigquery":       bool(GCP_SERVICE_ACCOUNT_JSON and BIGQUERY_BOOKINGS_TABLE),
+        "bigquery":       bool(BIGQUERY_BOOKINGS_TABLE and
+                               (GCP_SERVICE_ACCOUNT_JSON or _bq_connector_available())),
         "zendesk":        bool(ZENDESK_SUBDOMAIN and ZENDESK_API_TOKEN),
         "apps_script":    bool(APPS_SCRIPT_URL),
         "dss":            bool(DSS_WEBHOOK_URL),

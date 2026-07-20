@@ -28,11 +28,16 @@ from server.services.mock_data import MOCK_BOOKINGS, MOCK_INSIGHTS
 log = logging.getLogger(__name__)
 
 if is_live("bigquery"):
-    from google.cloud import bigquery as _bqlib
-    from google.oauth2 import service_account
-    _creds = service_account.Credentials.from_service_account_info(
-        json.loads(GCP_SERVICE_ACCOUNT_JSON))
-    _bq = _bqlib.Client(credentials=_creds, project=_creds.project_id)
+    if GCP_SERVICE_ACCOUNT_JSON:
+        from google.cloud import bigquery as _bqlib
+        from google.oauth2 import service_account
+        _creds = service_account.Credentials.from_service_account_info(
+            json.loads(GCP_SERVICE_ACCOUNT_JSON))
+        _bq = _bqlib.Client(credentials=_creds, project=_creds.project_id)
+    else:
+        # Replit BigQuery integration — auth via connectors proxy, no key.
+        from server.services import bq_connector as _bqlib
+        _bq = _bqlib.Client()
 else:
     _bqlib = None
     _bq    = None

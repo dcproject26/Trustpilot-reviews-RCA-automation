@@ -20,6 +20,7 @@ PYTHONUNBUFFERED = "1"
 
 [agent]
 expertMode = true
+integrations = ["bigquery:1.0.0"]
 
 [userenv]
 
