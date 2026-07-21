@@ -36,3 +36,9 @@ id = "6LO3ZOB7QJSwJvwPckVtG"
 uri = "file://exports/zendesk_wiring_delta.zip"
 type = "unspecified"
 title = "Zendesk wiring delta — changed files"
+
+[[outputs]]
+id = "O_HE5yaV1HMvT1Cj4H30-"
+uri = "file://exports/dashboard_fields_delta.zip"
+type = "unspecified"
+title = "Dashboard fields delta — client/index.html"

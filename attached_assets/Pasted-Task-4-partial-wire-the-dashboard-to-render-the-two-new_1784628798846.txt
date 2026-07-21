@@ -1,0 +1,98 @@
+Task #4 (partial): wire the dashboard to render the two new backend fields that already exist on the draft — sub_theme and support_interaction_frames + support_summary. Do NOT do a full client-wire; scope is these three fields only. The dashboard structure (demo v15) must not change — only the data source for these fields.
+
+Scope boundaries — read first
+Do: render sub_theme in the Issue Classification block; render support_interaction_frames + support_summary in the Support Interaction section; wire the sub-theme edit to PATCH /api/reviews/{id}/draft-v2.
+Do NOT: rewrite Column 1 (inbox), Column 3 (RCA/Response/Send), booking-match candidate picker, or any layout change. Those are separate tasks.
+Do NOT: change taxonomy.py, prompts.py, classifier.py, pipeline, or any backend file. Backend already returns everything needed — this is client-only.
+1. Sub-theme row in the Issue Classification block
+Where: client/index.html, inside the existing .classify-block (right after the L2 classify-row, before the reasoning-text div).
+
+Add this row (verbatim):
+
+${(rca.subTheme || (SUB_THEME_OPTIONS[rca.issueL1 + '::' + rca.issueL2] || []).length) ? `
+<div class="classify-row">
+  <span class="classify-label">Sub-theme</span>
+  <select class="classify-select" data-field="sub_theme">
+    ${rca.subTheme ? `<option>${rca.subTheme}</option>` : `<option value="">— none —</option>`}
+    ${(SUB_THEME_OPTIONS[rca.issueL1 + '::' + rca.issueL2] || [])
+        .filter(o => o !== rca.subTheme)
+        .map(o => `<option>${o}</option>`).join('')}
+  </select>
+</div>` : ''}
+Behavior: row appears only when the draft has a sub-theme OR the current (L1, L2) has a framework. No framework, no draft sub-theme → row not rendered (avoids empty dropdown).
+
+Options source — no hardcoding. Add near the existing const L2_OPTIONS = {…}:
+
+// Keyed "L1::L2" → ["A. Name", …, "N. Irrelevant"].
+// Fetched from /api/taxonomy so this file never duplicates taxonomy.py.
+const SUB_THEME_OPTIONS = {};
+
+async function loadSubThemeOptions() {
+  try {
+    const t = await (await fetch('/api/taxonomy')).json();
+    const fw = t.sub_theme_frameworks || {};
+    for (const key in fw) {
+      const f = fw[key];
+      const opts = (f.sub_themes || []).map(([code, name]) => `${code}. ${name}`);
+      if (f.exclusion_label) opts.push(f.exclusion_label);
+      SUB_THEME_OPTIONS[key] = opts;
+    }
+  } catch (e) { /* leave empty — row still shows the assigned sub_theme */ }
+}
+loadSubThemeOptions();   // fires once on load; re-render after it resolves if needed
+Field mapping. Wherever the client maps a draft into the rca view-model (alongside issueL1/issueL2), add:
+
+subTheme: draft.sub_theme || null,
+Save on change. When the associate picks a value, PATCH /api/reviews/{id}/draft-v2 with { "sub_theme": "<selected>" } — mirror the exact save pattern the L2 select uses. Do not invent a new endpoint.
+
+2. Support Interaction — render support_interaction_frames from the backend
+Where: the existing Support Interaction section in demo v15 that renders co_events / sp_events frames with label / guestSaid / weDid / guestReply / gap.
+
+Backend payload. /api/reviews/{id} returns draft.support_interaction_frames — a list where each item is:
+
+{
+  time:       "03 May 00:38 IST",
+  thread:     "chat" | "email" | "call" | "sp",
+  actor:      "guest" | "co" | "sp" | "ai" | "system",
+  label:      "[ZD-30994882] CE responded to email",
+  summary:    "…",           // 200-char cleaned body
+  guestSaid:  "…",           // Claude-generated
+  weDid:      "…",           // Claude-generated
+  guestReply: "…",           // Claude-generated
+  gap:        "…"            // from GAP_TAXONOMY or empty
+}
+Field mapping. Where the view-model is built, add:
+
+supportFrames:  draft.support_interaction_frames || [],
+supportSummary: draft.support_summary || "",
+spFrames:       draft.sp_interaction_frames || []   // if not already mapped
+Rendering. Where the existing demo hardcodes co_events/sp_events frames, replace the array literal with rca.supportFrames (and rca.spFrames) — the rendering markup itself stays as-is. If demo v15 currently loops over a hardcoded array to build the frame cards, that loop should now iterate over rca.supportFrames. Each card should still show time · label · guestSaid · weDid · guestReply · gap — no new UI, just real data.
+
+Empty state. If rca.supportFrames.length === 0, render a small placeholder: <div class="empty-state">No support interactions on this booking</div>. Do not hide the whole section — the empty state is diagnostic itself.
+
+Gap tags. If gap is non-empty, render it as a small colored pill (same style pattern as v15's existing gap tag). Empty gap → don't render the pill (not a blank one).
+
+Support summary paragraph. If demo v15 has a "Support Summary" line/box at the top of the section, populate it with rca.supportSummary. If it doesn't exist yet, add a <div class="support-summary-line">${rca.supportSummary}</div> above the frame list — matching v15's existing typography for section leader text. Nothing new visually.
+
+3. Explicit non-goals
+Do NOT wire Column 1 (Inbox list).
+Do NOT change the Booking Match, Experience Details, Timeline, or Insights sections.
+Do NOT touch the RCA column, Response column, Send flow.
+Do NOT wire sp_interaction_frames rendering unless demo v15 already has the section for it (if it does, apply the same real-data swap as support_interaction_frames).
+Do NOT change any CSS, colors, spacing, or layout classes. Data source only.
+4. Verify
+Sub-theme row:
+Load a review where L2 has a framework (e.g. MP/SP/Ticket/AG/Content). Confirm the Sub-theme row appears with the assigned value pre-selected.
+Load a review with an L2 that has no framework. Confirm the row does NOT render.
+Change the sub-theme in the dropdown → confirm a PATCH /api/reviews/{id}/draft-v2 fires with {"sub_theme":"…"}. Reload → the change persists.
+Support frames:
+Load a review with a real Zendesk timeline (any real BID that returned tickets, e.g. 30837082). Confirm the frames render with guestSaid/weDid/guestReply/gap fields visible.
+Load a review with no Zendesk tickets. Confirm the empty state renders (not a broken UI).
+Confirm support_summary shows above the frames.
+No layout regression: open demo v15 side-by-side. Column 1, Column 3, and the rest of Column 2 look identical. Only the sub-theme row + real support frames + summary differ.
+5. Deliverable
+Zip of only the files you changed (should be only client/index.html, unless a small CSS tweak was needed). Include a diff summary:
+
+Lines added/removed
+Which existing arrays were replaced with API-backed variables
+Both test suites (test_classifier_validators, test_classification_accuracy) must stay green (this is client-only, they shouldn't be affected — confirm anyway).

@@ -1632,6 +1632,42 @@ async function loadSubThemeOptions() {
 // call once on load; re-render picks up options after taxonomy resolves
 loadSubThemeOptions();
 
+// Overlay real draft fields onto the demo view-models. Data source only:
+// sub_theme, support_interaction_frames (+ sp_interaction_frames) and
+// support_summary come from /api/reviews/{id}; markup stays demo-v15.
+function mapSupportFrame(f) {
+  return {
+    type: f.thread || 'email',
+    time: f.time || '',
+    label: f.label || '',
+    guestSaid: f.guestSaid || f.summary || '—',
+    weDid: f.weDid || '—',
+    guestReply: f.guestReply || '—',
+    gap: f.gap || '',
+  };
+}
+
+async function loadDraftOverlays() {
+  await Promise.all(REVIEWS.map(async (r) => {
+    if (!r.rca) return;
+    try {
+      const resp = await fetch(`/api/reviews/${r.id}`);
+      if (!resp.ok) return;
+      const draft = (await resp.json()).draft;
+      if (!draft) return;
+      r.rca.subTheme = draft.sub_theme || null;
+      r.rca.supportInteraction = (draft.support_interaction_frames || []).map(mapSupportFrame);
+      r.rca.supportSummary = draft.support_summary || '';
+      r.rca.spInteraction = (draft.sp_interaction_frames || []).map(f => ({
+        time: f.time || '',
+        label: f.label || '',
+        summary: f.summary || f.weDid || '',
+      }));
+    } catch (e) { /* keep demo data for this review if the API is unreachable */ }
+  }));
+  if (typeof renderRcaCol === 'function' && state.selected) renderRcaCol();
+}
+
 const REVIEWS = [
   {
     id: 'tp_001',
@@ -1879,6 +1915,9 @@ const state = {
   actionTab: 'sp',
   insightsWindow: '90d',
 };
+
+// fire once REVIEWS + state exist; re-renders the RCA column when drafts land
+loadDraftOverlays();
 
 function renderInbox() {
   const list = document.getElementById('inbox-list');
@@ -2234,7 +2273,7 @@ function renderRcaCol() {
   const rca = r.rca;
   const actions = rca.actionsTaken[state.actionTab] || [];
   const sup = rca.supportInteraction.length === 0
-    ? `<div class="interactions"><div class="interactions-empty">No support interactions on this case.</div></div>`
+    ? `<div class="interactions"><div class="interactions-empty">No support interactions on this booking</div></div>`
     : `<div class="interactions">
         ${rca.supportInteraction.map((s, i) => `
           <div class="convo-frame ${i === 0 ? 'open' : ''}" data-frame-idx="${i}">
