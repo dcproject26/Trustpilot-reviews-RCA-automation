@@ -235,6 +235,36 @@ async def draft_response_v2(
     )
 
 
+# ─── 6b. Support event summarisation (Zendesk → frames) ─────────────────────
+_EMPTY_FRAME = {"guestSaid": "", "weDid": "", "guestReply": "", "gap": ""}
+
+
+async def summarise_support_event(event: dict, prev: dict | None,
+                                   next_: dict | None) -> dict:
+    """guestSaid / weDid / guestReply / gap for one timeline event."""
+    if not is_live("anthropic"):
+        return dict(_EMPTY_FRAME)
+    raw = await _call(prompts.support_event_prompt(event, prev, next_),
+                      max_tokens=500)
+    try:
+        parsed = json.loads(_strip_fences(raw))
+        return {k: str(parsed.get(k, "") or "") for k in _EMPTY_FRAME}
+    except Exception:
+        log.exception("Support event JSON parse failed")
+        return {}
+
+
+async def summarise_support_arc(frames: list) -> str:
+    """2-3 sentence neutral rollup of the whole support arc."""
+    if not is_live("anthropic") or not frames:
+        return ""
+    try:
+        return await _call(prompts.support_arc_prompt(frames), max_tokens=400)
+    except Exception:
+        log.exception("Support arc summarisation failed")
+        return ""
+
+
 # ─── 7. Flag-to-Biz Slack message ───────────────────────────────────────────
 async def flag_to_biz_message(
     vendor_name: str, vid: str, completion_pct: str, market_avg: str,

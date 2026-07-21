@@ -104,6 +104,8 @@ def _draft_dict(d: RcaDraft) -> dict:
         "similar_support":    d.similar_support or [],
         "similar_reviews":    d.similar_reviews or [],
         "dss_rec":            d.dss_rec or {},
+        "zendesk_ticket_ids": d.zendesk_ticket_ids or [],
+        "timeline_raw":       d.timeline_raw or [],
         "dss_connected_at":   d.dss_connected_at.isoformat() if d.dss_connected_at else None,
 
         "stated_issue":                d.stated_issue,

@@ -11,3 +11,8 @@ Cache settings ~5 min; on 401 force a re-fetch and rebuild the client, retry onc
 **How to apply:** Use lazy client getters (never module-level clients), a TTL settings cache with a lock, and a 401-recovery retry at call sites. Zendesk connector settings expose `access_token` + `subdomain` (Zenpy accepts `oauth_token=`); BigQuery exposes `access_token` + `project_id`.
 
 Anthropic goes through Replit AI Integrations: env vars `AI_INTEGRATIONS_ANTHROPIC_BASE_URL` + `AI_INTEGRATIONS_ANTHROPIC_API_KEY` (dummy key, real base URL). Only AI-Integrations-listed models work (e.g. claude-sonnet-4-6); dated model names like claude-sonnet-4-20250514 are rejected.
+
+## Zendesk search tips (July 2026)
+- `type:ticket fieldvalue:<bid>` searches all custom fields without needing field IDs — 10/10 recent BIDs hit this path; free-text `"<bid>"` fallback rarely needed.
+- Custom fields tgid=360024198092, tid=360024232711 (from 2024 Retool workflow) are reliably populated on booking tickets.
+- Zenpy `tickets.comments(ticket=id)` auto-paginates and includes private notes.

@@ -44,6 +44,15 @@ ZENDESK_SUBDOMAIN        = os.getenv("ZENDESK_SUBDOMAIN", "headout")
 ZENDESK_EMAIL            = os.getenv("ZENDESK_EMAIL", "")
 ZENDESK_API_TOKEN        = os.getenv("ZENDESK_API_TOKEN", "")
 ZENDESK_BOOKING_FIELD_ID = os.getenv("ZENDESK_BOOKING_FIELD_ID", "360021524471")
+# Custom field IDs confirmed from the 2024 Retool workflow
+ZENDESK_TGID_FIELD = int(os.getenv("ZENDESK_TGID_FIELD", "360024198092"))
+ZENDESK_TID_FIELD  = int(os.getenv("ZENDESK_TID_FIELD",  "360024232711"))
+# Optional brand split (brand IDs). If either is unset, all tickets → guest timeline.
+ZENDESK_BRAND_GUEST = os.getenv("ZENDESK_BRAND_GUEST", "").strip()
+ZENDESK_BRAND_SP    = os.getenv("ZENDESK_BRAND_SP", "").strip()
+# Ticket tags identifying bot/AI actors (comma-separated)
+ZENDESK_BOT_TAGS = [t.strip() for t in
+                    os.getenv("ZENDESK_BOT_TAGS", "minded_ai").split(",") if t.strip()]
 
 # Google Apps Script — fetches full comments for multiple Zendesk tickets in one call
 APPS_SCRIPT_URL = os.getenv(

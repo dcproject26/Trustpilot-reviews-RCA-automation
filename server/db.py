@@ -57,6 +57,8 @@ class RcaDraft(Base):
     similar_reviews  = Column(JSON, default=list)
     dss_rec          = Column(JSON, default=dict)
     dss_connected_at = Column(DateTime, nullable=True)
+    zendesk_ticket_ids = Column(JSON, default=list)   # ["30994882", ...]
+    timeline_raw       = Column(JSON, default=list)   # raw comment bodies, same length as timeline
 
     # ── Structured RCA (demo parity) ──
     stated_issue                = Column(Text, nullable=True)
@@ -110,6 +112,13 @@ class ReviewMetric(Base):
     sent             = Column(Boolean, default=False)
     dss_connected    = Column(Boolean, default=False)
     flagged_to_biz   = Column(Boolean, default=False)
+
+
+class SlackEventSeen(Base):
+    """Slack event dedupe — event_id primary key, 24h lookback window."""
+    __tablename__ = "slack_events_seen"
+    event_id = Column(String, primary_key=True)
+    seen_at  = Column(DateTime, default=datetime.utcnow, index=True)
 
 
 def init_db():

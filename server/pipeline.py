@@ -132,13 +132,18 @@ async def process_review(review_id: str):
         # ── 6. Zendesk timeline ──────────────────────────────────────────────
         timeline      = []
         extracted_bk  = {}
+        zd_meta       = {"ticket_ids": [], "timeline_raw": []}
         bid_for_zd    = (booking or {}).get("id") or review.reference_number
         if bid_for_zd:
             try:
-                timeline, extracted_bk = await zendesk.get_timeline(bid_for_zd, review_id)
-                log.info(f"[pipeline] timeline: {len(timeline)} events")
+                timeline, extracted_bk, zd_meta = await zendesk.get_timeline(
+                    bid_for_zd, review_id)
+                log.info(f"[pipeline] timeline: {len(timeline)} events "
+                         f"across tickets {zd_meta.get('ticket_ids')}")
             except Exception as e:
-                log.exception(f"Zendesk failed: {e}")
+                log.warning(f"Zendesk failed — continuing with empty timeline: {e}")
+                timeline, extracted_bk = [], {}
+                zd_meta = {"ticket_ids": [], "timeline_raw": []}
 
         # Merge Zendesk-extracted fields as fallback for missing BQ fields
         if extracted_bk and booking:
@@ -146,6 +151,31 @@ async def process_review(review_id: str):
                         "vendorName", "pax"):
                 if not booking.get(key) and extracted_bk.get(key):
                     booking[key] = extracted_bk[key]
+            if "ticket_mail_seen" in extracted_bk:
+                booking["ticket_mail_seen"] = bool(extracted_bk["ticket_mail_seen"])
+
+        # ── 7b. Support frames (Claude summarisation of each timeline event) ─
+        support_frames = []
+        sp_frames      = []
+        for i, ev in enumerate(timeline):
+            prev_ = timeline[i - 1] if i > 0 else None
+            next_ = timeline[i + 1] if i + 1 < len(timeline) else None
+            try:
+                frame = await claude.summarise_support_event(ev, prev_, next_)
+                merged = {**ev, **(frame or
+                    {"guestSaid": "", "weDid": "", "guestReply": "", "gap": ""})}
+            except Exception:
+                merged = {**ev, "guestSaid": "", "weDid": "", "guestReply": "", "gap": ""}
+            if ev.get("thread") == "sp":
+                sp_frames.append(merged)
+            else:
+                support_frames.append(merged)
+
+        support_summary_text = ""
+        try:
+            support_summary_text = await claude.summarise_support_arc(support_frames)
+        except Exception as e:
+            log.exception(f"Support summary failed: {e}")
 
         # ── 7. Insights ──────────────────────────────────────────────────────
         insights = {}
@@ -249,6 +279,8 @@ async def process_review(review_id: str):
         draft.similar_support  = similar_support
         draft.similar_reviews  = similar_reviews
         draft.dss_rec          = dss_rec
+        draft.zendesk_ticket_ids = zd_meta.get("ticket_ids", [])
+        draft.timeline_raw       = zd_meta.get("timeline_raw", [])
 
         draft.stated_issue                = stated_issue
         draft.l1                          = l1
@@ -257,9 +289,10 @@ async def process_review(review_id: str):
         draft.sub_theme                   = sub_theme
         draft.diagnostic_checks           = rca_v2.get("diagnosticChecks", [])
         draft.what_went_wrong_bullets     = rca_v2.get("whatWentWrongBullets", [])
-        draft.support_interaction_frames  = rca_v2.get("supportInteractionFrames", [])
-        draft.support_summary             = rca_v2.get("supportSummary", "")
-        draft.sp_interaction_frames       = rca_v2.get("spInteractionFrames", [])
+        # Zendesk-derived frames (step 7b) are authoritative; RCA output is fallback.
+        draft.support_interaction_frames  = support_frames or rca_v2.get("supportInteractionFrames", [])
+        draft.support_summary             = support_summary_text or rca_v2.get("supportSummary", "")
+        draft.sp_interaction_frames       = sp_frames or rca_v2.get("spInteractionFrames", [])
         draft.area_of_improving           = rca_v2.get("areaOfImproving", [])
         draft.actions_taken               = rca_v2.get("actionsTaken",
                                               {"sp":[],"customer":[],"business":[],"product":[],"ce":[]})

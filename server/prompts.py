@@ -610,6 +610,48 @@ INSTRUCTIONS:
 7. Return ONLY the reply text."""
 
 
+# ─── 6b. Support event summarisation (Zendesk timeline → frames) ───────────
+def support_event_prompt(event: dict, prev_event: dict | None,
+                         next_event: dict | None) -> str:
+    gap_list = "\n".join(f"  - {g}" for g in GAP_TAXONOMY)
+    return f"""You are summarising ONE support interaction event from a Zendesk timeline
+for an internal RCA dashboard at Headout.
+
+=== PREVIOUS EVENT (context, may be null) ===
+{json.dumps(prev_event or None, indent=2)}
+
+=== THIS EVENT (summarise this one) ===
+{json.dumps(event, indent=2)}
+
+=== NEXT EVENT (context, may be null) ===
+{json.dumps(next_event or None, indent=2)}
+
+=== ALLOWED GAP LABELS ===
+{gap_list}
+
+RULES:
+1. Neutral tone, facts only. Do NOT adopt or defend the guest's framing.
+2. Do not fabricate. If a comment says nothing actionable, weDid = "No CE action on this thread" — don't invent.
+3. Do not invent handles or timestamps. Use [placeholder] if a name/time is needed and unknown.
+4. "gap" must be EXACTLY one of the allowed gap labels above, or an empty string "".
+5. Support-failure-supersedes rule: if the underlying issue is external (weather/FM)
+   but the CE mishandled the response, tag the gap on the CE side, not on the external event.
+
+Return ONLY strict JSON:
+{{"guestSaid": "...", "weDid": "...", "guestReply": "...", "gap": "..."}}"""
+
+
+def support_arc_prompt(frames: list) -> str:
+    return f"""Summarise the overall support interaction arc below in 2-3 neutral sentences
+for an internal RCA dashboard. Facts only — no fabrication, no invented names,
+timestamps, or compensation amounts. No adopting the guest's framing.
+
+=== SUPPORT FRAMES ===
+{json.dumps(frames or [], indent=2)}
+
+Return ONLY the 2-3 sentence paragraph, no headings."""
+
+
 # ─── 7. Flag-to-Biz Slack message ──────────────────────────────────────────
 def flag_to_biz_prompt(
     vendor_name: str, vid: str, completion_pct: str, market_avg: str,

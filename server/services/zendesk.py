@@ -1,65 +1,44 @@
 """
-Zendesk service.
+Zendesk service — connector-auth'd (Replit Zendesk connection, OAuth).
 
-What this does:
-1. Searches tickets by booking ID custom field (360021524471)
-2. Falls back to requester email search to catch chat tickets not tagged with booking ID
-3. Fetches all comments via Google Apps Script (single batched call, not per-ticket)
-4. Filters out system/automation channel comments (Zendesk internal events, not real interactions)
-5. Extracts booking details from the first comment (system-generated booking dump)
-6. Classifies every comment: Guest | CO Agent | Minded AI | Supply Partner | System
-7. Flags key moments: chargeback, refund, escalation, AI mishandle, frustration, SP issue, TAT breach
-8. Sorts everything chronologically and returns a clean timeline
+Data path per the 2026-07 wiring brief:
+1. Search tickets: fieldvalue:<bid> first, free-text "<bid>" fallback (logged).
+2. Extract tgid/tid from confirmed custom field IDs (2024 Retool workflow).
+3. Surface ticket_mail_seen tag on the booking.
+4. Fetch ALL comments per ticket (public + private notes), paginated by zenpy.
+5. Brand split: guest-brand tickets -> guest timeline, SP-brand -> sp thread
+   (draft.sp_interaction_frames). If brands unset, everything is guest.
+6. Merge multi-ticket comments chronologically, label prefixed [ZD-<id>].
+7. Timeline events use the demo-v15 renderer shape (time/thread/actor/label/summary),
+   with the raw body kept in a parallel timeline_raw list.
+8. >40 comments -> keep first 20 + last 20 with one "[N comments elided]" event.
 """
-import re, logging, httpx
-from datetime import datetime
+import html as _html
+import logging
+import re
+from datetime import datetime, timedelta, timezone
+
 from server.config import (
     is_live, ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_API_TOKEN,
-    ZENDESK_BOOKING_FIELD_ID, APPS_SCRIPT_URL,
+    ZENDESK_TGID_FIELD, ZENDESK_TID_FIELD,
+    ZENDESK_BRAND_GUEST, ZENDESK_BRAND_SP, ZENDESK_BOT_TAGS,
 )
 from server.services.mock_data import MOCK_TIMELINES, MOCK_BOOKINGS
 
 log = logging.getLogger(__name__)
 
-# Subjects that are system-generated noise — skip these tickets entirely
-NOISE_SUBJECTS = [
-    "payment receipt", "booking confirmed", "booking confirmation",
-    "automatic follow-up", "auto follow-up", "credits added",
-    "refund processed", "booking canceled", "booking cancelled",
-]
+IST = timezone(timedelta(hours=5, minutes=30))
 
-# Flag keywords — detected on every comment body
-FLAG_RULES = {
-    "chargeback":   ["chargeback", "dispute", "bank claim", "bank dispute"],
-    "refund":       ["refund", "money back", "reimburse"],
-    "escalation":   ["escalat", "manager", "legal", "trading standards", "complaint"],
-    "AI mishandle": ["minded", "bot", "automated", "ai agent"],
-    "frustration":  ["unacceptable", "disgusting", "scam", "fraud", "terrible",
-                     "awful", "never again", "worst", "furious", "outraged", "arnaque"],
-    "SP issue":     ["supplier", "supply partner", "operator", "venue",
-                     "guide", "tour leader", "cancelled at", "canceled at"],
-    "TAT breach":   ["still waiting", "no response", "hours ago", "days ago",
-                     "haven't heard", "no reply"],
-}
+# Search-path hit counters (reported in delta verification)
+SEARCH_COUNTERS = {"fieldvalue": 0, "free_text": 0}
 
-# Agent names that identify Minded AI / automation in Zendesk
-BOT_AGENT_NAMES = ["minded", "bot", "automated", "automation"]
-
-# Regex patterns to extract booking data from the first system comment
-_TGID_RE   = re.compile(r'Tour_Group_Id[:\s]+(\d+)', re.I)
-_TID_RE    = re.compile(r'Tour_Id[:\s]+(\d+)', re.I)
-_TNAME_RE  = re.compile(r'Tour_Name[:\s]+(.*?),', re.I | re.S)
-_DATE_RE   = re.compile(r'Booking Details.*?Date[:\s]+(\d{4}-\d{2}-\d{2})', re.I | re.S)
-_VID_RE    = re.compile(r'Vendor.Id[:\s]+(\d+)', re.I)
-_VNAME_RE  = re.compile(r'(?:Primary\s+)?Vendor.Name[:\s]+(.*?)[\n,]', re.I)
-_PAX_RE    = re.compile(r'Guest_Numbers[:\s]+(.*?)[\n,]', re.I)
+_TAG_RE = re.compile(r"<[^>]+>")
+_SIG_SPLIT_RE = re.compile(r"(?:^--\s*$|\bBest regards\b)", re.I | re.M)
 
 
 def _get_client():
-    """
-    Zenpy client — Replit Zendesk connector first (OAuth, auto-refreshed),
-    falling back to env-var email/API-token auth. None when not live.
-    """
+    """Zenpy client — Replit Zendesk connector first (OAuth, auto-refreshed),
+    env-var email/API-token pair only as fallback. None when not live."""
     if not is_live("zendesk"):
         return None
     from server.services import zd_connector
@@ -67,335 +46,229 @@ def _get_client():
         return zd_connector.get_client()
     if ZENDESK_SUBDOMAIN and ZENDESK_API_TOKEN:
         from zenpy import Zenpy
-        return Zenpy(
-            subdomain=ZENDESK_SUBDOMAIN,
-            email=ZENDESK_EMAIL,
-            token=ZENDESK_API_TOKEN,
-        )
+        return Zenpy(subdomain=ZENDESK_SUBDOMAIN, email=ZENDESK_EMAIL,
+                     token=ZENDESK_API_TOKEN)
     return None
 
 
-async def get_timeline(booking_id: str, review_id: str = None) -> tuple[list, dict]:
+def _search_with_retry(_z, query: str):
+    """Run a Zendesk search; on 401, refresh the connector token and retry once."""
+    try:
+        return list(_z.search(query=query, type="ticket"))
+    except Exception as e:
+        from server.services import zd_connector
+        if zd_connector.is_auth_error(e) and zd_connector.available():
+            _z = zd_connector.retry_client_on_auth_error()
+            return list(_z.search(query=query, type="ticket"))
+        raise
+
+
+def get_custom_field(ticket, field_id: int):
+    """Value of a ticket custom field by ID, or None."""
+    for f in (getattr(ticket, "custom_fields", None) or []):
+        fid = f.get("id") if isinstance(f, dict) else getattr(f, "id", None)
+        if fid == field_id:
+            val = f.get("value") if isinstance(f, dict) else getattr(f, "value", None)
+            return val if val not in ("", None) else None
+    return None
+
+
+def _to_ist(dt) -> str:
+    """created_at -> '03 May 00:38 IST'."""
+    if dt is None:
+        return ""
+    if isinstance(dt, str):
+        try:
+            dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+        except ValueError:
+            return dt[:16]
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(IST).strftime("%d %b %H:%M IST")
+
+
+def _sort_key(dt):
+    if dt is None:
+        return datetime.max.replace(tzinfo=timezone.utc)
+    if isinstance(dt, str):
+        try:
+            dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+        except ValueError:
+            return datetime.max.replace(tzinfo=timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _clean_summary(body: str) -> str:
+    """Strip HTML + email signatures, truncate to 200 chars with an ellipsis."""
+    text = _TAG_RE.sub(" ", body or "")
+    text = _html.unescape(text)
+    text = _SIG_SPLIT_RE.split(text)[0]
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > 200:
+        text = text[:199].rstrip() + "…"
+    return text
+
+
+def _map_channel(via_channel: str) -> str:
+    if via_channel == "email":
+        return "email"
+    if via_channel in ("chat", "native_messaging", "web_widget"):
+        return "chat"
+    if via_channel == "voice":
+        return "call"
+    return "email"
+
+
+def _brand_matches(ticket, brand_env: str) -> bool:
+    if not brand_env:
+        return False
+    bid = getattr(ticket, "brand_id", None)
+    return str(bid) == str(brand_env).strip()
+
+
+def _detect_actor(comment_author_id, ticket, author_role: str,
+                  is_sp_ticket: bool, ticket_tags: list) -> str:
+    if any(t in ticket_tags for t in ZENDESK_BOT_TAGS):
+        return "ai"
+    if comment_author_id == getattr(ticket, "requester_id", None):
+        return "guest"
+    if is_sp_ticket:
+        return "sp"
+    if author_role in ("agent", "admin"):
+        return "co"
+    return "system"
+
+
+async def get_timeline(booking_id: str, review_id: str = None) -> tuple[list, dict, dict]:
     """
-    Returns (timeline, extracted_booking_fields).
+    Returns (timeline, extracted_booking_fields, meta).
 
-    timeline: chronological list of events, each with:
-        time, actor, actor_label, summary, public (bool), flag (optional),
-        ticket_id, is_sp
-
-    extracted_booking_fields: dict of booking data parsed from the first Zendesk comment.
-        Keys: tgid, tid, experienceName, visitDate, vid, vendorName, pax
-        Used as a fallback/supplement to BigQuery booking data.
+    timeline: chronological events shaped for the demo-v15 renderer:
+        {time, thread, actor, label, summary}
+    extracted_booking_fields: {tgid, tid, ticket_mail_seen} from custom fields/tags.
+    meta: {"ticket_ids": [str, ...], "timeline_raw": [str, ...]}  # raw bodies,
+          same length/order as timeline.
     """
     if not is_live("zendesk"):
         if review_id and review_id in MOCK_TIMELINES:
-            return MOCK_TIMELINES[review_id], {}
+            tl = MOCK_TIMELINES[review_id]
+            return tl, {}, {"ticket_ids": [], "timeline_raw": [""] * len(tl)}
         for rid, b in MOCK_BOOKINGS.items():
             if b.get("id") == booking_id:
-                return MOCK_TIMELINES.get(rid, []), {}
-        return [], {}
+                tl = MOCK_TIMELINES.get(rid, [])
+                return tl, {}, {"ticket_ids": [], "timeline_raw": [""] * len(tl)}
+        return [], {}, {"ticket_ids": [], "timeline_raw": []}
 
-    timeline = []
+    _z = _get_client()
+    if _z is None:
+        log.warning("[zendesk] no client available")
+        return [], {}, {"ticket_ids": [], "timeline_raw": []}
+
+    # ── Search: fieldvalue first, free-text fallback ─────────────────────────
+    tickets = _search_with_retry(_z, f"type:ticket fieldvalue:{booking_id}")
+    if tickets:
+        SEARCH_COUNTERS["fieldvalue"] += 1
+        log.info(f"[zendesk] fieldvalue: {len(tickets)} tickets for BID {booking_id}")
+    else:
+        tickets = _search_with_retry(_z, f'type:ticket "{booking_id}"')
+        if tickets:
+            SEARCH_COUNTERS["free_text"] += 1
+            log.info(f"[zendesk] free-text: {len(tickets)} tickets for BID {booking_id}")
+        else:
+            log.info(f"[zendesk] no tickets for BID {booking_id} (both search paths)")
+            return [], {}, {"ticket_ids": [], "timeline_raw": []}
+
+    # ── Extract booking fields from custom fields + tags ─────────────────────
     extracted = {}
+    ticket_mail_seen = False
+    for t in tickets:
+        if not extracted.get("tgid"):
+            v = get_custom_field(t, ZENDESK_TGID_FIELD)
+            if v:
+                extracted["tgid"] = str(v)
+        if not extracted.get("tid"):
+            v = get_custom_field(t, ZENDESK_TID_FIELD)
+            if v:
+                extracted["tid"] = str(v)
+        if "ticket_mail_seen" in (getattr(t, "tags", None) or []):
+            ticket_mail_seen = True
+    extracted["ticket_mail_seen"] = ticket_mail_seen
 
-    try:
-        _z = _get_client()
-        if _z is None:
-            log.warning("[ZD] No Zendesk client available")
-            return [], {}
+    # ── User role cache for actor detection ──────────────────────────────────
+    _role_cache: dict = {}
 
-        # ── Step 1: find tickets by booking ID custom field ──────────────────
-        query = f'type:ticket fieldvalue:"{booking_id}"'
+    def _role(author_id) -> str:
+        if author_id in _role_cache:
+            return _role_cache[author_id]
+        role = ""
         try:
-            tickets = list(_z.search(query=query, type="ticket"))
+            u = _z.users(id=author_id)
+            role = getattr(u, "role", "") or ""
+        except Exception:
+            pass
+        _role_cache[author_id] = role
+        return role
+
+    # ── Fetch comments per ticket (zenpy paginates), build events ────────────
+    events = []   # (sort_dt, event_dict, raw_body)
+    for ticket in tickets:
+        is_sp = bool(ZENDESK_BRAND_GUEST and ZENDESK_BRAND_SP
+                     and _brand_matches(ticket, ZENDESK_BRAND_SP))
+        tags = getattr(ticket, "tags", None) or []
+        try:
+            comments = list(_z.tickets.comments(ticket=ticket.id))
         except Exception as e:
-            # 401 recovery — connector token may have invalidated early;
-            # force a refresh, rebuild the client, retry once.
             from server.services import zd_connector
             if zd_connector.is_auth_error(e) and zd_connector.available():
-                _z = zd_connector.retry_client_on_auth_error()
-                tickets = list(_z.search(query=query, type="ticket"))
+                _z2 = zd_connector.retry_client_on_auth_error()
+                comments = list(_z2.tickets.comments(ticket=ticket.id))
             else:
-                raise
-        log.info(f"[ZD] booking {booking_id}: {len(tickets)} tickets by field search")
-
-        # ── Step 2: email fallback — catches chat tickets not tagged with booking ID ──
-        # Get requester email from the first ticket found, then search all their tickets
-        requester_email = None
-        if tickets:
-            first = tickets[0]
-            try:
-                requester = getattr(first, "requester", None)
-                if requester:
-                    requester_email = getattr(requester, "email", None)
-            except Exception:
-                pass
-
-        if requester_email:
-            email_query = f'type:ticket requester:"{requester_email}"'
-            email_tickets = list(_z.search(query=email_query, type="ticket"))
-            # Merge — add any tickets not already in the list
-            existing_ids = {t.id for t in tickets}
-            for t in email_tickets:
-                if t.id not in existing_ids:
-                    tickets.append(t)
-            log.info(f"[ZD] email fallback added {len(tickets) - len(existing_ids)} more tickets")
-
-        if not tickets:
-            log.info(f"[ZD] No tickets found for booking {booking_id}")
-            return [], {}
-
-        # ── Step 3: filter noise tickets ────────────────────────────────────
-        real_tickets = []
-        for t in tickets:
-            subject = (t.subject or "").lower()
-            if any(noise in subject for noise in NOISE_SUBJECTS):
-                log.debug(f"[ZD] skipping noise ticket #{t.id}: {t.subject}")
+                log.warning(f"[zendesk] comments fetch failed for ZD-{ticket.id}: {e}")
                 continue
-            real_tickets.append(t)
 
-        if not real_tickets:
-            log.info(f"[ZD] all tickets were noise for booking {booking_id}")
-            return [], {}
-
-        # ── Step 4: fetch all comments via Apps Script (one batched call) ────
-        ticket_ids = [t.id for t in real_tickets]
-        comments_by_ticket = await _fetch_comments_apps_script(ticket_ids)
-
-        # ── Step 5: build timeline ───────────────────────────────────────────
-        first_comment_parsed = False
-
-        for ticket in sorted(real_tickets, key=lambda t: str(t.created_at or "")):
-            is_sp = _is_sp_ticket(ticket)
-            label = "SP Ticket" if is_sp else f"Ticket #{ticket.id}"
-
-            # Ticket-open event
-            timeline.append({
-                "time":        _fmt(ticket.created_at),
-                "actor":       "sp" if is_sp else "system",
-                "actor_label": label,
-                "summary":     f"#{ticket.id} opened — {ticket.subject or '(no subject)'}",
-                "public":      True,
-                "ticket_id":   ticket.id,
-                "is_sp":       is_sp,
-            })
-
-            raw_comments = comments_by_ticket.get(str(ticket.id), [])
-
-            for i, comment in enumerate(raw_comments):
-                body      = (comment.get("body") or "").strip()
-                created   = comment.get("created_at", "")
-                via_ch    = (comment.get("via") or {}).get("channel", "")
-                is_public = comment.get("public", True)
-                author_name = ((comment.get("author") or {}).get("name") or "").lower()
-
-                # ── Drop pure system/automation channel events ──
-                # These are Zendesk internal triggers, not real interactions
-                if via_ch in ("rule", "system", "automation", "trigger"):
-                    continue
-
-                # ── Parse booking data from first system comment ──
-                # The first comment is always the auto-generated booking dump
-                if i == 0 and not first_comment_parsed and not is_sp:
-                    extracted = _parse_booking_from_comment(body)
-                    first_comment_parsed = True
-                    # Skip this comment from the timeline — it's system data, not an interaction
-                    continue
-
-                # ── Also skip other system-generated emails ──
-                # Booking confirmation, voucher emails etc. have no conversation value
-                if _is_system_email(body):
-                    continue
-
-                actor, actor_label = _classify_comment(
-                    via_ch, author_name, is_public, is_sp)
-                flag = _detect_flag(body)
-
-                timeline.append({
-                    "time":        _fmt_str(created),
-                    "actor":       actor,
-                    "actor_label": actor_label,
-                    "summary":     body,
-                    "public":      is_public,
-                    "ticket_id":   ticket.id,
-                    "is_sp":       is_sp,
-                    **({"flag": flag} if flag else {}),
-                })
-
-    except Exception as e:
-        log.exception(f"[ZD] Timeline build failed for {booking_id}: {e}")
-
-    # Sort chronologically
-    timeline.sort(key=lambda e: e.get("time", ""))
-    return timeline, extracted
-
-
-async def _fetch_comments_apps_script(ticket_ids: list) -> dict:
-    """
-    Calls the Google Apps Script endpoint which returns comments for all
-    ticket IDs in a single HTTP call.
-
-    Returns dict: { "ticket_id_str": [comment, ...] }
-
-    Falls back to direct Zendesk per-ticket calls if Apps Script fails.
-    """
-    if not APPS_SCRIPT_URL or not ticket_ids:
-        return _fetch_comments_direct(ticket_ids)
-
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                APPS_SCRIPT_URL,
-                json=ticket_ids,
-                headers={"Content-Type": "application/json"},
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                # Apps Script returns { comments: [ {ticket_id, body, ...} ] }
-                # Group by ticket_id
-                result = {}
-                comments_list = data if isinstance(data, list) else data.get("comments", [])
-                for c in comments_list:
-                    tid = str(c.get("ticket_id", ""))
-                    result.setdefault(tid, []).append(c)
-                log.info(f"[AppsScript] got comments for {len(result)} tickets")
-                return result
-            else:
-                log.warning(f"[AppsScript] HTTP {resp.status_code} — falling back to direct")
-    except Exception as e:
-        log.warning(f"[AppsScript] failed ({e}) — falling back to direct Zendesk calls")
-
-    return _fetch_comments_direct(ticket_ids)
-
-
-def _fetch_comments_direct(ticket_ids: list) -> dict:
-    """
-    Fallback: fetch comments from Zendesk directly, one ticket at a time.
-    Slower but always works when Apps Script is unavailable.
-    """
-    _z = _get_client()
-    if not _z:
-        return {}
-    result = {}
-    for tid in ticket_ids:
-        try:
-            from zenpy.lib.api_objects import Ticket
-            ticket = _z.tickets(id=tid)
-            comments = list(_z.tickets.comments(ticket=ticket))
-            result[str(tid)] = [
+        for c in comments:
+            body = getattr(c, "body", "") or getattr(c, "html_body", "") or ""
+            via_ch = getattr(getattr(c, "via", None), "channel", "") or ""
+            author_id = getattr(c, "author_id", None)
+            actor = _detect_actor(author_id, ticket, _role(author_id), is_sp, tags)
+            thread = "sp" if is_sp else _map_channel(via_ch)
+            actor_desc = {
+                "guest": "Guest wrote",
+                "co":    "CE responded to " + _map_channel(via_ch),
+                "sp":    "SP responded",
+                "ai":    "AI responded",
+                "system": "System event",
+            }[actor]
+            created = getattr(c, "created_at", None)
+            events.append((
+                _sort_key(created),
                 {
-                    "body":       c.body or "",
-                    "created_at": str(c.created_at) if c.created_at else "",
-                    "public":     c.public,
-                    "via":        {"channel": getattr(getattr(c, "via", None), "channel", "")},
-                    "author":     {"name": getattr(getattr(c, "author", None), "name", "")},
-                    "ticket_id":  tid,
-                }
-                for c in comments
-            ]
-        except Exception as e:
-            log.warning(f"[ZD] Could not fetch comments for ticket {tid}: {e}")
-    return result
+                    "time":    _to_ist(created),
+                    "thread":  thread,
+                    "actor":   actor,
+                    "label":   f"[ZD-{ticket.id}] {actor_desc}",
+                    "summary": _clean_summary(body),
+                },
+                body,
+            ))
 
+    events.sort(key=lambda e: e[0])
 
-def _parse_booking_from_comment(text: str) -> dict:
-    """
-    Parses the auto-generated first Zendesk comment (booking dump) using regex.
-    Returns whatever fields are found — used as a supplement to BigQuery data.
-    """
-    out = {}
-    m = _TGID_RE.search(text)
-    if m: out["tgid"] = m.group(1)
-    m = _TID_RE.search(text)
-    if m: out["tid"] = m.group(1)
-    m = _TNAME_RE.search(text)
-    if m: out["experienceName"] = m.group(1).strip()
-    m = _DATE_RE.search(text)
-    if m: out["visitDate"] = m.group(1)
-    m = _VID_RE.search(text)
-    if m: out["vid"] = m.group(1)
-    m = _VNAME_RE.search(text)
-    if m: out["vendorName"] = m.group(1).strip()
-    m = _PAX_RE.search(text)
-    if m: out["pax"] = m.group(1).strip()
-    return out
+    # ── Truncation: keep first 20 + last 20 if >40 comments ─────────────────
+    if len(events) > 40:
+        elided = len(events) - 40
+        placeholder = (
+            events[19][0],
+            {"time": "", "thread": "email", "actor": "system",
+             "label": f"[{elided} comments elided]", "summary": ""},
+            "",
+        )
+        events = events[:20] + [placeholder] + events[-20:]
 
+    timeline = [e[1] for e in events]
+    timeline_raw = [e[2] for e in events]
+    ticket_ids = [str(t.id) for t in tickets]
 
-def _is_system_email(body: str) -> bool:
-    """
-    Returns True for system-generated emails that have no conversation value
-    (booking confirmations, vouchers, ticket emails etc.)
-    These appear as public comments but are outbound automated emails.
-    """
-    lower = body.lower()
-    system_markers = [
-        "votre réservation est en cours",   # French booking processing
-        "your booking is being processed",
-        "votre réservation est confirmée",
-        "your booking is confirmed",
-        "ceci n'est pas votre billet",
-        "this is not your ticket",
-        "accédez à vos billets",
-        "access your tickets",
-        "headout inc., 82 nassau",           # email footer
-        "politique d'annulation",            # cancellation policy block
-        "cancellation policy",
-    ]
-    return any(m in lower for m in system_markers)
-
-
-def _is_sp_ticket(ticket) -> bool:
-    """Detect supply-partner tickets by brand name or tags."""
-    brand_obj  = getattr(ticket, "brand", None)
-    brand_name = str(getattr(brand_obj, "name", brand_obj) or "").lower() if brand_obj else ""
-    if any(w in brand_name for w in ["supply", "partner", "sp", "ops", "vendor"]):
-        return True
-    tags = getattr(ticket, "tags", []) or []
-    return any(t in tags for t in ["sp", "supply_partner", "operator", "vendor"])
-
-
-def _classify_comment(via_channel: str, author_name: str,
-                       is_public: bool, is_sp_ticket: bool) -> tuple[str, str]:
-    """
-    Returns (actor_key, actor_label).
-    actor_key: guest | co | sp | system
-    """
-    # Minded AI / automation agents
-    if any(bot in author_name for bot in BOT_AGENT_NAMES):
-        return "system", "Minded AI"
-
-    # Public comment from a non-agent = guest
-    if is_public and via_channel in ("email", "web", "chat", ""):
-        # Heuristic: if the author name looks like a Headout agent, mark as CO
-        headout_markers = ["headout", "support", "team", "agent"]
-        if any(m in author_name for m in headout_markers):
-            return "co", "CO Agent"
-        return "guest", "Guest"
-
-    # Internal note or outbound agent comment
-    if is_sp_ticket:
-        return "sp", "Supply Partner"
-    return "co", "CO Agent"
-
-
-def _detect_flag(text: str) -> str | None:
-    lower = text.lower()
-    for label, keywords in FLAG_RULES.items():
-        if any(kw in lower for kw in keywords):
-            return label
-    return None
-
-
-def _fmt(dt) -> str:
-    if dt is None:
-        return ""
-    if hasattr(dt, "strftime"):
-        return dt.strftime("%Y-%m-%d %H:%M")
-    return str(dt)[:16]
-
-
-def _fmt_str(s: str) -> str:
-    if not s:
-        return ""
-    # ISO 8601 → "YYYY-MM-DD HH:MM"
-    return s[:16].replace("T", " ")
+    return timeline, extracted, {"ticket_ids": ticket_ids, "timeline_raw": timeline_raw}

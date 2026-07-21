@@ -84,8 +84,28 @@ def parse_review(event: dict) -> dict:
             stars = a.get("text", "").count("★")
             if stars: break
 
-    # Extract booking ID if reviewer typed it
-    ref_match = re.search(r'\b\d{8}\b', text)
+    # ── Booking ID extraction: attachment-first, regex fallback ─────────────
+    # Trustpilot's Slack integration posts attachments with a "reference" field.
+    from server.taxonomy import BID_REGEX
+    booking_id = None
+    for att in event.get("attachments", []):
+        for field in att.get("fields", []):
+            title = (field.get("title") or "").lower()
+            if "reference" in title and field.get("value"):
+                booking_id = str(field["value"]).strip()
+                break
+        if booking_id:
+            break
+    if booking_id:
+        log.info("[extract] attachment: booking id from reference field")
+    else:
+        search_text = text
+        for att in event.get("attachments", []):
+            search_text += " " + (att.get("text") or "") + " " + (att.get("fallback") or "")
+        m = re.search(BID_REGEX, search_text)
+        if m:
+            booking_id = m.group(0)
+            log.info("[extract] regex: booking id from message text")
 
     # Best-effort author from bold text in first block
     author = None
@@ -107,7 +127,7 @@ def parse_review(event: dict) -> dict:
         "language":        "en",
         "author":          author or "Unknown",
         "body_original":   body,
-        "reference_number": ref_match.group(0) if ref_match else None,
+        "reference_number": booking_id,
         "raw_payload":     event,
     }
 

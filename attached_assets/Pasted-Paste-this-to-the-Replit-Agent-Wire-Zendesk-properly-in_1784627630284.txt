@@ -1,0 +1,175 @@
+Paste this to the Replit Agent
+Wire Zendesk properly into the RCA pipeline. Zendesk is auth'd via the Replit Connector already (OAuth as tanuj.bhagat@headout.com) — do NOT introduce raw API-token auth code. This brief covers the data path, the timeline shape, dedupe, and BID extraction. Do not touch classification code.
+
+1. server/services/zendesk.py::get_timeline(bid) — search + timeline
+Search query. Try Zendesk's fieldvalue: operator first (searches all custom fields at once — no field ID needed), fall back to free-text on zero results:
+
+# Try 1: fieldvalue search — hits any custom field containing the BID
+q1 = f'type:ticket fieldvalue:{bid}'
+# Try 2 (fallback): free-text
+q2 = f'type:ticket "{bid}"'
+Endpoint: GET https://headout.zendesk.com/api/v2/search.json?query=<...> via the connector's client. Log which path returned results.
+
+Custom field IDs — extract from each returned ticket (confirmed from the 2024 Retool workflow, no admin ask needed):
+
+ZENDESK_TGID_FIELD = 360024198092
+ZENDESK_TID_FIELD  = 360024232711
+Use a get_custom_field(ticket, field_id) helper. Attach to booking as booking.tgid and booking.tid if not already set.
+
+No ZENDESK_BOOKING_FIELD_ID is known. Do not require it. fieldvalue: doesn't need it.
+
+For each ticket returned:
+
+Fetch all comments: GET /api/v2/tickets/<ticket_id>/comments.json, paginate if >100.
+Include public comments AND private notes.
+Read the ticket's tags array — set booking.ticket_mail_seen: bool if the tag ticket_mail_seen is present. (Real Headout diagnostic signal from the 2024 workflow.)
+Channel mapping (Zendesk via.channel → our type):
+
+email → email
+chat, native_messaging, web_widget → chat
+voice → call
+anything else → email
+Brand handling:
+
+Read ZENDESK_BRAND_GUEST and ZENDESK_BRAND_SP from env.
+If both set: guest-brand tickets → guest timeline; SP-brand → SP timeline (draft.sp_interaction_frames).
+If unset: all tickets → guest timeline; SP timeline stays empty. Do not fail.
+Multi-ticket handling:
+
+Merge chronologically into one timeline.
+Prepend [ZD-<ticket_id>] to each event's label.
+Store zendesk_ticket_ids: list[str] on the RcaDraft (add column if not present, IF NOT EXISTS).
+Timeline event shape (matches demo v15's renderer):
+
+{
+  "time":    "03 May 00:38 IST",       # comment.created_at, converted to IST
+  "thread":  "chat" | "email" | "call" | "sp",
+  "actor":   "guest" | "co" | "sp" | "ai" | "system",
+  "label":   "[ZD-30994882] CE responded to email",
+  "summary": "First 1-2 sentences of comment body, plain text, ≤200 chars",
+}
+Actor detection:
+
+comment.author_id == ticket.requester_id → guest
+Comment from a role: agent user → co
+Comment on an SP-brand ticket → sp
+Ticket tag contains minded_ai (or a bot tag — accept a list from env ZENDESK_BOT_TAGS, default ["minded_ai"]) → ai
+Otherwise → system
+Body cleaning for summary:
+
+Strip HTML.
+Strip email signatures after -- or Best regards (whichever appears first).
+Truncate to 200 chars with ….
+Keep the raw body available on the draft (new field timeline_raw — same length as timeline) for later full-comment view.
+Truncation:
+
+If total comment count > 40, keep first 20 + last 20, insert one placeholder event { "label": "[N comments elided]", "summary": "" } between them.
+Failure handling:
+
+Wrap the Zendesk fetch in try/except inside pipeline.py (existing pattern). On failure, log a warning and continue with timeline = []. Pipeline must never break on Zendesk.
+2. Slack dedupe + attachment-first BID extraction (in server/webhook.py)
+A. Event dedupe. Add table:
+
+CREATE TABLE IF NOT EXISTS slack_events_seen (
+  event_id  VARCHAR PRIMARY KEY,
+  seen_at   TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_slack_events_seen_at ON slack_events_seen(seen_at);
+Before processing any event_callback, look up event.event_id in the last 24h. If seen, ack 200 immediately and skip. If new, insert and continue.
+
+B. Booking-level dedupe. If a booking_id already has an active draft (Review.status IN ('new','draft','sent')), skip creating a duplicate. Log the skip. Same booking shouldn't spawn multiple RCAs from different Slack events (e.g. edit/re-post of the same Trustpilot message).
+
+C. Attachment-first BID extraction. Trustpilot's Slack integration posts as attachments with a "reference"-titled field. Change the extractor to try attachments first, regex second:
+
+booking_id = None
+# Step 1: attachments
+for att in event.get('attachments', []):
+    for field in att.get('fields', []):
+        title = (field.get('title') or '').lower()
+        if 'reference' in title and field.get('value'):
+            booking_id = field['value'].strip()
+            break
+    if booking_id:
+        break
+# Step 2: regex fallback on text + attachment text/fallback
+if not booking_id:
+    text = event.get('text', '') or ''
+    for att in event.get('attachments', []):
+        text += ' ' + (att.get('text') or '') + ' ' + (att.get('fallback') or '')
+    m = re.search(BID_REGEX, text)   # keep existing \b\d{7,12}\b — safer than 2024's \b\d{6,}\b
+    if m:
+        booking_id = m.group(0)
+Do NOT loosen BID_REGEX — the 2024 \b\d{6,}\b over-matches on dates, prices, unrelated IDs.
+
+3. Claude summarisation — weDid / guestReply / gap (new)
+The dashboard renders each timeline event as a frame with guestSaid / weDid / guestReply / gap. Zendesk gives us the raw comment. Add a Claude summariser.
+
+New prompt in server/prompts.py::support_event_prompt(event, prev_event, next_event) -> str. Rules embedded verbatim:
+
+Neutral tone, facts only, no adopting or defending the guest's framing.
+Do not fabricate. If a comment says nothing actionable, weDid = "No CE action on this thread" — don't invent.
+Do not invent handles or timestamps. Use [placeholder] if a name/time is needed and unknown.
+gap must be one of GAP_TAXONOMY values from taxonomy.py, or an empty string. Values are: "Minded AI wrong canned response", "Minded AI missed escalation trigger", "CE delay — no action within SLA", "CE escalation missing", "Wrong policy applied", "SP not looped in", "Chargeback initiated", "TAT breach".
+Support-failure-supersedes rule: if the underlying issue is external (weather/FM) but the CE mishandled the response, tag the gap on the CE side, not on the external event.
+Output strict JSON: {"guestSaid": "...", "weDid": "...", "guestReply": "...", "gap": "..."}.
+New function server/services/claude.py::summarise_support_event(event, prev, next_) -> dict. Same pattern as existing Claude calls: use _call(), JSON-parse with the existing sanitizer, return {} on failure.
+
+Wire into pipeline in pipeline.py as new step 7b (right after Zendesk step 7, before insights):
+
+frames = []
+for i, ev in enumerate(timeline):
+    prev_ = timeline[i-1] if i > 0 else None
+    next_ = timeline[i+1] if i+1 < len(timeline) else None
+    try:
+        frame = await claude.summarise_support_event(ev, prev_, next_)
+        frames.append({**ev, **frame})   # merge raw event + summary fields
+    except Exception:
+        frames.append({**ev, "guestSaid":"", "weDid":"", "guestReply":"", "gap":""})
+draft.support_interaction_frames = frames
+Also produce a paragraph rollup for draft.support_summary — one more Claude call after the loop that takes all frames and returns 2–3 sentences summarising the support arc. Keep it neutral, no fabrication.
+
+Persist support_interaction_frames (JSON) and support_summary (text) on the RcaDraft. Both columns already exist on db.py::RcaDraft. _draft_dict() already returns them.
+
+4. Environment / connector notes
+Zendesk auth: use the Replit Connector. Do not add token-based paths as the primary. If the connector ever disconnects and env vars are set as a fallback, that path can stay in the code, but the primary is the connector. is_live("zendesk") already reflects this correctly.
+Optional env vars if you want the fallback path or brand filtering: ZENDESK_SUBDOMAIN=headout, ZENDESK_EMAIL, ZENDESK_API_TOKEN, ZENDESK_BRAND_GUEST, ZENDESK_BRAND_SP, ZENDESK_BOT_TAGS.
+Do not hardcode any Vishnu-era token. If you find one anywhere in the tree, replace it with a [REDACTED — rotated] marker and log a warning.
+5. Verify
+Once code is in, restart the Repl (leave MOCK_MODE=true for now) and:
+
+Post a manual review with a real BID:
+curl -X POST http://localhost:5000/api/reviews/manual \
+  -H "Content-Type: application/json" \
+  -d '{"body":"Test review reference 30837082","rating":1,"author":"Test User","reference_number":"30837082"}'
+Confirm on the returned draft:
+draft.zendesk_ticket_ids non-empty
+draft.timeline has real events with IST timestamps
+draft.support_interaction_frames — each has guestSaid/weDid/guestReply/gap
+draft.support_summary — 2–3 sentence paragraph
+draft.booking.ticket_mail_seen — bool
+draft.booking.tgid and draft.booking.tid populated (from custom fields)
+Test dedupe:
+Post the same Slack event twice → second silently skipped (event_id dedupe, log line)
+Post different Slack event for same BID → second skipped (booking-level dedupe, log line)
+Report counters after 10 test BIDs:
+[zendesk] fieldvalue: N tickets vs [zendesk] free-text: N tickets
+[extract] attachment: N vs [extract] regex: N
+Tests: python -m tests.test_classifier_validators (23/23) and python -m tests.test_classification_accuracy (14/14 mock) must stay green.
+6. Deliverable
+Zip of only the files you changed + a table:
+
+Check	Status	Notes
+get_timeline uses fieldvalue-first search		
+tgid/tid from custom fields		
+ticket_mail_seen tag surfaced		
+brand filter (or bypass)		
+slack event dedupe		
+booking-level dedupe		
+attachment-first BID extraction		
+support_interaction_frames populated		
+support_summary populated		
+both test suites green		
+fieldvalue vs free-text hit counts (10 BIDs)		
+attachment vs regex hit counts		
+Do NOT touch classifier.py, taxonomy.py, prompts.py::classification_prompt(), or any dashboard-column-3 code. This delta is Zendesk data + support summarisation only.
+
