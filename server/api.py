@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from server.db import get_session, Review, RcaDraft, ReviewMetric
 from server.taxonomy import L1_CATEGORIES, L2_OPTIONS, DIAGNOSTIC_CHECKS, ACTION_TABS, SUB_THEME_REGISTRY
 from server.config import status_summary, is_live, MOCK_MODE
-from server.services.slack import post_to_thread
+from server.services.slack import format_rca_slack, post_to_thread
 from server.services.claude import flag_to_biz_message
 from server.services.bigquery_patch import get_similar_complaints
 from server.services import dss as dss_svc
@@ -557,13 +557,17 @@ async def send_review(review_id: str, db: Session = Depends(get_session)):
 
     d.sent_at = datetime.utcnow()
     r.status  = "sent"
+    ts = None
+    if r.slack_channel != "C_MANUAL":
+        rca_text = format_rca_slack(r, d)
+        ts = await post_to_thread(r.slack_channel, r.slack_ts, rca_text, as_user=True)
     m = db.query(ReviewMetric).filter(ReviewMetric.review_id == review_id).first()
     if m:
         if r.received_at:
             m.minutes_to_send = (datetime.utcnow() - r.received_at).total_seconds() / 60
         m.sent = True
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "ts": ts}
 
 
 @router.get("/api/reporting")

@@ -150,65 +150,146 @@ async def post_to_thread(channel: str, thread_ts: str, text: str,
 
 
 def format_rca_slack(review, draft) -> str:
-    """Format the RCA draft into the Headout Slack format."""
-    f = draft.rca_fields or {}
-    b = draft.booking or {}
-    signals = draft.signals or []
+    """
+    Format the RCA draft into the Headout Slack thread post.
+    Pulls from v3-pipeline columns. NEVER includes guest response copy.
+    """
+    b   = draft.booking or {}
     div = "_" * 61
-    nl = "\n"
+    nl  = "\n"
 
-    sig_block = ""
-    if signals:
-        sig_block = f"{div}{nl}*Signals*{nl}" + nl.join(f"• {s}" for s in signals) + nl
+    # ── Classification ────────────────────────────────────────────────────────
+    l1        = draft.l1 or "—"
+    l2        = draft.l2 or "—"
+    sub_theme = draft.sub_theme or ""
+    issue_line = f"{l1} / {l2}" + (f" / {sub_theme}" if sub_theme else "")
 
-    return f"""*Case Facts* @reviewteam 
+    tldr          = draft.tldr or draft.stated_issue or "—"
 
-*Query/Issue Type:*
-{f.get('queryIssueType', '')}
+    # ── What went wrong ───────────────────────────────────────────────────────
+    wwb  = draft.what_went_wrong_bullets or []
+    wwb_text = nl.join(f"• {b_}" for b_ in wwb) if wwb else "—"
+
+    wwr  = draft.wwr_chain or []
+    wwr_text = ""
+    if wwr:
+        wwr_text = (
+            f"{nl}*Root cause chain:*{nl}"
+            + nl.join(
+                f"  {s['step']}. *{s.get('what','')}* — {s.get('why','')}"
+                for s in wwr
+            )
+        )
+
+    # ── Checklist answers ─────────────────────────────────────────────────────
+    ca = draft.checklist_answers or []
+    checklist_text = ""
+    if ca:
+        from collections import defaultdict
+        by_section = defaultdict(list)
+        for item in ca:
+            by_section[item.get("section", "other")].append(item)
+        parts = []
+        for section in ["ce", "ro"] + [k for k in by_section if k not in ("ce", "ro")]:
+            items = by_section.get(section)
+            if not items:
+                continue
+            label = {"ce": "CE Errors", "ro": "RO Errors"}.get(section, section)
+            parts.append(f"*{label}*")
+            for it in items:
+                chk = it.get("item") or it.get("check", "")
+                ans = it.get("answer", "?")
+                ev  = it.get("evidence", "")
+                ev_part = f" ({ev})" if ev and ev != "not present in ticket or booking data" else ""
+                parts.append(f"• [{section.upper()}] {chk} → *{ans}*{ev_part}")
+        checklist_text = nl.join(parts)
+
+    # ── Support interactions ───────────────────────────────────────────────────
+    support_summary = draft.support_summary or "—"
+    sp_frames = draft.sp_interaction_frames or []
+    sp_text = ""
+    if sp_frames:
+        sp_text = (
+            f"{nl}*SP interactions:*{nl}"
+            + nl.join(
+                f"• {fr.get('time','?')} — {fr.get('summary','')}" +
+                (f" | comp: {fr['comp']}" if fr.get("comp") else "")
+                for fr in sp_frames
+            )
+        )
+
+    # ── Area of improving ─────────────────────────────────────────────────────
+    aoi = draft.area_of_improving or []
+    aoi_text = nl.join(f"• {a}" for a in aoi) if aoi else "—"
+
+    # ── Actions taken ─────────────────────────────────────────────────────────
+    at = draft.actions_taken or {}
+    actions_parts = []
+    for team in ("sp", "ce", "customer", "business", "product"):
+        items = at.get(team) or []
+        if items:
+            for item in items:
+                if isinstance(item, dict):
+                    desc = item.get("with") or item.get("context") or str(item)
+                    handle = item.get("handle", "")
+                    actions_parts.append(f"• [{team.upper()}] {desc}" + (f" — {handle}" if handle else ""))
+                else:
+                    actions_parts.append(f"• [{team.upper()}] {item}")
+    actions_text = nl.join(actions_parts) if actions_parts else "—"
+
+    # ── Insights ──────────────────────────────────────────────────────────────
+    ins = draft.insights or {}
+    insights_parts = []
+    if ins.get("similar_review_count") is not None:
+        insights_parts.append(f"*Similar reviews (same VID):* {ins['similar_review_count']}")
+    if ins.get("total_review_count") is not None:
+        insights_parts.append(f"*Total reviews (same VID):* {ins['total_review_count']}")
+    if ins.get("similar_support_count") is not None:
+        insights_parts.append(f"*Similar support queries:* {ins['similar_support_count']}")
+    if ins.get("avg_rating") is not None:
+        insights_parts.append(f"*Avg rating (VID):* {ins['avg_rating']}")
+    if ins.get("completion_rate") is not None:
+        insights_parts.append(f"*Completion rate (VID):* {ins['completion_rate']}")
+    insights_text = nl.join(insights_parts) if insights_parts else "—"
+
+    return f"""*RCA — @reviewteam*
+
+*Issue:* {issue_line}
+*TL;DR:* {tldr}
 {div}
 *Booking Details*
 
 Booking ID: {b.get('id', '—')}
-Experience Name: {b.get('experienceName', '—')}
-TGID: {b.get('tgid', '—')}
-TID: {b.get('tid', '—')}
-Date of Booking: {b.get('bookedOn', '—')}
-Date of Visit: {b.get('visitDate', '—')}
-Supply Partner Name: {b.get('partner', '—')}
+Experience: {b.get('experienceName', '—')}
+TGID / TID: {b.get('tgid', '—')} / {b.get('tid', '—')}
+Date of booking: {b.get('bookedOn', '—')}
+Date of visit: {b.get('visitDate', '—')}
+Supply partner: {b.get('partner', '—')}
 {div}
-*Case Details*
+*What went wrong*
 
-*What went wrong:*
-{f.get('whatWentWrong', '')}
+{wwb_text}{wwr_text}
+{div}
+*Diagnostic checks*
 
-*Customer interaction with CO:*
-{f.get('customerInteractionCO', '')}
+{checklist_text or '—'}
+{div}
+*Customer / CE interactions*
 
-*SP's Issue/Interaction:*
-{f.get('spIssueInteraction', 'None')}
+{support_summary}{sp_text}
+{div}
+*Area of improving*
 
-*Area of Improving:*
-{f.get('areaOfImproving', '')}
+{aoi_text}
+{div}
+*Solution offered*
 
-*Solution Offered:*
-{f.get('solutionOffered', '')}
+{draft.resolution or '—'}
+{div}
+*Actions raised*
 
-*Follow-up needed?*
-{f.get('followUpNeeded', 'No')}
-
-*Review Takedown Sent?*
-{f.get('reviewTakedownSent', 'Yes')}
-{sig_block}{div}
-*Raised with the team responsible?*
-{f.get('raisedTeam1', 'NA')}
-
-*Raised with second team?*
-{f.get('raisedTeam2', '')}
+{actions_text}
 {div}
 *Insights*
 
-*Bookings Impacted:* {f.get('bookingsImpacted', '')}
-*Similar Queries:* {f.get('similarQueries', '')}
-*Avg Rating:* {f.get('avgRating', '')}
-*Does DSS cover this?* {f.get('dssCovers', 'Yes')}
-*Other comments:* {f.get('otherComments', '')}"""
+{insights_text}"""

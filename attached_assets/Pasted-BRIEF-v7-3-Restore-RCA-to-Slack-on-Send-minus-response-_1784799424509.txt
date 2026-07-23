@@ -1,0 +1,36 @@
+BRIEF v7.3 — Restore RCA-to-Slack on Send (minus response copy) + rebuild formatter from v3 + test setup
+
+1. Restore the Slack post in api.py::send_review (undo v7.1 Part 5). On Send:
+
+d.sent_at = datetime.utcnow()
+r.status  = "sent"
+# Post the RCA to the thread — but NOT for manual test reviews (no real thread exists)
+ts = None
+if r.slack_channel != "C_MANUAL":
+    rca_text = format_rca_slack(r, d)
+    ts = await post_to_thread(r.slack_channel, r.slack_ts, rca_text, as_user=True)
+# metrics: minutes_to_send, m.sent = True
+db.commit()
+return {"ok": True, "ts": ts}
+The != "C_MANUAL" guard mirrors the pipeline's existing guard (pipeline.py:623): real reviews post the RCA to their thread on Send; manually-added test reviews just get marked sent (there's no real thread to post to). This is what lets you test freely with MOCK_MODE off without Slack errors.
+
+2. Rebuild format_rca_slack from the v3 structured fields, not draft.rca_fields. Pull from the columns the v3 pipeline actually populates:
+
+Booking: draft.booking → BID, experience, TGID, TID, dates, partner (unchanged)
+Issue: draft.tldr / draft.stated_issue, draft.l1 / draft.l2 / draft.sub_theme
+What went wrong: draft.what_went_wrong_bullets (bulleted) + draft.wwr_chain
+Diagnostic checks: draft.checklist_answers — render each as • [section] check → answer (evidence), grouped by CE / RO / scenario
+Interactions: draft.support_summary + draft.sp_interaction_frames summaries
+Area of improving: draft.area_of_improving
+Solution: draft.resolution
+Actions raised: draft.actions_taken (sp/customer/business/product/ce)
+Insights: draft.insights
+EXCLUDE: draft.final_response / draft.suggested_response — the guest response copy never goes in this post.
+3. Keep the "Copy response" button (correct as-is). Flow: associate verifies/edits the RCA on the dashboard → clicks Send (posts the RCA to the Slack thread) → clicks Copy response → pastes the guest reply into the Trustpilot reply box in Slack manually.
+
+Guardrails: MOCK_MODE unchanged by this brief. No deploy. Response copy stays out of the Slack post. Manual (C_MANUAL) reviews never post to Slack.
+
+Then — to start testing BQ + Zendesk for real:
+
+Set MOCK_MODE=false in Replit Secrets.
+Open /healthz — confirm "bigquery": true and "zendesk": true. If either is false, that connector isn't authorized yet — fix that first.
