@@ -19,9 +19,10 @@ from server.taxonomy import support_tags_for
 
 log = logging.getLogger(__name__)
 
-_REVIEWS_TABLE  = "headout-analytics.analytics_reporting.fct_reviews"
-_BOOKINGS_TABLE = "headout-analytics.analytics_reporting.fct_bookings"
-_SUPPORT_TABLE  = "headout-analytics.analytics_reporting.fct_support_queries"
+_REVIEWS_TABLE      = "headout-analytics.analytics_reporting.fct_reviews"
+_BOOKINGS_TABLE     = "headout-analytics.analytics_reporting.fct_bookings"
+_SUPPORT_TABLE      = "headout-analytics.analytics_reporting.fct_support_queries"
+_FULFILMENTS_TABLE  = "headout-analytics.analytics_reporting.fct_fulfilments"
 
 
 def _zero_result(l2: str | None) -> dict:
@@ -35,6 +36,10 @@ def _zero_result(l2: str | None) -> dict:
         "escalation":                  False,
         "rating_15d": {"avg": None, "n": 0},
         "rating_30d": {"avg": None, "n": 0},
+        "vid_completion_rate":         None,
+        "vidCompletionRate":           "N/A",
+        "same_day_same_vid":           None,
+        "sameDaySameVidIssues":        "N/A",
         "_computed_for_l2": l2,
         "_computed_at":     datetime.now(timezone.utc).isoformat(),
     }
@@ -51,11 +56,12 @@ async def _run(sql: str, params: dict) -> list:
 
 async def get_insights(booking: dict, l1: str | None, l2: str | None) -> dict:
     """
-    Run 5 BQ queries in parallel and return the insights dict.
+    Run 7 BQ queries in parallel and return the insights dict.
     Returns zeros/nulls immediately if tid/vid are missing or BQ is not live.
     """
-    tid = str(booking.get("tid") or "").strip()
-    vid = str(booking.get("vid") or "").strip()
+    tid        = str(booking.get("tid") or "").strip()
+    vid        = str(booking.get("vid") or "").strip()
+    visit_date = str(booking.get("visitDate") or "").strip()
 
     if not tid or not vid:
         log.warning("[insights] tid or vid missing — returning zeros")
@@ -119,17 +125,46 @@ WHERE r.rating IS NOT NULL
 
     base_params = {"tid": tid, "vid": vid}
 
+    # ── Query F: VID completion rate (last 28 days) ───────────────────────────
+    sql_f = f"""
+SELECT
+  COUNTIF(f.fulfilment_type NOT IN ('FAILED','UNFULFILLED','CANCELLED')) AS completed,
+  COUNT(*) AS total
+FROM `{_BOOKINGS_TABLE}` b
+LEFT JOIN `{_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
+WHERE b.vendor_id = @vid
+  AND DATE(b.experience_date) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 28 DAY) AND CURRENT_DATE()
+"""
+
+    # ── Query G: same-day same-VID fulfilment issues ──────────────────────────
+    sql_g = f"""
+SELECT
+  COUNTIF(f.fulfilment_type IN ('FAILED','UNFULFILLED','CANCELLED')) AS issues,
+  COUNT(*) AS total
+FROM `{_BOOKINGS_TABLE}` b
+LEFT JOIN `{_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
+WHERE b.vendor_id = @vid
+  AND DATE(b.experience_date) = @vd
+"""
+
+    has_visit_date = bool(visit_date)
+    coro_f = _run(sql_f, {"vid": vid}) if has_visit_date else asyncio.sleep(0)
+    coro_g = (_run(sql_g, {"vid": vid, "vd": ("DATE", visit_date)})
+              if has_visit_date else asyncio.sleep(0))
+
     # ── Build queries C (support) depending on tag spec ───────────────────────
     skip_ac = tags_spec is None  # no framework for this L2
 
     if skip_ac:
-        # No tag mapping — skip A + C, still run B + D + E
+        # No tag mapping — skip A + C, still run B + D + E + F + G
         coros = [
             asyncio.sleep(0),       # A placeholder
             _run(sql_b, base_params),
             asyncio.sleep(0),       # C placeholder
             _run(sql_d, base_params),
             _run(sql_e, base_params),
+            coro_f,
+            coro_g,
         ]
     elif isinstance(tags_spec, list):
         # Exact-tag variant C
@@ -150,6 +185,8 @@ WHERE b.tour_id = @tid AND b.vendor_id = @vid
             _run(sql_c, params_c),
             _run(sql_d, base_params),
             _run(sql_e, base_params),
+            coro_f,
+            coro_g,
         ]
     else:
         # LIKE-any variant C (Content L2)
@@ -174,6 +211,8 @@ WHERE b.tour_id = @tid AND b.vendor_id = @vid
                 _run(sql_c_like, params_c_like),
                 _run(sql_d, base_params),
                 _run(sql_e, base_params),
+                coro_f,
+                coro_g,
             ]
         else:
             coros = [
@@ -182,6 +221,8 @@ WHERE b.tour_id = @tid AND b.vendor_id = @vid
                 asyncio.sleep(0),
                 _run(sql_d, base_params),
                 _run(sql_e, base_params),
+                coro_f,
+                coro_g,
             ]
             skip_ac = True
 
@@ -204,6 +245,8 @@ WHERE b.tour_id = @tid AND b.vendor_id = @vid
     sim_sup   = 0 if skip_ac else _count(results[2])
     tot_sup   = _count(results[3])
     e_rows    = results[4] if isinstance(results[4], list) else []
+    f_rows    = results[5] if isinstance(results[5], list) else []
+    g_rows    = results[6] if isinstance(results[6], list) else []
 
     def _safe_div(n, d) -> float:
         return round(n / d, 4) if d else 0.0
@@ -224,6 +267,31 @@ WHERE b.tour_id = @tid AND b.vendor_id = @vid
         avg_15d = float(avg_15d) if avg_15d is not None else None
         avg_30d = float(avg_30d) if avg_30d is not None else None
 
+    # ── Query F results: VID completion rate ──────────────────────────────────
+    vid_completion_rate = None
+    vid_completion_rate_str = "N/A"
+    if has_visit_date and f_rows and not isinstance(f_rows[0], Exception):
+        def _fld2(r, k):
+            return getattr(r, k, None) if not isinstance(r, dict) else r.get(k)
+        fr = f_rows[0]
+        f_completed = int(_fld2(fr, "completed") or 0)
+        f_total     = int(_fld2(fr, "total") or 0)
+        if f_total:
+            vid_completion_rate     = round(f_completed / f_total, 3)
+            vid_completion_rate_str = f"{vid_completion_rate * 100:.1f}%"
+
+    # ── Query G results: same-day same-VID ───────────────────────────────────
+    same_day_same_vid     = None
+    same_day_same_vid_str = "N/A"
+    if has_visit_date and g_rows and not isinstance(g_rows[0], Exception):
+        def _fld3(r, k):
+            return getattr(r, k, None) if not isinstance(r, dict) else r.get(k)
+        gr = g_rows[0]
+        g_issues = int(_fld3(gr, "issues") or 0)
+        g_total  = int(_fld3(gr, "total") or 0)
+        same_day_same_vid     = {"issues": g_issues, "total": g_total}
+        same_day_same_vid_str = f"{g_issues} of {g_total}"
+
     out = {
         "similar_reviews_30d":         sim_rev,
         "total_reviews_30d":           tot_rev,
@@ -234,6 +302,10 @@ WHERE b.tour_id = @tid AND b.vendor_id = @vid
         "escalation":                  escalation,
         "rating_15d": {"avg": avg_15d, "n": n_15d or 0},
         "rating_30d": {"avg": avg_30d, "n": n_30d or 0},
+        "vid_completion_rate":         vid_completion_rate,
+        "vidCompletionRate":           vid_completion_rate_str,
+        "same_day_same_vid":           same_day_same_vid,
+        "sameDaySameVidIssues":        same_day_same_vid_str,
         "_computed_for_l2": l2,
         "_computed_at":     datetime.now(timezone.utc).isoformat(),
     }
@@ -242,6 +314,7 @@ WHERE b.tour_id = @tid AND b.vendor_id = @vid
         f"[insights] tid={tid} vid={vid} l2={l2!r} "
         f"similar_reviews={sim_rev}/{tot_rev} similar_queries={sim_sup}/{tot_sup} "
         f"ratio_r={review_ratio} ratio_s={support_ratio} "
-        f"rating_15d={avg_15d} rating_30d={avg_30d} escalation={escalation}"
+        f"rating_15d={avg_15d} rating_30d={avg_30d} escalation={escalation} "
+        f"completion={vid_completion_rate_str} sameday={same_day_same_vid_str}"
     )
     return out

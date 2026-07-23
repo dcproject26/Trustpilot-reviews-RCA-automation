@@ -2464,6 +2464,19 @@ function renderReviewCol() {
               </div>
               <div class="insight-tile-sub">ratio &gt; 15%</div>
             </div>
+            <div class="insight-tile ${li.vid_completion_rate != null && li.vid_completion_rate < 0.85 ? 'red' : li.vid_completion_rate == null ? 'grey' : ''}">
+              <div class="insight-tile-label">Completion %</div>
+              <div class="insight-tile-value">${li.vidCompletionRate || 'N/A'}</div>
+              <div class="insight-tile-sub">VID ${li.vid_completion_rate != null ? (li.vid_completion_rate * 100).toFixed(1) + '% · 28d' : 'no visit date'}</div>
+              ${li.vid_completion_rate != null && li.vid_completion_rate < 0.85
+                ? '<button class="flag-biz-btn" data-flag-biz>⚑ Flag to Biz · draft message</button>'
+                : ''}
+            </div>
+            <div class="insight-tile ${li.same_day_same_vid && li.same_day_same_vid.issues > 0 ? 'red' : li.same_day_same_vid == null ? 'grey' : ''}">
+              <div class="insight-tile-label">Same-Day Issues</div>
+              <div class="insight-tile-value">${li.sameDaySameVidIssues || 'N/A'}</div>
+              <div class="insight-tile-sub">${li.same_day_same_vid ? 'same-day VID bookings' : 'no visit date'}</div>
+            </div>
           </div>`;
         })() : `
         <div class="insights-header">
@@ -2487,19 +2500,31 @@ function renderReviewCol() {
             <div class="insight-tile-value">${ins.tidVidRating.value}</div>
             <div class="insight-tile-sub">${ins.tidVidRating.sub} · ${state.insightsWindow}</div>
           </div>
-          <div class="insight-tile ${ins.completion.tone}">
+          ${(() => {
+            const _li = r.liveInsights;
+            const _cr = _li ? _li.vid_completion_rate : null;
+            const _crStr = _li ? (_li.vidCompletionRate || 'N/A') : ins.completion.value;
+            const _crTone = _cr != null && _cr < 0.85 ? 'red' : _cr == null && !_li ? ins.completion.tone : _cr == null ? 'grey' : '';
+            const _crFlagToBiz = _cr != null ? _cr < 0.85 : ins.completion.flagToBiz;
+            const _crFlagged = ins.completion.flagged;
+            const _sdi = _li ? _li.sameDaySameVidIssues : ins.sameDayIssues.value;
+            const _sdObj = _li ? _li.same_day_same_vid : null;
+            const _sdiTone = _li ? (_sdObj && _sdObj.issues > 0 ? 'red' : _sdObj == null ? 'grey' : '') : ins.sameDayIssues.tone;
+            return `
+          <div class="insight-tile ${_crTone}">
             <div class="insight-tile-label">Completion %</div>
-            <div class="insight-tile-value">${ins.completion.value}</div>
-            <div class="insight-tile-sub">${ins.completion.sub} · ${state.insightsWindow}</div>
-            ${ins.completion.flagToBiz
-              ? '<button class="flag-biz-btn' + (ins.completion.flagged ? ' flagged' : '') + '" data-flag-biz' + (ins.completion.flagged ? ' disabled' : '') + '>' + (ins.completion.flagged ? '✓ Flagged · sent to Slack' : '⚑ Flag to Biz · draft message') + '</button>'
+            <div class="insight-tile-value">${_crStr}</div>
+            <div class="insight-tile-sub">${_li ? (_cr != null ? 'VID · 28d' : 'no visit date') : ins.completion.sub} · ${state.insightsWindow}</div>
+            ${_crFlagToBiz
+              ? '<button class="flag-biz-btn' + (_crFlagged ? ' flagged' : '') + '" data-flag-biz' + (_crFlagged ? ' disabled' : '') + '>' + (_crFlagged ? '✓ Flagged · sent to Slack' : '⚑ Flag to Biz · draft message') + '</button>'
               : ''}
           </div>
-          <div class="insight-tile ${ins.sameDayIssues.tone}">
+          <div class="insight-tile ${_sdiTone}">
             <div class="insight-tile-label">Same-Day Issues</div>
-            <div class="insight-tile-value">${ins.sameDayIssues.value}</div>
-            <div class="insight-tile-sub">${ins.sameDayIssues.sub}</div>
-          </div>
+            <div class="insight-tile-value">${_sdi || '—'}</div>
+            <div class="insight-tile-sub">${_li ? (_sdObj ? 'same-day VID bookings' : 'no visit date') : ins.sameDayIssues.sub}</div>
+          </div>`;
+          })()}
           ${similar}
         </div>`}
       </div>
