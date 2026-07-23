@@ -607,7 +607,11 @@ async def process_review(review_id: str):
             db.add(draft)
 
         _match = (booking or {}).get("_match", {})
-        draft.booking              = {k: v for k, v in (booking or {}).items() if k != "_match"}
+        booking_to_save = {k: v for k, v in (booking or {}).items() if k != "_match"}
+        zd_requester = zd_meta.get("zendesk_requester_name", "")
+        if zd_requester:
+            booking_to_save["zendesk_requester_name"] = zd_requester
+        draft.booking              = booking_to_save
         draft.match_tier           = match_tier or _match.get("tier")
         draft.match_confidence     = _match.get("confidence")
         draft.match_method         = _match.get("method") or narrowing_path

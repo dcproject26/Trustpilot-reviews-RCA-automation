@@ -232,6 +232,17 @@ def _get_timeline_sync(_z, booking_id: str):
             ticket_mail_seen = True
     extracted["ticket_mail_seen"] = ticket_mail_seen
 
+    # ── Requester name from first ticket ─────────────────────────────────────
+    zendesk_requester_name = ""
+    if tickets:
+        try:
+            requester_id = getattr(tickets[0], "requester_id", None)
+            if requester_id:
+                u = _z.users(id=requester_id)
+                zendesk_requester_name = getattr(u, "name", "") or ""
+        except Exception:
+            pass
+
     # ── User role cache for actor detection ──────────────────────────────────
     _role_cache: dict = {}
 
@@ -308,4 +319,8 @@ def _get_timeline_sync(_z, booking_id: str):
     timeline_raw = [e[2] for e in events]
     ticket_ids = [str(t.id) for t in tickets]
 
-    return timeline, extracted, {"ticket_ids": ticket_ids, "timeline_raw": timeline_raw}
+    return timeline, extracted, {
+        "ticket_ids": ticket_ids,
+        "timeline_raw": timeline_raw,
+        "zendesk_requester_name": zendesk_requester_name,
+    }

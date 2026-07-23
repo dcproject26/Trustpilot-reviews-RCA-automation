@@ -1869,29 +1869,38 @@ async function loadDraftOverlays() {
         r.booking.status  = db.booking_status || db.status || r.booking.status || '';
         r.booking.tidName = db.tid_name || db.tour_name || r.booking.tidName || '';
 
-        // Mask encrypted primary_guest_name (base64-like: long, no whitespace)
-        const rawGuest = db.primary_guest_name || r.booking.primaryGuestName || '';
-        if (rawGuest && rawGuest.length > 20 && !/\s/.test(rawGuest)) {
-          r.booking.primaryGuestName = 'Guest (encrypted)';
+        // Guest name: use plaintext BQ name, then Zendesk requester, then fallback
+        const rawGuest    = db.primary_guest_name || r.booking.primaryGuestName || '';
+        const zdRequester = r.booking.zendesk_requester_name || db.zendesk_requester_name || '';
+        if (rawGuest && (rawGuest.length <= 20 || /\s/.test(rawGuest))) {
+          r.booking.primaryGuestName = rawGuest;
+        } else if (zdRequester) {
+          r.booking.primaryGuestName = zdRequester;
         } else {
-          r.booking.primaryGuestName = rawGuest || '';
+          r.booking.primaryGuestName = '[Guest name in Zendesk ticket]';
         }
       }
 
-      // ── Review date and lead time ─────────────────────────────────────────
+      // ── Review date ───────────────────────────────────────────────────────
       if (review && review.received_at) {
         r.booking = r.booking || {};
         r.booking.reviewDate = review.received_at.split('T')[0];
+      }
 
-        const visitStr = (r.booking.experienceDate || '').split('T')[0];
-        if (visitStr) {
-          const visitMs  = new Date(visitStr).getTime();
-          const reviewMs = new Date(review.received_at).getTime();
-          const diffDays = Math.round((reviewMs - visitMs) / 86400000);
-          r.booking.leadTime = diffDays > 1  ? `${diffDays} days`
+      // ── Lead time: days between booking date and visit date ───────────────
+      {
+        const bookingStr = (r.booking.bookingDate || r.booking.creationDate || '').split('T')[0];
+        const visitStr   = (r.booking.experienceDate || '').split('T')[0];
+        if (bookingStr && visitStr) {
+          const bookingMs = new Date(bookingStr).getTime();
+          const visitMs   = new Date(visitStr).getTime();
+          const diffDays  = Math.round((visitMs - bookingMs) / 86400000);
+          r.booking.leadTime = diffDays >= 2 ? `${diffDays} days`
                              : diffDays === 1 ? '1 day'
-                             : diffDays === 0 ? 'Same day'
-                             : `${Math.abs(diffDays)}d before visit`;
+                             : diffDays === 0 ? '0 days'
+                             : '—';
+        } else {
+          r.booking.leadTime = '—';
         }
       }
 

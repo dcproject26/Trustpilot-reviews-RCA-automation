@@ -149,6 +149,8 @@ def _draft_dict(d: RcaDraft) -> dict:
         "final_response":     d.final_response or "",
         "generated_at":       d.generated_at.isoformat() if d.generated_at else None,
         "sent_at":            d.sent_at.isoformat() if d.sent_at else None,
+
+        "zendesk_requester_name": (d.booking or {}).get("zendesk_requester_name") or "",
     }
 
 
