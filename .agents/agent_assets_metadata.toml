@@ -54,3 +54,9 @@ id = "F6RtKDxPmOjwH7h4ESvT3"
 uri = "file://exports/v5_column2_insights_delta.zip"
 type = "unspecified"
 title = "Delta v5 — Column 2 + Insights + Concurrency (10 files)"
+
+[[outputs]]
+id = "0xJRK1CMQbBdbz9ivKG2v"
+uri = "file://exports/v6_frameworks_dss_canned_delta.zip"
+type = "unspecified"
+title = "Delta v6 — CS Framework + DSS-as-Sheet + Canned responses (8 files)"
