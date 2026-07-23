@@ -145,6 +145,8 @@ def _draft_dict(d: RcaDraft) -> dict:
         "issue_specific_answers":      d.issue_specific_answers or {},
         "checklist_answers":           d.checklist_answers or [],
 
+        "ticket_facts":        d.ticket_facts or {},
+
         "suggested_response": d.suggested_response or "",
         "final_response":     d.final_response or "",
         "generated_at":       d.generated_at.isoformat() if d.generated_at else None,

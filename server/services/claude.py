@@ -403,6 +403,37 @@ async def shape_timeline_events(prompt: str) -> str:
     return await _call(prompt, max_tokens=3000)
 
 
+# ─── 8. Ticket fact extraction (Zendesk → structured facts) ─────────────────
+async def extract_ticket_facts(
+    booking: dict,
+    timeline_raw: list,
+    timeline_raw_ticket_ids: list | None = None,
+) -> dict:
+    """
+    Calls Claude with the raw Zendesk ticket comments and returns a structured
+    dict of extracted facts matching the data-extraction-engine spec:
+      guest_full_name, booking_status, is_same_day_booking, is_cancellable,
+      is_reschedulable, sla_breached, ticket_email_seen, interaction_tags,
+      delay_or_issue_reason, refund {issued, amount, reference_id, out_of_policy},
+      ce_actions, resolution_summary, primary_issue, evidence.
+
+    Always returns a dict (empty on any failure — never raises).
+    """
+    if not is_live("anthropic"):
+        return {}
+    if not timeline_raw or not any(str(b).strip() for b in timeline_raw if b):
+        return {}
+    try:
+        raw = await _call(
+            prompts.ticket_extraction_prompt(booking, timeline_raw, timeline_raw_ticket_ids),
+            max_tokens=1600,
+        )
+        return json.loads(_strip_fences(raw))
+    except Exception:
+        log.warning("[claude] extract_ticket_facts: JSON parse failed or call error", exc_info=True)
+        return {}
+
+
 # ─── Legacy methods retained for backwards compatibility ────────────────────
 # The existing v1 flow (api.py PATCH endpoint, legacy dashboard) still works.
 

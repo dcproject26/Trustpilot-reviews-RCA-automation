@@ -170,11 +170,11 @@ async def get_timeline(
     if not is_live("zendesk"):
         if review_id and review_id in MOCK_TIMELINES:
             tl = MOCK_TIMELINES[review_id]
-            return tl, {}, {"ticket_ids": [], "timeline_raw": [""] * len(tl)}
+            return tl, {}, {"ticket_ids": [], "timeline_raw": [""] * len(tl), "timeline_raw_ticket_ids": [""] * len(tl)}
         for rid, b in MOCK_BOOKINGS.items():
             if b.get("id") == booking_id:
                 tl = MOCK_TIMELINES.get(rid, [])
-                return tl, {}, {"ticket_ids": [], "timeline_raw": [""] * len(tl)}
+                return tl, {}, {"ticket_ids": [], "timeline_raw": [""] * len(tl), "timeline_raw_ticket_ids": [""] * len(tl)}
         # Mock synthesis: activates in MOCK_MODE for review IDs not in fixtures.
         # Enables manual testing without real service calls.
         from datetime import date
@@ -195,7 +195,7 @@ async def get_timeline(
                 "summary": "[Mock] CE acknowledged the guest's concern and reviewed the booking.",
             },
         ]
-        return synth_tl, {"ticket_mail_seen": False}, {"ticket_ids": [], "timeline_raw": ["", ""]}
+        return synth_tl, {"ticket_mail_seen": False}, {"ticket_ids": [], "timeline_raw": ["", ""], "timeline_raw_ticket_ids": ["", ""]}
 
     _z = _get_client()
     if _z is None:
@@ -344,11 +344,13 @@ def _get_timeline_sync(_z, booking_id: str):
         raw_events.append({"idx": i, **ev})
 
     timeline_raw = [e[2] for e in events]
+    timeline_raw_ticket_ids = [e[1].get("ticket_id", "") for e in events]
     ticket_ids = [str(t.id) for t in tickets]
 
     return raw_events, extracted, {
         "ticket_ids": ticket_ids,
         "timeline_raw": timeline_raw,
+        "timeline_raw_ticket_ids": timeline_raw_ticket_ids,
         "zendesk_requester_name": zendesk_requester_name,
     }
 

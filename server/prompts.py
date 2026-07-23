@@ -962,6 +962,82 @@ Return ONLY valid JSON — a list of shaped event objects, nothing else:
 ]"""
 
 
+# ─── 10. Ticket Fact Extraction ─────────────────────────────────────────────
+def ticket_extraction_prompt(
+    booking: dict,
+    timeline_raw: list,
+    timeline_raw_ticket_ids: list | None = None,
+) -> str:
+    """
+    Extract structured facts from raw Zendesk ticket comments for a booking.
+
+    Accepts a booking dict, a list of raw comment bodies (timeline_raw), and
+    an optional parallel list of Zendesk ticket IDs per comment body.
+    Returns a JSON object matching the data-extraction-engine spec exactly.
+    """
+    booking_json = json.dumps(
+        {k: v for k, v in (booking or {}).items() if k != "_match"},
+        indent=2,
+    )
+    tids = timeline_raw_ticket_ids or []
+    raw_lines = []
+    for i, body in enumerate(timeline_raw or []):
+        body_str = str(body).strip() if body else ""
+        if not body_str:
+            continue
+        zd_id = tids[i] if i < len(tids) and tids[i] else ""
+        label = f"ZD-{zd_id}" if zd_id else f"comment_{i+1}"
+        raw_lines.append(f"[{label}]\n{body_str}")
+    timeline_text = "\n\n---\n\n".join(raw_lines) if raw_lines else "(no ticket comments)"
+
+    return f"""SYSTEM:
+You are a data-extraction engine for Headout's ORM system. You read the raw
+Zendesk support-ticket comments for ONE booking and extract structured facts.
+You NEVER invent data. If a fact is not explicitly present in the tickets,
+return null. Every value must be directly copyable from the ticket text.
+
+USER:
+=== BOOKING (from BigQuery — authoritative for IDs/dates) ===
+{booking_json}
+
+=== ZENDESK TICKET COMMENTS (chronological, raw bodies) ===
+{timeline_text}
+
+Extract the following using ONLY the ticket text and booking above.
+Return null for anything not explicitly stated. Do not guess or infer.
+
+Return STRICT JSON, no markdown:
+{{
+  "guest_full_name":   null,
+  "booking_status":    null,
+  "is_same_day_booking": null,
+  "is_cancellable":    null,
+  "is_reschedulable":  null,
+  "sla_breached":      null,
+  "ticket_email_seen": null,
+  "interaction_tags":  [],
+  "delay_or_issue_reason": null,
+  "refund": {{
+    "issued":        null,
+    "amount":        null,
+    "reference_id":  null,
+    "out_of_policy": null
+  }},
+  "ce_actions": [],
+  "resolution_summary": null,
+  "primary_issue":      null,
+  "evidence": {{}}
+}}
+
+RULES:
+1. Null over guessing. If it's not in the text, it's null.
+2. guest_full_name: only a human name that appears in the prose. If only a hash/base64 string exists, return null.
+3. Copy amounts, reference IDs, and tags verbatim — never reformat or round.
+4. booking_status only from an explicit status line, not inferred from tone.
+5. Every non-null fact must have a matching ticket id in "evidence" using the format "ZD-<ticket id>" from the comment labels above.
+"""
+
+
 # ─── 9. Flag-to-Biz Slack message ──────────────────────────────────────────
 def flag_to_biz_prompt(
     vendor_name: str, vid: str, completion_pct: str, market_avg: str,

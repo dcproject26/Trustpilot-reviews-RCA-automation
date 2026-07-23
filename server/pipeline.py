@@ -467,6 +467,24 @@ async def process_review(review_id: str):
                 timeline, extracted_bk = [], {}
                 zd_meta = {"ticket_ids": [], "timeline_raw": []}
 
+        # ── 6b. Ticket fact extraction (Claude, runs concurrently with support frames) ──
+        ticket_facts = {}
+        _timeline_raw_for_extraction = zd_meta.get("timeline_raw", [])
+        _timeline_raw_ticket_ids = zd_meta.get("timeline_raw_ticket_ids", [])
+        async def _extract_facts():
+            try:
+                return await claude.extract_ticket_facts(
+                    booking or {},
+                    _timeline_raw_for_extraction,
+                    _timeline_raw_ticket_ids,
+                )
+            except Exception as e:
+                log.warning(f"Ticket fact extraction failed — continuing: {e}")
+                return {}
+
+        # ── Start fact extraction concurrently (result collected before save) ──
+        _facts_task = asyncio.ensure_future(_extract_facts())
+
         # Merge Zendesk-extracted fields as fallback for missing BQ fields
         if extracted_bk and booking:
             for key in ("tgid", "tid", "vid", "experienceName", "visitDate",
@@ -592,6 +610,15 @@ async def process_review(review_id: str):
         except Exception as e:
             log.exception(f"RCA v3 generation failed: {e}")
 
+        # ── 6c. Collect ticket fact extraction result ─────────────────────────
+        try:
+            ticket_facts = await _facts_task
+            if ticket_facts:
+                log.info(f"[pipeline] ticket_facts extracted: {list(ticket_facts.keys())}")
+        except Exception as e:
+            log.warning(f"Ticket fact extraction collect failed: {e}")
+            ticket_facts = {}
+
         # ── 13. Response draft ────────────────────────────────────────────────
         response_draft = ""
         try:
@@ -663,6 +690,7 @@ async def process_review(review_id: str):
             draft.issue_specific_answers  = rca_v3.get("issue_specific_answers") or {}
             draft.checklist_answers       = rca_v3.get("checklist_answers") or []
 
+        draft.ticket_facts                = ticket_facts or None
         draft.suggested_response          = response_draft
         draft.generated_at                = datetime.utcnow()
         review.status                     = "draft"
@@ -678,6 +706,7 @@ async def process_review(review_id: str):
             "support_interaction_frames", "sp_interaction_frames",
             "area_of_improving", "actions_taken",
             "wwr_chain", "evidence", "issue_specific_answers", "checklist_answers",
+            "ticket_facts",
         ):
             flag_modified(draft, _col)
 

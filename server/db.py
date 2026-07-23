@@ -90,6 +90,9 @@ class RcaDraft(Base):
     issue_specific_answers      = Column(JSON, default=dict)
     checklist_answers           = Column(JSON, default=list)
 
+    # ── Ticket fact extraction (Zendesk → structured facts) ──
+    ticket_facts                = Column(JSON, nullable=True)
+
     # ── Flag to Biz ──
     flag_to_biz_state           = Column(String, default="off")  # off | drafted | sent
     flag_to_biz_message         = Column(Text, nullable=True)
