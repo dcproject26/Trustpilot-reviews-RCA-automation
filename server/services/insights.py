@@ -195,8 +195,9 @@ WHERE b.tour_id = @tid AND b.vendor_id = @vid
         if isinstance(res, (Exception, type(None))): return 0
         if not res: return 0
         row = res[0] if isinstance(res, list) else res
-        return int(getattr(row, "c", 0) or row.get("c", 0) if not isinstance(row, dict)
-                   else row.get("c", 0))
+        if isinstance(row, dict):
+            return int(row.get("c", 0) or 0)
+        return int(getattr(row, "c", None) or 0)
 
     sim_rev   = 0 if skip_ac else _count(results[0])
     tot_rev   = _count(results[1])
