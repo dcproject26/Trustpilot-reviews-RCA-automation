@@ -174,6 +174,9 @@ def verify_bid(bid: str) -> dict | None:
     }
     booking["bms_link"]  = BMS_URL_PATTERN.format(bid=booking_id_str)   if booking_id_str  else None
     booking["tgid_link"] = TGID_URL_PATTERN.format(tgid=tgid_str)       if tgid_str        else None
+    # Enrich with booking_status and tid_name — isolated query, never breaks the main match
+    from server.services.bigquery import _get_booking_extra
+    booking.update(_get_booking_extra(booking_id_str))
     return booking
 
 
