@@ -28,6 +28,7 @@ from server.config import is_live, MOCK_MODE
 from server.db import SessionLocal, Review, RcaDraft, ReviewMetric
 from server.services import claude, bigquery as bq, zendesk, dss, slack as slk
 from server.services.canned import get_canned_responses
+from server.services.insights import get_insights as _get_insights
 from server.taxonomy import DIAGNOSTIC_CHECKS, BID_REGEX
 
 log = logging.getLogger(__name__)
@@ -489,13 +490,7 @@ async def process_review(review_id: str):
         except Exception as e:
             log.exception(f"Support summary failed: {e}")
 
-        # ── 7. Insights ──────────────────────────────────────────────────────
-        insights = {}
-        if booking and booking.get("tgid"):
-            try:
-                insights = await bq.get_insights(booking)
-            except Exception as e:
-                log.exception(f"Insights failed: {e}")
+        # ── 7. Insights (moved to after step 11 — needs L1/L2) ──────────────
 
         # ── 8. Similar complaints ─────────────────────────────────────────────
         similar_support = []
@@ -546,6 +541,14 @@ async def process_review(review_id: str):
                         f"Claude: {l1!r} / {l2!r} | warehouse: {_wh['l1']!r} / {_wh['l2']!r}")
         except Exception as e:
             log.exception(f"Warehouse L1/L2 lookup failed: {e}")
+
+        # ── 11c. Insights (after classification — needs L1/L2) ────────────────
+        insights = {}
+        if booking and booking.get("tid") and booking.get("vid"):
+            try:
+                insights = await _get_insights(booking, l1 or None, l2 or None)
+            except Exception as e:
+                log.exception(f"Insights failed: {e}")
 
         # ── 12. Full structured RCA ───────────────────────────────────────────
         rca_v2 = {}

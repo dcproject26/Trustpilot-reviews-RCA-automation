@@ -11,16 +11,20 @@ New methods added on top of the existing translate/generate_rca/draft_response:
   - generate_rca_v2(...) — structured demo-parity output
   - draft_response_v2(...) — uses L1/L2 + resolution
 """
+import asyncio
 import json, logging, os
+import time
 from anthropic import Anthropic
 
-from server.config import ANTHROPIC_MODEL, is_live
+from server.config import ANTHROPIC_MODEL, MOCK_MODE, is_live
 from server import prompts
 from server.services.mock_data import (
     MOCK_RCA_FIELDS, MOCK_RESPONSES, MOCK_REVIEWS,
 )
 
 log = logging.getLogger(__name__)
+
+_CL_SEM = asyncio.Semaphore(8)
 
 # Route 1 (preferred): Replit AI Integrations — AI_INTEGRATIONS_ANTHROPIC_BASE_URL
 # + AI_INTEGRATIONS_ANTHROPIC_API_KEY are injected automatically by the
@@ -39,11 +43,24 @@ else:
 
 async def _call(prompt: str, max_tokens: int = 2400) -> str:
     """Single completion call. Returns the raw text (stripped)."""
-    msg = _client.messages.create(
-        model=ANTHROPIC_MODEL,
-        max_tokens=max_tokens,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    if MOCK_MODE:
+        msg = _client.messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        parts = [b.text for b in msg.content if getattr(b, "type", None) == "text"]
+        return "".join(parts).strip()
+    t0 = time.time()
+    async with _CL_SEM:
+        waited = time.time() - t0
+        if waited > 2.0:
+            log.warning(f"[claude] wait time exceeded 2s: {waited:.1f}s")
+        msg = _client.messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+        )
     parts = [b.text for b in msg.content if getattr(b, "type", None) == "text"]
     return "".join(parts).strip()
 

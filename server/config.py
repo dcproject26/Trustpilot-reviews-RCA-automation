@@ -60,6 +60,10 @@ APPS_SCRIPT_URL = os.getenv(
     "https://script.google.com/macros/s/AKfycbyfYMqIcsihcxRVBAznpyrXtyZMvlITCDpPB7Uarc_cMz8mWgCCbg_O9WZQMJeFjCFqOA/exec"
 )
 
+# BMS + TGID deeplink URL patterns (env-overridable)
+BMS_URL_PATTERN  = os.getenv("BMS_URL_PATTERN",  "https://aries.headout.com/bms/booking/{bid}")
+TGID_URL_PATTERN = os.getenv("TGID_URL_PATTERN", "https://www.headout.com/tour/{tgid}")
+
 # Retool DSS
 DSS_WEBHOOK_URL = os.getenv("DSS_WEBHOOK_URL", "")
 

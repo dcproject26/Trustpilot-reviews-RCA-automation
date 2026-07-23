@@ -10,6 +10,7 @@ service code in bigquery.py / bigquery_patch.py works unchanged.
 Read-only scope. Keep queries column-projected and date-scoped — BigQuery
 bills per byte scanned.
 """
+import asyncio
 import os
 import time
 import logging
@@ -17,7 +18,11 @@ from types import SimpleNamespace
 
 import requests
 
+from server.config import MOCK_MODE
+
 log = logging.getLogger(__name__)
+
+_BQ_SEM = asyncio.Semaphore(5)
 
 _BQ_API = "https://bigquery.googleapis.com/bigquery/v2"
 
@@ -177,6 +182,22 @@ class Client:
             page_token = j.get("pageToken")
 
         return _QueryJob(rows)
+
+
+async def run_query_async(sql: str, params: dict | None = None) -> list[dict]:
+    """
+    Async wrapper around run_query with _BQ_SEM concurrency guard (cap 5).
+    MOCK_MODE: returns [] immediately without acquiring the semaphore.
+    """
+    if MOCK_MODE:
+        return []
+    t0 = time.time()
+    async with _BQ_SEM:
+        waited = time.time() - t0
+        if waited > 2.0:
+            log.warning(f"[bq_connector] wait time exceeded 2s: {waited:.1f}s")
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, run_query, sql, params)
 
 
 def run_query(sql: str, params: dict | None = None) -> list[dict]:

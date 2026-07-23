@@ -1,0 +1,306 @@
+Here you go — full corrected brief with all four 🔴 tweaks + the concurrency guards inlined, redemption_instructions dropped.
+
+---
+
+## Paste this to the Replit Agent
+
+**Delta v5 — Column 2 wiring + Experience Insights + concurrency guards. Backend + client. Do NOT touch classification code, RCA generation, Column 1 tab filter/sort, Zendesk timeline shape, or MOCK_MODE fallbacks. MOCK_MODE must still work.**
+
+### Ground truth to inherit
+- BigQuery is connector-auth'd via `bq_connector.py::run_query()`. Reuse.
+- `verify_bid()` in `bigquery_patch.py` already returns BID/experience/TID/TGID/vendor/fulfilment_type/primary_guest_name. Extend it — don't rewrite.
+- `_draft_dict()` returns `booking`, `timeline`, `insights` etc. Extend the shape via the `booking` dict — don't reshape the response.
+- `list_reviews` sort stays untouched.
+
+### Scope
+1. **Concurrency guards** (do first — one place, protects everything)
+2. **Experience Insights** (backend queries + endpoint)
+3. **Column 2 booking fields** (extend verify_bid)
+4. **Client wire** (Column 2 + Insights tiles)
+
+---
+
+### Part 1 — Concurrency guards (module-level `asyncio.Semaphore`)
+
+Three semaphores, one per external service. Each protects **every** caller, not just this delta.
+
+**`server/services/bq_connector.py`:**
+```python
+import asyncio
+_BQ_SEM = asyncio.Semaphore(5)   # BigQuery: cap 5 concurrent queries
+
+async def run_query(sql, params=None):
+    t0 = _now()
+    async with _BQ_SEM:
+        waited = _now() - t0
+        if waited > 2.0:
+            log.warning(f"[bq_connector] wait time exceeded 2s: {waited:.1f}s")
+        # ... existing query body ...
+```
+If `run_query` is currently sync, wrap the outer callers instead (or make it async).
+
+**`server/services/zendesk.py`:** module-level `_ZD_SEM = asyncio.Semaphore(10)` around every HTTP call to Zendesk (search + comments + tags). Same "wait > 2s" warning line.
+
+**`server/services/claude.py`:** module-level `_CL_SEM = asyncio.Semaphore(8)` around `_call()`. Same warning.
+
+**Rules for all three:**
+- Module-level, initialized once. Not per-request.
+- MOCK_MODE must skip the semaphore (no external call = no need to wait).
+- Do not add the semaphore inside `insights.py` — the one in `bq_connector.py` already covers it.
+
+### Part 2 — Experience Insights (BigQuery + VS keyword-driven)
+
+Keywords come **verbatim** from the four finalized VectorShift pipelines. Do NOT invent tags.
+
+**In `server/taxonomy.py`** add:
+```python
+SUPPORT_TAG_MAP = {
+    ("Operations Issue", "Meeting Point Issues"): [
+        "Ticket Redemption Details  Meeting Point Related  Meeting Point Details Requested",
+        "Ticket Redemption Details  Sp Information",
+        "Ticket Redemption Details  Meeting Point Related  Meeting Point Is Incorrect/missing",
+        "Ticket Redemption Details  Transfer / Pick Up Related",
+        "Service Issues  Sp Related  Guide Was Late/didn T Arrive",
+        "Service Issues  Sp Related  Guide Issues",
+    ],
+    ("Operations Issue", "Ticket Issues"): [
+        "Delay Fulfilment Ticket Related Issues Sp Related",
+        "Ticket Redemption Details Customer Complaint Already Redeemed Tickets",
+        "Ticket Redemption Details  Meeting Point Related  Meeting Point Is Incorrect/missing",
+        "Delay Fulfilment Ticket Related Issues Guest Names Are Missing",
+        "Delay Ticket Related Issues Guest Names Are Missing",
+    ],
+    ("Product Issue", "Audio Guide Issues"): [
+        "Audio Guide Redemption Issue",
+        "Ticket Redemption Details  Audio Guide Related  Tech Issues",
+        "Ticket Redemption Details  Audio Guide Related  Redemption Information/issues",
+    ],
+    # SP: one framework, all L2s — key by "__all__"
+    ("Supply Partner Issue", "__all__"): [
+        "Service Issues  Sp Related  Guide Was Late/didn T Arrive",
+        "Delay Fulfilment  Ticket Related Issues  Sp Related",
+        "Service Issues  Sp Related  Tour Language Was Different",
+        "Modification Request  Sp Related  Strike/venue Closure",
+        "Service Issues  Sp Related  Guide Issues",
+        "Delay  Delay Fulfilment  Sp Dependency",
+        "Service Issues  Sp Related  Tour Cancelled By Sp",
+        "Delay Fulfilment  Delay  Sp Dependency",
+        "Modification Request  Sp Related  Offered A Different Time",
+    ],
+    ("Operations Issue", "Content - Instructions not clear / Misleading Info"): {
+        "like_any": ["%content%", "%information%", "%description%", "%inclusion%",
+                     "%exclusion%", "%cancellation%", "%validity%", "%website%",
+                     "%incorrect details%", "%misleading%"],
+    },
+}
+
+def support_tags_for(l1: str, l2: str):
+    """Returns list[str] or {'like_any': [...]} or None."""
+    if l1 == "Supply Partner Issue":
+        return SUPPORT_TAG_MAP.get(("Supply Partner Issue", "__all__"))
+    return SUPPORT_TAG_MAP.get((l1, l2))
+```
+
+**New file `server/services/insights.py`** — 5 queries, run **in parallel via `asyncio.gather()`**. All parameter-bound. `SAFE_DIVIDE`, `COALESCE(x, 0)`.
+
+**A. Similar reviews (same TID + VID, matching L2, last 30d):**
+```sql
+SELECT COUNT(DISTINCT r.booking_id) AS c
+FROM `headout-analytics.analytics_reporting.fct_reviews` r
+LEFT JOIN `headout-analytics.analytics_reporting.fct_bookings` b
+  ON r.booking_id = b.booking_id
+LEFT JOIN UNNEST(r.issues) AS iss
+LEFT JOIN UNNEST(iss.l2_issues) AS l2v
+WHERE b.tour_id = @tid AND b.vendor_id = @vid
+  AND LOWER(l2v) = LOWER(@l2)
+  AND DATE(r.reviewed_at) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND CURRENT_DATE()
+```
+
+**B. Total reviews (same TID + VID, last 30d):**
+```sql
+SELECT COUNT(DISTINCT r.booking_id) AS c
+FROM `headout-analytics.analytics_reporting.fct_reviews` r
+LEFT JOIN `headout-analytics.analytics_reporting.fct_bookings` b
+  ON r.booking_id = b.booking_id
+WHERE b.tour_id = @tid AND b.vendor_id = @vid
+  AND DATE(r.reviewed_at) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND CURRENT_DATE()
+```
+
+**C. Similar support queries (same TID + VID, matching tags, last 30d) — exact-tag list variant:**
+```sql
+SELECT COUNT(DISTINCT sq.booking_id) AS c
+FROM `headout-analytics.analytics_reporting.fct_support_queries` sq
+LEFT JOIN `headout-analytics.analytics_reporting.fct_bookings` b
+  ON CAST(b.booking_id AS STRING) = sq.booking_id
+WHERE b.tour_id = @tid AND b.vendor_id = @vid
+  AND sq.query_tag IN UNNEST(@tags)
+  AND DATE(sq.query_created_at) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND CURRENT_DATE()
+```
+
+**C-alt. LIKE-any variant (only for Content L2):**
+Same shape as C, replace `sq.query_tag IN UNNEST(@tags)` with a dynamically built `(LOWER(sq.query_tag) LIKE @pat1 OR LOWER(sq.query_tag) LIKE @pat2 OR …)` from the `like_any` list.
+
+**D. Total support queries (same TID + VID, last 30d):**
+Same as C, drop the tag filter.
+
+**E. Rating windows (TID + VID, 15d + 30d):**
+```sql
+WITH bx AS (
+  SELECT DISTINCT b.booking_id FROM `headout-analytics.analytics_reporting.fct_bookings` b
+  WHERE b.tour_id = @tid AND b.vendor_id = @vid
+)
+SELECT
+  ROUND(AVG(CASE WHEN DATE(r.reviewed_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 15 DAY) THEN r.rating END), 2) AS avg_rating_15d,
+  COUNT( CASE WHEN DATE(r.reviewed_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 15 DAY) THEN 1 END)               AS n_ratings_15d,
+  ROUND(AVG(CASE WHEN DATE(r.reviewed_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) THEN r.rating END), 2) AS avg_rating_30d,
+  COUNT( CASE WHEN DATE(r.reviewed_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) THEN 1 END)               AS n_ratings_30d
+FROM `headout-analytics.analytics_reporting.fct_reviews` r
+JOIN bx ON bx.booking_id = r.booking_id
+WHERE r.rating IS NOT NULL
+```
+
+**Function shape** in `insights.py`:
+```python
+async def get_insights(booking: dict, l1: str | None, l2: str | None) -> dict:
+    """
+    Returns:
+      {
+        "similar_reviews_30d":         int,
+        "total_reviews_30d":           int,
+        "similar_support_queries_30d": int,
+        "total_support_queries_30d":   int,
+        "review_ratio":                float,
+        "support_ratio":               float,
+        "escalation":                  bool,     # review_ratio > 0.15 OR support_ratio > 0.15
+        "rating_15d": {"avg": float | None, "n": int},
+        "rating_30d": {"avg": float | None, "n": int},
+        "_computed_for_l2": str | None,
+        "_computed_at":     str,                 # ISO
+      }
+    """
+```
+
+**Behavior rules:**
+- **Run queries A/B/C/D/E via `asyncio.gather()` — in parallel.** The `bq_connector` semaphore caps concurrency; no need to serialise them.
+- **Support tags branch:** call `support_tags_for(l1, l2)`. If it returns a **list** → use variant C. If it returns a **`{"like_any": [...]}` dict** → use variant C-alt with the dynamic OR chain. If it returns **None** (no framework, e.g. L2 = Customer Support Issues) → skip A + C, return zeros for both. Still run B + D + E.
+- If `booking.tid` or `booking.vid` missing → return all zeros / nulls immediately, no BQ calls.
+- On any BQ failure → return zeros/nulls + `escalation=False`, log warning, never raise.
+- `is_live("bigquery") == False` → return same shape with mock zeros.
+
+**Endpoint** in `api.py`:
+```
+GET /api/reviews/{id}/insights
+```
+Reads draft's `l1`, `l2`, `booking.tid`, `booking.vid`. **Cache logic:**
+- If `draft.insights._computed_for_l2 == current l2` AND `_computed_at < 24h ago` → return cached.
+- Otherwise recompute + persist to `draft.insights`, stamp `_computed_for_l2` and `_computed_at`.
+
+**Pipeline change** in `pipeline.py`:
+- Existing step 7 calls the old `bq.get_insights()`. Replace with the new `insights.get_insights(booking, l1, l2)`.
+- Because it needs L1/L2, **move this call to after step 11 (classification)**. Update docstring.
+
+### Part 3 — Column 2 booking fields
+
+Extend `verify_bid()` in `bigquery_patch.py`. Add nothing new to the SELECT beyond what Delta v4 gave you — but confirm these are all present in the returned dict:
+```
+booking_id, date_of_booking, date_of_visit, tid, tgid, experience_name,
+vendor_id, vendor_name, fulfilment_type, primary_guest_name
+```
+
+**BMS + TGID URL patterns** — add to `server/config.py`:
+```python
+BMS_URL_PATTERN  = os.getenv("BMS_URL_PATTERN",  "https://aries.headout.com/bms/booking/{bid}")
+TGID_URL_PATTERN = os.getenv("TGID_URL_PATTERN", "https://www.headout.com/tour/{tgid}")
+```
+Interpolate in `verify_bid()` before returning:
+```python
+booking["bms_link"]  = BMS_URL_PATTERN.format(bid=booking["id"])   if booking.get("id")   else None
+booking["tgid_link"] = TGID_URL_PATTERN.format(tgid=booking["tgid"]) if booking.get("tgid") else None
+```
+
+`ticket_mail_seen` already handled in the Zendesk merge — no change here.
+
+**Do NOT add `redemption_instructions` in this delta.** Skip that JOIN entirely.
+
+### Part 4 — Client wiring
+
+In `client/index.html`, on review select:
+
+1. Fetch `GET /api/reviews/{id}` **and** `GET /api/reviews/{id}/insights` in parallel (`Promise.all`).
+2. Extend the view-model:
+```js
+booking: {
+  bid:              draft.booking?.id,
+  experienceName:   draft.booking?.experienceName || draft.booking?.experience_name,
+  tgid:             draft.booking?.tgid,
+  tid:              draft.booking?.tid,
+  vid:              draft.booking?.vid || draft.booking?.vendor_id,
+  vendorName:       draft.booking?.vendorName || draft.booking?.vendor_name,
+  fulfilmentType:   draft.booking?.fulfilmentType || draft.booking?.fulfilment_type,
+  visitDate:        draft.booking?.visitDate     || draft.booking?.date_of_visit,
+  bookingDate:      draft.booking?.date_of_booking,
+  primaryGuestName: draft.booking?.primary_guest_name,
+  bmsLink:          draft.booking?.bms_link,
+  tgidLink:         draft.booking?.tgid_link,
+  ticketMailSeen:   !!draft.booking?.ticket_mail_seen,
+},
+timeline: draft.timeline || [],
+insights: insights || {},
+```
+3. **Do not change the demo layout.** For every existing hardcoded slot, swap in the real value. For fields the demo doesn't yet have a slot for (BMS link, TGID link, `ticket_mail_seen`), add them under Experience Details:
+   - **BMS link / TGID link** — clickable `<a href="…" target="_blank" rel="noopener">` cells
+   - **Ticket mail seen** — small pill: green "Yes" / grey "No"
+
+4. **Experience Insights section — 7 tiles:**
+   - **"Rating (15d)":** `${insights.rating_15d.avg ?? '—'} ★` · `(${insights.rating_15d.n} ratings)` — grey if `n === 0`
+   - **"Rating (30d)":** same shape with `rating_30d`
+   - **"Review ratio (30d)":** `${(insights.review_ratio*100).toFixed(1)}%` — **red** if `> 15%`, neutral otherwise
+   - **"Support ratio (30d)":** `${(insights.support_ratio*100).toFixed(1)}%` — **red** if `> 15%`
+   - **"Similar reviews (30d)":** `${insights.similar_reviews_30d} / ${insights.total_reviews_30d}`
+   - **"Similar support queries (30d)":** `${insights.similar_support_queries_30d} / ${insights.total_support_queries_30d}`
+   - **"Escalation":** if `insights.escalation === true` → red badge "Yes"; else neutral "No"
+
+   Empty state: numerator 0 AND denominator 0 → render `—`, not `0%`.
+
+### Verify
+
+1. Both existing test suites green: `python -m tests.test_classifier_validators` (23/23), `python -m tests.test_classification_accuracy` (14/14).
+2. **Concurrency sanity check:** hit `/api/reviews/manual` 20 times in quick succession. Confirm no unbounded fan-out — logs should show `[bq_connector]` wait warnings if any, and no crashes.
+3. **Manual pipeline on 3 real BIDs** (at least one from a high-traffic TID+VID):
+   - `GET /api/reviews/{id}` returns booking with `vendor_id`, `vendor_name`, `fulfilment_type`, `bms_link`, `tgid_link`, `primary_guest_name`, `date_of_visit`, `date_of_booking`, `ticket_mail_seen` all populated.
+   - `GET /api/reviews/{id}/insights` returns non-zero counts for a booking whose (tid, vid) has recent traffic.
+   - Dashboard Column 2 shows all fields + tiles.
+   - Second call to `/insights` on the same review returns instantly (cache hit).
+4. `is_live("bigquery") == False` → `/insights` returns zeros/nulls; UI shows `—`.
+5. Log line per review:
+```
+[insights] tid=<> vid=<> l2=<> similar_reviews=<>/<> similar_queries=<>/<>
+       ratio_r=<> ratio_s=<> rating_15d=<> rating_30d=<> escalation=<>
+```
+
+### Deliverable
+
+Zip of only changed files + this table:
+
+| Check | Status | Notes |
+|---|---|---|
+| BQ semaphore (5) in bq_connector | | |
+| Zendesk semaphore (10) in zendesk.py | | |
+| Claude semaphore (8) in claude.py | | |
+| MOCK_MODE skips semaphores | | |
+| SUPPORT_TAG_MAP verbatim from VS | | |
+| support_tags_for() helper | | |
+| insights.py new, 5 queries in gather() | | |
+| Content L2 uses LIKE-any variant | | |
+| GET /api/reviews/{id}/insights with 24h cache | | |
+| Pipeline step 7 moved to after classification | | |
+| verify_bid returns bms_link, tgid_link | | patterns from env, defaults set |
+| Column 2 wired (all fields incl. ticket_mail_seen) | | |
+| 7 Insights tiles rendering | | |
+| Mock fallback preserved | | |
+| 20-review burst test — no unbounded fan-out | | |
+| Both test suites green | | |
+
+---
+
+Send when ready. When the agent returns the zip, drag it in and I'll diff-and-sync as usual.

@@ -235,6 +235,51 @@ def get_review(review_id: str, db: Session = Depends(get_session)):
     }
 
 
+# ── NEW: Experience Insights endpoint ───────────────────────────────────────
+
+@router.get("/api/reviews/{review_id}/insights")
+async def get_review_insights(review_id: str, db: Session = Depends(get_session)):
+    """
+    Returns insights for a review's booking.
+    Cache: if draft.insights._computed_for_l2 == current l2 AND _computed_at < 24h → serve cached.
+    Otherwise recompute + persist.
+    """
+    from datetime import timezone
+    from server.services.insights import get_insights as _compute_insights
+
+    r = db.query(Review).filter(Review.id == review_id).first()
+    if not r:
+        raise HTTPException(404, "Review not found")
+    d = r.draft
+    if not d:
+        raise HTTPException(404, "Draft not found — run pipeline first")
+
+    booking = d.booking or {}
+    l1 = d.l1 or ""
+    l2 = d.l2 or ""
+
+    # Check cache
+    cached = d.insights or {}
+    computed_for = cached.get("_computed_for_l2")
+    computed_at  = cached.get("_computed_at")
+    cache_valid  = False
+    if computed_for == l2 and computed_at:
+        try:
+            age = (datetime.utcnow().replace(tzinfo=timezone.utc)
+                   - datetime.fromisoformat(computed_at)).total_seconds()
+            cache_valid = age < 86400  # 24 h
+        except Exception:
+            pass
+
+    if cache_valid:
+        return cached
+
+    result = await _compute_insights(booking, l1 or None, l2 or None)
+    d.insights = result
+    db.commit()
+    return result
+
+
 # ── NEW: taxonomy endpoint (dashboard fetches this to render dropdowns) ─────
 
 @router.get("/api/taxonomy")

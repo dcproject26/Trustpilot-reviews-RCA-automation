@@ -454,6 +454,23 @@
   .status-cancelled { background: var(--red-bg); color: var(--red); }
   .status-complete { background: var(--green-bg); color: var(--green); }
   .status-pending { background: var(--amber-bg); color: var(--amber); }
+  .pill-sm {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10.5px;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .pill-green { background: var(--green-bg); color: var(--green); }
+  .pill-grey  { background: var(--bg-elev-3, #2a2a2a); color: var(--text-mute); }
+  .pill-red   { background: var(--red-bg); color: var(--red); }
+  .bms-link, .tgid-link {
+    color: var(--accent, #7c93ff);
+    text-decoration: underline;
+    text-decoration-style: dotted;
+  }
+  .bms-link:hover, .tgid-link:hover { text-decoration-style: solid; }
 
   .timeline {
     background: var(--bg-elev-2);
@@ -1651,10 +1668,14 @@ async function loadDraftOverlays() {
   await Promise.all(REVIEWS.map(async (r) => {
     if (!r.rca) return;
     try {
-      const resp = await fetch(`/api/reviews/${r.id}`);
-      if (!resp.ok) return;
-      const draft = (await resp.json()).draft;
+      const [draftResp, insightsResp] = await Promise.all([
+        fetch(`/api/reviews/${r.id}`),
+        fetch(`/api/reviews/${r.id}/insights`),
+      ]);
+      if (!draftResp.ok) return;
+      const draft = (await draftResp.json()).draft;
       if (!draft) return;
+
       r.rca.subTheme = draft.sub_theme || null;
       r.rca.supportInteraction = (draft.support_interaction_frames || []).map(mapSupportFrame);
       r.rca.supportSummary = draft.support_summary || '';
@@ -1663,9 +1684,36 @@ async function loadDraftOverlays() {
         label: f.label || '',
         summary: f.summary || f.weDid || '',
       }));
+
+      // Wire booking fields from draft.booking
+      if (draft.booking) {
+        const db = draft.booking;
+        r.booking = r.booking || {};
+        r.booking.bid              = r.booking.bid              || db.id;
+        r.booking.experience       = r.booking.experience       || db.experienceName || db.experience_name;
+        r.booking.tgid             = r.booking.tgid             || db.tgid;
+        r.booking.tid              = r.booking.tid              || db.tid;
+        r.booking.vid              = r.booking.vid              || db.vid || db.vendor_id;
+        r.booking.vendorName       = r.booking.vendorName       || db.vendorName || db.vendor_name;
+        r.booking.fulfilmentType   = db.fulfilmentType   || db.fulfilment_type   || r.booking.fulfilmentType;
+        r.booking.experienceDate   = r.booking.experienceDate   || db.visitDate || db.date_of_visit;
+        r.booking.bookingDate      = db.date_of_booking || r.booking.bookingDate;
+        r.booking.primaryGuestName = db.primary_guest_name      || r.booking.primaryGuestName;
+        r.booking.bmsLink          = db.bms_link;
+        r.booking.tgidLink         = db.tgid_link;
+        r.booking.ticketMailSeen   = !!db.ticket_mail_seen;
+      }
+
+      // Live insights from API
+      if (insightsResp.ok) {
+        const ins = await insightsResp.json();
+        r.liveInsights = ins;
+      }
     } catch (e) { /* keep demo data for this review if the API is unreachable */ }
   }));
   if (typeof renderRcaCol === 'function' && state.selected) renderRcaCol();
+  renderReviewCol();
+  renderInbox();
 }
 
 const REVIEWS = [
@@ -2131,15 +2179,18 @@ function renderReviewCol() {
     <div class="section">
       <div class="section-label"><span class="marker"></span>Experience Details</div>
       <div class="details-grid">
-        <div class="detail-row"><span class="k">Booking ID</span><span class="v mono">${b.bid}</span></div>
+        <div class="detail-row"><span class="k">Booking ID</span><span class="v mono">${b.bmsLink ? `<a href="${b.bmsLink}" target="_blank" rel="noopener" class="bms-link">${b.bid}</a>` : b.bid}</span></div>
         <div class="detail-row"><span class="k">Experience</span><span class="v">${b.experience}</span></div>
         <div class="detail-row"><span class="k">TID name</span><span class="v placeholder">${b.tidName || '[TID name placeholder]'}</span></div>
-        <div class="detail-row"><span class="k">TGID / TID</span><span class="v mono">${b.tgid} / ${b.tid}</span></div>
+        <div class="detail-row"><span class="k">TGID / TID</span><span class="v mono">${b.tgidLink ? `<a href="${b.tgidLink}" target="_blank" rel="noopener" class="tgid-link">${b.tgid}</a>` : b.tgid} / ${b.tid}</span></div>
         <div class="detail-row"><span class="k">Vendor ID</span><span class="v mono">${b.vid}</span></div>
         <div class="detail-row"><span class="k">Vendor name</span><span class="v">${b.vendorName}</span></div>
+        <div class="detail-row"><span class="k">Fulfilment type</span><span class="v mono">${b.fulfilmentType || '—'}</span></div>
+        <div class="detail-row"><span class="k">Primary guest</span><span class="v">${b.primaryGuestName || '—'}</span></div>
         <div class="detail-row"><span class="k">Visit date</span><span class="v mono">${b.experienceDate}</span></div>
-        <div class="detail-row"><span class="k">Creation date</span><span class="v mono">${b.creationDate}</span></div>
+        <div class="detail-row"><span class="k">Booking date</span><span class="v mono">${b.bookingDate || b.creationDate || '—'}</span></div>
         <div class="detail-row"><span class="k">Review date</span><span class="v mono">${b.reviewDate}</span></div>
+        <div class="detail-row"><span class="k">Ticket mail seen</span><span class="v">${b.ticketMailSeen != null ? `<span class="pill-sm ${b.ticketMailSeen ? 'pill-green' : 'pill-grey'}">${b.ticketMailSeen ? 'Yes' : 'No'}</span>` : '—'}</span></div>
         <div class="detail-row"><span class="k">Booking status</span><span class="v"><span class="booking-status-pill status-${b.status}">${b.status}</span></span></div>
         <div class="detail-row"><span class="k">Lead time</span><span class="v mono">${b.leadTime}</span></div>
       </div>
@@ -2156,6 +2207,59 @@ function renderReviewCol() {
     <div class="section">
       <div class="section-label"><span class="marker"></span>Experience Insights</div>
       <div class="insights-wrap">
+        ${r.liveInsights ? (() => {
+          const li = r.liveInsights;
+          const _pct = (v) => (v == null || (v === 0 && li.total_reviews_30d === 0)) ? '—' : `${(v * 100).toFixed(1)}%`;
+          const _rat15 = li.rating_15d || {};
+          const _rat30 = li.rating_30d || {};
+          const _r15n = _rat15.n || 0;
+          const _r30n = _rat30.n || 0;
+          const _rr = li.review_ratio || 0;
+          const _sr = li.support_ratio || 0;
+          const _rr0 = li.similar_reviews_30d === 0 && li.total_reviews_30d === 0;
+          const _sr0 = li.similar_support_queries_30d === 0 && li.total_support_queries_30d === 0;
+          return `<div class="insights-grid">
+            <div class="insight-tile ${_r15n === 0 ? 'grey' : ''}">
+              <div class="insight-tile-label">Rating (15d)</div>
+              <div class="insight-tile-value">${_rat15.avg != null ? `${_rat15.avg} ★` : '—'}</div>
+              <div class="insight-tile-sub">(${_r15n} ratings)</div>
+            </div>
+            <div class="insight-tile ${_r30n === 0 ? 'grey' : ''}">
+              <div class="insight-tile-label">Rating (30d)</div>
+              <div class="insight-tile-value">${_rat30.avg != null ? `${_rat30.avg} ★` : '—'}</div>
+              <div class="insight-tile-sub">(${_r30n} ratings)</div>
+            </div>
+            <div class="insight-tile ${_rr > 0.15 ? 'red' : ''}">
+              <div class="insight-tile-label">Review ratio (30d)</div>
+              <div class="insight-tile-value" style="${_rr > 0.15 ? 'color:var(--red)' : ''}">${_rr0 ? '—' : `${(_rr * 100).toFixed(1)}%`}</div>
+              <div class="insight-tile-sub">similar / total</div>
+            </div>
+            <div class="insight-tile ${_sr > 0.15 ? 'red' : ''}">
+              <div class="insight-tile-label">Support ratio (30d)</div>
+              <div class="insight-tile-value" style="${_sr > 0.15 ? 'color:var(--red)' : ''}">${_sr0 ? '—' : `${(_sr * 100).toFixed(1)}%`}</div>
+              <div class="insight-tile-sub">similar / total</div>
+            </div>
+            <div class="insight-tile">
+              <div class="insight-tile-label">Similar reviews (30d)</div>
+              <div class="insight-tile-value">${_rr0 ? '—' : `${li.similar_reviews_30d} / ${li.total_reviews_30d}`}</div>
+              <div class="insight-tile-sub">same TID · VID · L2</div>
+            </div>
+            <div class="insight-tile">
+              <div class="insight-tile-label">Similar support queries (30d)</div>
+              <div class="insight-tile-value">${_sr0 ? '—' : `${li.similar_support_queries_30d} / ${li.total_support_queries_30d}`}</div>
+              <div class="insight-tile-sub">matching tag / total</div>
+            </div>
+            <div class="insight-tile ${li.escalation ? 'red' : ''}">
+              <div class="insight-tile-label">Escalation</div>
+              <div class="insight-tile-value">
+                ${li.escalation
+                  ? '<span class="pill-sm pill-red">Yes</span>'
+                  : '<span class="pill-sm pill-grey">No</span>'}
+              </div>
+              <div class="insight-tile-sub">ratio &gt; 15%</div>
+            </div>
+          </div>`;
+        })() : `
         <div class="insights-header">
           <div class="insights-title">Window:</div>
           <div class="window-picker">
@@ -2181,11 +2285,11 @@ function renderReviewCol() {
             <div class="insight-tile-label">Completion %</div>
             <div class="insight-tile-value">${ins.completion.value}</div>
             <div class="insight-tile-sub">${ins.completion.sub} · ${state.insightsWindow}</div>
-            ${ins.completion.flagToBiz ? `
-              <button class="flag-biz-btn ${ins.completion.flagged ? 'flagged' : ''}" data-flag-biz ${ins.completion.flagged ? 'disabled' : ''}>
-                ${ins.completion.flagged ? '✓ Flagged · sent to Slack' : '⚑ Flag to Biz · draft message'}
+            ${ins.completion.flagToBiz ? \`
+              <button class="flag-biz-btn \${ins.completion.flagged ? 'flagged' : ''}" data-flag-biz \${ins.completion.flagged ? 'disabled' : ''}>
+                \${ins.completion.flagged ? '✓ Flagged · sent to Slack' : '⚑ Flag to Biz · draft message'}
               </button>
-            ` : ''}
+            \` : ''}
           </div>
           <div class="insight-tile ${ins.sameDayIssues.tone}">
             <div class="insight-tile-label">Same-Day Issues</div>
@@ -2193,7 +2297,7 @@ function renderReviewCol() {
             <div class="insight-tile-sub">${ins.sameDayIssues.sub}</div>
           </div>
           ${similar}
-        </div>
+        </div>`}
       </div>
     </div>
   `;

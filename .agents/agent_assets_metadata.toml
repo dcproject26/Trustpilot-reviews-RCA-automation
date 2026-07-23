@@ -48,3 +48,9 @@ id = "k-tV9n9q94jTXJR5mAeL6"
 uri = "file://exports/tier_classification_delta.zip"
 type = "unspecified"
 title = "Delta v4 — Tier classification (8 files)"
+
+[[outputs]]
+id = "F6RtKDxPmOjwH7h4ESvT3"
+uri = "file://exports/v5_column2_insights_delta.zip"
+type = "unspecified"
+title = "Delta v5 — Column 2 + Insights + Concurrency (10 files)"

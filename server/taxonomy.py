@@ -425,3 +425,57 @@ def l2_options_for(l1: str) -> list:
 
 def checks_for(l1: str) -> list:
     return DIAGNOSTIC_CHECKS.get(l1, [])
+
+
+# ── Support tag map for Experience Insights ──────────────────────────────────
+# Keywords come verbatim from the four finalized VectorShift pipelines.
+# Values are either list[str] (exact-tag match via IN UNNEST) or
+# {"like_any": [...]} (LIKE-any variant for Content L2).
+
+SUPPORT_TAG_MAP = {
+    ("Operations Issue", "Meeting Point Issues"): [
+        "Ticket Redemption Details  Meeting Point Related  Meeting Point Details Requested",
+        "Ticket Redemption Details  Sp Information",
+        "Ticket Redemption Details  Meeting Point Related  Meeting Point Is Incorrect/missing",
+        "Ticket Redemption Details  Transfer / Pick Up Related",
+        "Service Issues  Sp Related  Guide Was Late/didn T Arrive",
+        "Service Issues  Sp Related  Guide Issues",
+    ],
+    ("Operations Issue", "Ticket Issues"): [
+        "Delay Fulfilment Ticket Related Issues Sp Related",
+        "Ticket Redemption Details Customer Complaint Already Redeemed Tickets",
+        "Ticket Redemption Details  Meeting Point Related  Meeting Point Is Incorrect/missing",
+        "Delay Fulfilment Ticket Related Issues Guest Names Are Missing",
+        "Delay Ticket Related Issues Guest Names Are Missing",
+    ],
+    ("Product Issue", "Audio Guide Issues"): [
+        "Audio Guide Redemption Issue",
+        "Ticket Redemption Details  Audio Guide Related  Tech Issues",
+        "Ticket Redemption Details  Audio Guide Related  Redemption Information/issues",
+    ],
+    ("Supply Partner Issue", "__all__"): [
+        "Service Issues  Sp Related  Guide Was Late/didn T Arrive",
+        "Delay Fulfilment  Ticket Related Issues  Sp Related",
+        "Service Issues  Sp Related  Tour Language Was Different",
+        "Modification Request  Sp Related  Strike/venue Closure",
+        "Service Issues  Sp Related  Guide Issues",
+        "Delay  Delay Fulfilment  Sp Dependency",
+        "Service Issues  Sp Related  Tour Cancelled By Sp",
+        "Delay Fulfilment  Delay  Sp Dependency",
+        "Modification Request  Sp Related  Offered A Different Time",
+    ],
+    ("Operations Issue", "Content - Instructions not clear / Misleading Info"): {
+        "like_any": [
+            "%content%", "%information%", "%description%", "%inclusion%",
+            "%exclusion%", "%cancellation%", "%validity%", "%website%",
+            "%incorrect details%", "%misleading%",
+        ],
+    },
+}
+
+
+def support_tags_for(l1: str, l2: str):
+    """Returns list[str], {'like_any': [...]}, or None."""
+    if l1 == "Supply Partner Issue":
+        return SUPPORT_TAG_MAP.get(("Supply Partner Issue", "__all__"))
+    return SUPPORT_TAG_MAP.get((l1, l2))

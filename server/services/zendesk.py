@@ -13,19 +13,24 @@ Data path per the 2026-07 wiring brief:
    with the raw body kept in a parallel timeline_raw list.
 8. >40 comments -> keep first 20 + last 20 with one "[N comments elided]" event.
 """
+import asyncio
 import html as _html
 import logging
 import re
+import time
 from datetime import datetime, timedelta, timezone
 
 from server.config import (
-    is_live, ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_API_TOKEN,
+    is_live, MOCK_MODE,
+    ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_API_TOKEN,
     ZENDESK_TGID_FIELD, ZENDESK_TID_FIELD,
     ZENDESK_BRAND_GUEST, ZENDESK_BRAND_SP, ZENDESK_BOT_TAGS,
 )
 from server.services.mock_data import MOCK_TIMELINES, MOCK_BOOKINGS
 
 log = logging.getLogger(__name__)
+
+_ZD_SEM = asyncio.Semaphore(10)
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -166,6 +171,17 @@ async def get_timeline(booking_id: str, review_id: str = None) -> tuple[list, di
         log.warning("[zendesk] no client available")
         return [], {}, {"ticket_ids": [], "timeline_raw": []}
 
+    t0 = time.time()
+    async with _ZD_SEM:
+        waited = time.time() - t0
+        if waited > 2.0:
+            log.warning(f"[zendesk] wait time exceeded 2s: {waited:.1f}s")
+        return await asyncio.get_running_loop().run_in_executor(
+            None, _get_timeline_sync, _z, booking_id)
+
+
+def _get_timeline_sync(_z, booking_id: str):
+    """Synchronous Zendesk work — called from get_timeline via run_in_executor."""
     # ── Search: fieldvalue first, free-text fallback ─────────────────────────
     tickets = _search_with_retry(_z, f"type:ticket fieldvalue:{booking_id}")
     if tickets:
@@ -266,6 +282,7 @@ async def get_timeline(booking_id: str, review_id: str = None) -> tuple[list, di
             "",
         )
         events = events[:20] + [placeholder] + events[-20:]
+    # (return statement follows — see below)
 
     timeline = [e[1] for e in events]
     timeline_raw = [e[2] for e in events]

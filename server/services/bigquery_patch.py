@@ -15,6 +15,7 @@ one small change at the return step.
 import logging
 from server.config import (
     is_live, BIGQUERY_BOOKINGS_TABLE, BIGQUERY_REVIEWS_TABLE, BIGQUERY_SUPPORT_TABLE,
+    BMS_URL_PATTERN, TGID_URL_PATTERN,
 )
 from server.taxonomy import SIMILAR_MATCH_RULE
 
@@ -157,18 +158,23 @@ def verify_bid(bid: str) -> dict | None:
     if not rows:
         return None
     r = rows[0]
-    return {
-        "id":              str(r.get("booking_id") or bid),
+    booking_id_str = str(r.get("booking_id") or bid)
+    tgid_str       = str(r.get("tgid") or "")
+    booking = {
+        "id":              booking_id_str,
         "date_of_booking": str(r.get("date_of_booking") or ""),
         "date_of_visit":   str(r.get("date_of_visit") or ""),
         "tid":             str(r.get("tid") or ""),
-        "tgid":            str(r.get("tgid") or ""),
+        "tgid":            tgid_str,
         "experienceName":  str(r.get("experience_name") or ""),
         "vid":             str(r.get("vendor_id") or ""),
         "vendorName":      str(r.get("vendor_name") or ""),
         "fulfilmentType":  str(r.get("fulfilment_type") or ""),
         "primary_guest_name": str(r.get("primary_guest_name") or ""),
     }
+    booking["bms_link"]  = BMS_URL_PATTERN.format(bid=booking_id_str)   if booking_id_str  else None
+    booking["tgid_link"] = TGID_URL_PATTERN.format(tgid=tgid_str)       if tgid_str        else None
+    return booking
 
 
 # ─────────────────────────────────────────────────────────────────────────
