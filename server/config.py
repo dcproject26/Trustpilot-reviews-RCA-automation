@@ -74,6 +74,11 @@ DSS_SHEET_TAB           = os.getenv("DSS_SHEET_TAB", "CE/RO")
 CANNED_RESPONSES_SHEET_ID = os.getenv("CANNED_RESPONSES_SHEET_ID",
                                         "1aXnZzzFQ8tDiaXs0E2YRErOcTSOsbTOqnM7WhyOnmi4")
 
+# RCA Checklist — Google Sheet
+RCA_CHECKLIST_SHEET_ID = os.getenv("RCA_CHECKLIST_SHEET_ID",
+                                    "1RpvQCz35_pOTnWGrYL0rfPKUXejmt5KeBppgI9QTYJ8")
+RCA_CHECKLIST_GID      = os.getenv("RCA_CHECKLIST_GID", "1186061023")
+
 # Google Sheets API key (optional — used only to resolve tab names via metadata)
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").strip()
 
@@ -120,6 +125,7 @@ def is_live(service: str) -> bool:
         "apps_script":    bool(APPS_SCRIPT_URL),
         "dss":            bool(DSS_SHEET_ID),
         "canned":         bool(CANNED_RESPONSES_SHEET_ID),
+        "checklist":      bool(RCA_CHECKLIST_SHEET_ID),
     }
     return checks.get(service, False)
 
@@ -130,5 +136,5 @@ def status_summary() -> dict:
         "ai_provider": "Replit AI Integrations — Anthropic Claude",
         "services": {k: is_live(k) for k in
                      ["anthropic","slack_inbound","slack_outbound",
-                      "bigquery","zendesk","dss","canned"]},
+                      "bigquery","zendesk","dss","canned","checklist"]},
     }

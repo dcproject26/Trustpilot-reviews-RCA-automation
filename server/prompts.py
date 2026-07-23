@@ -703,7 +703,114 @@ Return ONLY valid JSON, no markdown:
 {{"venue_hints": ["...", "..."]}}"""
 
 
-# ─── 8. Flag-to-Biz Slack message ──────────────────────────────────────────
+# ─── 8. RCA v3 prompt ───────────────────────────────────────────────────────
+def rca_v3_prompt(
+    review_text: str,
+    booking: dict,
+    timeline: list,
+    insights: dict,
+    dss_rec: dict,
+    l1: str,
+    l2: str,
+    sub_theme: str,
+    support_summary: str,
+    checklist_items: list,
+    review_id: str = "",
+) -> str:
+    """
+    Generates RCA v3 shape: tldr, wwr_chain, prevention, evidence,
+    issue_specific_answers, checklist_answers.
+
+    Embedded rules (do NOT edit — verbatim from spec):
+    • No fabrication. Every claim in wwr_chain, evidence, checklist_answers must
+      be citeable from timeline/booking/review_text. Unknown → Unknown.
+    • Neutral tone. Facts only. Don't adopt or defend the guest's narrative.
+    • tldr ≤ 25 words, one sentence, factual.
+    • wwr_chain is causal, not narrative. Root cause first, forward. 3–6 steps.
+    • prevention must be ORM-ownable — pre-visit comms first. Cross-team asks
+      labeled explicitly.
+    • evidence items prefixed with source: [timeline], [review], [booking],
+      [insights]. Verbatim quotes.
+    • issue_specific_answers — for each check relevant to l1, answer Yes/No/Unknown.
+      Short parenthetical only if timeline directly supports.
+    • checklist_answers — one entry per checklist item in the same order. If the
+      checklist has N items, output must have N entries.
+    • Support-failure-supersedes-underlying-cause. External event but CE
+      mishandled → root cause is CE failure.
+    • No invented handles, timestamps, comp amounts. Use [placeholder] if unknown.
+    """
+    tl_text = json.dumps(timeline[:30], indent=2) if timeline else "[]"
+    bk_text = json.dumps({k: v for k, v in (booking or {}).items() if k != "_match"})
+    in_text = json.dumps(insights or {})
+    ds_text = json.dumps(dss_rec or {})
+
+    checklist_block = ""
+    if checklist_items:
+        numbered = "\n".join(
+            f"{i+1}. {it['item']}" + (f" — guidance: {it['guidance']}" if it.get("guidance") else "")
+            for i, it in enumerate(checklist_items)
+        )
+        checklist_block = f"""
+━━ RCA CHECKLIST — answer each item ━━
+For each item below, answer Yes/No/Unknown. Add a ≤120-char note only if the
+timeline directly supports the answer. No fabrication. Preserve item order.
+{numbered}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
+
+    return f"""You are an ORM analyst writing an internal Root-Cause Analysis (RCA).
+
+REVIEW ID:      {review_id}
+CLASSIFICATION: L1={l1}  L2={l2}  Sub-theme={sub_theme}
+
+REVIEW TEXT:
+{review_text}
+
+BOOKING:
+{bk_text}
+
+ZENDESK TIMELINE:
+{tl_text}
+
+INSIGHTS:
+{in_text}
+
+DSS RECOMMENDATION:
+{ds_text}
+
+SUPPORT SUMMARY:
+{support_summary or "(none)"}
+
+━━ RULES (non-negotiable) ━━
+1. NO FABRICATION. Every claim in wwr_chain, evidence, checklist_answers must be
+   citeable from the timeline, booking, or review_text above. If unknown → "Unknown".
+2. NEUTRAL TONE. Facts only. Do not adopt or defend the guest's narrative.
+3. tldr ≤ 25 words, one sentence, factual. Format: "what happened + what we're doing."
+4. wwr_chain: CAUSAL, not narrative. Root cause first, forward through to the review.
+   3–6 steps max. Each step: {{"step": N, "what": "...", "why": "..."}}.
+5. prevention: ORM-ownable actions only. Pre-visit comms first. If cross-team action
+   needed, label explicitly (e.g. "Product team:").
+6. evidence: prefix each item with its source in square brackets: [timeline], [review],
+   [booking], [insights]. Use verbatim quotes where possible.
+7. issue_specific_answers: answer Yes/No/Unknown for checks relevant to L1={l1}.
+   Short parenthetical (≤60 chars) only if timeline directly supports.
+8. Support-failure supersedes: if an external event occurred BUT CE mishandled the
+   guest contact, the root cause is the CE failure, not the external event.
+9. No invented handles, timestamps, or comp amounts. Use [placeholder] if unknown.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{checklist_block}
+
+Return ONLY valid JSON (no markdown fences) matching this exact shape:
+{{
+  "tldr":                    "<≤25 words, one sentence>",
+  "wwr_chain":               [{{"step": 1, "what": "...", "why": "..."}}, ...],
+  "prevention":              "<1-2 sentences>",
+  "evidence":                ["[source] quote", ...],
+  "issue_specific_answers":  {{"<key>": "Yes|No|Unknown (<optional note>)", ...}},
+  "checklist_answers":       [{{"item": "<question>", "answer": "Yes|No|Unknown", "note": "<≤120 chars or empty>"}}, ...]
+}}"""
+
+
+# ─── 9. Flag-to-Biz Slack message ──────────────────────────────────────────
 def flag_to_biz_prompt(
     vendor_name: str, vid: str, completion_pct: str, market_avg: str,
     l1: str, l2: str, review_bid: str,

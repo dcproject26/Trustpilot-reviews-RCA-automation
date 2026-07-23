@@ -1566,6 +1566,33 @@
     font-weight: 600;
     font-family: 'JetBrains Mono', monospace;
   }
+
+  /* ── RCA v3 styles ────────────────────────────────────────────────── */
+  .tldr-banner { cursor: text; border-radius: 4px; }
+  .tldr-banner:focus { outline: 1px solid var(--accent); background: var(--bg-elev-2); }
+  .wwr-stepper { display: flex; flex-direction: column; gap: 0; }
+  .wwr-step {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 0; position: relative;
+  }
+  .wwr-step-num {
+    flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%;
+    background: var(--accent); color: #fff; font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; margin-top: 2px;
+  }
+  .wwr-step-body { flex: 1; min-width: 0; }
+  .wwr-what { font-size: 13px; font-weight: 600; color: var(--text); cursor: text; }
+  .wwr-why  { font-size: 12px; color: var(--text-mute); margin-top: 3px; cursor: text; }
+  .wwr-what:focus, .wwr-why:focus { outline: 1px solid var(--accent); border-radius: 3px; }
+  .wwr-connector {
+    width: 2px; height: 16px; background: var(--border);
+    margin-left: 11px;
+  }
+  .evidence-list { padding: 6px 0; }
+  .ev-item { font-size: 12px; color: var(--text); margin-bottom: 6px; line-height: 1.5; }
+  .ev-source { color: var(--accent); font-weight: 600; margin-right: 4px; }
+  .check-table th, .check-table td { border-bottom: 1px solid var(--border); }
+  .check-table tr:last-child td { border-bottom: none; }
 </style>
 </head>
 <body>
@@ -1649,6 +1676,75 @@ async function loadSubThemeOptions() {
 // call once on load; re-render picks up options after taxonomy resolves
 loadSubThemeOptions();
 
+// ── Inbox wiring ─────────────────────────────────────────────────────────────
+async function fetchInbox() {
+  try {
+    const rows = await (await fetch('/api/reviews')).json();
+    const byId = new Map(REVIEWS.map(r => [r.id, r]));
+    const merged = rows.map(row => {
+      const demo = byId.get(row.id);
+      if (demo) {
+        return {
+          ...demo,
+          receivedAt:     row.received_at || demo.receivedAt,
+          status:         row.status      || demo.status,
+          matchTier:      row.match_tier  ?? demo.matchTier,
+          candidateState: row.candidate_state ?? demo.candidateState,
+        };
+      }
+      // New API-only review (manual / Slack): minimal template
+      const tier = row.match_tier;
+      return {
+        id:             row.id,
+        author:         row.author || 'Unknown',
+        firstName:      (row.author || 'Unknown').split(' ')[0],
+        rating:         row.rating || 1,
+        stars:          '★'.repeat(row.rating || 1) + '☆'.repeat(5 - (row.rating || 1)),
+        language:       row.language || 'en',
+        lang:           (row.language || 'en').toUpperCase(),
+        receivedAt:     row.received_at,
+        time:           row.received_at ? new Date(row.received_at).toLocaleString('en-GB', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '',
+        status:         row.status || 'new',
+        matchTier:      tier,
+        candidateState: row.candidate_state || false,
+        type:           tier === 1 ? 'identified' : tier === null ? 'untraceable' : 'candidates',
+        tier:           tier ? `T${tier}` : '—',
+        experience:     row.experience || '',
+        channel:        'orm',
+        original:       row.snippet || '',
+        english:        null,
+        originalText:   row.snippet || '',
+        englishText:    row.snippet || '',
+        booking:        {},
+        rca:            {
+          issueL1: '', issueL2: '', subTheme: null,
+          whatWentWrong: '', statedIssue: '',
+          supportInteraction: [], supportSummary: '', spInteraction: [],
+          areaOfImproving: '',
+          actionsTaken: {sp:[],customer:[],business:[],product:[],ce:[]},
+          resolution: '',
+          tldr: '', wwrChain: [], prevention: '',
+          evidence: [], issueSpecificAnswers: {}, checklistAnswers: [],
+        },
+        insights: {
+          tgidRating: {value:'—',sub:'',tone:''},
+          tidVidRating: {value:'—',sub:'',tone:''},
+          completion: {value:'—',sub:'',tone:''},
+          sameDayIssues: {value:'—',sub:'',tone:''},
+          similarSupport: [], similarReviews: [],
+        },
+        events: [],
+        timelineSummary: '',
+      };
+    });
+    merged.sort((a, b) => new Date(b.receivedAt || b.time || 0) - new Date(a.receivedAt || a.time || 0));
+    REVIEWS.length = 0;
+    REVIEWS.push(...merged);
+  } catch (e) {
+    console.warn('[inbox] fetch failed, keeping demo REVIEWS:', e);
+  }
+}
+
 // Overlay real draft fields onto the demo view-models. Data source only:
 // sub_theme, support_interaction_frames (+ sp_interaction_frames) and
 // support_summary come from /api/reviews/{id}; markup stays demo-v15.
@@ -1677,6 +1773,12 @@ async function loadDraftOverlays() {
       if (!draft) return;
 
       r.rca.subTheme = draft.sub_theme || null;
+      r.rca.tldr = draft.tldr || '';
+      r.rca.wwrChain = draft.wwr_chain || [];
+      r.rca.prevention = draft.prevention || '';
+      r.rca.evidence = draft.evidence || [];
+      r.rca.issueSpecificAnswers = draft.issue_specific_answers || {};
+      r.rca.checklistAnswers = draft.checklist_answers || [];
       r.rca.supportInteraction = (draft.support_interaction_frames || []).map(mapSupportFrame);
       r.rca.supportSummary = draft.support_summary || '';
       r.rca.spInteraction = (draft.sp_interaction_frames || []).map(f => ({
@@ -1716,7 +1818,7 @@ async function loadDraftOverlays() {
   renderInbox();
 }
 
-const REVIEWS = [
+let REVIEWS = [
   {
     id: 'tp_001',
     type: 'identified',
@@ -1964,8 +2066,14 @@ const state = {
   insightsWindow: '90d',
 };
 
-// fire once REVIEWS + state exist; re-renders the RCA column when drafts land
-loadDraftOverlays();
+// fire once REVIEWS + state exist; fetchInbox merges API rows then loads drafts
+(async () => {
+  await fetchInbox();
+  await loadSubThemeOptions();
+  await loadDraftOverlays();
+  renderInbox();
+  if (state.selected) renderRcaCol();
+})();
 
 function renderInbox() {
   const list = document.getElementById('inbox-list');
@@ -2473,6 +2581,111 @@ function renderRcaCol() {
     </div>
   `;
 
+  // ── v3 sections (gated on tldr presence) ──────────────────────────────────
+  const v3Block = rca.tldr ? `
+    <div class="section" id="rca-tldr-section">
+      <div class="section-label"><span class="marker"></span>TL;DR<span class="ai-tag-inline">AI</span></div>
+      <div class="field-block">
+        <div class="tldr-banner editable-text" contenteditable="true" spellcheck="false"
+             style="font-size:18px;font-weight:600;line-height:1.5;padding:10px 0"
+             data-patch-field="tldr">${rca.tldr}</div>
+      </div>
+    </div>
+
+    <div class="section" id="rca-wwr-section">
+      <div class="section-label"><span class="marker"></span>What Went Wrong<span class="ai-tag-inline">AI</span></div>
+      <div class="wwr-stepper">
+        ${(rca.wwrChain || []).map((step, i) => `
+          <div class="wwr-step" data-step="${i}">
+            <div class="wwr-step-num">${step.step || (i + 1)}</div>
+            <div class="wwr-step-body">
+              <div class="wwr-what editable-text" contenteditable="true" spellcheck="false"
+                   data-wwr-idx="${i}" data-wwr-field="what"><strong>${step.what || ''}</strong></div>
+              <div class="wwr-why editable-text" contenteditable="true" spellcheck="false"
+                   style="color:var(--text-mute)"
+                   data-wwr-idx="${i}" data-wwr-field="why">${step.why || ''}</div>
+            </div>
+            <button class="action-delete-btn" data-wwr-delete="${i}" title="Remove step">×</button>
+          </div>
+        `).join('<div class="wwr-connector"></div>')}
+      </div>
+      <button class="action-add-btn" data-wwr-add>+ Add step</button>
+    </div>
+
+    <div class="section" id="rca-prevention-section">
+      <div class="section-label"><span class="marker"></span>Prevention<span class="ai-tag-inline">AI</span></div>
+      <div class="field-block">
+        <textarea class="field-textarea" data-patch-field="prevention">${rca.prevention || ''}</textarea>
+      </div>
+    </div>
+
+    ${(rca.evidence || []).length > 0 ? `
+    <div class="section" id="rca-evidence-section">
+      <div class="section-label" style="cursor:pointer" data-toggle-evidence>
+        <span class="marker"></span>Evidence
+        <span class="ai-tag-inline">AI</span>
+        <span style="color:var(--text-mute);margin-left:6px">(${rca.evidence.length} items — click to expand)</span>
+      </div>
+      <div class="evidence-list" id="evidence-body" style="display:none">
+        ${rca.evidence.map(ev => {
+          const m = ev.match(/^\[([^\]]+)\]\s*(.*)$/);
+          return m
+            ? `<div class="ev-item"><span class="ev-source">[${m[1]}]</span> ${m[2]}</div>`
+            : `<div class="ev-item">${ev}</div>`;
+        }).join('')}
+      </div>
+    </div>` : ''}
+
+    ${Object.keys(rca.issueSpecificAnswers || {}).length > 0 ? `
+    <div class="section" id="rca-issue-answers-section">
+      <div class="section-label"><span class="marker"></span>Issue-Specific Answers<span class="ai-tag-inline">AI</span></div>
+      <table class="check-table" style="width:100%;border-collapse:collapse">
+        <thead><tr>
+          <th style="text-align:left;padding:4px 8px;font-size:11px;color:var(--text-mute)">Check</th>
+          <th style="text-align:left;padding:4px 8px;font-size:11px;color:var(--text-mute);width:130px">Answer</th>
+        </tr></thead>
+        <tbody>
+          ${Object.entries(rca.issueSpecificAnswers).map(([key, val]) => `
+            <tr>
+              <td style="padding:4px 8px;font-size:12px;color:var(--text)">${key.replace(/_/g,' ')}</td>
+              <td style="padding:4px 8px">
+                <select class="classify-select" style="font-size:12px;width:110px"
+                        data-isa-key="${key}">
+                  ${['Yes','No','Unknown'].map(opt => `<option${val.startsWith(opt)?' selected':''}>${opt}</option>`).join('')}
+                </select>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : ''}
+
+    ${(rca.checklistAnswers || []).length > 0 ? `
+    <div class="section" id="rca-checklist-answers-section">
+      <div class="section-label"><span class="marker"></span>RCA Checklist Answers<span class="ai-tag-inline">AI</span></div>
+      <table class="check-table" style="width:100%;border-collapse:collapse">
+        <thead><tr>
+          <th style="text-align:left;padding:4px 8px;font-size:11px;color:var(--text-mute)">Item</th>
+          <th style="text-align:left;padding:4px 8px;font-size:11px;color:var(--text-mute);width:130px">Answer</th>
+        </tr></thead>
+        <tbody>
+          ${rca.checklistAnswers.map((ca, ci) => `
+            <tr>
+              <td style="padding:4px 8px;font-size:12px;color:var(--text)">
+                ${ca.item}
+                ${ca.note ? `<div style="font-size:11px;color:var(--text-mute);margin-top:2px">${ca.note}</div>` : ''}
+              </td>
+              <td style="padding:4px 8px">
+                <select class="classify-select" style="font-size:12px;width:110px"
+                        data-ca-idx="${ci}">
+                  ${['Yes','No','Unknown'].map(opt => `<option${ca.answer===opt?' selected':''}>${opt}</option>`).join('')}
+                </select>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : ''}
+  ` : '';
+
   col.innerHTML = `
     <div class="rca-head">
       <div>
@@ -2480,9 +2693,11 @@ function renderRcaCol() {
           <div class="rca-title" contenteditable="true" spellcheck="false">AI RCA</div>
           <span class="rca-edit-icon" title="Click title to edit">✎</span>
         </div>
-        <div class="rca-sub">BID ${r.booking.bid} · drafted ${r.time} · click any field to edit</div>
+        <div class="rca-sub">BID ${r.booking.bid || '—'} · drafted ${r.time || ''} · click any field to edit</div>
       </div>
     </div>
+
+    ${v3Block}
 
     <div class="section">
       <div class="section-label"><span class="marker"></span>Guest's Stated Issue<span class="ai-tag-inline">AI</span></div>
@@ -2651,6 +2866,119 @@ function renderRcaCol() {
     });
   });
 
+  // ── v3 event handlers ──────────────────────────────────────────────────────
+
+  // TL;DR blur → PATCH
+  const tldrEl = col.querySelector('.tldr-banner[data-patch-field="tldr"]');
+  if (tldrEl) {
+    tldrEl.addEventListener('blur', async () => {
+      rca.tldr = tldrEl.textContent.trim();
+      try {
+        await fetch(`/api/reviews/${r.id}/draft-v2`, {
+          method: 'PATCH', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({tldr: rca.tldr}),
+        });
+      } catch (e) { /* keep local edit */ }
+    });
+  }
+
+  // Prevention blur → PATCH
+  const prevEl = col.querySelector('textarea[data-patch-field="prevention"]');
+  if (prevEl) {
+    prevEl.addEventListener('blur', async () => {
+      rca.prevention = prevEl.value;
+      try {
+        await fetch(`/api/reviews/${r.id}/draft-v2`, {
+          method: 'PATCH', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({prevention: rca.prevention}),
+        });
+      } catch (e) { /* keep local edit */ }
+    });
+  }
+
+  // WWR chain — inline edits on what/why fields
+  col.querySelectorAll('[data-wwr-idx]').forEach(el => {
+    el.addEventListener('blur', async () => {
+      const idx = parseInt(el.dataset.wwrIdx);
+      const field = el.dataset.wwrField;
+      if (!rca.wwrChain[idx]) return;
+      rca.wwrChain[idx][field] = el.textContent.trim();
+      try {
+        await fetch(`/api/reviews/${r.id}/draft-v2`, {
+          method: 'PATCH', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({wwr_chain: rca.wwrChain}),
+        });
+      } catch (e) { /* keep local edit */ }
+    });
+  });
+
+  // WWR chain — delete step
+  col.querySelectorAll('[data-wwr-delete]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const idx = parseInt(btn.dataset.wwrDelete);
+      rca.wwrChain.splice(idx, 1);
+      rca.wwrChain.forEach((s, i) => { s.step = i + 1; });
+      try {
+        await fetch(`/api/reviews/${r.id}/draft-v2`, {
+          method: 'PATCH', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({wwr_chain: rca.wwrChain}),
+        });
+      } catch (e) { /* keep local edit */ }
+      renderRcaCol();
+    });
+  });
+
+  // WWR chain — add step
+  const wwrAddBtn = col.querySelector('[data-wwr-add]');
+  if (wwrAddBtn) {
+    wwrAddBtn.addEventListener('click', async () => {
+      rca.wwrChain.push({step: rca.wwrChain.length + 1, what: 'New step', why: ''});
+      try {
+        await fetch(`/api/reviews/${r.id}/draft-v2`, {
+          method: 'PATCH', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({wwr_chain: rca.wwrChain}),
+        });
+      } catch (e) { /* keep local edit */ }
+      renderRcaCol();
+    });
+  }
+
+  // Evidence — toggle collapsible
+  const evToggle = col.querySelector('[data-toggle-evidence]');
+  if (evToggle) {
+    evToggle.addEventListener('click', () => {
+      const body = col.querySelector('#evidence-body');
+      if (body) body.style.display = body.style.display === 'none' ? 'block' : 'none';
+    });
+  }
+
+  // Issue-Specific Answers — select change → PATCH
+  col.querySelectorAll('[data-isa-key]').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      rca.issueSpecificAnswers[sel.dataset.isaKey] = sel.value;
+      try {
+        await fetch(`/api/reviews/${r.id}/draft-v2`, {
+          method: 'PATCH', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({issue_specific_answers: rca.issueSpecificAnswers}),
+        });
+      } catch (e) { /* keep local edit */ }
+    });
+  });
+
+  // Checklist Answers — select change → PATCH
+  col.querySelectorAll('[data-ca-idx]').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      const idx = parseInt(sel.dataset.caIdx);
+      if (rca.checklistAnswers[idx]) rca.checklistAnswers[idx].answer = sel.value;
+      try {
+        await fetch(`/api/reviews/${r.id}/draft-v2`, {
+          method: 'PATCH', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({checklist_answers: rca.checklistAnswers}),
+        });
+      } catch (e) { /* keep local edit */ }
+    });
+  });
+
   const subThemeSel = col.querySelector('[data-subtheme-select]');
   if (subThemeSel) {
     subThemeSel.addEventListener('change', async () => {
@@ -2662,6 +2990,7 @@ function renderRcaCol() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sub_theme: val }),
         });
+        fetchInbox().then(() => { renderInbox(); });
       } catch (e) { /* keep local edit; server save retried on next change */ }
     });
   }

@@ -45,7 +45,30 @@ else:
 
 async def find_booking(review: dict) -> dict | None:
     if not is_live("bigquery"):
-        return MOCK_BOOKINGS.get(review["id"])
+        result = MOCK_BOOKINGS.get(review["id"])
+        if result is not None:
+            return result
+        # Mock synthesis: activates in MOCK_MODE for review IDs not in fixtures.
+        # Enables manual testing without real service calls.
+        bid = review.get("reference_number")
+        if bid:
+            from server.config import BMS_URL_PATTERN, TGID_URL_PATTERN
+            return {
+                "id":                 bid,
+                "experienceName":     "Mock Experience [manual test]",
+                "tgid":               99999,
+                "tid":                88888,
+                "vid":                77777,
+                "vendorName":         "MockVendor",
+                "fulfilmentType":     "MANUAL",
+                "visitDate":          "2026-01-15",
+                "bookedOn":           "2026-01-10",
+                "guestName":          review.get("author") or "Manual Test User",
+                "bms_link":           BMS_URL_PATTERN.format(bid=bid),
+                "tgid_link":          TGID_URL_PATTERN.format(tgid=99999),
+                "_match":             {"tier": 1, "confidence": "high", "method": "mock_synthesis"},
+            }
+        return None
 
     ref    = review.get("reference_number")
     author = (review.get("author") or "").strip()

@@ -557,6 +557,27 @@ async def process_review(review_id: str):
         except Exception as e:
             log.exception(f"RCA v2 generation failed: {e}")
 
+        # ── 12b. RCA v3 (TL;DR + WWR chain + checklist) ──────────────────────
+        rca_v3 = {}
+        try:
+            from server.services.rca_checklist import get_checklist
+            checklist_items = await get_checklist(l1, l2)
+            rca_v3 = await claude.generate_rca_v3(
+                review_text=review_text,
+                booking=booking,
+                timeline=timeline,
+                insights=insights,
+                dss_rec=dss_rec,
+                l1=l1 or "",
+                l2=l2 or "",
+                sub_theme=sub_theme or "",
+                support_summary=support_summary_text or "",
+                checklist_items=checklist_items,
+                review_id=review_id,
+            )
+        except Exception as e:
+            log.exception(f"RCA v3 generation failed: {e}")
+
         # ── 13. Response draft ────────────────────────────────────────────────
         response_draft = ""
         try:
@@ -614,6 +635,16 @@ async def process_review(review_id: str):
         draft.actions_taken               = rca_v2.get("actionsTaken",
                                               {"sp":[],"customer":[],"business":[],"product":[],"ce":[]})
         draft.resolution                  = rca_v2.get("resolution", "")
+
+        # v3 fields — independent of v2, both persist
+        if rca_v3:
+            draft.tldr                    = rca_v3.get("tldr")
+            draft.wwr_chain               = rca_v3.get("wwr_chain") or []
+            draft.prevention              = rca_v3.get("prevention")
+            draft.evidence                = rca_v3.get("evidence") or []
+            draft.issue_specific_answers  = rca_v3.get("issue_specific_answers") or {}
+            draft.checklist_answers       = rca_v3.get("checklist_answers") or []
+
         draft.suggested_response          = response_draft
         draft.generated_at                = datetime.utcnow()
         review.status                     = "draft"

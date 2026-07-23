@@ -1,0 +1,265 @@
+Combined Delta v6.5 + v7 — RCA v3 shape, RCA checklist integration, client inbox wiring, MOCK-mode synthesis, heartbeat, dead-code cleanup. Backend + client. Do NOT touch classification code, tier cascade, Zendesk timeline shape, insights, semaphores, DSS/canned services, response prompt, or MOCK_MODE flag. Do NOT deploy. Do NOT enable Trustpilot Reply API — public reply stays as dashboard-only for CE copy-paste.
+
+Ground truth to inherit
+v6 applied (CS + Content frameworks live, DSS + canned Sheet-based, sub-theme row + support frames wired).
+Response draft already generates on dashboard; CE will copy-paste into Trustpilot admin. Do NOT wire Trustpilot Reply API in this delta.
+Slack post-back on Send already posts internal RCA to the thread via SLACK_BOT_TOKEN. Keep as-is.
+Part 1 — RCA v3 shape (backend)
+Migration migrations/006_rca_v3.sql:
+
+ALTER TABLE rca_drafts ADD COLUMN IF NOT EXISTS tldr                    TEXT;
+ALTER TABLE rca_drafts ADD COLUMN IF NOT EXISTS wwr_chain               JSON DEFAULT '[]';
+ALTER TABLE rca_drafts ADD COLUMN IF NOT EXISTS prevention              TEXT;
+ALTER TABLE rca_drafts ADD COLUMN IF NOT EXISTS evidence                JSON DEFAULT '[]';
+ALTER TABLE rca_drafts ADD COLUMN IF NOT EXISTS issue_specific_answers  JSON DEFAULT '{}';
+ALTER TABLE rca_drafts ADD COLUMN IF NOT EXISTS checklist_answers       JSON DEFAULT '[]';
+Add matching Column(...) on db.py::RcaDraft. Include them in _draft_dict(). Add each field (all | None = None) to DraftPatchV2; update the patch-field tuple in patch_draft_v2.
+
+New Claude call services/claude.py::generate_rca_v3(...):
+
+Signature: (review_text, booking, timeline, insights, dss_rec, l1, l2, sub_theme, support_summary, checklist_items, review_id) -> dict
+
+Returns:
+
+{
+  "tldr":                    "≤25 words, one sentence: what happened + what we're doing.",
+  "wwr_chain":               [{"step": 1, "what": "…", "why": "…"}, …],   # 3-6 causal steps
+  "prevention":              "1-2 sentences, ORM-ownable, prefer pre-visit comms.",
+  "evidence":                ["[timeline] quote", "[review] quote", "[booking] quote", …],
+  "issue_specific_answers":  {"<diagnostic key>": "Yes|No|Unknown", …},   # from DIAGNOSTIC_CHECKS
+  "checklist_answers":       [{"item": "<question>", "answer": "Yes|No|Unknown", "note": "≤120 chars, only if timeline supports"}, …],
+}
+New prompt prompts.py::rca_v3_prompt(...) — rules embedded verbatim:
+
+No fabrication. Every claim in wwr_chain, evidence, checklist_answers must be citeable from timeline/booking/review_text. Unknown → Unknown.
+Neutral tone. Facts only. Don't adopt or defend the guest's narrative.
+tldr ≤ 25 words, one sentence, factual.
+wwr_chain is causal, not narrative. Root cause first, forward. 3–6 steps.
+prevention must be ORM-ownable — pre-visit comms first. Cross-team asks labeled explicitly.
+evidence items prefixed with source: [timeline], [review], [booking], [insights]. Verbatim quotes.
+issue_specific_answers — for each check in DIAGNOSTIC_CHECKS[l1], answer Yes/No/Unknown. Short parenthetical only if timeline directly supports.
+checklist_answers — same rules, one entry per item in the checklist input (see Part 2). If checklist has 12 items, output must have 12 entries in the same order.
+Support-failure-supersedes-underlying-cause. External event but CE mishandled → root cause is CE failure.
+No invented handles, timestamps, comp amounts. Use [placeholder] if unknown.
+Wire in pipeline.py:
+
+Existing step 12 calls generate_rca_v2. Add step 12b: generate_rca_v3(...) — passes L1/L2/sub-theme/support_summary/checklist_items. Persist v3 outputs to the new columns.
+Both step 12 and 12b wrapped in independent try/except. Neither breaks the other.
+Both continue to persist — v2 stays as legacy fallback.
+Part 2 — RCA checklist integration (fetch sheet, drive Column 3 checks)
+New Secret:
+
+RCA_CHECKLIST_SHEET_ID = 1RpvQCz35_pOTnWGrYL0rfPKUXejmt5KeBppgI9QTYJ8
+RCA_CHECKLIST_GID      = 1186061023   # default; overrideable per env
+New service server/services/rca_checklist.py:
+
+Fetch on startup + every 15 min (TTL cache), same pattern as dss.py / canned.py:
+https://docs.google.com/spreadsheets/d/{RCA_CHECKLIST_SHEET_ID}/export?format=csv&gid={RCA_CHECKLIST_GID}
+CSV first row = headers. Heuristic column detection (log the mapping):
+Item / question → header contains: check, item, question, criteria, checkpoint
+L1 / applies to → l1, category, applies, applicable
+L2 / sub-theme → l2, subtheme, sub-theme, theme
+Guidance / description → guidance, description, notes, how to check, detail
+Owner → owner, team, who
+Skip empty rows. Trim whitespace. Case-insensitive matching for L1/L2 filters.
+Function shape:
+
+async def get_checklist(l1: str | None, l2: str | None) -> list[dict]:
+    """
+    Returns the checklist items applicable to this (L1, L2).
+    Filter rules:
+      - Row's L1 column blank OR matches l1 (case-insensitive)
+      - Row's L2 column blank OR matches l2
+      - "Applies-to-all" rows (L1 and L2 both blank) always included
+    Shape: [{"item": str, "guidance": str, "l1": str, "l2": str, "owner": str}, ...]
+    Preserves sheet order.
+    """
+MOCK_MODE → return a hardcoded 5-item stub so the RCA prompt still runs.
+On fetch failure → log warning, return cached last-known-good list; if empty, return [] (RCA prompt will simply skip the checklist section).
+Wire into pipeline step 12b: call checklist = await get_checklist(l1, l2) before generate_rca_v3, pass checklist as the checklist_items argument.
+
+In rca_v3_prompt(...), embed the checklist section:
+
+━━ RCA CHECKLIST — answer each item ━━
+For each item below, answer Yes/No/Unknown. Add a ≤120-char note only if the
+timeline directly supports the answer. No fabrication. Preserve item order.
+{numbered list of checklist items rendered as: "1. <item> — guidance: <guidance>"}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Report back on first-run: the exact column names detected in the sheet, and the first 3 parsed items.
+
+Part 3 — Client Column 3 renders v3 shape (with v2 fallback)
+Fallback rule (do first): if rca.tldr is empty/null, render existing v2 shape unchanged (bullets/frames/resolution). All v3 rendering below is gated on rca.tldr presence.
+
+View-model additions:
+
+tldr:                  draft.tldr || "",
+wwrChain:              draft.wwr_chain || [],
+prevention:            draft.prevention || "",
+evidence:              draft.evidence || [],
+issueSpecificAnswers:  draft.issue_specific_answers || {},
+checklistAnswers:      draft.checklist_answers || [],
+Column 3 sections when v3 fields present:
+
+TL;DR banner at top — single sentence, 18–20px, contenteditable. Blur → PATCH {"tldr": …}.
+What Went Wrong (chain) — numbered vertical stepper. Each step: what bolded, why dimmer. Vertical line connecting. Each field editable inline. Add/delete step buttons mutate rca.wwrChain and PATCH.
+Prevention — short block, labeled "Prevention". Editable. PATCH {"prevention": …}.
+Evidence — collapsible list, closed by default. Header shows count. Body: each item as <span class="ev-source">[source]</span> <quote>. Not editable.
+Issue-Specific Answers — 2-column table (question | select Yes/No/Unknown). Rows come from DIAGNOSTIC_CHECKS[rca.issueL1] (fetched from /api/taxonomy). Change → PATCH {"issue_specific_answers": …}.
+RCA Checklist Answers (NEW) — same 2-column table pattern, one row per rca.checklistAnswers item. Show item as the question column; answer is a Yes/No/Unknown <select>; if note non-empty, render dimmer text below the answer. Change → PATCH {"checklist_answers": …}.
+Do NOT touch Column 1 or Column 2.
+
+Part 4 — Wire Column 1 inbox to /api/reviews
+Problem: client/index.html renders inbox from hardcoded const REVIEWS = [...] (line ~1719). Reviews created via /api/reviews/manual (or later via Slack) never appear on the dashboard.
+
+Change:
+
+a. Change const REVIEWS = [...] → let REVIEWS = [...] OR keep const and mutate via REVIEWS.length = 0; REVIEWS.push(...).
+
+b. Add fetchInbox() and call it before existing loadDraftOverlays():
+
+async function fetchInbox() {
+  try {
+    const rows = await (await fetch('/api/reviews')).json();
+    const byId = new Map(REVIEWS.map(r => [r.id, r]));
+    const merged = rows.map(row => {
+      const demo = byId.get(row.id);
+      if (demo) {
+        return {
+          ...demo,
+          receivedAt:      row.received_at || demo.receivedAt,
+          status:          row.status || demo.status,
+          matchTier:       row.match_tier ?? demo.matchTier,
+          candidateState:  row.candidate_state ?? demo.candidateState,
+        };
+      }
+      // New API-only review (manual / Slack): minimal template
+      return {
+        id:              row.id,
+        author:          row.author || 'Unknown',
+        rating:          row.rating || 1,
+        language:        row.language || 'en',
+        receivedAt:      row.received_at,
+        status:          row.status || 'new',
+        matchTier:       row.match_tier,
+        candidateState:  row.candidate_state || false,
+        experience:      row.experience || '',
+        originalText:    row.snippet || '',
+        englishText:     row.snippet || '',
+        booking:         {},
+        rca:             {},   // loadDraftOverlays populates from /api/reviews/{id}
+      };
+    });
+    merged.sort((a, b) => new Date(b.receivedAt) - new Date(a.receivedAt));
+    REVIEWS.length = 0;
+    REVIEWS.push(...merged);
+  } catch (e) {
+    console.warn('[inbox] fetch failed, keeping demo REVIEWS:', e);
+  }
+}
+
+(async () => {
+  await fetchInbox();
+  await loadSubThemeOptions();
+  await loadDraftOverlays();
+  renderInbox();       // whatever existing render calls
+  if (state.selected) renderRcaCol();
+})();
+c. Call fetchInbox() again after every successful PATCH and after posting a manual review (one-liner in existing callbacks).
+
+Do NOT change tab-filtering logic — it already routes by matchTier/candidateState/status.
+
+Part 5 — MOCK-mode synthesis for unknown review IDs
+Problem: MOCK-mode fixtures (MOCK_BOOKINGS, MOCK_TIMELINES, MOCK_RCA_FIELDS, MOCK_RESPONSES) are keyed by predefined review IDs. Manually-posted reviews with fresh UUIDs won't match — Column 2/3 stay blank.
+
+Add synthesis fallbacks — in each of these functions, when in MOCK mode AND the review_id doesn't match a fixture:
+
+services/bigquery.py::find_booking:
+
+If search_ctx.reference_number (BID) is present, synthesize a plausible booking:
+{
+  "id": bid,
+  "experienceName": "Mock Experience [manual test]",
+  "tgid": 99999, "tid": 88888, "vid": 77777,
+  "vendorName": "MockVendor", "fulfilmentType": "MANUAL",
+  "date_of_visit": "2026-01-15", "date_of_booking": "2026-01-10",
+  "primary_guest_name": search_ctx.get("author") or "Manual Test User",
+  "bms_link": BMS_URL_PATTERN.format(bid=bid),
+  "tgid_link": TGID_URL_PATTERN.format(tgid=99999),
+  "_match": {"tier": 1, "confidence": "high", "method": "mock_synthesis"},
+}
+If no BID → return None (untraceable path continues normally).
+services/zendesk.py::get_timeline:
+
+If review_id not in MOCK_TIMELINES, return a 2-event synthesized timeline (one guest email, one CE reply) with today's date. Include ticket_mail_seen=False in the extracted booking dict.
+services/claude.py::classify, generate_rca_v2, generate_rca_v3, draft_response_v2:
+
+Return template mocks tagged "[Mock — manual test review]" so the dashboard populates but the CE knows it's synthetic.
+For generate_rca_v3, produce a tldr like "Mock RCA — manual test review, no real data available."
+Add this docstring line to each: # Mock synthesis: activates in MOCK_MODE for review IDs not in fixtures. Enables manual testing without real service calls.
+
+Part 6 — /api/heartbeat monitoring
+New endpoint GET /api/heartbeat (public, no auth):
+
+{
+  "ok": true,
+  "uptime_s": 12345,
+  "mock_mode": true,
+  "version": "<git-sha or 'unknown'>",
+  "checks": {"bq":true,"zendesk":true,"anthropic":true,"slack":true,"dss":true,"canned":true,"checklist":true}
+}
+checks values come from is_live() per service.
+
+5-min log line via a lightweight background task started in main.py::lifespan:
+
+[heartbeat] uptime=<>s mock=<> live={bq=<>,zd=<>,ant=<>,slack=<>,dss=<>,canned=<>,checklist=<>} recent_reviews=<> recent_errors=<>
+recent_reviews = count of new Review rows in last 5 min (SQL on received_at)
+recent_errors = count of ERROR-level log records in last 5 min (small ring buffer in a log handler)
+No external monitoring integration — just the endpoint + log.
+
+Part 7 — Delete dead code
+Delete server/bigquery_patch.py (byte-identical duplicate of server/services/bigquery_patch.py, nobody imports it — verify with grep).
+Delete server/signals.py (empty stub SIGNAL_TAXONOMY = {}, ALL_SIGNALS = [], nobody imports it — verify with grep).
+Confirm nothing else in the tree imports from these paths before deleting.
+
+Verify
+Both existing test suites green: python -m tests.test_classifier_validators (23/23), python -m tests.test_classification_accuracy (14/14).
+Migration 006 applied.
+Restart Repl (MOCK_MODE stays true).
+Inbox wiring:
+Demo reviews still appear at top (their content unchanged).
+POST /api/reviews/manual with a BID → new review appears in "Reviews with BID" tab.
+Click new review → Column 2 populates with synthesized mock booking (Experience, TID, TGID, Vendor, BMS/TGID links).
+POST /api/reviews/manual without a BID → lands in "Untraceable".
+RCA v3 render:
+GET /api/reviews/{id} for a fresh manual review returns all 5 v3 fields + checklist_answers.
+Column 3 shows TL;DR banner + WWR stepper + Prevention + Evidence + Issue-Specific + RCA Checklist.
+Editing each field persists (reload after PATCH).
+Falls back to v2 shape if tldr is empty.
+Checklist: startup log shows [checklist] mapped columns: item=<>, l1=<>, l2=<>, guidance=<>, rows=<> and the first 3 parsed items.
+GET /api/heartbeat returns 200 with checks populated.
+[heartbeat] log line appears every ~5 min.
+Confirm dead files gone: ls server/bigquery_patch.py server/signals.py returns "No such file."
+Deliverable
+Zip of only changed files + this table:
+
+Check	Status	Notes
+Migration 006 applied		
+RcaDraft has 6 new columns (v3 + checklist_answers)		
+_draft_dict returns all 6		
+DraftPatchV2 accepts + patch loop persists		
+generate_rca_v3 + rca_v3_prompt wired		
+rca_checklist.py new service, TTL 15 min, MOCK stub		
+Checklist column mapping (report exact headers)		
+pipeline step 12b calls generate_rca_v3 with checklist		
+Client fetchInbox() wired + called		
+Manual POST appears in Column 1		
+Column 2 synthesizes mock booking for unknown BID		
+Column 3 renders v3 shape + checklist answers		
+Column 3 falls back to v2 when tldr empty		
+Editable v3 fields persist via PATCH		
+GET /api/heartbeat returns checks		
+5-min heartbeat log emitting		
+server/bigquery_patch.py deleted		
+server/signals.py deleted		
+Both test suites green		
+Checklist first 3 items (redacted if needed)		debug output

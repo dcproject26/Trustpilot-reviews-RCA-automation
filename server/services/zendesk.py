@@ -164,7 +164,27 @@ async def get_timeline(booking_id: str, review_id: str = None) -> tuple[list, di
             if b.get("id") == booking_id:
                 tl = MOCK_TIMELINES.get(rid, [])
                 return tl, {}, {"ticket_ids": [], "timeline_raw": [""] * len(tl)}
-        return [], {}, {"ticket_ids": [], "timeline_raw": []}
+        # Mock synthesis: activates in MOCK_MODE for review IDs not in fixtures.
+        # Enables manual testing without real service calls.
+        from datetime import date
+        today = date.today().isoformat()
+        synth_tl = [
+            {
+                "time":   f"{today} 09:00",
+                "thread": "email",
+                "actor":  "guest",
+                "label":  "Guest contacted CE",
+                "summary": "[Mock] Guest emailed support about their experience.",
+            },
+            {
+                "time":   f"{today} 10:30",
+                "thread": "email",
+                "actor":  "support",
+                "label":  "CE replied",
+                "summary": "[Mock] CE acknowledged the guest's concern and reviewed the booking.",
+            },
+        ]
+        return synth_tl, {"ticket_mail_seen": False}, {"ticket_ids": [], "timeline_raw": ["", ""]}
 
     _z = _get_client()
     if _z is None:

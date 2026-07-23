@@ -82,6 +82,14 @@ class RcaDraft(Base):
     extracted_signals  = Column(JSON, default=dict)      # venue_hints, author_first/last, review_pub_date
     narrowing_attempts = Column(JSON, default=list)      # [{path, params, result_count}, ...]
 
+    # ── RCA v3 shape ──
+    tldr                        = Column(Text, nullable=True)
+    wwr_chain                   = Column(JSON, default=list)
+    prevention                  = Column(Text, nullable=True)
+    evidence                    = Column(JSON, default=list)
+    issue_specific_answers      = Column(JSON, default=dict)
+    checklist_answers           = Column(JSON, default=list)
+
     # ── Flag to Biz ──
     flag_to_biz_state           = Column(String, default="off")  # off | drafted | sent
     flag_to_biz_message         = Column(Text, nullable=True)

@@ -12,20 +12,23 @@ and adds the demo-parity endpoints:
   GET    /api/reviews/{id}/similar          — fetch similar complaints on demand
   GET    /api/taxonomy                      — return L1/L2/checks catalogue (dashboard uses this)
 """
-import asyncio, time
+import asyncio, os, subprocess, time
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from server.db import get_session, Review, RcaDraft, ReviewMetric
 from server.taxonomy import L1_CATEGORIES, L2_OPTIONS, DIAGNOSTIC_CHECKS, ACTION_TABS, SUB_THEME_REGISTRY
-from server.config import status_summary
+from server.config import status_summary, is_live, MOCK_MODE
 from server.services.slack import format_rca_slack, post_to_thread
 from server.services.claude import flag_to_biz_message
 from server.services.bigquery_patch import get_similar_complaints
 from server.services import dss as dss_svc
+
+_START_TIME = time.time()
 
 router = APIRouter()
 
@@ -48,7 +51,7 @@ class DraftPatchV1(BaseModel):
 
 
 class DraftPatchV2(BaseModel):
-    """Partial update for any of the structured v2 fields."""
+    """Partial update for any of the structured v2 or v3 fields."""
     stated_issue:               str  | None = None
     l1:                         str  | None = None
     l2:                         str  | None = None
@@ -63,6 +66,12 @@ class DraftPatchV2(BaseModel):
     actions_taken:              dict | None = None
     resolution:                 str  | None = None
     final_response:             str  | None = None
+    tldr:                       str  | None = None
+    wwr_chain:                  list | None = None
+    prevention:                 str  | None = None
+    evidence:                   list | None = None
+    issue_specific_answers:     dict | None = None
+    checklist_answers:          list | None = None
 
 
 class CandidateSelect(BaseModel):
@@ -129,6 +138,13 @@ def _draft_dict(d: RcaDraft) -> dict:
         "flag_to_biz_state":           d.flag_to_biz_state,
         "flag_to_biz_message":         d.flag_to_biz_message,
 
+        "tldr":                        d.tldr,
+        "wwr_chain":                   d.wwr_chain or [],
+        "prevention":                  d.prevention,
+        "evidence":                    d.evidence or [],
+        "issue_specific_answers":      d.issue_specific_answers or {},
+        "checklist_answers":           d.checklist_answers or [],
+
         "suggested_response": d.suggested_response or "",
         "final_response":     d.final_response or "",
         "generated_at":       d.generated_at.isoformat() if d.generated_at else None,
@@ -141,6 +157,35 @@ def _draft_dict(d: RcaDraft) -> dict:
 @router.get("/api/health")
 def health():
     return status_summary()
+
+
+@router.get("/api/heartbeat")
+def heartbeat(db: Session = Depends(get_session)):
+    """Public monitoring endpoint — no auth required."""
+    try:
+        version = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        version = "unknown"
+
+    checks = {
+        "bq":        is_live("bigquery"),
+        "zendesk":   is_live("zendesk"),
+        "anthropic": is_live("anthropic"),
+        "slack":     is_live("slack_outbound"),
+        "dss":       is_live("dss"),
+        "canned":    is_live("canned"),
+        "checklist": is_live("checklist"),
+    }
+    return {
+        "ok":        True,
+        "uptime_s":  int(time.time() - _START_TIME),
+        "mock_mode": MOCK_MODE,
+        "version":   version,
+        "checks":    checks,
+    }
 
 
 @router.get("/api/reviews")
@@ -309,6 +354,8 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
         "support_interaction_frames", "support_summary",
         "sp_interaction_frames", "area_of_improving",
         "actions_taken", "resolution", "final_response",
+        "tldr", "wwr_chain", "prevention", "evidence",
+        "issue_specific_answers", "checklist_answers",
     ):
         val = getattr(patch, field, None)
         if val is not None:
