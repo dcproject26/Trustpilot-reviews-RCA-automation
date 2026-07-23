@@ -1,0 +1,346 @@
+Problem: the summary is just a truncated dump of whatever the CE macro/system spit out (booking JSON, HTML signatures, tag payloads). It should be a clean one-sentence Claude summary. And the label should be a short verb-first phrase, not [ZD-###] Guest wrote.
+
+The prompt
+
+Add this to server/prompts.py:
+
+python
+def zendesk_timeline_shape_prompt(
+    booking: dict,
+    review_body: str,
+    review_pub_date: str,
+    raw_events: list,
+) -> str:
+    """
+    Batch-shape raw Zendesk events into clean timeline frames.
+
+    raw_events: list of dicts as produced by _get_timeline_sync, before shaping:
+        [{"idx": 0, "time": "22 Jul 15:22 IST", "thread": "email",
+          "actor": "guest"|"co"|"sp"|"ai"|"system",
+          "ticket_id": "34011333",
+          "raw_body": "<the raw comment body>"}, ...]
+
+    Returns a prompt whose expected JSON output is a list of the same length
+    (or shorter — grouped events are allowed), each with:
+        {"idx_range": [start_idx, end_idx],  # inclusive; single event = [i, i]
+         "time":     "...",
+         "thread":   "email"|"chat"|"call"|"sp"|"booking"|"review",
+         "actor":    "guest"|"support"|"sp"|"ai"|"creation"|"review",
+         "label":    "short verb-first phrase",
+         "summary":  "one clean sentence, neutral tone, facts only",
+         "keep":     true|false}
+
+    Events with keep=false are dropped from the rendered timeline.
+    """
+    import json
+
+    booking_block = json.dumps({
+        "bid":          booking.get("id"),
+        "experience":   booking.get("experienceName"),
+        "visit_date":   booking.get("visitDate"),
+        "booking_date": booking.get("bookedOn"),
+    }, indent=2, ensure_ascii=False)
+
+    events_block = json.dumps(
+        [
+            {
+                "idx":       e["idx"],
+                "time":      e["time"],
+                "thread":    e["thread"],
+                "actor":     e["actor"],
+                "ticket_id": e["ticket_id"],
+                "raw_body":  (e["raw_body"] or "")[:1200],
+            }
+            for e in raw_events
+        ],
+        indent=2, ensure_ascii=False,
+    )
+
+    return f"""You are shaping raw Zendesk ticket comments into a clean Events Timeline
+for an internal RCA dashboard. The dashboard shows one line per event with:
+time · thread · label · summary.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BOOKING (context):
+{booking_block}
+
+REVIEW POSTED ON: {review_pub_date}
+REVIEW PREVIEW: "{(review_body or '')[:180].replace(chr(10), ' ')}..."
+
+RAW EVENTS (chronological, unshaped):
+{events_block}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+═══ SHAPING RULES ═══
+
+1. FOR EACH INPUT EVENT — decide keep vs drop, then produce a clean frame.
+   Drop (keep: false) events that are:
+   • Empty comment bodies or pure whitespace / just a signature/logo
+   • Internal system syncs with no operational meaning (e.g. "Support history
+     thread opened for Booking ID: X" — that's a system copy, not an interaction)
+   • Pure email-signature HTML (headout logo + no text)
+   • Standalone acknowledgements ("Thanks", "OK") when the next event replaces them
+
+2. GROUP consecutive events at the same timestamp when they're clearly one
+   operational action split across multiple internal comments. Set
+   idx_range = [first_idx, last_idx]. Example: three CE macro outputs at
+   15:41 IST fetching booking details, tags, and support summary → collapse
+   into ONE event: label="CE pulled up case context", summary=one sentence.
+
+3. LABEL = short verb-first phrase describing WHAT happened, NOT the source.
+   Do NOT include "[ZD-###]" — that's metadata, not label.
+   Good labels:
+     "Guest reached out"           (guest wrote for the first time)
+     "Guest reply"                 (guest wrote after we responded)
+     "CE response"                 (agent responded to guest)
+     "CE pulled up case context"   (agent applied macros / fetched booking)
+     "Minded AI response"          (bot/AI responded to guest)
+     "Skyler chat opened"          (AI chat session started)
+     "AI tagged case"              (bot tagged/classified the case)
+     "SP response"                 (supply partner responded)
+     "CE prepared vendor login"    (agent generated vendor credentials)
+     "Ticket generated"            (voucher / ticket delivery event)
+     "Refund processed"            (refund confirmation)
+     "System event"                (fallback if unclear)
+
+4. SUMMARY = ONE clean sentence. Neutral tone. Facts only. What actually
+   happened in that message from the guest's or CE's POV.
+   • Do NOT quote HTML, logo tags, or macro output verbatim
+   • Do NOT restate booking metadata dumps — summarise the ACTION taken
+   • Do NOT invent CE reasoning or SP responses
+   • If a comment is just a macro fetching booking details → summary describes
+     THE ACTION ("CE fetched booking + support history for the case"), not the fields
+   • If a comment is guest text → summarise their request in one sentence
+   • If a comment is a CE response → summarise what CE told the guest / did
+
+5. THREAD mapping (usually unchanged from input, but):
+   • If the raw body mentions "Skyler chat" or "conversation with web user"
+     → thread = "chat"
+   • If it's an SP-brand comment → thread = "sp"
+   • Otherwise keep the input thread
+
+6. ACTOR mapping:
+   • "guest" → keep as "guest"
+   • "co" (agent) → "support"
+   • "ai" (Minded AI / Skyler / bot) → "ai"
+   • "sp" → "sp"
+   • "system" → keep as "system" but usually drop (keep=false)
+
+7. NEVER INVENT. Every summary must be inferable from the raw_body provided.
+   If the raw body is unintelligible → summary: "Internal system event." keep=false
+
+8. Output length: usually 3-8 shaped events for a normal case. If input has
+   16 events collapsed from macro floods, output might be 4-6.
+
+═══ ADDITIONAL EVENTS TO INJECT ═══
+
+At the START of your output, prepend TWO events synthesised from booking data:
+
+  {{"idx_range": [-1, -1],
+    "time": "<booking_date> 14:20",     // use booking_date + 14:20 placeholder time
+    "thread": "booking",
+    "actor":  "creation",
+    "label":  "Booking created",
+    "summary": "Guest booked <experience>.",   // one sentence from booking data
+    "keep":   true}}
+
+  {{"idx_range": [-1, -1],
+    "time": "<booking_date> 14:21",
+    "thread": "booking",
+    "actor":  "creation",
+    "label":  "Tickets sent",
+    "summary": "Voucher emailed within 1 min of booking.",
+    "keep":   true}}
+
+At the END of your output, append ONE event from the review data:
+
+  {{"idx_range": [-1, -1],
+    "time":    "{review_pub_date}",
+    "thread":  "review",
+    "actor":   "review",
+    "label":   "Review posted",
+    "summary": "Negative Trustpilot review posted with BID <bid> referenced.",
+    "keep":    true}}
+
+═══ OUTPUT ═══
+
+Return ONLY valid JSON — a list of shaped event objects, no markdown, no
+preamble, no wrapping object. All events must appear in chronological order.
+
+[
+  {{"idx_range": [-1, -1], "time": "...", "thread": "booking", "actor": "creation",
+    "label": "Booking created", "summary": "...", "keep": true}},
+  {{"idx_range": [0, 0], "time": "...", "thread": "...", "actor": "...",
+    "label": "...", "summary": "...", "keep": true}},
+  ...
+]
+"""
+The wiring change in zendesk.py
+
+The current _get_timeline_sync builds events with mechanical labels + _clean_summary. Replace the shaping step:
+
+Change 1 — in _get_timeline_sync, build a raw_events list instead of shaped events:
+
+python
+# OLD (lines ~275-291):
+events.append((
+    _sort_key(created),
+    {
+        "time":    _to_ist(created),
+        "thread":  thread,
+        "actor":   actor,
+        "label":   f"[ZD-{ticket.id}] {actor_desc}",
+        "summary": _clean_summary(body),
+    },
+    body,
+))
+
+# NEW:
+events.append((
+    _sort_key(created),
+    {
+        "idx":       0,   # will be assigned after sort
+        "time":      _to_ist(created),
+        "thread":    thread,
+        "actor":     actor,
+        "ticket_id": str(ticket.id),
+        "raw_body":  body,
+    },
+))
+
+After sorting, assign idx sequentially. Keep timeline_raw as the raw bodies for future audit.
+
+Change 2 — in get_timeline, add a shaping step:
+
+python
+async def get_timeline(booking_id, review_id, booking, review_body, review_pub_date):
+    # ... existing fetch logic that now returns raw_events ...
+    raw_events, extracted, meta = await asyncio.get_running_loop().run_in_executor(
+        None, _get_timeline_sync, _z, booking_id)
+
+    # NEW: batch-shape via Claude
+    if raw_events:
+        from server import prompts
+        from server.services import claude
+        try:
+            shaped = await _shape_via_claude(
+                raw_events, booking, review_body, review_pub_date
+            )
+            timeline = _apply_shaped(raw_events, shaped)
+        except Exception as e:
+            log.warning(f"[zendesk] shaping failed, falling back to raw: {e}")
+            timeline = _fallback_shape(raw_events)   # cleans raw as before
+    else:
+        timeline = []
+
+    return timeline, extracted, meta
+
+
+async def _shape_via_claude(raw_events, booking, review_body, review_pub_date):
+    from server import prompts
+    from server.services import claude
+    prompt = prompts.zendesk_timeline_shape_prompt(
+        booking=booking,
+        review_body=review_body,
+        review_pub_date=review_pub_date,
+        raw_events=raw_events,
+    )
+    raw_response = await claude._call(prompt)
+    parsed = _safe_parse_events(raw_response)   # JSON parse with fallback
+    return [ev for ev in parsed if ev.get("keep") is not False]
+
+
+def _apply_shaped(raw_events, shaped):
+    """Convert shaped events to dashboard format. idx_range=[-1,-1] means synthesised."""
+    output = []
+    for sev in shaped:
+        output.append({
+            "time":    sev["time"],
+            "thread":  sev["thread"],
+            "actor":   sev["actor"],
+            "label":   sev["label"],
+            "summary": sev["summary"],
+        })
+    return output
+
+
+def _fallback_shape(raw_events):
+    """If Claude fails: mechanical cleanup, no [ZD-###] prefix, HTML-stripped."""
+    return [
+        {
+            "time":    e["time"],
+            "thread":  e["thread"],
+            "actor":   {"guest": "guest", "co": "support", "ai": "ai",
+                        "sp": "sp", "system": "system"}[e["actor"]],
+            "label":   {"guest": "Guest wrote", "co": "CE responded",
+                        "ai": "AI responded", "sp": "SP responded",
+                        "system": "System event"}[e["actor"]],
+            "summary": _clean_summary(e["raw_body"])[:180],
+        }
+        for e in raw_events
+    ]
+The full paste-ready instruction for Claude Code
+Task: Timeline shaping via Claude — Events Timeline in Column 2 currently
+renders raw Zendesk comment bodies with mechanical labels. Fix by adding a
+Claude summarisation pass after fetching + before returning.
+
+Reference case — BID 32908218 (David / Palace of Culture):
+Current output has 16 events with labels like "[ZD-34011333] Guest wrote"
+and summaries that are raw HTML/macro dumps (booking JSON, logo tags,
+support summary macros).
+
+Expected output — 6-8 clean events like:
+  22 Jul 15:22 · email · Guest reached out
+    "Guest wrote in saying they hadn't received tickets and needed to fly out
+     the next morning."
+  22 Jul 15:22 · email · CE response
+    "CE explained the booking was processing and would need until fulfilment
+     window."
+  22 Jul 15:24 · chat · Skyler chat opened
+    "Guest opened a chat with Skyler (AI). Summary: same issue — tickets not
+     yet delivered before flight."
+  22 Jul 15:41 · email · CE pulled up case context
+    "CE fetched booking + support history and applied the delay_fulfilment
+     tag."
+  22 Jul 15:44 · email · CE prepared vendor login
+    "CE generated vendor credentials to log in and pull tickets manually."
+  22 Jul 15:50 · email · Tickets delivered
+    "Voucher confirmation email sent to guest."
+  23 Jul 11:27 · email · Refund processed
+    "CE refunded USD 19.42 to the guest as an exception."
+
+Files to touch:
+- server/prompts.py — add zendesk_timeline_shape_prompt() (spec below)
+- server/services/zendesk.py — modify get_timeline() + _get_timeline_sync()
+  to build raw_events, then batch-shape via Claude before returning
+
+Changes to _get_timeline_sync:
+  Instead of producing final {time, thread, actor, label, summary} dicts with
+  mechanical labels, produce raw_events with {idx, time, thread, actor,
+  ticket_id, raw_body}. Return that list.
+
+Changes to get_timeline:
+  After _get_timeline_sync returns raw_events, call _shape_via_claude() to
+  batch-summarise via one Claude call. Pass booking + review_body +
+  review_pub_date. Parse the JSON response; drop events where keep=false;
+  return the shaped timeline.
+  On Claude failure, fall back to _fallback_shape() (mechanical cleanup, no
+  [ZD-###] prefixes, HTML-stripped, one-line summaries). Never break the
+  pipeline.
+
+Do NOT:
+- Drop timeline_raw — keep the raw bodies stored on the draft for audit
+- Change the search / brand-routing / custom-field logic
+- Change what MOCK_MODE returns
+- Skip the Claude call to save tokens — it's the whole point of this delta
+
+Verify with:
+- Real BID 32908218 → timeline collapses from 16 raw events to 6-8 shaped ones
+- No "[ZD-###]" prefix visible on any label
+- No raw HTML / logo tags / booking JSON leaking into any summary
+- Every summary is one clean sentence
+- First event is "Booking created" (from booking data)
+- Last event is "Review posted" (from review data)
+- On Claude API failure → mechanical fallback works, no exceptions bubble up
+
+<paste full zendesk_timeline_shape_prompt() function here>

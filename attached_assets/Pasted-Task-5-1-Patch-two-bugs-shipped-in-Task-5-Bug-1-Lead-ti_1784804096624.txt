@@ -1,0 +1,52 @@
+Task #5.1 — Patch two bugs shipped in Task #5:
+
+Bug 1 — Lead time computed against wrong dates.
+Shipped code calculates lead time as (review_date - visit_date).
+Correct definition (per Marcus mock reference case): lead time =
+(visit_date - booking_date). It's how far in advance the guest booked.
+
+Fix in client/index.html::loadDraftOverlays (the same block that shipped
+in Task #5):
+  OLD: const days = daysBetween(draft.booking.date_of_visit, review.received_at)
+  NEW: const days = daysBetween(draft.booking.date_of_booking,
+                                 draft.booking.date_of_visit)
+  Format: "N day" / "N days" with singular/plural handling.
+  If either date missing or delta negative → "—"
+
+Verify: Marcus test case (booking 30 Apr, visit 02 May) → "2 days".
+David test case (booking 22 Jul, visit 22 Jul) → "0 days".
+
+Bug 2 — Primary guest name hash masking is useless.
+Shipped code masks the base64 PII hash to "Guest (encrypted)" or first-4
+chars, which tells the associate nothing. The real guest name is available
+from Zendesk (requester name on the ticket).
+
+Fix in loadDraftOverlays, after guest name resolution:
+  - IF draft.booking.primary_guest_name is a plaintext name (has spaces or
+    length < 20 or contains non-base64 chars) → use it directly
+  - ELSE IF draft.zendesk_requester_name exists → use that value
+  - ELSE → display "[Guest name in Zendesk ticket]" as fallback text
+    (associate can click into the ticket to see it)
+
+Requires: server/services/zendesk.py::get_timeline should already expose the
+requester name from the first ticket (the guest's name on the Zendesk ticket
+requester field). If not exposed, add it to the meta dict returned:
+  meta["zendesk_requester_name"] = first_ticket.requester.name if available
+Then serialize on the draft as zendesk_requester_name.
+
+Do NOT:
+- Ship any regex-based "encrypted" detection heuristic — it will misclassify
+  short names or unicode names. Use the length + charset check above only.
+- Change the BQ query or the primary_guest_name column — that schema
+  question is separately out with Data team.
+- Break MOCK_MODE. Mock timelines don't have a requester_name; falling back
+  to the "[Guest name in Zendesk ticket]" placeholder is correct.
+
+Verify: David case (BID 32908218) — the guest name shown should be his
+Trustpilot handle "David" or his Zendesk ticket requester name, not
+"yaCD****" or "Guest (encrypted)".
+
+Files:
+- client/index.html — loadDraftOverlays region + the guest-name render
+- server/services/zendesk.py::get_timeline — add requester_name to meta
+- server/api.py — pass zendesk_requester_name through in _draft_dict()
