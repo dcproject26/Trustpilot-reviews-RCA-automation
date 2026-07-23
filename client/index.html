@@ -1832,6 +1832,23 @@ async function loadDraftOverlays() {
       r.ticketFacts = (draft.ticket_facts && Object.keys(draft.ticket_facts).length)
         ? draft.ticket_facts : null;
 
+      // ── Candidate list (T2) ──────────────────────────────────────────────
+      if (Array.isArray(draft.candidates_list) && draft.candidates_list.length) {
+        r.candidatesList = draft.candidates_list.map(c => ({
+          bid:            c.id || c.bid,
+          score:          c.score != null ? c.score : null,
+          matchReasons:   c.matchReasons || c.match_reasons || [],
+          experience:     c.experience || c.experienceName || '',
+          tgid:           c.tgid || '',
+          tid:            c.tid || '',
+          vendorName:     c.vendorName || c.partner || '',
+          experienceDate: c.experienceDate || c.visitDate || '',
+          creationDate:   c.creationDate || c.bookedOn || '',
+          status:         c.status || '',
+          leadTime:       c.leadTime || '',
+        }));
+      }
+
       // ── Stated issue ──────────────────────────────────────────────────────
       r.statedIssue = draft.stated_issue || r.statedIssue || '';
 
@@ -2604,6 +2621,51 @@ function renderReviewCol() {
       card.classList.add('selected');
     });
   });
+
+  const confirmBtn = col.querySelector('.candidate-confirm-btn');
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', async () => {
+      const selectedCard = col.querySelector('.candidate-card.selected');
+      if (!selectedCard) return;
+      const idx = parseInt(selectedCard.dataset.candidateIdx);
+      const candidate = r.candidatesList && r.candidatesList[idx];
+      if (!candidate) return;
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = '⟳ Confirming…';
+      try {
+        const res = await fetch(`/api/reviews/${r.id}/select-candidate`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({bid: candidate.bid}),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        confirmBtn.textContent = '✓ Confirmed · pipeline running…';
+        r.candidateState = false;
+        // Poll every 3 s until the pipeline finishes (candidate_state clears)
+        let polls = 0;
+        const poll = setInterval(async () => {
+          polls++;
+          try {
+            const check = await fetch(`/api/reviews/${r.id}`);
+            if (!check.ok) return;
+            const payload = await check.json();
+            const d = payload.draft;
+            if (d && !d.candidate_state) {
+              clearInterval(poll);
+              await loadDraftOverlays();
+              renderInbox();
+              renderReviewCol();
+              renderRcaCol();
+            }
+          } catch (_) {}
+          if (polls > 20) clearInterval(poll); // give up after 60 s
+        }, 3000);
+      } catch (e) {
+        confirmBtn.textContent = '✗ Error — try again';
+        confirmBtn.disabled = false;
+      }
+    });
+  }
 }
 
 function renderRcaCol() {
