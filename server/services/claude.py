@@ -426,7 +426,7 @@ async def extract_ticket_facts(
     try:
         raw = await _call(
             prompts.ticket_extraction_prompt(booking, timeline_raw, timeline_raw_ticket_ids),
-            max_tokens=1600,
+            max_tokens=4000,
         )
         return json.loads(_strip_fences(raw))
     except Exception:

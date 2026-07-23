@@ -355,6 +355,65 @@ def _get_timeline_sync(_z, booking_id: str):
     }
 
 
+async def find_bids_by_requester_name(
+    author_first: str,
+    author_last: str | None,
+    lookback_days: int = 60,
+) -> list[str]:
+    """
+    Search Zendesk for tickets by requester name in a recent window.
+    Returns list of BIDs extracted from ticket subjects or custom fields.
+
+    Handles all name shapes:
+    - Full name: quoted phrase search
+    - Single name: unquoted token search
+    - Non-Latin / special chars: URL-encoded, quoted
+    - Empty / null: returns []
+    """
+    if not is_live("zendesk") or not author_first:
+        return []
+
+    _z = _get_client()
+    if _z is None:
+        log.warning("[zendesk] find_bids_by_requester_name: no client available")
+        return []
+
+    name_str = f"{author_first} {author_last}".strip() if author_last else author_first
+    if any(c in name_str for c in [" ", "-", "'", "."]) or not name_str.isascii():
+        name_query = f'"{name_str}"'
+    else:
+        name_query = name_str
+
+    since = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    query = f"type:ticket requester:{name_query} created>{since}"
+    log.info(f"[zendesk] requester search: {query}")
+
+    try:
+        tickets = await asyncio.get_running_loop().run_in_executor(
+            None, lambda: _search_with_retry(_z, query)
+        )
+    except Exception as e:
+        log.warning(f"[zendesk] requester search failed: {e}")
+        return []
+
+    bids = []
+    for t in tickets[:15]:
+        subject = (getattr(t, "subject", "") or "")
+        m = re.search(r"\b\d{7,12}\b", subject)
+        if m:
+            bids.append(m.group(0))
+            continue
+        for cf in getattr(t, "custom_fields", []) or []:
+            val = cf.get("value") if isinstance(cf, dict) else None
+            if val and re.fullmatch(r"\d{7,12}", str(val).strip()):
+                bids.append(str(val).strip())
+                break
+
+    deduped = list(dict.fromkeys(bids))
+    log.info(f"[zendesk] requester search for '{name_str}': {len(tickets)} tickets → {len(deduped)} BIDs")
+    return deduped
+
+
 def _fallback_shape(raw_events: list) -> list:
     """
     Mechanical fallback when Claude shaping fails.

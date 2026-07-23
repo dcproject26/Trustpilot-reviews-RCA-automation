@@ -66,10 +66,19 @@ async def process_review(review_id: str):
             "t1_regex_verified": 0, "t1_regex_downgraded": 0, "t1_bq_missed": 0,
             "t1_auto_promoted": 0,
             "t2_venue_mapped": 0, "t2_venue_not_resolved": 0,
-            "t2_path_primary": 0, "t2_path_widened_date": 0, "t2_path_no_name": 0,
-            "t2_path_venue_only": 0, "t2_path_name_date": 0, "t2_path_date_only": 0,
             "t2_auto_promoted": 0, "t2_candidates": 0, "t2_untraceable": 0,
             "untraceable_total": 0, "untraceable_has_signals": 0,
+            # Step 2 — Zendesk requester lookup
+            "t2_zendesk_lookup_attempted": 0,
+            "t2_zendesk_auto":             0,
+            "t2_zendesk_candidates":       0,
+            "t2_zendesk_no_match":         0,
+            # Step 3 — BQ venue+date paths
+            "t2_bq_venue_date_30_auto":    0,
+            "t2_bq_venue_date_30":         0,
+            "t2_bq_venue_date_60_auto":    0,
+            "t2_bq_venue_date_60":         0,
+            "t2_bq_date_only_loose":       0,
         }
 
         # ── 2. BID extraction + source detection ─────────────────────────────
@@ -283,136 +292,243 @@ async def process_review(review_id: str):
                     confidence_trail.append({"mark": "pass",
                         "text": f"<strong>Author parsed:</strong> first='{author_first}' last='{author_last}'"})
 
-                # Helper to run one cascade attempt
-                def _run_attempt(path, t, d, use_tgids, use_name):
-                    _tg = tgids if (use_tgids and tgids) else None
-                    _af = author_first if use_name else None
-                    _al = author_last  if use_name else None
-                    try:
-                        rows = run_narrowing_query(
-                            tgid_list=_tg,
-                            review_pub_date=pub_date,
-                            date_window=d,
-                            author_first=_af,
-                            author_last=_al,
-                        )
-                    except Exception as e:
-                        log.warning(f"Tier 2 attempt {path} failed: {e}")
-                        rows = []
-                    return rows
+                # ── Name parseability check (Step 0) ─────────────────────────
+                def _name_parseable(first, last):
+                    if not first:
+                        return False
+                    if last:
+                        return True
+                    return len(first) >= 3 and first.isalpha()
+
+                name_parseable = _name_parseable(author_first, author_last)
+
+                # ── Shared helpers ────────────────────────────────────────────
+                from server.services.bigquery import _get_booking_extra
 
                 def _make_candidate(r, path_name, matched_on):
+                    exp = r.get("experienceName") or r.get("experience_name") or r.get("experience") or ""
+                    dov = r.get("date_of_visit") or r.get("visitDate") or ""
                     return {
-                        "id":               r.get("id", ""),
+                        "id":                 r.get("id", ""),
                         "primary_guest_name": r.get("primary_guest_name", ""),
-                        "experience_name":  r.get("experience_name", ""),
-                        "date_of_visit":    r.get("date_of_visit", ""),
-                        "vendor_name":      r.get("vendorName", ""),
-                        "tid":              r.get("tid"),
-                        "tgid":             r.get("tgid"),
-                        "vid":              r.get("vid"),
-                        "matched_on":       matched_on,
-                        "narrowing_path":   path_name,
+                        "experience":         exp,
+                        "experienceName":     exp,
+                        "experience_name":    exp,
+                        "date_of_visit":      dov,
+                        "visitDate":          dov,
+                        "vendorName":         r.get("vendorName") or r.get("partner") or "",
+                        "tid":                r.get("tid"),
+                        "tgid":               r.get("tgid"),
+                        "vid":                r.get("vid"),
+                        "matched_on":         matched_on,
+                        "narrowing_path":     path_name,
+                        "matchReasons":       matched_on,
+                        "score":              None,
                     }
 
-                STEPS = [
-                    # (path_name, date_window, use_tgids, use_name, max_for_t1)
-                    ("primary",      30, True,  True,  1),
-                    ("widened_date", 60, True,  True,  1),
-                    ("no_name",      30, True,  False, 1),
-                    ("venue_only",   60, True,  False, None),  # never auto-promotes
-                    ("name_date",    30, False, True,  1),
-                    ("date_only",    14, False, False, None),  # Tier 2 loose or Untraceable
-                ]
-
-                cascade_done = False
-                for (path_name, days, use_tg, use_nm, max_t1) in STEPS:
-                    rows = _run_attempt(path_name, match_tier, days, use_tg, use_nm)
-                    n = len(rows)
+                def _run_bq_attempt(path_name, date_window, tgid_list=None):
+                    """Run one BQ narrowing query — NEVER passes name (BQ has PII hashes)."""
+                    try:
+                        rows = run_narrowing_query(
+                            tgid_list=tgid_list,
+                            review_pub_date=pub_date,
+                            date_window=date_window,
+                            author_first="",   # never pass name — BQ has PII hash
+                            author_last="",
+                        )
+                    except Exception as e:
+                        log.warning(f"[tier2] BQ attempt {path_name} failed: {e}")
+                        rows = []
                     narrowing_attempts.append({
                         "path": path_name,
-                        "params": {
-                            "date_window": days,
-                            "use_tgids": use_tg and bool(tgids),
-                            "use_name": use_nm,
-                        },
-                        "result_count": n,
+                        "params": {"date_window": date_window, "use_tgids": bool(tgid_list)},
+                        "result_count": len(rows),
                     })
-                    _ctr_key = f"t2_path_{path_name}"
-                    if _ctr_key in _ctr:
-                        _ctr[_ctr_key] += 1
-
                     confidence_trail.append({
-                        "mark": "pass" if n > 0 else "warn",
-                        "text": f"<strong>Attempt {path_name}:</strong> {n} row(s)",
+                        "mark": "pass" if rows else "warn",
+                        "text": f"<strong>BQ {path_name}:</strong> {len(rows)} row(s)",
                     })
+                    return rows
 
-                    if n == 0:
-                        continue
+                cascade_done = False
 
-                    if path_name == "date_only":
-                        if 1 <= n <= 5:
-                            matched_on = ["date"]
-                            candidates = [_make_candidate(r, path_name, matched_on) for r in rows[:5]]
+                # ── Step 2: Zendesk requester lookup (primary name path) ───────
+                if name_parseable and not cascade_done:
+                    _ctr["t2_zendesk_lookup_attempted"] += 1
+                    confidence_trail.append({"mark": "pass",
+                        "text": f"<strong>Zendesk lookup:</strong> '{author_first}"
+                                f"{(' ' + author_last) if author_last else ''}'"})
+                    try:
+                        zd_bids = await zendesk.find_bids_by_requester_name(
+                            author_first, author_last, lookback_days=60)
+                        log.info(
+                            f"[tier2] zendesk requester: {len(zd_bids)} BIDs "
+                            f"for '{author_first} {author_last or ''}'")
+                    except Exception as e:
+                        log.warning(f"[tier2] Zendesk requester lookup failed — continuing: {e}")
+                        zd_bids = []
+
+                    if zd_bids:
+                        zd_candidates = []
+                        for bid in zd_bids[:10]:
+                            try:
+                                bq_row = verify_bid(bid)
+                            except Exception as e:
+                                log.warning(f"[tier2] verify_bid({bid}) raised: {e}")
+                                continue
+                            if not bq_row:
+                                log.info(f"[tier2] BID {bid} not in BQ — skipped")
+                                continue
+
+                            # Cross-check: venue match if hints available, else date window
+                            if venue_hints:
+                                exp_name = (
+                                    bq_row.get("experienceName") or
+                                    bq_row.get("experience_name") or ""
+                                ).lower()
+                                if not any(vh.lower() in exp_name for vh in venue_hints):
+                                    log.info(
+                                        f"[tier2] BID {bid} venue mismatch "
+                                        f"(hints={venue_hints}, exp='{exp_name}') — skipped")
+                                    continue
+                            else:
+                                visit_str = (
+                                    bq_row.get("date_of_visit") or
+                                    bq_row.get("visitDate") or ""
+                                )
+                                if visit_str:
+                                    try:
+                                        from datetime import date as _date
+                                        visit_dt = _date.fromisoformat(visit_str[:10])
+                                        recv_dt = (review.received_at or datetime.utcnow()).date()
+                                        gap = abs((recv_dt - visit_dt).days)
+                                        if gap > 90:
+                                            log.info(
+                                                f"[tier2] BID {bid} date too far ({gap}d) — skipped")
+                                            continue
+                                    except Exception:
+                                        pass
+
+                            zd_candidates.append((bid, bq_row))
+
+                        n_zd = len(zd_candidates)
+                        if n_zd == 1:
+                            bid, bq_row = zd_candidates[0]
+                            booking = bq_row.copy()
+                            booking["id"] = bid
+                            booking.setdefault(
+                                "experienceName",
+                                bq_row.get("experience_name", ""))
+                            booking.update(_get_booking_extra(bid))
+                            match_tier = 1
+                            narrowing_path = "zendesk_requester_auto"
+                            _ctr["t2_zendesk_auto"] += 1
+                            _ctr["t1_auto_promoted"] += 1
+                            _ctr["t2_auto_promoted"] += 1
+                            confidence_trail.append({"mark": "pass",
+                                "text": "<strong>Tier 1 auto-promote</strong> via Zendesk requester "
+                                        "(single verified match)"})
+                            cascade_done = True
+                        elif 2 <= n_zd <= 5:
+                            candidates = [_make_candidate(row, "zendesk_requester", ["name", "zendesk"])
+                                          for _, row in zd_candidates]
+                            for i, (bid, _) in enumerate(zd_candidates):
+                                candidates[i]["id"] = bid
                             candidate_state = True
                             match_tier = 2
-                            narrowing_path = path_name
+                            narrowing_path = "zendesk_requester_candidates"
+                            _ctr["t2_zendesk_candidates"] += 1
                             _ctr["t2_candidates"] += 1
+                            confidence_trail.append({"mark": "pass",
+                                "text": f"<strong>Tier 2:</strong> {n_zd} Zendesk-verified candidates"})
+                            cascade_done = True
                         else:
-                            # Untraceable
+                            _ctr["t2_zendesk_no_match"] += 1
+                            if n_zd > 5:
+                                confidence_trail.append({"mark": "warn",
+                                    "text": f"<strong>Zendesk:</strong> {n_zd} verified — too many to narrow"})
+                            else:
+                                confidence_trail.append({"mark": "warn",
+                                    "text": "<strong>Zendesk:</strong> 0 verified candidates after cross-check"})
+                    else:
+                        _ctr["t2_zendesk_no_match"] += 1
+                        confidence_trail.append({"mark": "warn",
+                            "text": "<strong>Zendesk:</strong> no BIDs found for this name"})
+
+                # ── Step 3: BQ narrowing — venue+date only, never name ─────────
+                if not cascade_done:
+                    if tgids:
+                        # 3a: venue + date_30
+                        rows = _run_bq_attempt("venue_date_30", 30, tgid_list=tgids)
+                        n = len(rows)
+                        if n == 1:
+                            booking = _make_candidate(rows[0], "venue_date_30_auto", ["venue", "date"])
+                            booking.update(_get_booking_extra(booking.get("id", "")))
+                            match_tier = 1
+                            narrowing_path = "venue_date_30_auto"
+                            _ctr["t2_bq_venue_date_30_auto"] += 1
+                            _ctr["t1_auto_promoted"] += 1
+                            _ctr["t2_auto_promoted"] += 1
+                            confidence_trail.append({"mark": "pass",
+                                "text": "<strong>Tier 1 auto-promote</strong> via venue+date_30 (single match)"})
+                            cascade_done = True
+                        elif 2 <= n <= 5:
+                            candidates = [_make_candidate(r, "venue_date_30", ["venue", "date"])
+                                          for r in rows[:5]]
+                            candidate_state = True
+                            match_tier = 2
+                            narrowing_path = "venue_date_30"
+                            _ctr["t2_bq_venue_date_30"] += 1
+                            _ctr["t2_candidates"] += 1
+                            cascade_done = True
+
+                    if not cascade_done and tgids:
+                        # 3b: venue + date_60
+                        rows = _run_bq_attempt("venue_date_60", 60, tgid_list=tgids)
+                        n = len(rows)
+                        if n == 1:
+                            booking = _make_candidate(rows[0], "venue_date_60_auto", ["venue", "date"])
+                            booking.update(_get_booking_extra(booking.get("id", "")))
+                            match_tier = 1
+                            narrowing_path = "venue_date_60_auto"
+                            _ctr["t2_bq_venue_date_60_auto"] += 1
+                            _ctr["t1_auto_promoted"] += 1
+                            _ctr["t2_auto_promoted"] += 1
+                            confidence_trail.append({"mark": "pass",
+                                "text": "<strong>Tier 1 auto-promote</strong> via venue+date_60 (single match)"})
+                            cascade_done = True
+                        elif 2 <= n <= 10:
+                            candidates = [_make_candidate(r, "venue_date_60", ["venue", "date"])
+                                          for r in rows[:10]]
+                            candidate_state = True
+                            match_tier = 2
+                            narrowing_path = "venue_date_60"
+                            _ctr["t2_bq_venue_date_60"] += 1
+                            _ctr["t2_candidates"] += 1
+                            cascade_done = True
+
+                    if not cascade_done:
+                        # 3c: date_14 only — no venue filter
+                        rows = _run_bq_attempt("date_only", 14, tgid_list=None)
+                        n = len(rows)
+                        if 1 <= n <= 5:
+                            candidates = [_make_candidate(r, "date_only_loose", ["date"])
+                                          for r in rows[:5]]
+                            candidate_state = True
+                            match_tier = 2
+                            narrowing_path = "date_only_loose"
+                            _ctr["t2_bq_date_only_loose"] += 1
+                            _ctr["t2_candidates"] += 1
+                            cascade_done = True
+                        else:
+                            # Step 4 — Untraceable
                             _ctr["t2_untraceable"] += 1
                             _ctr["untraceable_total"] += 1
                             if venue_hints or author_first or author_last:
                                 _ctr["untraceable_has_signals"] += 1
-                        cascade_done = True
-                        break
+                            cascade_done = True
 
-                    if max_t1 == 1 and n == 1:
-                        # Auto-promote to Tier 1
-                        cand = rows[0]
-                        matched_on = []
-                        if use_nm and (author_first or author_last): matched_on.append("name")
-                        if True: matched_on.append("date")
-                        if use_tg and tgids: matched_on.append("venue")
-                        booking = _make_candidate(cand, path_name, matched_on)
-                        booking.update({
-                            "experienceName": cand.get("experience_name", ""),
-                            "vendorName":     cand.get("vendorName", ""),
-                        })
-                        # Enrich with booking_status and tid_name for the detail panel
-                        from server.services.bigquery import _get_booking_extra
-                        booking.update(_get_booking_extra(booking.get("id", "")))
-                        match_tier = 1
-                        narrowing_path = path_name
-                        _ctr["t1_auto_promoted"] += 1
-                        _ctr["t2_auto_promoted"] += 1
-                        confidence_trail.append({"mark": "pass",
-                            "text": f"<strong>Tier 1 auto-promote</strong> via {path_name} (single match)"})
-                        cascade_done = True
-                        break
-                    elif path_name == "venue_only" and 1 <= n <= 10:
-                        matched_on = ["venue", "date"]
-                        candidates = [_make_candidate(r, path_name, matched_on) for r in rows[:10]]
-                        candidate_state = True
-                        match_tier = 2
-                        narrowing_path = path_name
-                        _ctr["t2_candidates"] += 1
-                        cascade_done = True
-                        break
-                    elif 2 <= n <= 5:
-                        matched_on = []
-                        if use_nm and (author_first or author_last): matched_on.append("name")
-                        matched_on.append("date")
-                        if use_tg and tgids: matched_on.append("venue")
-                        candidates = [_make_candidate(r, path_name, matched_on) for r in rows[:5]]
-                        candidate_state = True
-                        match_tier = 2
-                        narrowing_path = path_name
-                        _ctr["t2_candidates"] += 1
-                        cascade_done = True
-                        break
-                    # else: too many rows — try next step
-
+                # ── Step 4: Untraceable fallback ──────────────────────────────
                 if not cascade_done and not booking:
                     _ctr["t2_untraceable"] += 1
                     _ctr["untraceable_total"] += 1
@@ -427,10 +543,14 @@ async def process_review(review_id: str):
                     f"[tier1] auto_promoted_from_cascade={_ctr['t1_auto_promoted']}"
                 )
                 log.info(
-                    f"[tier2] narrowing path used: primary={_ctr['t2_path_primary']} | "
-                    f"widened_date={_ctr['t2_path_widened_date']} | no_name={_ctr['t2_path_no_name']} | "
-                    f"venue_only={_ctr['t2_path_venue_only']} | name_date={_ctr['t2_path_name_date']} | "
-                    f"date_only={_ctr['t2_path_date_only']}"
+                    f"[tier2] zendesk_lookup: attempted={_ctr['t2_zendesk_lookup_attempted']} "
+                    f"auto={_ctr['t2_zendesk_auto']} candidates={_ctr['t2_zendesk_candidates']} "
+                    f"no_match={_ctr['t2_zendesk_no_match']}"
+                )
+                log.info(
+                    f"[tier2] bq_paths: v30_auto={_ctr['t2_bq_venue_date_30_auto']} "
+                    f"v30={_ctr['t2_bq_venue_date_30']} v60_auto={_ctr['t2_bq_venue_date_60_auto']} "
+                    f"v60={_ctr['t2_bq_venue_date_60']} date_only={_ctr['t2_bq_date_only_loose']}"
                 )
                 log.info(
                     f"[tier2] outcomes: auto_promoted_to_t1={_ctr['t2_auto_promoted']} | "
