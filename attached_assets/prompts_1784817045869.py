@@ -871,25 +871,6 @@ Return ONLY valid JSON (no markdown fences) matching this exact shape:
 
 
 # ─── 9a. Zendesk timeline shaping prompt ────────────────────────────────────
-def _fmt_date_ist(dt_str: str) -> str:
-    """Convert ISO date/datetime string → 'DD Mon HH:MM IST' (or 'DD Mon YYYY' if date-only)."""
-    if not dt_str:
-        return "unknown"
-    try:
-        from datetime import datetime, timezone, timedelta
-        IST = timezone(timedelta(hours=5, minutes=30))
-        s = str(dt_str).strip()
-        if "T" in s or (len(s) > 10 and ":" in s[10:]):
-            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(IST).strftime("%d %b %H:%M IST")
-        dt = datetime.strptime(s[:10], "%Y-%m-%d")
-        return dt.strftime("%d %b %Y")
-    except Exception:
-        return str(dt_str)[:16]
-
-
 def zendesk_timeline_shape_prompt(
     booking: dict,
     review_body: str,
@@ -897,29 +878,22 @@ def zendesk_timeline_shape_prompt(
     raw_events: list,
 ) -> str:
     """
-    Instructs Claude to batch-shape raw Zendesk events into a clean, structured
-    timeline. Each kept event has: idx_range, time, thread, actor, label, summary, keep.
+    Instructs Claude to batch-shape raw Zendesk events into clean timeline entries.
 
-    Changes vs previous version:
-    - Booking creation date pre-formatted in IST style (consistent with Zendesk times).
-    - "Booking created" summary uses visit date only — no full experience name.
-    - Hard drop list for bot/selenium/chat-session/tag noise events.
-    - Summary rules: guest events must state WHY they contacted; CE events must state
-      the specific action taken.
+    raw_events: list of {idx, time, thread, actor, ticket_id, raw_body}
+
+    Returns a prompt string. Claude must return JSON: a list of shaped event
+    objects with fields: idx_range, time, thread, actor, label, summary, keep.
+    Two injected bookend events ("Booking created", "Review posted") are required.
     """
-    bk = booking or {}
-    booking_date_fmt = _fmt_date_ist(bk.get("date_of_booking") or bk.get("creationDate") or "")
-    visit_date_raw   = bk.get("visitDate") or bk.get("date_of_visit") or ""
-    visit_date_fmt   = _fmt_date_ist(visit_date_raw) if visit_date_raw else "the visit date"
-
-    booking_summary = {k: v for k, v in bk.items()
+    booking_summary = {k: v for k, v in (booking or {}).items()
                        if k not in ("_match", "timeline_raw")}
     events_json = json.dumps(raw_events or [], indent=2)
     booking_json = json.dumps(booking_summary, indent=2)
 
     return f"""You are shaping raw Zendesk support events into a clean, human-readable
-timeline for an internal ORM dashboard. Headout CX analysts will read this — it must
-be factual, concise, and completely free of system noise.
+timeline for an internal ORM dashboard. Your output will be shown directly to
+Headout CX analysts — it must be factual, concise, and free of system noise.
 
 === BOOKING METADATA ===
 {booking_json}
@@ -937,24 +911,28 @@ support, what we did in response, and how it ended. It is NOT a system log. A CX
 analyst should read it top-to-bottom and instantly understand: did the guest
 reach out, HOW (channel), WHY (what they asked), WHAT we did or offered, and
 whether the booking was fulfilled / resolved.
+
 === INSTRUCTIONS ===
+
 1. INJECT two bookend events (not present in raw_events):
    - FIRST — Booking created:
-     {{"idx_range": [], "time": "{booking_date_fmt}",
+     {{"idx_range": [], "time": "<booking date from metadata, formatted 'DD Mon'>",
        "thread": "system", "actor": "creation",
        "label": "Booking created",
-       "summary": "Guest booked the experience for {visit_date_fmt}.", "keep": true}}
+       "summary": "Guest booked the experience for <visit date as 'DD Mon'>.", "keep": true}}
      Do NOT write out the full experience name — just say "the experience".
    - LAST — Review posted:
-     {{"idx_range": [], "time": "{review_pub_date or 'unknown'}",
+     {{"idx_range": [], "time": "<review date as 'DD Mon'>",
        "thread": "system", "actor": "review",
        "label": "Review posted", "summary": "Guest posted a negative Trustpilot review.", "keep": true}}
+
 2. KEEP only events that are part of the guest's story:
    - The guest contacting us (any channel)
    - Our substantive response to the guest (what we said / did / offered)
    - Ticket / voucher delivery or fulfilment (and when)
    - Any refund, credit, cancellation, reschedule, or escalation outcome
    Everything else → keep: false.
+
 3. DROP (keep: false) — internal noise; never show these:
    - Bot / AI tagging or classification (interaction tags like "delay_fulfilment…")
    - "AI-resolved", chat-summary, or internal CE-summary log entries
@@ -962,12 +940,14 @@ whether the booking was fulfilled / resolved.
    - Pseudo-email / vendor-login / password / credential generation
    - Macro floods, field / tag updates, assignment logs
    - Email signatures, logos, legal footers, blank bodies
+
 4. THREAD (the channel chip) — set to how the contact actually happened:
    - "chat"   → live chat / Skyler / web-user conversation
    - "email"  → email thread
    - "call"   → phone call
    - "system" → the two bookend events only
    Infer it from the raw body. Do NOT default everything to "email".
+
 5. SUMMARIES — write for a human, ONE clear sentence (max ~160 chars):
    - Guest contact → say WHY they reached out / what they asked.
      e.g. "Guest asked why their tickets hadn't arrived and needed them immediately for a same-day plan."
@@ -978,15 +958,21 @@ whether the booking was fulfilled / resolved.
    - Refund / outcome → the amount and terms.
      e.g. "Full refund of USD 19.42 issued as an out-of-policy exception."
    Strip all HTML / signatures. Never quote raw JSON. Never adopt the guest's emotional wording.
+
 6. LABELS — short and plain: "Guest contacted support", "Guest followed up",
    "Support responded", "Tickets delivered", "Refund issued", "Booking cancelled",
    "Escalated to SP". No ticket IDs, no "[ZD-xxxxx]", no "(×N)" suffixes.
+
 7. COLLAPSE consecutive events about ONE action (same moment) into a single event;
    list every collapsed idx in idx_range. Do NOT emit "(×N)" in the label.
+
 8. TIME — copy each raw event's timestamp exactly as given (already 'DD Mon HH:MM IST').
    The two bookends use the booking / review date as 'DD Mon' (no clock time).
-   Keep the format consistent across every event — never emit a raw ISO date like "2026-07-22".
+   Keep the format consistent across every event — never emit a raw ISO date like
+   "2026-07-22".
+
 9. ORDER — Booking created first, kept events in chronological order, Review posted last.
+
 Return ONLY valid JSON — a list of shaped event objects, nothing else:
 [
   {{"idx_range": [], "time": "...", "thread": "...", "actor": "...", "label": "...", "summary": "...", "keep": true}},
