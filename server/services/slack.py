@@ -76,38 +76,52 @@ def is_trustpilot_message(event: dict) -> bool:
 def parse_review(event: dict) -> dict:
     text = event.get("text", "")
     blocks = event.get("blocks", [])
+    attachments = event.get("attachments", [])
 
-    # Extract star rating
+    # ── Star rating ──────────────────────────────────────────────────────────
+    # Check message text, then attachment text, then attachment footer
+    # (Trustpilot puts stars in the footer: "★✩✩✩✩ Not verified")
     stars = text.count("★")
     if not stars:
-        for a in event.get("attachments", []):
+        for a in attachments:
             stars = a.get("text", "").count("★")
-            if stars: break
+            if stars:
+                break
+    if not stars:
+        for a in attachments:
+            stars = (a.get("footer") or "").count("★")
+            if stars:
+                break
 
-    # ── Booking ID extraction: attachment-first, regex fallback ─────────────
-    # Trustpilot's Slack integration posts attachments with a "reference" field.
+    # ── Booking ID: attachment fields → regex fallback ───────────────────────
     from server.taxonomy import BID_REGEX
     booking_id = None
-    for att in event.get("attachments", []):
+    for att in attachments:
         for field in att.get("fields", []):
             title = (field.get("title") or "").lower()
             if "reference" in title and field.get("value"):
-                booking_id = str(field["value"]).strip()
+                raw_val = str(field["value"]).strip()
+                # Clean messy values like "Booking I'd 3168128" → extract numeric BID
+                bid_match = re.search(BID_REGEX, raw_val)
+                if bid_match:
+                    booking_id = bid_match.group(0)
+                    log.info(f"[extract] attachment field: booking id {booking_id} (raw: {raw_val!r})")
+                else:
+                    log.info(f"[extract] attachment field: reference value not a BID: {raw_val!r}")
                 break
         if booking_id:
             break
-    if booking_id:
-        log.info("[extract] attachment: booking id from reference field")
-    else:
+    if not booking_id:
         search_text = text
-        for att in event.get("attachments", []):
+        for att in attachments:
             search_text += " " + (att.get("text") or "") + " " + (att.get("fallback") or "")
         m = re.search(BID_REGEX, search_text)
         if m:
             booking_id = m.group(0)
-            log.info("[extract] regex: booking id from message text")
+            log.info(f"[extract] regex: booking id {booking_id} from message text")
 
-    # Best-effort author from bold text in first block
+    # ── Author ───────────────────────────────────────────────────────────────
+    # Priority: bold text in blocks → attachment.author_name → Unknown
     author = None
     body = text
     for b in blocks:
@@ -119,16 +133,31 @@ def parse_review(event: dict) -> dict:
                     author = parts[1].strip()
             else:
                 body = t
+    if not author:
+        for att in attachments:
+            if att.get("author_name"):
+                author = att["author_name"].strip()
+                break
+
+    # ── Body ─────────────────────────────────────────────────────────────────
+    # Fall back to attachment.text when message text/blocks are empty
+    if not body or not body.strip():
+        for att in attachments:
+            att_text = att.get("text", "").strip()
+            if att_text:
+                title = att.get("title", "").strip()
+                body = f"{title}\n\n{att_text}".strip() if title else att_text
+                break
 
     return {
-        "slack_ts":        event["ts"],
-        "slack_channel":   event["channel"],
-        "rating":          stars or 1,
-        "language":        "en",
-        "author":          author or "Unknown",
-        "body_original":   body,
+        "slack_ts":         event["ts"],
+        "slack_channel":    event["channel"],
+        "rating":           stars or 1,
+        "language":         "en",
+        "author":           author or "Unknown",
+        "body_original":    body,
         "reference_number": booking_id,
-        "raw_payload":     event,
+        "raw_payload":      event,
     }
 
 
