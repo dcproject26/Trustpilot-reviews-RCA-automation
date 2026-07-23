@@ -1725,7 +1725,7 @@ async function fetchInbox() {
           resolution: '',
           tldr: '', wwrChain: [], prevention: '',
           evidence: [], issueSpecificAnswers: {}, checklistAnswers: [],
-          checks: [],
+          checks: [], reply: '', reasoning: '',
         },
         insights: {
           tgidRating: {value:'—',sub:'',tone:''},
@@ -1770,44 +1770,104 @@ async function loadDraftOverlays() {
         fetch(`/api/reviews/${r.id}/insights`),
       ]);
       if (!draftResp.ok) return;
-      const draft = (await draftResp.json()).draft;
+      const payload = await draftResp.json();
+      const draft   = payload.draft;
+      const review  = payload.review;
       if (!draft) return;
 
-      r.rca.subTheme = draft.sub_theme || null;
-      r.rca.tldr = draft.tldr || '';
-      r.rca.wwrChain = draft.wwr_chain || [];
-      r.rca.prevention = draft.prevention || '';
-      r.rca.evidence = draft.evidence || [];
+      // ── Full review text ──────────────────────────────────────────────────
+      if (review) {
+        r.original     = review.body_original || r.original     || '';
+        r.originalText = review.body_original || r.originalText || '';
+        r.english      = review.body_english  || r.english      || null;
+        r.englishText  = review.body_english  || r.englishText  || '';
+      }
+
+      // ── RCA core fields ───────────────────────────────────────────────────
+      r.rca.issueL1   = draft.l1        || r.rca.issueL1  || '';
+      r.rca.issueL2   = draft.l2        || r.rca.issueL2  || '';
+      r.rca.subTheme  = draft.sub_theme || r.rca.subTheme || null;
+      r.rca.tldr      = draft.tldr      || '';
+      r.rca.wwrChain  = draft.wwr_chain || [];
+      r.rca.prevention= draft.prevention|| '';
+      r.rca.evidence  = draft.evidence  || [];
+      r.rca.checks    = draft.diagnostic_checks || [];
+
+      r.rca.whatWentWrong = Array.isArray(draft.what_went_wrong_bullets)
+        ? draft.what_went_wrong_bullets.join('\n')
+        : (draft.what_went_wrong_bullets || r.rca.whatWentWrong || '');
+
+      r.rca.areaOfImproving = Array.isArray(draft.area_of_improving)
+        ? draft.area_of_improving.join('\n')
+        : (draft.area_of_improving || r.rca.areaOfImproving || '');
+
+      r.rca.resolution = draft.resolution || r.rca.resolution || '';
+      r.rca.reply      = draft.final_response || draft.suggested_response || r.rca.reply || '';
+
+      // actions_taken: API returns {sp: [strings], ce: [strings], …}
+      // render expects [{context, with, handle, time, where}]
+      if (draft.actions_taken) {
+        const toItems = arr => (arr || []).map(s => ({
+          context: s, with: '', handle: '', time: '', where: '#'
+        }));
+        r.rca.actionsTaken = {
+          sp:       toItems(draft.actions_taken.sp),
+          customer: toItems(draft.actions_taken.customer),
+          business: toItems(draft.actions_taken.business),
+          ce:       toItems(draft.actions_taken.ce),
+          product:  toItems(draft.actions_taken.product),
+        };
+      }
+
       r.rca.issueSpecificAnswers = draft.issue_specific_answers || {};
-      r.rca.checklistAnswers = draft.checklist_answers || [];
-      r.rca.supportInteraction = (draft.support_interaction_frames || []).map(mapSupportFrame);
-      r.rca.supportSummary = draft.support_summary || '';
-      r.rca.spInteraction = (draft.sp_interaction_frames || []).map(f => ({
-        time: f.time || '',
-        label: f.label || '',
-        summary: f.summary || f.weDid || '',
+      r.rca.checklistAnswers     = draft.checklist_answers      || [];
+      r.rca.supportInteraction   = (draft.support_interaction_frames || []).map(mapSupportFrame);
+      r.rca.supportSummary       = draft.support_summary        || '';
+      r.rca.spInteraction        = (draft.sp_interaction_frames || []).map(f => ({
+        time: f.time || '', label: f.label || '', summary: f.summary || f.weDid || '',
       }));
 
-      // Wire booking fields from draft.booking
+      // ── Stated issue ──────────────────────────────────────────────────────
+      r.statedIssue = draft.stated_issue || r.statedIssue || '';
+
+      // ── Timeline → events ─────────────────────────────────────────────────
+      if (Array.isArray(draft.timeline) && draft.timeline.length) {
+        r.events = draft.timeline.map(t => ({
+          time:    t.time    || '',
+          thread:  t.thread  || 'email',
+          actor:   t.actor   || '',
+          label:   t.label   || '',
+          summary: t.summary || '',
+        }));
+      }
+
+      // ── Match method from confidence trail ────────────────────────────────
+      r.matchMethod = draft.match_method
+        || (draft.confidence_trail && draft.confidence_trail.length
+            ? draft.confidence_trail.map(c => c.text.replace(/<[^>]+>/g, '')).join(' · ')
+            : r.matchMethod || '—');
+
+      // ── Wire booking fields from draft.booking ────────────────────────────
       if (draft.booking) {
         const db = draft.booking;
         r.booking = r.booking || {};
-        r.booking.bid              = r.booking.bid              || db.id;
-        r.booking.experience       = r.booking.experience       || db.experienceName || db.experience_name;
-        r.booking.tgid             = r.booking.tgid             || db.tgid;
-        r.booking.tid              = r.booking.tid              || db.tid;
-        r.booking.vid              = r.booking.vid              || db.vid || db.vendor_id;
-        r.booking.vendorName       = r.booking.vendorName       || db.vendorName || db.vendor_name;
-        r.booking.fulfilmentType   = db.fulfilmentType   || db.fulfilment_type   || r.booking.fulfilmentType;
-        r.booking.experienceDate   = r.booking.experienceDate   || db.visitDate || db.date_of_visit;
-        r.booking.bookingDate      = db.date_of_booking || r.booking.bookingDate;
-        r.booking.primaryGuestName = db.primary_guest_name      || r.booking.primaryGuestName;
+        r.booking.bid              = r.booking.bid            || db.id;
+        r.booking.experience       = r.booking.experience     || db.experienceName || db.experience_name;
+        r.booking.tgid             = r.booking.tgid           || db.tgid;
+        r.booking.tid              = r.booking.tid            || db.tid;
+        r.booking.vid              = r.booking.vid            || db.vid || db.vendor_id;
+        r.booking.vendorName       = r.booking.vendorName     || db.vendorName || db.vendor_name;
+        r.booking.fulfilmentType   = db.fulfilmentType || db.fulfilment_type || r.booking.fulfilmentType;
+        r.booking.experienceDate   = r.booking.experienceDate || db.visitDate || db.date_of_visit;
+        r.booking.creationDate     = db.date_of_booking       || r.booking.creationDate || '';
+        r.booking.bookingDate      = db.date_of_booking       || r.booking.bookingDate;
+        r.booking.primaryGuestName = db.primary_guest_name    || r.booking.primaryGuestName;
         r.booking.bmsLink          = db.bms_link;
         r.booking.tgidLink         = db.tgid_link;
         r.booking.ticketMailSeen   = !!db.ticket_mail_seen;
       }
 
-      // Live insights from API
+      // ── Live insights from API ────────────────────────────────────────────
       if (insightsResp.ok) {
         const ins = await insightsResp.json();
         r.liveInsights = ins;
@@ -2841,7 +2901,7 @@ function renderRcaCol() {
         <textarea class="reply-text" placeholder="AI-drafted response — edit as needed">${rca.reply}</textarea>
         <div class="reply-meta">
           <span>Goes out via Trustpilot Slack integration on Send ↑</span>
-          <span>${rca.reply.length} chars</span>
+          <span>${(rca.reply || '').length} chars</span>
         </div>
       </div>
     </div>
