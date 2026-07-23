@@ -447,10 +447,15 @@ async def process_review(review_id: str):
         extracted_bk  = {}
         zd_meta       = {"ticket_ids": [], "timeline_raw": []}
         bid_for_zd    = (booking or {}).get("id") or review.reference_number
+        _zd_pub_date  = review.received_at.strftime("%Y-%m-%d") if review.received_at else ""
         if bid_for_zd:
             try:
                 timeline, extracted_bk, zd_meta = await zendesk.get_timeline(
-                    bid_for_zd, review_id)
+                    bid_for_zd, review_id,
+                    booking=booking,
+                    review_body=review.body_english or review.body_original or "",
+                    review_pub_date=_zd_pub_date,
+                )
                 log.info(f"[pipeline] timeline: {len(timeline)} events "
                          f"across tickets {zd_meta.get('ticket_ids')}")
             except Exception as e:

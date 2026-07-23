@@ -8,10 +8,12 @@ Data path per the 2026-07 wiring brief:
 4. Fetch ALL comments per ticket (public + private notes), paginated by zenpy.
 5. Brand split: guest-brand tickets -> guest timeline, SP-brand -> sp thread
    (draft.sp_interaction_frames). If brands unset, everything is guest.
-6. Merge multi-ticket comments chronologically, label prefixed [ZD-<id>].
-7. Timeline events use the demo-v15 renderer shape (time/thread/actor/label/summary),
-   with the raw body kept in a parallel timeline_raw list.
-8. >40 comments -> keep first 20 + last 20 with one "[N comments elided]" event.
+6. Merge multi-ticket comments chronologically; _get_timeline_sync produces raw
+   events {idx, time, thread, actor, ticket_id, raw_body}.
+7. get_timeline passes raw events to Claude (_shape_via_claude) which returns
+   clean {time, thread, actor, label, summary} events with bookend injection,
+   noise-drop, and macro-flood collapsing. On failure, _fallback_shape is used.
+8. >40 raw comments -> keep first 20 + last 20 with one "[N comments elided]" placeholder.
 """
 import asyncio
 import html as _html
@@ -146,15 +148,24 @@ def _detect_actor(comment_author_id, ticket, author_role: str,
     return "system"
 
 
-async def get_timeline(booking_id: str, review_id: str = None) -> tuple[list, dict, dict]:
+async def get_timeline(
+    booking_id: str,
+    review_id: str = None,
+    booking: dict = None,
+    review_body: str = "",
+    review_pub_date: str = "",
+) -> tuple[list, dict, dict]:
     """
     Returns (timeline, extracted_booking_fields, meta).
 
     timeline: chronological events shaped for the demo-v15 renderer:
         {time, thread, actor, label, summary}
     extracted_booking_fields: {tgid, tid, ticket_mail_seen} from custom fields/tags.
-    meta: {"ticket_ids": [str, ...], "timeline_raw": [str, ...]}  # raw bodies,
-          same length/order as timeline.
+    meta: {"ticket_ids": [str, ...], "timeline_raw": [str, ...],
+           "zendesk_requester_name": str}
+
+    booking, review_body, review_pub_date are passed to Claude for intelligent
+    shaping (bookend injection, noise-drop, macro-flood collapsing).
     """
     if not is_live("zendesk"):
         if review_id and review_id in MOCK_TIMELINES:
@@ -173,14 +184,14 @@ async def get_timeline(booking_id: str, review_id: str = None) -> tuple[list, di
                 "time":   f"{today} 09:00",
                 "thread": "email",
                 "actor":  "guest",
-                "label":  "Guest contacted CE",
+                "label":  "Guest contacted support",
                 "summary": "[Mock] Guest emailed support about their experience.",
             },
             {
                 "time":   f"{today} 10:30",
                 "thread": "email",
-                "actor":  "support",
-                "label":  "CE replied",
+                "actor":  "co",
+                "label":  "CE responded",
                 "summary": "[Mock] CE acknowledged the guest's concern and reviewed the booking.",
             },
         ]
@@ -196,12 +207,27 @@ async def get_timeline(booking_id: str, review_id: str = None) -> tuple[list, di
         waited = time.time() - t0
         if waited > 2.0:
             log.warning(f"[zendesk] wait time exceeded 2s: {waited:.1f}s")
-        return await asyncio.get_running_loop().run_in_executor(
+        raw_events, extracted, meta = await asyncio.get_running_loop().run_in_executor(
             None, _get_timeline_sync, _z, booking_id)
+
+    try:
+        timeline = await _shape_via_claude(
+            raw_events, booking or {}, review_body, review_pub_date)
+    except Exception as e:
+        log.warning(f"[zendesk] Claude shaping failed — using fallback: {e}")
+        timeline = _fallback_shape(raw_events)
+
+    return timeline, extracted, meta
 
 
 def _get_timeline_sync(_z, booking_id: str):
-    """Synchronous Zendesk work — called from get_timeline via run_in_executor."""
+    """Synchronous Zendesk work — called from get_timeline via run_in_executor.
+
+    Returns (raw_events, extracted, meta) where raw_events is a list of:
+        {idx, time, thread, actor, ticket_id, raw_body}
+    meta contains ticket_ids, timeline_raw (parallel raw bodies), and
+    zendesk_requester_name.
+    """
     # ── Search: fieldvalue first, free-text fallback ─────────────────────────
     tickets = _search_with_retry(_z, f"type:ticket fieldvalue:{booking_id}")
     if tickets:
@@ -214,7 +240,7 @@ def _get_timeline_sync(_z, booking_id: str):
             log.info(f"[zendesk] free-text: {len(tickets)} tickets for BID {booking_id}")
         else:
             log.info(f"[zendesk] no tickets for BID {booking_id} (both search paths)")
-            return [], {}, {"ticket_ids": [], "timeline_raw": []}
+            return [], {}, {"ticket_ids": [], "timeline_raw": [], "zendesk_requester_name": ""}
 
     # ── Extract booking fields from custom fields + tags ─────────────────────
     extracted = {}
@@ -258,8 +284,8 @@ def _get_timeline_sync(_z, booking_id: str):
         _role_cache[author_id] = role
         return role
 
-    # ── Fetch comments per ticket (zenpy paginates), build events ────────────
-    events = []   # (sort_dt, event_dict, raw_body)
+    # ── Fetch comments per ticket (zenpy paginates), build raw events ─────────
+    events = []   # (sort_dt, raw_event_dict, raw_body)
     for ticket in tickets:
         is_sp = bool(ZENDESK_BRAND_GUEST and ZENDESK_BRAND_SP
                      and _brand_matches(ticket, ZENDESK_BRAND_SP))
@@ -281,22 +307,15 @@ def _get_timeline_sync(_z, booking_id: str):
             author_id = getattr(c, "author_id", None)
             actor = _detect_actor(author_id, ticket, _role(author_id), is_sp, tags)
             thread = "sp" if is_sp else _map_channel(via_ch)
-            actor_desc = {
-                "guest": "Guest wrote",
-                "co":    "CE responded to " + _map_channel(via_ch),
-                "sp":    "SP responded",
-                "ai":    "AI responded",
-                "system": "System event",
-            }[actor]
             created = getattr(c, "created_at", None)
             events.append((
                 _sort_key(created),
                 {
-                    "time":    _to_ist(created),
-                    "thread":  thread,
-                    "actor":   actor,
-                    "label":   f"[ZD-{ticket.id}] {actor_desc}",
-                    "summary": _clean_summary(body),
+                    "time":      _to_ist(created),
+                    "thread":    thread,
+                    "actor":     actor,
+                    "ticket_id": str(ticket.id),
+                    "raw_body":  body,
                 },
                 body,
             ))
@@ -308,19 +327,124 @@ def _get_timeline_sync(_z, booking_id: str):
         elided = len(events) - 40
         placeholder = (
             events[19][0],
-            {"time": "", "thread": "email", "actor": "system",
-             "label": f"[{elided} comments elided]", "summary": ""},
+            {
+                "time":      "",
+                "thread":    "email",
+                "actor":     "system",
+                "ticket_id": "",
+                "raw_body":  f"[{elided} comments elided]",
+            },
             "",
         )
         events = events[:20] + [placeholder] + events[-20:]
-    # (return statement follows — see below)
 
-    timeline = [e[1] for e in events]
+    # ── Assign sequential idx ─────────────────────────────────────────────────
+    raw_events = []
+    for i, (_, ev, _body) in enumerate(events):
+        raw_events.append({"idx": i, **ev})
+
     timeline_raw = [e[2] for e in events]
     ticket_ids = [str(t.id) for t in tickets]
 
-    return timeline, extracted, {
+    return raw_events, extracted, {
         "ticket_ids": ticket_ids,
         "timeline_raw": timeline_raw,
         "zendesk_requester_name": zendesk_requester_name,
     }
+
+
+def _fallback_shape(raw_events: list) -> list:
+    """
+    Mechanical fallback when Claude shaping fails.
+    Produces {time, thread, actor, label, summary} without [ZD-###] prefixes,
+    with HTML-stripped one-line summaries.
+    """
+    actor_labels = {
+        "guest":  "Guest contacted support",
+        "co":     "CE responded",
+        "sp":     "SP responded",
+        "ai":     "Bot auto-reply",
+        "system": "System event",
+    }
+    shaped = []
+    for ev in raw_events:
+        actor = ev.get("actor", "system")
+        label = actor_labels.get(actor, "Event")
+        raw_body = ev.get("raw_body", "")
+        if raw_body.startswith("[") and "comments elided" in raw_body:
+            label = raw_body
+            summary = ""
+        else:
+            summary = _clean_summary(raw_body)
+        shaped.append({
+            "time":    ev.get("time", ""),
+            "thread":  ev.get("thread", "email"),
+            "actor":   actor,
+            "label":   label,
+            "summary": summary,
+        })
+    return shaped
+
+
+def _safe_parse_events(text: str) -> list:
+    """
+    Parse Claude's JSON response into a list of shaped event dicts.
+    Strips markdown fences and JSON comments before parsing.
+    Returns empty list on failure.
+    """
+    import json as _json
+    cleaned = text.replace("```json", "").replace("```", "").strip()
+    # Remove // comments outside strings
+    cleaned = re.sub(r'(?<!["\w])//[^\n]*', '', cleaned)
+    try:
+        parsed = _json.loads(cleaned)
+        if isinstance(parsed, list):
+            return parsed
+    except Exception:
+        pass
+    # Try extracting array from response
+    m = re.search(r'\[.*\]', cleaned, re.S)
+    if m:
+        try:
+            parsed = _json.loads(m.group(0))
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            pass
+    return []
+
+
+async def _shape_via_claude(
+    raw_events: list,
+    booking: dict,
+    review_body: str,
+    review_pub_date: str,
+) -> list:
+    """
+    One Claude call that batch-shapes raw events into clean timeline entries.
+    Filters keep=false events. Returns list of {time, thread, actor, label, summary}.
+    """
+    from server import prompts as _prompts
+    from server.services import claude as _claude
+
+    prompt = _prompts.zendesk_timeline_shape_prompt(
+        booking, review_body, review_pub_date, raw_events)
+    raw_text = await _claude.shape_timeline_events(prompt)
+
+    shaped = _safe_parse_events(raw_text)
+    if not shaped:
+        log.warning("[zendesk] Claude returned unparseable shaping response — using fallback")
+        return _fallback_shape(raw_events)
+
+    kept = []
+    for ev in shaped:
+        if not ev.get("keep", True):
+            continue
+        kept.append({
+            "time":    ev.get("time", ""),
+            "thread":  ev.get("thread", "email"),
+            "actor":   ev.get("actor", "system"),
+            "label":   ev.get("label", ""),
+            "summary": ev.get("summary", ""),
+        })
+    return kept

@@ -861,6 +861,98 @@ Return ONLY valid JSON (no markdown fences) matching this exact shape:
 }}"""
 
 
+# ─── 9a. Zendesk timeline shaping prompt ────────────────────────────────────
+def zendesk_timeline_shape_prompt(
+    booking: dict,
+    review_body: str,
+    review_pub_date: str,
+    raw_events: list,
+) -> str:
+    """
+    Instructs Claude to batch-shape raw Zendesk events into clean timeline entries.
+
+    raw_events: list of {idx, time, thread, actor, ticket_id, raw_body}
+
+    Returns a prompt string. Claude must return JSON: a list of shaped event
+    objects with fields: idx_range, time, thread, actor, label, summary, keep.
+    Two injected bookend events ("Booking created", "Review posted") are required.
+    """
+    booking_summary = {k: v for k, v in (booking or {}).items()
+                       if k not in ("_match", "timeline_raw")}
+    events_json = json.dumps(raw_events or [], indent=2)
+    booking_json = json.dumps(booking_summary, indent=2)
+
+    return f"""You are shaping raw Zendesk support events into a clean, human-readable
+timeline for an internal ORM dashboard. Your output will be shown directly to
+Headout CX analysts — it must be factual, concise, and free of system noise.
+
+=== BOOKING METADATA ===
+{booking_json}
+
+=== REVIEW ===
+Published: {review_pub_date or "unknown"}
+Body: {(review_body or "")[:600]}
+
+=== RAW EVENTS (idx = sequential order) ===
+{events_json}
+
+=== INSTRUCTIONS ===
+
+1. INJECT two synthetic bookend events (not present in raw_events):
+   - FIRST: {{"idx_range": [], "time": "<booking creation date from metadata or 'unknown'>",
+     "thread": "email", "actor": "system",
+     "label": "Booking created", "summary": "Guest booked <experience name> for <visit date>.", "keep": true}}
+   - LAST:  {{"idx_range": [], "time": "{review_pub_date or 'unknown'}",
+     "thread": "email", "actor": "system",
+     "label": "Review posted", "summary": "Guest posted a Trustpilot review.", "keep": true}}
+
+2. For each raw event, produce ONE shaped object:
+   {{
+     "idx_range": [<idx>, ...],   // single idx normally; multiple when collapsing
+     "time":      "<preserve as-is from raw event>",
+     "thread":    "<preserve from raw event>",
+     "actor":     "<preserve from raw event>",
+     "label":     "<short action label — NO [ZD-xxxxx] prefix, NO ticket IDs>",
+     "summary":   "<one neutral factual sentence — NO raw HTML, NO JSON, NO signatures>",
+     "keep":      true | false
+   }}
+
+3. COLLAPSING — collapse consecutive events into ONE object when:
+   - Same timestamp AND same actor → macro/bot flood
+   - Pure auto-reply or "out of office" macros repeated ≥ 2 times in a row
+   List ALL collapsed idx values in idx_range. Label: e.g. "CE sent macro (×3)".
+
+4. DROP (keep: false) these noise events:
+   - Events whose raw_body is ONLY an email signature, logo tag, or legal footer
+     (no actionable text after stripping HTML)
+   - Automated system-sync events with no customer-visible action
+     (e.g. ticket field updated, tag added, assignment log — no body text)
+   - Blank or whitespace-only bodies
+
+5. LABELS — write short, plain-English action labels:
+   - Guest wrote → "Guest contacted support", "Guest followed up", "Guest replied"
+   - CE/agent → "CE responded", "CE sent resolution", "CE sent macro"
+   - AI/bot → "Bot auto-reply"
+   - SP → "SP responded"
+   - System → "System event"
+   Never include ticket IDs, [ZD-xxxxx] prefixes, or Zendesk internal references.
+
+6. SUMMARIES — one neutral, factual sentence per kept event:
+   - Strip all HTML tags, email signatures, and logo/image tags before summarising
+   - Do NOT quote booking JSON or raw system data
+   - Do NOT adopt the guest's emotional framing; describe the action factually
+   - Max ~150 characters
+
+7. OUTPUT ORDER: bookend "Booking created" first, then kept events in chronological
+   order (preserve time order from raw_events), then "Review posted" last.
+
+Return ONLY valid JSON — a list of shaped event objects, nothing else:
+[
+  {{"idx_range": [], "time": "...", "thread": "...", "actor": "...", "label": "...", "summary": "...", "keep": true}},
+  ...
+]"""
+
+
 # ─── 9. Flag-to-Biz Slack message ──────────────────────────────────────────
 def flag_to_biz_prompt(
     vendor_name: str, vid: str, completion_pct: str, market_avg: str,

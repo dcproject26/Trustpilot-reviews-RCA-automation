@@ -393,6 +393,16 @@ async def flag_to_biz_message(
     )
 
 
+# ─── 7b. Zendesk timeline shaping ───────────────────────────────────────────
+async def shape_timeline_events(prompt: str) -> str:
+    """
+    One Claude call that batch-shapes raw Zendesk events into clean timeline
+    entries. Returns the raw text response for the caller to parse.
+    Always runs against the live model (MOCK_MODE timelines bypass this).
+    """
+    return await _call(prompt, max_tokens=3000)
+
+
 # ─── Legacy methods retained for backwards compatibility ────────────────────
 # The existing v1 flow (api.py PATCH endpoint, legacy dashboard) still works.
 
