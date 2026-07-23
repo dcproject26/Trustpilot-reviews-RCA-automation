@@ -1,0 +1,310 @@
+Copy-paste this whole block. It's your Delta v4 with my four must-fixes folded in and the pre-existing state acknowledged.
+
+---
+
+## Paste this to the Replit Agent
+
+**Delta v4 — Column 1 tier classification. Backend only. Do NOT touch client wiring, Zendesk service code, RCA/classification prompts, or MOCK_MODE fallbacks. MOCK_MODE must still work.**
+
+### Ground truth to inherit from prior deltas (do NOT redo)
+- `BID_REGEX` is already `\b\d{7,12}\b` in `taxonomy.py`. Use it.
+- Attachment-first BID extraction and `webhook.py` dedupe (event-id + booking-level) are already live. Reuse; don't rewrite. **Manual submissions (`POST /api/reviews/manual`) must bypass booking-level dedupe** — associate is deliberately re-triggering.
+- BigQuery is connector-auth'd via `bq_connector.py`. Reuse.
+- **Schema fact — do NOT assume otherwise:** `fct_bookings` has `primary_guest_name` (single field), NOT `guest_first_name` / `guest_last_name`. Every name-matching query uses `primary_guest_name` with substring matching.
+
+### Design principle
+Cascading hard filters + result-count logic. **No weighted scoring.** Every review with a BID BQ confirms → Tier 1. Every review with ≥1 usable narrowing signal → Tier 2. Zero usable signals → Untraceable (this is a routing **win**, not a loss). Target 100% routing accuracy of the search logic itself.
+
+### Files to touch
+- `server/pipeline.py` — orchestration
+- `server/services/bigquery_patch.py` — Tier 1 verify + Tier 2 narrowing queries
+- `server/services/venue_resolver.py` — **NEW**, BQ-backed venue → TGID resolver
+- `server/services/bq_connector.py` — **only if it doesn't already expose a generic `run_query(sql, params=None)`** — if missing, add it (reuse existing token cache + 401 retry, named-parameter binding, no string concat)
+- `server/prompts.py` — new `venue_extraction_prompt`
+- `server/db.py` — three new draft columns (see migration)
+- `server/api.py` — expose the three new draft fields in `_draft_dict()`
+- `migrations/005_tier_classification.sql` — **NEW**
+
+Do NOT touch: `taxonomy.py`, `classifier.py`, `classification_prompt` inside `prompts.py`, `client/index.html`, Zendesk service code, MOCK_MODE flag.
+
+### 0. Migration + DB fields — do FIRST
+
+`migrations/005_tier_classification.sql`:
+```sql
+ALTER TABLE rca_drafts ADD COLUMN IF NOT EXISTS bid_source         VARCHAR;
+ALTER TABLE rca_drafts ADD COLUMN IF NOT EXISTS extracted_signals  JSON DEFAULT '{}';
+ALTER TABLE rca_drafts ADD COLUMN IF NOT EXISTS narrowing_attempts JSON DEFAULT '[]';
+```
+
+In `server/db.py::RcaDraft`, add matching columns:
+```python
+bid_source         = Column(String, nullable=True)
+extracted_signals  = Column(JSON, default=dict)
+narrowing_attempts = Column(JSON, default=list)
+```
+
+In `server/api.py::_draft_dict()`, add to the returned dict:
+```python
+"bid_source":         d.bid_source,
+"extracted_signals":  d.extracted_signals or {},
+"narrowing_attempts": d.narrowing_attempts or [],
+```
+
+### 1. Tier 1 — BID extraction + source-tiered trust
+
+**Extraction** (already in `webhook.py`, keep the existing order): attachment `"reference"` field → regex on combined text + attachment text/fallback → manual `reference_number` payload field. On top of the existing extraction, **record which path found it**:
+```python
+draft.bid_source = "attachment" | "regex" | "manual" | None
+```
+
+**BID verification query** in `bigquery_patch.py` (parameter-bound, never string-concat):
+```sql
+SELECT
+  b.booking_id,
+  DATE(b.created_at)      AS date_of_booking,
+  DATE(b.experience_date) AS date_of_visit,
+  b.tour_id               AS tid,
+  b.experience_id         AS tgid,
+  b.experience_name,
+  b.vendor_id,
+  v.vendor_name,
+  f.fulfilment_type,
+  b.primary_guest_name
+FROM `headout-analytics.analytics_reporting.fct_bookings` b
+LEFT JOIN `headout-analytics.analytics_reporting.fct_fulfilments` f
+  ON b.booking_id = f.booking_id
+LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
+  ON b.vendor_id = v.vendor_id
+WHERE b.booking_id = @bid
+```
+
+**Source-tiered trust decision:**
+- `bid_source == "attachment"` AND BQ row → **`match_tier = 1`**, no further verify (Trustpilot's Slack integration is source of truth).
+- `bid_source == "manual"` AND BQ row → **`match_tier = 1`**, no further verify.
+- `bid_source == "regex"` AND BQ row → run **1-of-3 verify**, tag `match_tier = 1` if any pass:
+  - **Name:** case-insensitive substring match between Trustpilot `author` and `primary_guest_name` (either direction).
+  - **Date:** Trustpilot `review_published_date` within 30 days of `date_of_visit`.
+  - **Venue:** if Claude venue-hints exist, any hint appears (case-insensitive substring) in `experience_name`.
+  - **0/3 pass:** weak BID — store the BQ row as `candidates_list[0]` with `low_confidence_bid_match: True`, `match_tier = 2`, `candidate_state = True`, **continue to the Tier 2 cascade** to find better candidates.
+- BQ returns nothing (any source) → BID hallucinated/purged → fall through to Tier 2 cascade.
+
+**Confidence trail entries:**
+```python
+{"mark": "pass", "text": f"BID extracted from {bid_source}: {bid}"}
+{"mark": "pass"|"warn", "text": f"BQ verification: <outcome>"}
+{"mark": "pass"|"warn", "text": f"Tier 1 confirmed via {bid_source}" | "Weak BID — downgraded to Tier 2"}
+```
+
+### 2. Tier 2 — Cascading hard filters
+
+**This delta REPLACES the Tier 2 logic inside `find_booking()`.** Refactor `find_booking()` to accept `search_ctx` and return one of: `{booking, tier: 1, ...}` / `{candidates: [...], tier: 2, narrowing_path}` / `None` (untraceable). Do not run old + new logic in parallel.
+
+**Multi-venue extraction prompt** in `prompts.py::venue_extraction_prompt(review_text)`:
+```
+Read the following Trustpilot review. Extract EVERY venue or experience the guest
+mentions — even if multiple.
+
+Rules:
+- Return the shortest recognisable venue name only (e.g. "Vatican Museums",
+  "Eiffel Tower", "Sagrada Familia", "Sistine Chapel").
+- Do NOT include ticket variants, tour types, or descriptors ("guided", "priority",
+  "combo", "with dinner", "skip-the-line").
+- Return ALL venues mentioned, in order of appearance.
+- If no clear venue can be identified, return an empty list.
+- Do NOT invent — if not explicit, do not include.
+
+REVIEW:
+{review_text}
+
+Return ONLY valid JSON, no markdown:
+{"venue_hints": ["...", "..."]}
+```
+Call once per review reaching Tier 2. Store on `draft.extracted_signals.venue_hints`.
+
+**Venue resolver** — `server/services/venue_resolver.py` (new):
+```python
+import logging
+from server.services import bq_connector as bq
+
+log = logging.getLogger(__name__)
+
+async def resolve(venue_hints: list[str] | None) -> list[int] | None:
+    """Resolve venue hints -> union of TGIDs. None if unresolved."""
+    if not venue_hints:
+        return None
+    all_tgids = set()
+    for hint in venue_hints:
+        hint = (hint or "").lower().strip()
+        if not hint:
+            continue
+        try:
+            rows = await bq.run_query("""
+                SELECT DISTINCT experience_id
+                FROM `headout-analytics.analytics_reporting.dim_experiences`
+                WHERE LOWER(experience_name) LIKE CONCAT('%', @hint, '%')
+                LIMIT 20
+            """, params={"hint": hint})
+            for r in rows or []:
+                if r.get("experience_id") is not None:
+                    all_tgids.add(int(r["experience_id"]))
+        except Exception as e:
+            log.warning(f"venue_resolver: BQ failed for '{hint}': {e}")
+    return sorted(all_tgids) if all_tgids else None
+```
+Schema note: if `analytics_reporting.dim_experiences` doesn't exist, try `shivam_reporting.dim_experiences`, then last-resort `SELECT DISTINCT experience_id, experience_name FROM fct_bookings`. Report which worked.
+
+**Author parsing:**
+```python
+def parse_author(author: str) -> tuple[str | None, str | None]:
+    if not author: return None, None
+    parts = author.strip().split()
+    if not parts: return None, None
+    if len(parts) == 1:
+        t = parts[0]
+        return (t, None) if t.isalpha() and len(t) >= 2 else (None, None)
+    return parts[0], parts[-1]
+```
+
+**Narrowing query** (single query, param-bound; note `primary_guest_name` substring match, not split columns):
+```sql
+SELECT
+  b.booking_id,
+  b.primary_guest_name,
+  DATE(b.experience_date) AS date_of_visit,
+  b.experience_name,
+  b.tour_id               AS tid,
+  b.experience_id         AS tgid,
+  b.vendor_id,
+  v.vendor_name
+FROM `headout-analytics.analytics_reporting.fct_bookings` b
+LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
+  ON b.vendor_id = v.vendor_id
+WHERE (@tgid_list IS NULL OR b.experience_id IN UNNEST(@tgid_list))
+  AND b.experience_date BETWEEN
+      DATE_SUB(@review_pub_date, INTERVAL @date_window DAY) AND @review_pub_date
+  AND (
+    (@author_first IS NULL AND @author_last IS NULL)
+    OR (@author_first IS NOT NULL AND
+        LOWER(b.primary_guest_name) LIKE CONCAT('%', LOWER(@author_first), '%'))
+    OR (@author_last IS NOT NULL AND
+        LOWER(b.primary_guest_name) LIKE CONCAT('%', LOWER(@author_last), '%'))
+  )
+ORDER BY b.experience_date DESC
+LIMIT 10
+```
+
+**Cascade (stop at first attempt yielding a usable result):**
+
+| # | Path | Params | Stop conditions |
+|---|---|---|---|
+| 1 | `primary` | tgids + date_30 + name | 1 → Tier 1 auto-promote · 2–5 → Tier 2 · else next |
+| 2 | `widened_date` | tgids + date_60 + name | 1 → Tier 1 · 2–5 → Tier 2 · else next |
+| 3 | `no_name` | tgids + date_30, no name | 1 → Tier 1 · 2–5 → Tier 2 · else next |
+| 4 | `venue_only` | tgids + date_60, no name | **1–10 → Tier 2 (never auto-promotes — single venue-only match isn't high-confidence enough)** · else next |
+| 5 | `name_date` | no tgids + date_30 + name | 1 → Tier 1 · 2–5 → Tier 2 · else next |
+| 6 | `date_only` | no tgids + date_14, no name | 1–5 → Tier 2 loose · else **Untraceable** |
+
+**Candidate shape:**
+```python
+{
+  "id": "31055920",
+  "primary_guest_name": "Marcus Thompson",
+  "experience_name": "Eiffel Tower — 2nd Floor + Optional Summit",
+  "date_of_visit": "2026-05-02",
+  "vendor_name": "EiffelToursCo",
+  "tid": 22441, "tgid": 7371, "vid": 4701,
+  "matched_on": ["venue", "date", "name"],
+  "narrowing_path": "primary" | "widened_date" | "no_name" | "venue_only" | "name_date" | "date_only"
+}
+```
+
+**Confidence trail:**
+```python
+{"mark": "pass", "text": f"Venues extracted: {venue_hints} → {len(tgids)} TGIDs"}
+{"mark": "pass", "text": f"Author parsed: first='{f}' last='{l}'"}
+{"mark": "pass"|"warn", "text": f"Attempt N ({path_name}): {row_count} rows"}
+{"mark": "pass", "text": f"Final: Tier {tier} via {narrowing_path}"}
+```
+
+### 3. Untraceable — reached only when all 6 attempts fail
+
+```python
+draft.extracted_signals = {
+    "venue_hints": venue_hints,
+    "author_first": author_first,
+    "author_last": author_last,
+    "review_pub_date": review_pub_date,
+}
+draft.narrowing_attempts = [
+    {"path": "primary",      "params": {...}, "result_count": N},
+    {"path": "widened_date", "params": {...}, "result_count": N},
+    # one per attempt run
+]
+draft.match_tier = None
+draft.candidate_state = False
+draft.status = "draft"
+```
+
+### 4. Instrumentation — log per review
+
+```
+[extract] bid_source: attachment=N | regex=N | manual=N | none=N
+[tier1] source outcome: attachment_confirmed=N | manual_confirmed=N | regex_verified=N | regex_downgraded=N | bq_missed=N
+[tier1] auto_promoted_from_cascade=N
+[tier2] venue resolution: mapped_tgids=N | not_resolved=N
+[tier2] narrowing path used: primary=N | widened_date=N | no_name=N | venue_only=N | name_date=N | date_only=N
+[tier2] outcomes: auto_promoted_to_t1=N | candidate_list=N | untraceable=N
+[untraceable] total=N | usable_signals_present=N   (should ALWAYS be 0; investigate if nonzero)
+```
+
+### 5. Verification before shipping
+
+1. **Both existing test suites green:**
+   - `python -m tests.test_classifier_validators` → 23/23
+   - `python -m tests.test_classification_accuracy` → 14/14 mock
+2. **8 BID-carrying golden reviews:** all land Tier 1 (attachment/manual auto-trust; regex 1-of-3 verified). Log shows the source-tiered trust decision on each.
+3. **6 no-BID golden reviews:** some in Tier 2 (venue extractable → cascade lands somewhere in attempts 1–5), some in Untraceable (no venue, no usable name).
+4. `/api/health` → 200. `/api/reviews?tab=bid|possible_matches|untraceable|sent` → correctly filtered.
+5. Boot clean, no exceptions in log (every step wrapped in try/except).
+
+### 6. Success criteria — measurable after week 1 of real inflow
+
+- **Tier 1 routing:** 100% of BID-carrying reviews where BQ confirms. Miss = extraction bug or BQ data issue.
+- **Tier 2 routing:** 100% of reviews with ≥1 usable signal. Cascade can't miss a legitimately narrowable case — miss = extraction bug (venue prompt).
+- **`[untraceable] usable_signals_present` must always be 0.** If nonzero, that's a routing bug — investigate immediately.
+
+Tuning targets from diagnostic signals:
+- `regex_downgraded > 5%` → regex too permissive OR verify too strict
+- `not_resolved > 20% of venue extractions` → prompt or table coverage
+- `date_only` used > 5% → cascade filters too tight
+- Do NOT loosen thresholds indiscriminately to chase 100%. Fix each cause at its root.
+
+### 7. Deliverable
+
+Zip of only the files you changed + a table:
+
+| Check | Status | Notes |
+|---|---|---|
+| Migration 005 applied | | |
+| bid_source served by _draft_dict | | |
+| bq_connector.run_query exists (added if missing) | | |
+| venue_resolver resolves against dim_experiences | | (which schema worked?) |
+| primary_guest_name substring matching | | (no split columns anywhere) |
+| Tier 1 attachment/manual trusted | | |
+| Tier 1 regex 1-of-3 verify | | |
+| Cascade attempts 1–6 wired w/ stop conditions | | |
+| Manual submissions bypass booking dedupe | | |
+| All log counters emitting | | |
+| 8 BID reviews → Tier 1 | | source path each |
+| 6 no-BID reviews → cascade outcomes | | attempt path each |
+| Both test suites green | | |
+| No pipeline exceptions | | |
+
+### Parallel asks to Data team (do not block build)
+1. Confirm `primary_guest_name` is the single canonical name field. Any other columns for guest name?
+2. Is `dim_experiences` under `analytics_reporting`, `shivam_reporting`, or elsewhere? Any `is_active`/retired flag to filter?
+3. Does BQ have `SIMILARITY()` or other fuzzy UDFs on this project? Currently using vanilla `LIKE` — fine for now, want to know for future.
+
+---
+
+That's it. Send as one block. Expect the agent to produce a zip like the previous ones — drag it in when it's back and I'll diff-and-sync.

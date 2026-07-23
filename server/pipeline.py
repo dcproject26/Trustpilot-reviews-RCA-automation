@@ -24,7 +24,7 @@ Steps:
 import asyncio, logging, re
 from datetime import datetime
 
-from server.config import is_live
+from server.config import is_live, MOCK_MODE
 from server.db import SessionLocal, Review, RcaDraft, ReviewMetric
 from server.services import claude, bigquery as bq, zendesk, dss, slack as slk
 from server.services.canned import get_canned_responses
@@ -54,80 +54,392 @@ async def process_review(review_id: str):
 
         review_text = review.body_english or review.body_original
 
-        # ── 2. BID regex (Tier 1) ─────────────────────────────────────────────
+        # ── Instrumentation counters ──────────────────────────────────────────
+        _ctr = {
+            "bid_attachment": 0, "bid_regex": 0, "bid_manual": 0, "bid_none": 0,
+            "t1_attachment_confirmed": 0, "t1_manual_confirmed": 0,
+            "t1_regex_verified": 0, "t1_regex_downgraded": 0, "t1_bq_missed": 0,
+            "t1_auto_promoted": 0,
+            "t2_venue_mapped": 0, "t2_venue_not_resolved": 0,
+            "t2_path_primary": 0, "t2_path_widened_date": 0, "t2_path_no_name": 0,
+            "t2_path_venue_only": 0, "t2_path_name_date": 0, "t2_path_date_only": 0,
+            "t2_auto_promoted": 0, "t2_candidates": 0, "t2_untraceable": 0,
+            "untraceable_total": 0, "untraceable_has_signals": 0,
+        }
+
+        # ── 2. BID extraction + source detection ─────────────────────────────
         confidence_trail = []
-        ref_match = re.search(BID_REGEX, review_text or "")
-        if ref_match:
+        bid_source = None
+
+        ref_in_text = re.search(BID_REGEX, review_text or "")
+        if ref_in_text and not review.reference_number:
+            review.reference_number = ref_in_text.group(0)
+            db.commit()
+
+        if review.reference_number:
+            if review.slack_channel == "C_MANUAL":
+                bid_source = "manual"
+                _ctr["bid_manual"] += 1
+            elif ref_in_text and ref_in_text.group(0) == review.reference_number:
+                bid_source = "regex"
+                _ctr["bid_regex"] += 1
+            else:
+                bid_source = "attachment"
+                _ctr["bid_attachment"] += 1
             confidence_trail.append({
                 "mark": "pass",
-                "text": f"<strong>BID regex</strong> — matched {ref_match.group(0)} in review text",
+                "text": f"<strong>BID extracted</strong> via {bid_source}: {review.reference_number}",
             })
-            if not review.reference_number:
-                review.reference_number = ref_match.group(0)
-                db.commit()
         else:
+            _ctr["bid_none"] += 1
             confidence_trail.append({
                 "mark": "pass",
-                "text": "<strong>BID regex</strong> — no 7–12 digit number in text",
+                "text": "<strong>BID</strong> — no 7–12 digit number found",
             })
 
-        # ── 3. Signal extraction (Tier 2, only if no BID) ────────────────────
-        signals = None
-        if not ref_match:
+        log.info(
+            f"[extract] bid_source: attachment={_ctr['bid_attachment']} | "
+            f"regex={_ctr['bid_regex']} | manual={_ctr['bid_manual']} | none={_ctr['bid_none']}"
+        )
+
+        # ── 3+4. Tier 1 / Tier 2 booking match ───────────────────────────────
+        booking         = None
+        match_tier      = None
+        candidates      = []
+        candidate_state = False
+        narrowing_path  = None
+        extracted_sigs  = {}
+        narrowing_attempts = []
+
+        if not is_live("bigquery"):
+            # MOCK_MODE: fall back to existing mock-aware find_booking
             try:
-                signals = await claude.extract_signals(review_text, review_id)
-                bits = []
-                if signals.get("guest_name"):      bits.append(f'name "{signals["guest_name"]}"')
-                if signals.get("experience_hint"): bits.append(f'experience "{signals["experience_hint"]}"')
-                if signals.get("venue_or_city"):   bits.append(f'venue "{signals["venue_or_city"]}"')
-                if bits:
-                    confidence_trail.append({
-                        "mark": "pass",
-                        "text": "<strong>Claude signal extraction:</strong> " + " · ".join(bits),
-                    })
+                search_ctx = {
+                    "id": review_id,
+                    "author": review.author or "",
+                    "reference_number": review.reference_number,
+                    "signals": {},
+                }
+                match_result = await bq.find_booking(search_ctx)
+                if match_result and match_result.get("candidates"):
+                    candidates = match_result["candidates"]
+                    candidate_state = True
+                    booking = candidates[0]
+                    match_tier = 2
+                    confidence_trail.append({"mark": "pass",
+                        "text": f"<strong>Mock BQ:</strong> {len(candidates)} candidates"})
+                elif match_result:
+                    booking = match_result
+                    match_tier = booking.get("_match", {}).get("tier")
+                    confidence_trail.append({"mark": "pass",
+                        "text": f"<strong>Mock BQ:</strong> Tier {match_tier} — BID {booking.get('id')}"})
             except Exception as e:
-                log.exception(f"Signal extraction failed: {e}")
+                log.exception(f"Mock booking match failed: {e}")
+        else:
+            # ── LIVE: source-tiered Tier 1 trust ──────────────────────────────
+            from server.services.bigquery_patch import verify_bid, run_narrowing_query
+            from server.services import venue_resolver
+            from server.prompts import venue_extraction_prompt
 
-        # ── 4. Booking match ──────────────────────────────────────────────────
-        booking          = None
-        match_tier       = None
-        candidates       = []
-        candidate_state  = False
-        try:
-            search_ctx = {
-                "id":               review_id,
-                "author":           review.author or "",
-                "reference_number": review.reference_number,
-                "signals":          signals or {},
-            }
-            match_result = await bq.find_booking(search_ctx)
+            if review.reference_number and bid_source:
+                try:
+                    bq_row = verify_bid(review.reference_number)
+                except Exception as e:
+                    log.warning(f"verify_bid raised: {e}")
+                    bq_row = None
 
-            # Contract: find_booking returns either a single booking dict OR
-            # a dict with {"candidates": [...]} when confidence is medium.
-            if match_result and match_result.get("candidates"):
-                candidates      = match_result["candidates"]
-                candidate_state = True
+                if bq_row:
+                    if bid_source in ("attachment", "manual"):
+                        booking = bq_row
+                        match_tier = 1
+                        _ctr[f"t1_{bid_source}_confirmed"] += 1
+                        confidence_trail.append({"mark": "pass",
+                            "text": f"<strong>BQ:</strong> BID {review.reference_number} confirmed"})
+                        confidence_trail.append({"mark": "pass",
+                            "text": f"<strong>Tier 1</strong> confirmed via {bid_source}"})
+                    else:  # regex — run 1-of-3 verify
+                        verify_hits = []
+                        # 1. Name match
+                        pgn = (bq_row.get("primary_guest_name") or "").lower()
+                        author_lower = (review.author or "").lower()
+                        if pgn and author_lower and (
+                            author_lower in pgn or pgn in author_lower
+                            or any(p in pgn for p in author_lower.split() if len(p) >= 2)
+                        ):
+                            verify_hits.append("name")
+                        # 2. Date within 30 days of visit
+                        visit_str = bq_row.get("date_of_visit", "") or ""
+                        if visit_str:
+                            try:
+                                from datetime import date as _date
+                                visit_dt = _date.fromisoformat(visit_str)
+                                recv_dt = (review.received_at or datetime.utcnow()).date()
+                                if abs((recv_dt - visit_dt).days) <= 30:
+                                    verify_hits.append("date")
+                            except Exception:
+                                pass
+                        # 3. Venue match (if we can quickly extract from text)
+                        exp_name = (bq_row.get("experienceName") or "").lower()
+                        if exp_name:
+                            for word in (review_text or "").lower().split():
+                                if len(word) >= 4 and word in exp_name:
+                                    verify_hits.append("venue")
+                                    break
+
+                        if verify_hits:
+                            booking = bq_row
+                            match_tier = 1
+                            _ctr["t1_regex_verified"] += 1
+                            confidence_trail.append({"mark": "pass",
+                                "text": f"<strong>BQ verify:</strong> regex BID confirmed via {', '.join(verify_hits)}"})
+                            confidence_trail.append({"mark": "pass",
+                                "text": "<strong>Tier 1</strong> confirmed via regex"})
+                        else:
+                            # Weak BID — downgrade to Tier 2
+                            bq_row["low_confidence_bid_match"] = True
+                            candidates = [bq_row]
+                            match_tier = 2
+                            candidate_state = True
+                            _ctr["t1_regex_downgraded"] += 1
+                            confidence_trail.append({"mark": "warn",
+                                "text": "<strong>Weak BID</strong> — 0/3 verify checks passed; downgraded to Tier 2"})
+                else:
+                    _ctr["t1_bq_missed"] += 1
+                    confidence_trail.append({"mark": "warn",
+                        "text": f"<strong>BQ:</strong> BID {review.reference_number} not found — falling through to Tier 2"})
+
+            log.info(
+                f"[tier1] source outcome: attachment_confirmed={_ctr['t1_attachment_confirmed']} | "
+                f"manual_confirmed={_ctr['t1_manual_confirmed']} | regex_verified={_ctr['t1_regex_verified']} | "
+                f"regex_downgraded={_ctr['t1_regex_downgraded']} | bq_missed={_ctr['t1_bq_missed']}"
+            )
+
+            # ── Tier 2 cascade (runs when no Tier 1 booking yet) ──────────────
+            if not booking or match_tier != 1:
+                # Extract venue hints via Claude
+                venue_hints = None
+                try:
+                    prompt = venue_extraction_prompt(review_text or "")
+                    raw = await claude._call(
+                        [{"role": "user", "content": prompt}],
+                        max_tokens=256,
+                        review_id=review_id,
+                    )
+                    import json as _json
+                    parsed_venue = _json.loads(raw.strip()
+                                               .removeprefix("```json").removeprefix("```")
+                                               .removesuffix("```").strip())
+                    venue_hints = parsed_venue.get("venue_hints") or []
+                    extracted_sigs["venue_hints"] = venue_hints
+                except Exception as e:
+                    log.warning(f"Venue extraction failed: {e}")
+                    venue_hints = []
+
+                # Resolve venue hints → TGIDs
+                tgids = None
+                if venue_hints:
+                    try:
+                        tgids = await venue_resolver.resolve(venue_hints)
+                    except Exception as e:
+                        log.warning(f"Venue resolver failed: {e}")
+                if tgids:
+                    _ctr["t2_venue_mapped"] += 1
+                    confidence_trail.append({"mark": "pass",
+                        "text": f"<strong>Venues:</strong> {venue_hints} → {len(tgids)} TGIDs"})
+                elif venue_hints:
+                    _ctr["t2_venue_not_resolved"] += 1
+                    confidence_trail.append({"mark": "warn",
+                        "text": f"<strong>Venues extracted</strong> but no TGIDs resolved: {venue_hints}"})
+
+                log.info(
+                    f"[tier2] venue resolution: mapped_tgids={_ctr['t2_venue_mapped']} | "
+                    f"not_resolved={_ctr['t2_venue_not_resolved']}"
+                )
+
+                # Author parsing
+                def _parse_author(name: str):
+                    if not name:
+                        return None, None
+                    parts = name.strip().split()
+                    if not parts:
+                        return None, None
+                    if len(parts) == 1:
+                        t = parts[0]
+                        return (t, None) if t.isalpha() and len(t) >= 2 else (None, None)
+                    return parts[0], parts[-1]
+
+                author_first, author_last = _parse_author(review.author or "")
+                extracted_sigs.update({
+                    "author_first": author_first,
+                    "author_last":  author_last,
+                })
+
+                # review_pub_date for BQ date param
+                pub_date = (review.received_at or datetime.utcnow()).strftime("%Y-%m-%d")
+                extracted_sigs["review_pub_date"] = pub_date
+
+                if author_first or author_last:
+                    confidence_trail.append({"mark": "pass",
+                        "text": f"<strong>Author parsed:</strong> first='{author_first}' last='{author_last}'"})
+
+                # Helper to run one cascade attempt
+                def _run_attempt(path, t, d, use_tgids, use_name):
+                    _tg = tgids if (use_tgids and tgids) else None
+                    _af = author_first if use_name else None
+                    _al = author_last  if use_name else None
+                    try:
+                        rows = run_narrowing_query(
+                            tgid_list=_tg,
+                            review_pub_date=pub_date,
+                            date_window=d,
+                            author_first=_af,
+                            author_last=_al,
+                        )
+                    except Exception as e:
+                        log.warning(f"Tier 2 attempt {path} failed: {e}")
+                        rows = []
+                    return rows
+
+                def _make_candidate(r, path_name, matched_on):
+                    return {
+                        "id":               r.get("id", ""),
+                        "primary_guest_name": r.get("primary_guest_name", ""),
+                        "experience_name":  r.get("experience_name", ""),
+                        "date_of_visit":    r.get("date_of_visit", ""),
+                        "vendor_name":      r.get("vendorName", ""),
+                        "tid":              r.get("tid"),
+                        "tgid":             r.get("tgid"),
+                        "vid":              r.get("vid"),
+                        "matched_on":       matched_on,
+                        "narrowing_path":   path_name,
+                    }
+
+                STEPS = [
+                    # (path_name, date_window, use_tgids, use_name, max_for_t1)
+                    ("primary",      30, True,  True,  1),
+                    ("widened_date", 60, True,  True,  1),
+                    ("no_name",      30, True,  False, 1),
+                    ("venue_only",   60, True,  False, None),  # never auto-promotes
+                    ("name_date",    30, False, True,  1),
+                    ("date_only",    14, False, False, None),  # Tier 2 loose or Untraceable
+                ]
+
+                cascade_done = False
+                for (path_name, days, use_tg, use_nm, max_t1) in STEPS:
+                    rows = _run_attempt(path_name, match_tier, days, use_tg, use_nm)
+                    n = len(rows)
+                    narrowing_attempts.append({
+                        "path": path_name,
+                        "params": {
+                            "date_window": days,
+                            "use_tgids": use_tg and bool(tgids),
+                            "use_name": use_nm,
+                        },
+                        "result_count": n,
+                    })
+                    _ctr_key = f"t2_path_{path_name}"
+                    if _ctr_key in _ctr:
+                        _ctr[_ctr_key] += 1
+
+                    confidence_trail.append({
+                        "mark": "pass" if n > 0 else "warn",
+                        "text": f"<strong>Attempt {path_name}:</strong> {n} row(s)",
+                    })
+
+                    if n == 0:
+                        continue
+
+                    if path_name == "date_only":
+                        if 1 <= n <= 5:
+                            matched_on = ["date"]
+                            candidates = [_make_candidate(r, path_name, matched_on) for r in rows[:5]]
+                            candidate_state = True
+                            match_tier = 2
+                            narrowing_path = path_name
+                            _ctr["t2_candidates"] += 1
+                        else:
+                            # Untraceable
+                            _ctr["t2_untraceable"] += 1
+                            _ctr["untraceable_total"] += 1
+                            if venue_hints or author_first or author_last:
+                                _ctr["untraceable_has_signals"] += 1
+                        cascade_done = True
+                        break
+
+                    if max_t1 == 1 and n == 1:
+                        # Auto-promote to Tier 1
+                        cand = rows[0]
+                        matched_on = []
+                        if use_nm and (author_first or author_last): matched_on.append("name")
+                        if True: matched_on.append("date")
+                        if use_tg and tgids: matched_on.append("venue")
+                        booking = _make_candidate(cand, path_name, matched_on)
+                        booking.update({
+                            "experienceName": cand.get("experience_name", ""),
+                            "vendorName":     cand.get("vendorName", ""),
+                        })
+                        match_tier = 1
+                        narrowing_path = path_name
+                        _ctr["t1_auto_promoted"] += 1
+                        _ctr["t2_auto_promoted"] += 1
+                        confidence_trail.append({"mark": "pass",
+                            "text": f"<strong>Tier 1 auto-promote</strong> via {path_name} (single match)"})
+                        cascade_done = True
+                        break
+                    elif path_name == "venue_only" and 1 <= n <= 10:
+                        matched_on = ["venue", "date"]
+                        candidates = [_make_candidate(r, path_name, matched_on) for r in rows[:10]]
+                        candidate_state = True
+                        match_tier = 2
+                        narrowing_path = path_name
+                        _ctr["t2_candidates"] += 1
+                        cascade_done = True
+                        break
+                    elif 2 <= n <= 5:
+                        matched_on = []
+                        if use_nm and (author_first or author_last): matched_on.append("name")
+                        matched_on.append("date")
+                        if use_tg and tgids: matched_on.append("venue")
+                        candidates = [_make_candidate(r, path_name, matched_on) for r in rows[:5]]
+                        candidate_state = True
+                        match_tier = 2
+                        narrowing_path = path_name
+                        _ctr["t2_candidates"] += 1
+                        cascade_done = True
+                        break
+                    # else: too many rows — try next step
+
+                if not cascade_done and not booking:
+                    _ctr["t2_untraceable"] += 1
+                    _ctr["untraceable_total"] += 1
+                    if venue_hints or author_first or author_last:
+                        _ctr["untraceable_has_signals"] += 1
+
+                if candidate_state and candidates and not booking:
+                    booking = candidates[0]
+
+                log.info(
+                    f"[tier1] auto_promoted_from_cascade={_ctr['t1_auto_promoted']}"
+                )
+                log.info(
+                    f"[tier2] narrowing path used: primary={_ctr['t2_path_primary']} | "
+                    f"widened_date={_ctr['t2_path_widened_date']} | no_name={_ctr['t2_path_no_name']} | "
+                    f"venue_only={_ctr['t2_path_venue_only']} | name_date={_ctr['t2_path_name_date']} | "
+                    f"date_only={_ctr['t2_path_date_only']}"
+                )
+                log.info(
+                    f"[tier2] outcomes: auto_promoted_to_t1={_ctr['t2_auto_promoted']} | "
+                    f"candidate_list={_ctr['t2_candidates']} | untraceable={_ctr['t2_untraceable']}"
+                )
+                log.info(
+                    f"[untraceable] total={_ctr['untraceable_total']} | "
+                    f"usable_signals_present={_ctr['untraceable_has_signals']}"
+                )
+
                 confidence_trail.append({
                     "mark": "pass",
-                    "text": f"<strong>BigQuery:</strong> {len(candidates)} candidates returned",
+                    "text": f"<strong>Final:</strong> Tier {match_tier} via {narrowing_path or 'none'}",
                 })
-                confidence_trail.append({
-                    "mark": "warn",
-                    "text": "<strong>Confidence:</strong> medium — associate to confirm",
-                })
-                # Pre-select the top candidate so the pipeline can continue to build context.
-                # The associate will confirm/change via /select-candidate endpoint.
-                booking = candidates[0]
-                match_tier = 2
-            elif match_result:
-                booking = match_result
-                match_tier = booking.get("_match", {}).get("tier")
-                confidence_trail.append({
-                    "mark": "pass",
-                    "text": f"<strong>BigQuery:</strong> Tier {match_tier} match — BID {booking.get('id')}",
-                })
-        except Exception as e:
-            log.exception(f"Booking match failed: {e}")
 
         # ── 6. Zendesk timeline ──────────────────────────────────────────────
         timeline      = []
@@ -267,13 +579,16 @@ async def process_review(review_id: str):
             db.add(draft)
 
         _match = (booking or {}).get("_match", {})
-        draft.booking          = {k: v for k, v in (booking or {}).items() if k != "_match"}
-        draft.match_tier       = match_tier or _match.get("tier")
-        draft.match_confidence = _match.get("confidence")
-        draft.match_method     = _match.get("method")
-        draft.candidates_list  = candidates
-        draft.candidate_state  = candidate_state
-        draft.confidence_trail = confidence_trail
+        draft.booking              = {k: v for k, v in (booking or {}).items() if k != "_match"}
+        draft.match_tier           = match_tier or _match.get("tier")
+        draft.match_confidence     = _match.get("confidence")
+        draft.match_method         = _match.get("method") or narrowing_path
+        draft.candidates_list      = candidates
+        draft.candidate_state      = candidate_state
+        draft.confidence_trail     = confidence_trail
+        draft.bid_source           = bid_source
+        draft.extracted_signals    = extracted_sigs or {}
+        draft.narrowing_attempts   = narrowing_attempts or []
         draft.timeline         = timeline
         draft.insights         = insights
         draft.similar_support  = similar_support

@@ -42,3 +42,9 @@ id = "O_HE5yaV1HMvT1Cj4H30-"
 uri = "file://exports/dashboard_fields_delta.zip"
 type = "unspecified"
 title = "Dashboard fields delta — client/index.html"
+
+[[outputs]]
+id = "k-tV9n9q94jTXJR5mAeL6"
+uri = "file://exports/tier_classification_delta.zip"
+type = "unspecified"
+title = "Delta v4 — Tier classification (8 files)"

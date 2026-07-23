@@ -122,6 +122,10 @@ def _draft_dict(d: RcaDraft) -> dict:
         "actions_taken":               d.actions_taken or {"sp":[],"customer":[],"business":[],"product":[],"ce":[]},
         "resolution":                  d.resolution,
 
+        "bid_source":         d.bid_source,
+        "extracted_signals":  d.extracted_signals or {},
+        "narrowing_attempts": d.narrowing_attempts or [],
+
         "flag_to_biz_state":           d.flag_to_biz_state,
         "flag_to_biz_message":         d.flag_to_biz_message,
 

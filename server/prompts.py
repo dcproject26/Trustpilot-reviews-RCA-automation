@@ -652,7 +652,25 @@ timestamps, or compensation amounts. No adopting the guest's framing.
 Return ONLY the 2-3 sentence paragraph, no headings."""
 
 
-# ─── 7. Flag-to-Biz Slack message ──────────────────────────────────────────
+# ─── 7. Venue extraction — multi-venue, for Tier 2 cascade ─────────────────
+def venue_extraction_prompt(review_text: str) -> str:
+    return f"""Read the following Trustpilot review. Extract EVERY venue or experience the guest mentions — even if multiple.
+
+Rules:
+- Return the shortest recognisable venue name only (e.g. "Vatican Museums", "Eiffel Tower", "Sagrada Familia", "Sistine Chapel").
+- Do NOT include ticket variants, tour types, or descriptors ("guided", "priority", "combo", "with dinner", "skip-the-line").
+- Return ALL venues mentioned, in order of appearance.
+- If no clear venue can be identified, return an empty list.
+- Do NOT invent — if not explicit, do not include.
+
+REVIEW:
+{review_text}
+
+Return ONLY valid JSON, no markdown:
+{{"venue_hints": ["...", "..."]}}"""
+
+
+# ─── 8. Flag-to-Biz Slack message ──────────────────────────────────────────
 def flag_to_biz_prompt(
     vendor_name: str, vid: str, completion_pct: str, market_avg: str,
     l1: str, l2: str, review_bid: str,

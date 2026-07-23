@@ -77,6 +77,11 @@ class RcaDraft(Base):
     resolution                  = Column(Text, nullable=True)
     sub_theme                   = Column(String, nullable=True)
 
+    # ── Tier classification provenance ──
+    bid_source         = Column(String, nullable=True)   # attachment | regex | manual | None
+    extracted_signals  = Column(JSON, default=dict)      # venue_hints, author_first/last, review_pub_date
+    narrowing_attempts = Column(JSON, default=list)      # [{path, params, result_count}, ...]
+
     # ── Flag to Biz ──
     flag_to_biz_state           = Column(String, default="off")  # off | drafted | sent
     flag_to_biz_message         = Column(Text, nullable=True)

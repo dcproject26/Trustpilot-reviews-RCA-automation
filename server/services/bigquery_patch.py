@@ -122,6 +122,163 @@ def _get_client():
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# NEW: verify_bid — Tier 1 BID lookup, returns a booking dict or None
+# ─────────────────────────────────────────────────────────────────────────
+
+_VERIFY_BID_SQL = """
+SELECT
+  b.booking_id,
+  DATE(b.created_at)      AS date_of_booking,
+  DATE(b.experience_date) AS date_of_visit,
+  b.tour_id               AS tid,
+  b.experience_id         AS tgid,
+  b.experience_name,
+  b.vendor_id,
+  v.vendor_name,
+  f.fulfilment_type,
+  b.primary_guest_name
+FROM `headout-analytics.analytics_reporting.fct_bookings` b
+LEFT JOIN `headout-analytics.analytics_reporting.fct_fulfilments` f
+  ON b.booking_id = f.booking_id
+LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
+  ON b.vendor_id = v.vendor_id
+WHERE b.booking_id = @bid
+LIMIT 1
+"""
+
+def verify_bid(bid: str) -> dict | None:
+    """Direct BID lookup in fct_bookings. Returns a booking dict or None."""
+    from server.services import bq_connector as bqc
+    try:
+        rows = bqc.run_query(_VERIFY_BID_SQL, params={"bid": ("INT64", int(bid))})
+    except Exception as e:
+        log.warning(f"verify_bid({bid}): query failed: {e}")
+        return None
+    if not rows:
+        return None
+    r = rows[0]
+    return {
+        "id":              str(r.get("booking_id") or bid),
+        "date_of_booking": str(r.get("date_of_booking") or ""),
+        "date_of_visit":   str(r.get("date_of_visit") or ""),
+        "tid":             str(r.get("tid") or ""),
+        "tgid":            str(r.get("tgid") or ""),
+        "experienceName":  str(r.get("experience_name") or ""),
+        "vid":             str(r.get("vendor_id") or ""),
+        "vendorName":      str(r.get("vendor_name") or ""),
+        "fulfilmentType":  str(r.get("fulfilment_type") or ""),
+        "primary_guest_name": str(r.get("primary_guest_name") or ""),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# NEW: run_narrowing_query — Tier 2 cascade, one attempt
+# ─────────────────────────────────────────────────────────────────────────
+
+_NARROWING_SQL_WITH_TGIDS = """
+SELECT
+  b.booking_id,
+  b.primary_guest_name,
+  DATE(b.experience_date) AS date_of_visit,
+  b.experience_name,
+  b.tour_id               AS tid,
+  b.experience_id         AS tgid,
+  b.vendor_id,
+  v.vendor_name
+FROM `headout-analytics.analytics_reporting.fct_bookings` b
+LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
+  ON b.vendor_id = v.vendor_id
+WHERE b.experience_id IN UNNEST(@tgid_list)
+  AND b.experience_date BETWEEN
+      DATE_SUB(@review_pub_date, INTERVAL @date_window DAY) AND @review_pub_date
+  AND (
+    (@author_first IS NULL AND @author_last IS NULL)
+    OR (@author_first IS NOT NULL AND
+        LOWER(b.primary_guest_name) LIKE CONCAT('%', LOWER(@author_first), '%'))
+    OR (@author_last IS NOT NULL AND
+        LOWER(b.primary_guest_name) LIKE CONCAT('%', LOWER(@author_last), '%'))
+  )
+ORDER BY b.experience_date DESC
+LIMIT 10
+"""
+
+_NARROWING_SQL_NO_TGIDS = """
+SELECT
+  b.booking_id,
+  b.primary_guest_name,
+  DATE(b.experience_date) AS date_of_visit,
+  b.experience_name,
+  b.tour_id               AS tid,
+  b.experience_id         AS tgid,
+  b.vendor_id,
+  v.vendor_name
+FROM `headout-analytics.analytics_reporting.fct_bookings` b
+LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
+  ON b.vendor_id = v.vendor_id
+WHERE b.experience_date BETWEEN
+      DATE_SUB(@review_pub_date, INTERVAL @date_window DAY) AND @review_pub_date
+  AND (
+    (@author_first IS NULL AND @author_last IS NULL)
+    OR (@author_first IS NOT NULL AND
+        LOWER(b.primary_guest_name) LIKE CONCAT('%', LOWER(@author_first), '%'))
+    OR (@author_last IS NOT NULL AND
+        LOWER(b.primary_guest_name) LIKE CONCAT('%', LOWER(@author_last), '%'))
+  )
+ORDER BY b.experience_date DESC
+LIMIT 10
+"""
+
+def run_narrowing_query(
+    tgid_list: list[int] | None,
+    review_pub_date: str,
+    date_window: int,
+    author_first: str | None,
+    author_last: str | None,
+) -> list[dict]:
+    """
+    Run one narrowing attempt. Returns up to 10 booking dicts.
+    Uses tgid UNNEST when tgid_list is non-empty, plain date+name otherwise.
+    """
+    from server.services import bq_connector as bqc
+
+    params = {
+        "review_pub_date": review_pub_date,
+        "date_window":     ("INT64", date_window),
+        "author_first":    author_first or "",
+        "author_last":     author_last or "",
+    }
+
+    if tgid_list:
+        params["tgid_list"] = ("INT64", tgid_list)
+        sql = _NARROWING_SQL_WITH_TGIDS
+        # Null-name guard: if both are empty strings, force NULL semantics via SQL
+        # (LIKE '%empty%' would still match — use a sentinel approach: pass as empty
+        # and rely on the OR chain; empty LIKE '%' is a wildcard match which is fine)
+    else:
+        sql = _NARROWING_SQL_NO_TGIDS
+
+    try:
+        rows = bqc.run_query(sql, params=params)
+    except Exception as e:
+        log.warning(f"run_narrowing_query failed: {e}")
+        return []
+
+    result = []
+    for r in rows:
+        result.append({
+            "id":               str(r.get("booking_id") or ""),
+            "primary_guest_name": str(r.get("primary_guest_name") or ""),
+            "date_of_visit":    str(r.get("date_of_visit") or ""),
+            "experience_name":  str(r.get("experience_name") or ""),
+            "tid":              str(r.get("tid") or ""),
+            "tgid":             str(r.get("tgid") or ""),
+            "vid":              str(r.get("vendor_id") or ""),
+            "vendorName":       str(r.get("vendor_name") or ""),
+        })
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # PATCH: find_booking return shape
 #
 # Modify the existing find_booking() at the point where it decides between

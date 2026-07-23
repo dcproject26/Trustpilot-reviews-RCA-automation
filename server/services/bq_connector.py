@@ -74,6 +74,12 @@ class ScalarQueryParameter:
         self.name, self.type_, self.value = name, type_, value
 
 
+class ArrayQueryParameter:
+    """Named parameter whose value is a homogeneous array (for UNNEST)."""
+    def __init__(self, name: str, array_type: str, values: list):
+        self.name, self.array_type, self.values = name, array_type, values
+
+
 class QueryJobConfig:
     def __init__(self, query_parameters: list | None = None):
         self.query_parameters = query_parameters or []
@@ -108,11 +114,26 @@ class Client:
         params = (job_config.query_parameters if job_config else []) or []
         if params:
             body["parameterMode"] = "NAMED"
-            body["queryParameters"] = [{
-                "name": p.name,
-                "parameterType": {"type": p.type_},
-                "parameterValue": {"value": str(p.value)},
-            } for p in params]
+            bq_params = []
+            for p in params:
+                if isinstance(p, ArrayQueryParameter):
+                    bq_params.append({
+                        "name": p.name,
+                        "parameterType": {
+                            "type": "ARRAY",
+                            "arrayType": {"type": p.array_type},
+                        },
+                        "parameterValue": {
+                            "arrayValues": [{"value": str(v)} for v in p.values],
+                        },
+                    })
+                else:
+                    bq_params.append({
+                        "name": p.name,
+                        "parameterType": {"type": p.type_},
+                        "parameterValue": {"value": str(p.value)},
+                    })
+            body["queryParameters"] = bq_params
 
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         r = requests.post(f"{_BQ_API}/projects/{project}/queries",
@@ -156,3 +177,23 @@ class Client:
             page_token = j.get("pageToken")
 
         return _QueryJob(rows)
+
+
+def run_query(sql: str, params: dict | None = None) -> list[dict]:
+    """
+    Convenience wrapper: runs a named-param query and returns rows as plain dicts.
+    `params` maps param name → (type_str, value) tuple, OR just value for STRING scalars.
+    Array params: pass value as a list, type_str as 'INT64' etc. (auto-detected).
+    """
+    qp = []
+    for name, spec in (params or {}).items():
+        if isinstance(spec, tuple):
+            type_str, val = spec
+        else:
+            type_str, val = "STRING", spec
+        if isinstance(val, list):
+            qp.append(ArrayQueryParameter(name, type_str, val))
+        else:
+            qp.append(ScalarQueryParameter(name, type_str, val))
+    job = Client().query(sql, QueryJobConfig(query_parameters=qp) if qp else None)
+    return [vars(row) for row in job.result()]
