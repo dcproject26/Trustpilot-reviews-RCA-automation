@@ -1,0 +1,298 @@
+Task #11 — Fix Tier 2 routing: BQ name-narrowing is broken, Zendesk lookup
+is the real name-based path, all edge cases handled universally
+
+Applies to: every review reaching Tier 2. Rules below are universal — no
+reviewer or venue is special-cased.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Root cause we're fixing
+
+BigQuery's fct_bookings.primary_guest_name is a PII hash for most bookings
+(confirmed in David's payload: "yaCD00hiefy1PxKHemZMlclN1nvGvlvbJJSINenOmEU=",
+and stated in the data-source spec).
+
+Current run_narrowing_query SQL uses:
+    LOWER(b.primary_guest_name) LIKE CONCAT('%', LOWER(@author_first), '%')
+
+When BQ has a hash, this filter never matches a real reviewer name. Every
+cascade step that includes a name filter returns 0 rows. The cascade falls
+through to venue_only, which returns any bookings with a matching TGID
+regardless of who booked them.
+
+That's why every Tier 2 review with a parseable name is currently landing on
+random venue matches. The name signal — the strongest one we have on
+Trustpilot — is being thrown away by the SQL.
+
+Fix: never pass author_first / author_last to run_narrowing_query. Route
+all name-based lookup through Zendesk instead, where requester names are
+plaintext.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+New Tier 2 cascade
+
+For every review reaching Tier 2, run these steps in order. Stop at the
+first step that yields 1 (auto-promote to Tier 1) or 2-5 candidates
+(return as Tier 2 for associate to pick).
+
+Step 0 — Parse author
+  Use existing _parse_author. Yields (author_first, author_last).
+  A name is "parseable" if:
+    - author_first is set AND
+    - (author_last is set) OR (len(author_first) >= 3 AND author_first.isalpha())
+
+Step 1 — Extract venues via Claude
+  Already implemented. Yields list of venue_hints, resolved to TGIDs via
+  venue_resolver.
+
+Step 2 — ZENDESK REQUESTER LOOKUP (if name is parseable)
+
+  Search Zendesk for tickets by the reviewer's name in a 60-day window.
+  This is the primary name-based path — replaces all name-based BQ queries.
+
+  See implementation section below for find_bids_by_requester_name.
+
+  For each BID returned by Zendesk (cap at 10):
+    a. Verify BID exists in BQ via verify_bid(bid).
+       If BQ returns nothing → skip this BID.
+    b. Cross-check the BQ booking against review context:
+       - If venue_hints extracted: booking's experience_name must contain
+         at least one venue_hint (case-insensitive substring). If none
+         match → skip.
+       - If venue_hints empty: accept the match if the booking's visit
+         date is within the last 90 days of review pub_date. This handles
+         reviews with no explicit venue mention.
+    c. If the BID passes cross-check → add to candidate list.
+
+  After processing all BIDs:
+    - 1 candidate → auto-promote to Tier 1. Log path as "zendesk_requester_auto".
+    - 2-5 candidates → Tier 2, return the list. Log path as "zendesk_requester_candidates".
+    - 0 candidates or >5 candidates → move to Step 3.
+
+  Edge case: Zendesk service down or returns error → log warning, move to
+  Step 3. Never break the pipeline.
+
+  Edge case: name is unparseable → skip this step entirely, go to Step 3.
+
+Step 3 — BQ narrowing: venue + date (never name)
+
+  Run these attempts in order, first hit stops the cascade. Always pass
+  empty string for author_first / author_last so the SQL's name filter is
+  a no-op.
+
+  a. venue + date_30 — if venue_hints resolved to TGIDs
+     → 1 row → auto-promote Tier 1, path="venue_date_30_auto"
+     → 2-5 rows → Tier 2 candidates, path="venue_date_30"
+     → 0 or >5 → next attempt
+
+  b. venue + date_60 — same, wider date window
+     → 1 row → auto-promote, path="venue_date_60_auto"
+     → 2-10 rows → Tier 2, path="venue_date_60"
+     → else → next
+
+  c. date_14 only — no venue filter, last 14 days
+     → 1-5 rows → Tier 2 (loose), path="date_only_loose"
+     → 0 or >5 → Untraceable
+
+  If venue_hints was empty at Step 1: skip 3a and 3b, go straight to 3c.
+
+Step 4 — Untraceable
+
+  Reached only if:
+    - Step 2 (Zendesk) returned 0 verified candidates or >5, AND
+    - Step 3 all attempts returned 0 or too-many-to-narrow
+
+  Store extracted_signals + narrowing_attempts on the draft so associate
+  can search manually.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Implementation — Zendesk requester lookup
+
+Add to server/services/zendesk.py:
+
+async def find_bids_by_requester_name(
+    author_first: str,
+    author_last: str | None,
+    lookback_days: int = 60,
+) -> list[str]:
+    """
+    Search Zendesk for tickets by requester name in a recent window.
+    Returns list of BIDs extracted from ticket subjects or custom fields.
+
+    Handles all name shapes:
+    - Full name: quoted phrase search
+    - Single name: unquoted token search
+    - Non-Latin / special chars: URL-encoded, quoted
+    - Empty / null: returns []
+    """
+    if not is_live("zendesk") or not author_first:
+        return []
+
+    # Build search query — quote multi-word or special-char names
+    name_str = f"{author_first} {author_last}".strip() if author_last else author_first
+    if any(c in name_str for c in [" ", "-", "'", "."]) or not name_str.isascii():
+        name_query = f'"{name_str}"'
+    else:
+        name_query = name_str
+
+    since = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    query = f'type:ticket requester:{name_query} created>{since}'
+
+    try:
+        tickets = _search_with_retry(_get_client(), query)
+    except Exception as e:
+        log.warning(f"[zendesk] requester search failed: {e}")
+        return []
+
+    bids = []
+    for t in tickets[:15]:  # cap at 15 tickets to bound cost
+        # Priority 1: BID in ticket subject
+        subject = (getattr(t, "subject", "") or "")
+        m = re.search(r"\b\d{7,12}\b", subject)
+        if m:
+            bids.append(m.group(0))
+            continue
+        # Priority 2: BID in a numeric custom field
+        for cf in getattr(t, "custom_fields", []) or []:
+            val = cf.get("value") if isinstance(cf, dict) else None
+            if val and re.fullmatch(r"\d{7,12}", str(val).strip()):
+                bids.append(str(val).strip())
+                break
+
+    return list(dict.fromkeys(bids))  # dedupe, preserve order
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Implementation — remove name filter from BQ narrowing calls
+
+In pipeline.py, wherever run_narrowing_query is called during Tier 2
+cascade, pass empty string for name params:
+
+    rows = run_narrowing_query(
+        tgid_list=tgids,
+        review_pub_date=pub_date,
+        date_window=window,
+        author_first="",   # never pass name — BQ has PII hash
+        author_last="",
+    )
+
+Do NOT modify run_narrowing_query itself — the SQL and function signature
+stay. Just the callers stop passing names.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Implementation — Bug 3 from previous brief (still needed)
+
+extract_ticket_facts in server/services/claude.py: change max_tokens from
+1600 to 4000. Universal fix — applies to every review with substantive
+Zendesk history. Without this, David-scale timelines truncate mid-JSON
+and ticket_facts stays {}.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Instrumentation
+
+Add to _ctr:
+  "t2_zendesk_lookup_attempted": 0,
+  "t2_zendesk_auto":              0,
+  "t2_zendesk_candidates":        0,
+  "t2_zendesk_no_match":          0,
+  "t2_bq_venue_date_30_auto":     0,
+  "t2_bq_venue_date_30":          0,
+  "t2_bq_venue_date_60_auto":     0,
+  "t2_bq_venue_date_60":          0,
+  "t2_bq_date_only_loose":        0,
+
+Log at end of run:
+  [tier2] zendesk_lookup: attempted=N auto=N candidates=N no_match=N
+  [tier2] bq_paths: v30_auto=N v30=N v60_auto=N v60=N date_only=N
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Filter logic for the three inbox tabs — universal, not per-review
+
+Reviews with BID (Tier 1):
+  match_tier = 1
+  → Route origin can be:
+     - Attachment BID confirmed via BQ, OR
+     - Regex BID confirmed via BQ + verification, OR
+     - Manual BID, OR
+     - Zendesk requester lookup yielded exactly 1 verified BID (auto-promote), OR
+     - BQ venue+date narrowing returned exactly 1 row (auto-promote)
+
+Reviews with possible matches (Tier 2):
+  candidate_state = True
+  → Route origin can be:
+     - Zendesk requester lookup yielded 2-5 verified BIDs, OR
+     - BQ venue+date narrowing yielded 2-10 rows
+
+Untraceable:
+  match_tier is None AND candidate_state is False AND status != "sent"
+  → Reached only when all name and venue paths returned 0 or too-many
+
+Sent:
+  status = "sent"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Edge cases the routing handles by design
+
+- Full-name reviewer: Zendesk requester phrase search
+- Single-name reviewer (3+ chars, alpha): Zendesk single-token search
+- Name-with-initial "Marcus T.": Zendesk on first name only, "T." dropped
+- Compound "Van Der Berg": Zendesk quoted phrase
+- Non-Latin unicode names: Zendesk quoted phrase, results accepted as-is
+- Username-style "anonymous_2024": name unparseable → skip Step 2 entirely
+- Empty author: skip Step 2 entirely
+- Common name "John Smith": Zendesk returns many tickets → cross-check
+  venue/date required → likely lands as candidates or untraceable
+- Guest booked under different name than Trustpilot handle: Zendesk finds
+  nothing → falls through to venue narrowing
+- Guest never contacted support: Zendesk finds nothing → falls through
+- Multi-venue review: both TGIDs unioned in Step 3
+- Generic review no venue: Step 3 skips venue attempts, uses date_only
+- Non-English review: Step 1 (translate) already runs first
+- Zendesk down: warning logged, cascade continues to Step 3
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Verification — acceptance criteria as universal rules
+
+1. NO Tier 2 review with a parseable name returns candidates whose
+   experience_name has zero substring overlap with any extracted venue
+   hint. If the cascade lands there, the routing is broken.
+
+2. Every Tier 2 review with a parseable name should show one of:
+     - Auto-promoted to Tier 1 via Zendesk lookup, OR
+     - Tier 2 with candidates that come from Zendesk (verified BIDs), OR
+     - Tier 2 with candidates from venue+date BQ narrowing (Zendesk found
+       nothing), OR
+     - Untraceable (all paths exhausted)
+
+3. Every Tier 2 review WITHOUT a parseable name should skip Step 2 entirely
+   and take the BQ venue+date path directly.
+
+4. After Bug 3 fix, any review with 10+ substantive Zendesk comments should
+   have ticket_facts non-empty on the draft.
+
+5. Log counters should show non-zero values for t2_zendesk_lookup_attempted
+   once real Tier 2 reviews flow through with parseable names.
+
+6. Existing test suites still green (23/23 validators, 14/14 accuracy).
+
+7. Currently-broken Tier 2 reviews in the inbox should reroute correctly
+   on re-run:
+   - Ones with parseable names should either auto-promote to Tier 1 or land
+     on candidate lists derived from Zendesk (not from wrong-TGID venue_only).
+   - Ones without parseable names should show BQ venue+date candidates.
+
+DO NOT:
+- Special-case any reviewer, venue, or specific BID
+- Change run_narrowing_query SQL (just stop passing name params)
+- Change venue_resolver
+- Change the ticket_extraction_prompt text (only max_tokens)
+- Break MOCK_MODE
+- Ship without the counters

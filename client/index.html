@@ -3422,6 +3422,159 @@ function openFlagDraftModal(r) {
 }
 
 
+// ── Add review manually ───────────────────────────────────────────────────────
+function openManualReviewModal() {
+  const existing = document.getElementById('manual-review-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'manual-review-modal';
+  modal.className = 'flag-modal-backdrop';
+  modal.innerHTML = `
+    <div class="flag-modal" style="max-width:520px">
+      <div class="flag-modal-head">
+        <div class="flag-modal-title">Add review manually</div>
+        <button class="flag-modal-close" data-close-modal>×</button>
+      </div>
+      <div class="flag-modal-body">
+        <div class="flag-modal-row">
+          <label>Review text <span style="color:var(--red)">*</span></label>
+          <textarea class="flag-textarea" id="mr-body" rows="5"
+            placeholder="Paste the Trustpilot review here…" style="min-height:110px"></textarea>
+        </div>
+        <div class="flag-modal-row" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <label>Author name</label>
+            <input type="text" class="flag-input" id="mr-author" placeholder="e.g. Marcus T." />
+          </div>
+          <div>
+            <label>Booking ref (BID)</label>
+            <input type="text" class="flag-input" id="mr-ref" placeholder="e.g. 31055920" />
+          </div>
+        </div>
+        <div class="flag-modal-row">
+          <label>Rating</label>
+          <div style="display:flex;gap:6px;align-items:center;margin-top:4px" id="mr-stars-row">
+            ${[1,2,3,4,5].map(n => `
+              <button data-star="${n}" style="
+                background:transparent;border:none;cursor:pointer;
+                font-size:20px;color:var(--text-dim);padding:2px;
+                transition:color 0.1s ease;line-height:1
+              ">★</button>
+            `).join('')}
+            <span id="mr-stars-label" style="font-size:11px;color:var(--text-mute);margin-left:4px;font-family:'JetBrains Mono',monospace">1 star</span>
+          </div>
+        </div>
+        <div id="mr-error" style="display:none;color:var(--red);font-size:11.5px;padding:6px 0"></div>
+      </div>
+      <div class="flag-modal-actions">
+        <button class="btn" data-close-modal>Cancel</button>
+        <button class="btn primary" id="mr-submit-btn">Submit · run pipeline</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  // Star picker logic
+  let selectedRating = 1;
+  const starBtns = modal.querySelectorAll('[data-star]');
+  const starsLabel = modal.querySelector('#mr-stars-label');
+  function setRating(n) {
+    selectedRating = n;
+    starsLabel.textContent = n === 1 ? '1 star' : `${n} stars`;
+    starBtns.forEach(b => {
+      const v = parseInt(b.dataset.star);
+      b.style.color = v <= n ? 'var(--amber)' : 'var(--text-dim)';
+    });
+  }
+  setRating(1);
+  starBtns.forEach(b => {
+    b.addEventListener('mouseenter', () => {
+      starBtns.forEach(x => {
+        x.style.color = parseInt(x.dataset.star) <= parseInt(b.dataset.star)
+          ? 'var(--amber)' : 'var(--text-dim)';
+      });
+    });
+    b.addEventListener('mouseleave', () => setRating(selectedRating));
+    b.addEventListener('click', () => setRating(parseInt(b.dataset.star)));
+  });
+
+  // Close handlers
+  modal.querySelectorAll('[data-close-modal]').forEach(btn => {
+    btn.addEventListener('click', () => modal.remove());
+  });
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+
+  // Submit
+  const submitBtn = modal.querySelector('#mr-submit-btn');
+  submitBtn.addEventListener('click', async () => {
+    const body = modal.querySelector('#mr-body').value.trim();
+    const author = modal.querySelector('#mr-author').value.trim() || null;
+    const ref = modal.querySelector('#mr-ref').value.trim() || null;
+    const errEl = modal.querySelector('#mr-error');
+
+    if (!body) {
+      errEl.textContent = 'Review text is required.';
+      errEl.style.display = 'block';
+      return;
+    }
+    errEl.style.display = 'none';
+    submitBtn.disabled = true;
+    submitBtn.textContent = '⟳ Submitting…';
+
+    try {
+      const res = await fetch('/api/reviews/manual', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          body,
+          author,
+          rating: selectedRating,
+          reference_number: ref,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      submitBtn.textContent = '✓ Submitted · pipeline running…';
+
+      // Refresh inbox after a short delay, then keep polling until the new review appears
+      await fetchInbox();
+      await loadDraftOverlays();
+      renderInbox();
+
+      // Switch to the correct tab and select the new review
+      const newId = data.review_id;
+      if (newId) {
+        const rev = REVIEWS.find(r => r.id === newId);
+        if (rev) {
+          state.filter = rev.type === 'identified' ? 'identified'
+            : rev.type === 'candidates' ? 'candidates'
+            : rev.type === 'untraceable' ? 'untraceable'
+            : 'identified';
+          state.selected = newId;
+          document.querySelectorAll('.inbox-tab').forEach(t =>
+            t.classList.toggle('active', t.dataset.tab === state.filter));
+          renderInbox();
+          renderReviewCol();
+          renderRcaCol();
+        }
+      }
+
+      setTimeout(() => modal.remove(), 800);
+    } catch (e) {
+      errEl.textContent = `Error: ${e.message}`;
+      errEl.style.display = 'block';
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit · run pipeline';
+    }
+  });
+
+  // Focus the textarea
+  setTimeout(() => modal.querySelector('#mr-body').focus(), 50);
+}
+
+document.querySelector('.add-manual-btn').addEventListener('click', openManualReviewModal);
+
 document.querySelectorAll('.inbox-tab').forEach(tab => {
   tab.addEventListener('click', () => {
     state.filter = tab.dataset.tab;
