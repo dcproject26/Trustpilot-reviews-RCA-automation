@@ -255,11 +255,20 @@ async def draft_response_v2(
     canned_list: list | None = None,
 ) -> str:
     if not is_live("anthropic"):
-        # Mock synthesis: activates in MOCK_MODE for review IDs not in fixtures.
-        # Enables manual testing without real service calls.
+        # Known fixture → return static mock response.
+        # Unknown (manual test) → fall through to real prompt so the model
+        # produces a genuine reply rather than a "[Mock]" stub.
+        if review_id and review_id in MOCK_RESPONSES:
+            return MOCK_RESPONSES[review_id]
         if review_id and review_id not in MOCK_RESPONSES:
-            return "[Mock — manual test review] Response draft not available for this review."
-        return MOCK_RESPONSES.get(review_id, "")
+            # Unknown review — run the real model
+            return await _call(
+                prompts.response_draft_prompt(
+                    review_text, l1, l2, resolution, canned_responses, guest_name, dss_rec,
+                    canned_list=canned_list),
+                max_tokens=800,
+            )
+        return ""
     return await _call(
         prompts.response_draft_prompt(
             review_text, l1, l2, resolution, canned_responses, guest_name, dss_rec,
@@ -279,34 +288,28 @@ async def generate_rca_v3(
     l2: str,
     sub_theme: str,
     support_summary: str,
-    checklist_items: list,
+    checklist: dict,
     review_id: str = None,
+    timeline_raw: list = None,
 ) -> dict:
     """
     Returns the RCA v3 shape:
       {tldr, wwr_chain, prevention, evidence,
        issue_specific_answers, checklist_answers}
-    # Mock synthesis: activates in MOCK_MODE for review IDs not in fixtures.
-    # Enables manual testing without real service calls.
+
+    checklist: {"general": ..., "ce": [...], "ro": [...], "scenarios": {...}}
+    timeline_raw: raw Zendesk ticket comment bodies.
+
+    Mock synthesis (Brief v7.1):
+      - Known fixture IDs → return plausible stub.
+      - Unknown (manually pasted) → fall through to the real prompt path
+        so the model produces a genuine RCA with grounded checklist answers.
     """
-    if not is_live("anthropic"):
-        is_manual = review_id and review_id not in MOCK_RCA_FIELDS
-        if is_manual:
-            return {
-                "tldr": "Mock RCA — manual test review, no real data available.",
-                "wwr_chain": [
-                    {"step": 1, "what": "[Mock] Root cause not available", "why": "Manual test review — no real data."},
-                    {"step": 2, "what": "[Mock] Guest posted negative review", "why": "Unresolved experience issue."},
-                ],
-                "prevention": "[Mock — manual test review] Prevention steps not available.",
-                "evidence": ["[review] Mock evidence — no real data for this review."],
-                "issue_specific_answers": {"tickets_sent_on_time": "Unknown", "guest_arrived_on_time": "Unknown"},
-                "checklist_answers": [
-                    {"item": it["item"], "answer": "Unknown", "note": "[Mock — manual test review]"}
-                    for it in checklist_items
-                ],
-            }
-        # Known fixture — return plausible stub
+    is_fixture = review_id and review_id in MOCK_RCA_FIELDS
+    is_manual  = review_id and review_id not in MOCK_RCA_FIELDS
+
+    if is_fixture and not is_live("anthropic"):
+        # Known demo fixture — return plausible static stub
         legacy = MOCK_RCA_FIELDS.get(review_id, {})
         return {
             "tldr": f"Guest reported {l2 or 'an issue'} on a {l1 or 'classified'} booking; resolution offered.",
@@ -323,17 +326,16 @@ async def generate_rca_v3(
                 f"[booking] {legacy.get('whatWentWrong', 'No booking detail in mock data.')[:120]}",
             ],
             "issue_specific_answers": {"tickets_sent_on_time": "Yes", "guest_arrived_on_time": "Unknown"},
-            "checklist_answers": [
-                {"item": it["item"], "answer": "Unknown", "note": ""}
-                for it in checklist_items
-            ],
+            "checklist_answers": [],
         }
 
+    # Unknown review (manual test) OR live mode: run the real prompt
     raw = await _call(
         prompts.rca_v3_prompt(
             review_text, booking, timeline, insights, dss_rec,
-            l1, l2, sub_theme, support_summary, checklist_items, review_id or ""),
-        max_tokens=5000,
+            l1, l2, sub_theme, support_summary, checklist, review_id or "",
+            timeline_raw=timeline_raw),
+        max_tokens=6000,
     )
     try:
         return json.loads(_strip_fences(raw))

@@ -1,0 +1,176 @@
+"""
+Baked-in RCA checklist — verbatim from Brief v7.1.
+No runtime fetch. No Google Sheets dependency.
+"""
+
+GENERAL_GUIDELINES = {
+    "rca_output": [
+        "Fill every field: insights, booking details, what went wrong, customer/SP interactions",
+        "No internal jargon — complete, neutral sentences",
+        "Raise every issue found during investigation",
+        "Bulleted format, not paragraphs",
+        "Tag relevant teams for any underlying/major experience issue",
+        "Do NOT offer DSS — we add them or give a partial refund",
+    ],
+    "response": [
+        "Follow org-wide communication guidelines and Headout tone",
+        "Address every issue raised in the review",
+        "Use the correct macro — do not freehand; use Support copy AI for edits",
+    ],
+    "interaction": [
+        "Describe each interaction briefly and name the gap",
+        "Give date/time for each touchpoint",
+        "State explicitly if no comms were found",
+    ],
+}
+
+CE_ERROR_CHECKS = [
+    "Delayed response to guest",
+    "2+ non-autoresolved queries from the guest",
+    "Guest query not addressed / no response given",
+    "Missed follow-ups or deadline crossed",
+    "Inappropriate tone / lack of empathy",
+    "Incorrect DSS/SOP application",
+    "Too many back-and-forths without resolution",
+    "Asked guest to add credits instead of doing it directly",
+    "Did not check clarity or internal notes",
+    "Did not escalate to SP / Escalation / Biz / IO",
+    "Used incorrect macros",
+    "Missed content/catalog/inventory issues",
+]
+
+RO_ERROR_CHECKS = [
+    "Tickets sent within expected timeframe (payment receipt, experience page)",
+    "Tickets match booking: date, time, pax, experience, variant (Manual FF)",
+    "Vendor API issues raised with tech team",
+    "Voucher on BMS checked",
+    "FF-type tagging correct — Vendor API <10min→inv-ops, >10min→RO; Selenium <30min→selenium-oncall else RO; Manual/PP/Free Sale→RO",
+    "Comms with guest clear and timely",
+    "DSS/SOP applied correctly by RO",
+    "RO checked clarity and reviewed internal notes",
+    "RO escalated to SP where required",
+    "RO escalated to Escalation/Business/IO where required",
+    "Content/catalog/inventory issues identified and flagged",
+    "CE pings actioned or followed up",
+    "Booking instructions followed",
+]
+
+SCENARIO_CHECKS = {
+    "Tech error during booking": [
+        "Check clarity for errors and proof (e.g. wrong date booked)",
+        "Check URL and booking flow on Zendesk + experience page; if unsure raise with tech",
+        "If clarity fails, raise with tech team",
+        "Confirm FF was done correctly; check for CE/RO error",
+    ],
+    "Redemption issue with tickets": [
+        "Is it fulfillment, tech, or operational (denied entry / invalid tickets)?",
+        "Tickets sent on time (payment receipt)?",
+        "Ticket details valid: date, time, pax, experience, type?",
+        "Raise with Tech for BMS/PDF/app issues",
+        "Raise with Inventory/Business/SP by FF type (prepurchase→IO, freesale→SP/Biz)",
+        "Did other bookings face the same issue / any ongoing internal issue?",
+        "If major/recurring, raise with Escalation team",
+        "Can we resend tickets or refund? Action per DSS",
+    ],
+    "AG redemption issues": [
+        "Redemption details clear on voucher/email? If missing → BizOps via Retool/CO assistant",
+        "AG in-app issues (playback/sharing/language vs booking instructions) → Tech bug alert; follow up on thread",
+        "AG not received → check fulfillment + what was booked vs sent (BizOps if automated / RO if manual, then Tech)",
+        "Any ticket/fulfillment/resolution issues?",
+        "Tickets sent within timeframe (payment receipt)?",
+        "Tickets correct (date, time, pax, experience, type)?",
+        "Partial refund AG per DSS",
+        "Similar issues in other reviews → flag to Arpit/relevant team",
+    ],
+    "SP — guided tour quality": [
+        "Was it escalated before the review, with timely SP follow-up + resolution? Any RO/CE error?",
+        "Cancellation/reschedule raised with SP when DOV not past-dated?",
+        "On-tour / inclusions-not-met / guide issues raised with SP?",
+        "Repeated pattern? Raise with Biz for recurring issues",
+        "Impacted bookings/reviews for this TID-VID → raise with Biz if recurring",
+        "SP given 48-72h to follow up; if uncontrollable, action per DSS",
+    ],
+    "SP — no shows / delays": [
+        "Voucher redemption details correct — meeting point + map link match?",
+        "Identifiers + redemption instructions present?",
+        "Callouts/disclaimers present?",
+        "Did guest follow redemption process (verify with proof)?",
+        "Verify meeting point with SP if reported",
+        "Major/recurring → Escalation team",
+        "Check Slack threads for this TID-VID",
+        "Impacted bookings/reviews for TID-VID → Business if recurring",
+        "SP given 48-72h; if uncontrollable, action per DSS",
+    ],
+    "Unfulfilled booking": [
+        "Reason for non-fulfilment — check Slack for automation failure or missed manual FF",
+        "Escalate to IO/Tech if needed",
+        "Tag RO/CE error for any FF issue",
+        "Review completion rate for TID-VID/TGID over last 4 weeks",
+        "Major/recurring → Escalation team",
+        "Check Slack threads for TID-VID",
+        "Impacted bookings/reviews → relevant team if recurring",
+    ],
+    "Untraceable booking": [
+        "Use experience info + customer name to find booking on Looker/Slack/Zendesk",
+        "Try different combinations to retrieve booking info",
+    ],
+    "Venue closure (weather/strike)": [
+        "Check for closure news or proof (guest/internal/online)",
+        "Review affected bookings; raise with Escalations",
+        "Confirm partial vs full closure with SP + applicable refund amount",
+        "Recurring issues for same TID/VID → add callouts",
+        "If venue operational, request SP cancel/reschedule as exception",
+    ],
+    "Pricing / convenience fee": [
+        "Verify variant + inclusions on site vs guest's claim of venue offer",
+        "Cross-check final prices (incl. fees), variant, inclusions vs venue pricing",
+        "If valid, partial refund of the difference to bank account",
+    ],
+    "Meeting point issues": [
+        "Confirm meeting point with SP + cross-check other bookings",
+        "Major/recurring → Escalations",
+        "Check Slack threads for TID-VID",
+        "Review impacted bookings/reviews for TID-VID",
+    ],
+    "Content issues": [
+        "Check Slack threads for TID-VID",
+        "Review impacted bookings/reviews for TID-VID",
+        "Major/recurring → Escalations",
+        "Raise with BizOps and BDM",
+    ],
+    "Guest error": [
+        "Did guest reach out within policy window?",
+        "Escalate to SP for cancel/reschedule as exception if needed",
+        "Child ticket/pax-type concerns → relevant team",
+        "Double booking → check time gap + DSS guidelines",
+        "New tickets bought at venue + we fulfilled on time → request proof, refund once shared",
+    ],
+    "Refund issues": [
+        "Refund-done tags on ZD updated + refund status on checkout?",
+        "Refund done within promised timeframe?",
+        "If not done, raise CE/RO error per the miss",
+        "BMS refund error → raise with Leads on #co-issue or Fin on priority",
+        "Share ARN number for delayed refunds",
+    ],
+    "Guest did not see tickets": [
+        "Check Ticket_email_seen tag on ZD custom field",
+        "Ticket delivery time aligns with ETA at purchase?",
+        "ORM does NOT ask for proof of new tickets purchased",
+        "Email guest with proof of when tickets were sent",
+    ],
+    "Invalid tickets": [
+        "Tickets match booking: date, time, pax, experience, variant",
+        "Raise with Inventory/Business/SP by FF type (prepurchase→IO, freesale→SP/Biz, Vendor API→check similar + SP/Biz)",
+        "Other bookings same issue / ongoing internal issue?",
+        "Major/recurring → Escalation team",
+        "Can we send new tickets (future DOV) or refund?",
+        "Only after all checks (2 weeks of bookings, correct ticket sent, no issue found) ask for docs to raise with SP (partnered only)",
+    ],
+    "Tickets sent late": [
+        "Tickets sent within expected timeframe (payment receipt, experience page)?",
+        "By FF type: Vendor API <10min→inv-ops-on-call else RO; Selenium not done in 30min + ticket issue→selenium-oncall else RO; Manual/PP/Free Sale→RO",
+        "Other bookings same issue / ongoing internal issue?",
+        "Major/recurring → Escalation team",
+        "Resend tickets (future DOV) or refund/credits per DSS",
+    ],
+}

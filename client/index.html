@@ -2851,10 +2851,10 @@ function renderRcaCol() {
     </div>
 
     <div class="send-bar">
-      <div class="send-info"><span class="dot"></span>RCA posts to the Slack thread · guest response handled via Trustpilot Slack integration</div>
+      <div class="send-info"><span class="dot"></span>Mark as sent — paste the response into Trustpilot manually</div>
       <div class="send-actions">
-        <button class="btn">Preview</button>
-        <button class="btn primary">Send ↑</button>
+        <button class="btn copy-response-btn">Copy response</button>
+        <button class="btn primary send-btn">Send ↑</button>
       </div>
     </div>
   `;
@@ -3023,6 +3023,52 @@ function renderRcaCol() {
       frame.classList.toggle('open');
     });
   });
+
+  // ── Copy response button ───────────────────────────────────────────────────
+  const copyResponseBtn = col.querySelector('.copy-response-btn');
+  if (copyResponseBtn) {
+    copyResponseBtn.addEventListener('click', () => {
+      const replyText = col.querySelector('.reply-text');
+      const text = replyText ? replyText.value : (rca.reply || '');
+      if (!text) return;
+      navigator.clipboard.writeText(text).then(() => {
+        const orig = copyResponseBtn.textContent;
+        copyResponseBtn.textContent = '✓ Copied!';
+        copyResponseBtn.disabled = true;
+        setTimeout(() => {
+          copyResponseBtn.textContent = orig;
+          copyResponseBtn.disabled = false;
+        }, 2000);
+      }).catch(() => {
+        copyResponseBtn.textContent = '✗ Failed';
+        setTimeout(() => { copyResponseBtn.textContent = 'Copy response'; }, 2000);
+      });
+    });
+  }
+
+  // ── Send button — marks as sent (no Slack post) ───────────────────────────
+  const sendBtn = col.querySelector('.send-btn');
+  if (sendBtn) {
+    sendBtn.addEventListener('click', async () => {
+      if (sendBtn.disabled) return;
+      sendBtn.disabled = true;
+      sendBtn.textContent = '⟳ Sending…';
+      try {
+        const res = await fetch(`/api/reviews/${r.id}/send`, { method: 'POST' });
+        if (!res.ok) throw new Error(await res.text());
+        sendBtn.textContent = '✓ Sent';
+        r.status = 'sent';
+        renderInbox();
+      } catch (e) {
+        sendBtn.textContent = '✗ Error';
+        sendBtn.disabled = false;
+        setTimeout(() => {
+          sendBtn.textContent = 'Send ↑';
+          sendBtn.disabled = false;
+        }, 3000);
+      }
+    });
+  }
 
   const dssBtn = col.querySelector('[data-connect-dss]');
   if (dssBtn) {

@@ -714,48 +714,83 @@ def rca_v3_prompt(
     l2: str,
     sub_theme: str,
     support_summary: str,
-    checklist_items: list,
+    checklist: dict,
     review_id: str = "",
+    timeline_raw: list = None,
 ) -> str:
     """
     Generates RCA v3 shape: tldr, wwr_chain, prevention, evidence,
     issue_specific_answers, checklist_answers.
 
+    checklist: {"general": GENERAL_GUIDELINES, "ce": CE_ERROR_CHECKS,
+                "ro": RO_ERROR_CHECKS, "scenarios": SCENARIO_CHECKS}
+    timeline_raw: parallel list of raw Zendesk ticket comment bodies.
+
     Embedded rules (do NOT edit — verbatim from spec):
-    • No fabrication. Every claim in wwr_chain, evidence, checklist_answers must
-      be citeable from timeline/booking/review_text. Unknown → Unknown.
-    • Neutral tone. Facts only. Don't adopt or defend the guest's narrative.
-    • tldr ≤ 25 words, one sentence, factual.
-    • wwr_chain is causal, not narrative. Root cause first, forward. 3–6 steps.
-    • prevention must be ORM-ownable — pre-visit comms first. Cross-team asks
-      labeled explicitly.
-    • evidence items prefixed with source: [timeline], [review], [booking],
-      [insights]. Verbatim quotes.
-    • issue_specific_answers — for each check relevant to l1, answer Yes/No/Unknown.
-      Short parenthetical only if timeline directly supports.
-    • checklist_answers — one entry per checklist item in the same order. If the
-      checklist has N items, output must have N entries.
-    • Support-failure-supersedes-underlying-cause. External event but CE
-      mishandled → root cause is CE failure.
-    • No invented handles, timestamps, comp amounts. Use [placeholder] if unknown.
+    • No fabrication. Every claim must be citeable from timeline/booking/review.
+      Unknown → Unknown. No evidence → "not present in ticket or booking data".
+    • GENERAL_GUIDELINES["rca_output"] rules folded into writing rules below.
+    • Run ALL CE Error and RO Error checks every time.
+    • From Scenario checklists, run ONLY the scenario(s) that fit the review.
+    • Each check → Yes/No/Unknown/N/A + cite evidence (ticket id + line, or booking field).
+    • checklist_answers item shape: {section, check, answer, evidence}.
     """
     tl_text = json.dumps(timeline[:30], indent=2) if timeline else "[]"
     bk_text = json.dumps({k: v for k, v in (booking or {}).items() if k != "_match"})
     in_text = json.dumps(insights or {})
     ds_text = json.dumps(dss_rec or {})
 
-    checklist_block = ""
-    if checklist_items:
-        numbered = "\n".join(
-            f"{i+1}. {it['item']}" + (f" — guidance: {it['guidance']}" if it.get("guidance") else "")
-            for i, it in enumerate(checklist_items)
+    # Zendesk raw ticket bodies
+    if timeline_raw:
+        zd_raw_lines = []
+        for i, body in enumerate(timeline_raw[:20]):
+            if body and body.strip():
+                zd_raw_lines.append(f"[ticket_{i+1}] {body[:600]}")
+        zendesk_raw_block = "\n".join(zd_raw_lines) if zd_raw_lines else "(no raw ticket bodies)"
+    else:
+        zendesk_raw_block = "(no raw ticket bodies)"
+
+    # General guidelines → writing rules
+    general = (checklist or {}).get("general", {})
+    rca_output_rules = general.get("rca_output", [])
+    writing_rules_block = ""
+    if rca_output_rules:
+        writing_rules_block = (
+            "\n━━ RCA OUTPUT RULES (non-negotiable) ━━\n"
+            + "\n".join(f"• {r}" for r in rca_output_rules)
+            + "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         )
-        checklist_block = f"""
-━━ RCA CHECKLIST — answer each item ━━
-For each item below, answer Yes/No/Unknown. Add a ≤120-char note only if the
-timeline directly supports the answer. No fabrication. Preserve item order.
-{numbered}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
+
+    # CE and RO error check lists
+    ce_checks = (checklist or {}).get("ce", [])
+    ro_checks = (checklist or {}).get("ro", [])
+    scenarios = (checklist or {}).get("scenarios", {})
+
+    ce_block = ""
+    if ce_checks:
+        ce_block = (
+            "\n━━ CE ERROR CHECKS — run ALL every time ━━\n"
+            + "\n".join(f"{i+1}. {c}" for i, c in enumerate(ce_checks))
+            + "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        )
+
+    ro_block = ""
+    if ro_checks:
+        ro_block = (
+            "\n━━ RO ERROR CHECKS — run ALL every time ━━\n"
+            + "\n".join(f"{i+1}. {c}" for i, c in enumerate(ro_checks))
+            + "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        )
+
+    scenario_block = ""
+    if scenarios:
+        sc_lines = ["━━ SCENARIO CHECKS — run ONLY the scenario(s) that fit this review ━━"]
+        for name, items in scenarios.items():
+            sc_lines.append(f"\n[{name}]")
+            for i, item in enumerate(items):
+                sc_lines.append(f"  {i+1}. {item}")
+        sc_lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        scenario_block = "\n" + "\n".join(sc_lines)
 
     return f"""You are an ORM analyst writing an internal Root-Cause Analysis (RCA).
 
@@ -768,8 +803,11 @@ REVIEW TEXT:
 BOOKING:
 {bk_text}
 
-ZENDESK TIMELINE:
+ZENDESK TIMELINE (structured):
 {tl_text}
+
+=== ZENDESK TICKETS FOR THIS BOOKING (matched by booking_id + guest name) ===
+{zendesk_raw_block}
 
 INSIGHTS:
 {in_text}
@@ -779,10 +817,12 @@ DSS RECOMMENDATION:
 
 SUPPORT SUMMARY:
 {support_summary or "(none)"}
+{writing_rules_block}
 
-━━ RULES (non-negotiable) ━━
+━━ CORE RULES (non-negotiable) ━━
 1. NO FABRICATION. Every claim in wwr_chain, evidence, checklist_answers must be
    citeable from the timeline, booking, or review_text above. If unknown → "Unknown".
+   No evidence → write "not present in ticket or booking data".
 2. NEUTRAL TONE. Facts only. Do not adopt or defend the guest's narrative.
 3. tldr ≤ 25 words, one sentence, factual. Format: "what happened + what we're doing."
 4. wwr_chain: CAUSAL, not narrative. Root cause first, forward through to the review.
@@ -797,7 +837,18 @@ SUPPORT SUMMARY:
    guest contact, the root cause is the CE failure, not the external event.
 9. No invented handles, timestamps, or comp amounts. Use [placeholder] if unknown.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{checklist_block}
+
+=== DIAGNOSTIC CHECKS — VERIFY, DON'T GUESS ===
+- Run ALL CE Error and RO Error checks, every time.
+- From the Scenario checklists, run ONLY the scenario(s) that fit this review + classification.
+- Each check → Yes / No / Unknown / N/A AND cite the evidence: ticket id + the line, or the
+  booking field. No evidence → "not present in ticket or booking data". Never guess.
+{ce_block}
+{ro_block}
+{scenario_block}
+
+checklist_answers item shape:
+{{"section": "ce" | "ro" | "<scenario name>", "check": "...", "answer": "Yes|No|Unknown|N/A", "evidence": "..."}}
 
 Return ONLY valid JSON (no markdown fences) matching this exact shape:
 {{
@@ -806,7 +857,7 @@ Return ONLY valid JSON (no markdown fences) matching this exact shape:
   "prevention":              "<1-2 sentences>",
   "evidence":                ["[source] quote", ...],
   "issue_specific_answers":  {{"<key>": "Yes|No|Unknown (<optional note>)", ...}},
-  "checklist_answers":       [{{"item": "<question>", "answer": "Yes|No|Unknown", "note": "<≤120 chars or empty>"}}, ...]
+  "checklist_answers":       [{{"section": "ce|ro|<scenario>", "item": "<question>", "answer": "Yes|No|Unknown|N/A", "evidence": "<cite or not present in ticket or booking data>"}}, ...]
 }}"""
 
 

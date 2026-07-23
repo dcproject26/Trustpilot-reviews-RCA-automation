@@ -561,7 +561,7 @@ async def process_review(review_id: str):
         rca_v3 = {}
         try:
             from server.services.rca_checklist import get_checklist
-            checklist_items = await get_checklist(l1, l2)
+            checklist = await get_checklist(l1, l2)
             rca_v3 = await claude.generate_rca_v3(
                 review_text=review_text,
                 booking=booking,
@@ -572,8 +572,9 @@ async def process_review(review_id: str):
                 l2=l2 or "",
                 sub_theme=sub_theme or "",
                 support_summary=support_summary_text or "",
-                checklist_items=checklist_items,
+                checklist=checklist,
                 review_id=review_id,
+                timeline_raw=zd_meta.get("timeline_raw", []),
             )
         except Exception as e:
             log.exception(f"RCA v3 generation failed: {e}")
