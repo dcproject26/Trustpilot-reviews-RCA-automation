@@ -412,8 +412,9 @@ async def process_review(review_id: str):
                     if venue_hints or author_first or author_last:
                         _ctr["untraceable_has_signals"] += 1
 
-                if candidate_state and candidates and not booking:
-                    booking = candidates[0]
+                # Do NOT auto-assign Tier 2 candidates as the confirmed booking.
+                # Candidates are kept for display; booking stays None until an
+                # associate confirms one via select-candidate.
 
                 log.info(
                     f"[tier1] auto_promoted_from_cascade={_ctr['t1_auto_promoted']}"
@@ -651,17 +652,8 @@ async def process_review(review_id: str):
         review.status                     = "draft"
         db.commit()
 
-        # ── 15. Post-back to Slack thread ─────────────────────────────────────
-        if is_live("slack_inbound") and review.slack_channel != "C_MANUAL":
-            try:
-                await slk.post_to_thread(
-                    review.slack_channel,
-                    review.slack_ts,
-                    ":robot_face: RCA draft ready — open the dashboard to review and send.",
-                    as_user=False,
-                )
-            except Exception as e:
-                log.exception(f"Slack thread post failed: {e}")
+        # ── 15. Slack post-back — disabled until explicitly re-enabled ──────────
+        # Do not post anything to Slack threads from the pipeline.
 
         # ── 16. Metrics ───────────────────────────────────────────────────────
         try:
