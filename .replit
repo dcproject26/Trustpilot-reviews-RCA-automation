@@ -29,7 +29,7 @@ integrations = ["bigquery:1.0.0", "zendesk:1.0.0", "python_anthropic_ai_integrat
 [userenv]
 
 [userenv.shared]
-MOCK_MODE = "true"
+MOCK_MODE = "false"
 
 [workflows]
 runButton = "Project"
