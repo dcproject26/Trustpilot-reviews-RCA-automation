@@ -1706,6 +1706,7 @@ async function fetchInbox() {
         time:           row.received_at ? new Date(row.received_at).toLocaleString('en-GB', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '',
         status:         row.status || 'new',
         matchTier:      tier,
+        matchTitle:     tier === 1 ? 'Direct match' : tier === 2 ? 'Possible matches — associate to confirm' : 'Untraceable',
         candidateState: row.candidate_state || false,
         type:           tier === 1 ? 'identified' : tier === null ? 'untraceable' : 'candidates',
         tier:           tier ? `T${tier}` : '—',
@@ -1843,6 +1844,14 @@ async function loadDraftOverlays() {
           label:   t.label   || '',
           summary: t.summary || '',
         }));
+      }
+
+      // ── Match title (may be missing on demo stubs) ────────────────────────
+      if (!r.matchTitle) {
+        const _t = r.matchTier;
+        r.matchTitle = _t === 1 ? 'Direct match'
+          : _t === 2 ? 'Possible matches — associate to confirm'
+          : 'Untraceable';
       }
 
       // ── Match method from confidence trail ────────────────────────────────
