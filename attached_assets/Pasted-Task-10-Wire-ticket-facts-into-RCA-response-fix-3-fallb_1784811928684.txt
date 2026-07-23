@@ -1,0 +1,109 @@
+Task #10 — Wire ticket_facts into RCA + response, fix 3 fallbacks
+
+Reference: ORM_DATA_SOURCE_SPEC.md §5b, §8.7, §5.1, and §4 fallback rules.
+Agent's own diff (see previous message) identifies 5 fixes. Ship all 5 as
+one delta.
+
+Fix A (🔴) — ticket_facts must reach generate_rca_v3()
+
+Current: step 6b starts ticket_facts extraction as a background task;
+step 6c collects the result; but step 12b (RCA generation) runs before
+6c completes. RCA is generated blind to ticket_facts.
+
+Fix:
+1. In pipeline.py, move ticket_facts extraction to run in parallel WITH
+   support_frames generation (both need timeline_raw, both are Claude calls,
+   no data dependency between them).
+2. Use asyncio.gather() to run both, then await their completion before
+   step 12 (RCA generation).
+3. Update generate_rca_v3() signature to accept ticket_facts parameter.
+4. Add {ticket_facts_json} to the RCA prompt template (per spec §8.7 —
+   already listed as an input in the spec, wasn't in the code).
+
+Fix B (🔴) — Response draft must use ticket_facts.guest_full_name
+
+Current: pipeline.py:632 reads (booking or {}).get("guestName") which is
+the BQ privacy hash.
+
+Fix:
+1. Replace with: (ticket_facts or {}).get("guest_full_name")
+                 or review.author
+                 or "there"   # last-resort greeting fallback
+2. Wire ticket_facts into the response draft call site.
+3. The response prompt (§8.8) does NOT need to know it — it just receives
+   the resolved name in place of review.author.
+
+Fix C (🟡) — Client fallback chain via toViewModel
+
+Current: client renders ticket_facts.guest_full_name / booking_status only
+if present. Otherwise fields go blank.
+
+Fix (in toViewModel per spec §6, NOT in the renderer):
+- guest_name = ticket_facts?.guest_full_name || review.author || '—'
+- booking_status = ticket_facts?.booking_status || booking.status || '—'
+
+Route both through the view model. Renderer must never touch ticket_facts
+or booking.status directly.
+
+Fix D (🟡) — Mock wwr_chain is 5 steps, spec requires 4
+
+Current: claude.py:316-322 returns 5-step fixture.
+
+Fix: Change to exactly 4 steps per spec §8.7:
+[should → actual → root → why_not_caught]
+
+Live reviews already enforce this via the prompt; only mock reviews were
+showing 5 steps.
+
+Fix E (🟡) — checklist_answers item name drift
+
+Current: prompts.py:859 uses {section, item, answer, evidence}. Spec §8.7
+says {section, item, answer, note}.
+
+Fix: Update spec to `evidence` (the code is already consumed by client and
+Slack format — don't rename). No code change; doc-only.
+
+━━ CONCURRENT-CALL PATTERN (for reference) ━━
+
+# Around step 6, replace sequential ticket_facts + support_frames with:
+ticket_facts_task = asyncio.create_task(
+    extract_ticket_facts(booking, timeline_raw)
+)
+support_frames_task = asyncio.create_task(
+    generate_support_frames(booking, timeline)
+)
+ticket_facts, support_frames = await asyncio.gather(
+    ticket_facts_task, support_frames_task
+)
+# Now both are available before step 12 (RCA).
+
+━━ TESTS ━━
+
+1. David case (BID 32908218) — after fix:
+   - Response draft addresses "David" (or "David Hultsman" if extracted),
+     NOT the hash
+   - RCA v3 tldr / wwr_chain reference the refund event and CE actions
+     from ticket_facts
+   - Col-2 panel shows guest name = "David Hultsman"
+     (or fallback = "David" from review.author, NOT blank)
+   - Col-2 booking status shows "REFUNDED" or the booking.status fallback
+
+2. Marcus case (BID 31055920):
+   - Response draft addresses "Marcus"
+   - Col-2 panel shows the booking's real state, not blank
+
+3. Empty-ticket_facts case — force a review where extraction returns
+   all-null:
+   - Guest name falls back to review.author
+   - Booking status falls back to booking.status or "—"
+   - Response draft still generates cleanly, not "Hi None,"
+
+4. Existing test suites: both green (23/23 validators + 14/14 accuracy)
+
+DO NOT:
+- Refactor summarise_support_event() to a single call yet — that's Fix
+  Finding 3, deferred to a separate task (higher risk, needs its own test
+  pass)
+- Change MOCK_MODE gating
+- Change the prompts in §8.7 or §8.8 beyond adding ticket_facts as an input
+- Ship without the tests above passing
