@@ -1,0 +1,446 @@
+# ORM RCA — Data-Source Spec (source of truth)
+
+This document tells you where every value on the dashboard comes from, which pipeline step produces it, which DB column stores it, and what still needs fixing. Use it as the contract. When a field is wrong, fix it at the source named here — not by patching the UI.
+
+**Rule of thumb for origin:**
+- **BigQuery** owns booking *facts* (IDs, experience, vendor, dates).
+- **Zendesk** owns anything that *happened in support* (timeline, refund, real guest name, booking status).
+- **Claude** owns anything *written or judged* (translation, classification, RCA, reply, ticket-facts extraction).
+- **Google Sheet** owns DSS policy, canned response tone, and the RCA checklist.
+- **Computed** = derived in Python. **Ingest** = the review post itself.
+
+Do not turn to Claude for a value BigQuery or Zendesk already has. Do not turn to BigQuery for anything that only exists in a ticket body.
+
+---
+
+## 0. Goal
+
+One negative Trustpilot review comes in → match it to a real booking → pull the real facts from BigQuery + Zendesk → classify → write an RCA grounded in those facts → draft a guest reply → present it on the dashboard for an associate to verify, edit, and send. Nothing is auto-sent to the guest. MOCK_MODE gates every external call.
+
+---
+
+## 0.5. Field ownership at a glance
+```
+BigQuery owns:  booking IDs, experience/vendor/TID data, dates, ratings, completion, similars
+Zendesk owns:   timeline, real guest name, booking status, refund, CE actions, ticket_mail_seen
+Claude owns:    translation, classification, RCA text, response draft, ticket-facts extraction
+Sheets own:     DSS policy, canned response tone, RCA CHECKLIST (diagnostic checks: General + CE + RO + 16 scenarios)
+Computed owns:  match tier, confidence trail, lead time, tab routing
+Ingest owns:    review body, author, rating, timestamp
+```
+If a field is wrong, first identify which owner is authoritative — then fix at that source.
+
+---
+
+## 1. Pipeline order — `server/pipeline.py::process_review(review_id)`
+
+Each step is wrapped in its own try/except; a failure degrades that field, never the run.
+
+| # | Step | Source | Writes to (RcaDraft / Review) |
+|---|------|--------|-------------------------------|
+| 1 | Translate (if not EN) | Claude | `review.body_english` |
+| 2 | BID extraction — order: (1) Slack attachment `reference` field, (2) regex on review text + attachment fallback text, (3) manual entry via `/api/reviews/manual`; source tagged for downstream trust | Computed | `review.reference_number`, `draft.bid_source`, `draft.confidence_trail` |
+| 3–4 | Booking match (BID → Tier 1/2/Untraceable) | **BigQuery** | `draft.booking`, `match_tier`, `match_confidence`, `match_method`, `candidates_list`, `candidate_state` |
+| 5 | Zendesk enrichment (tickets by Booking ID) | **Zendesk** | `draft.timeline`, `draft.timeline_raw`, `draft.zendesk_ticket_ids` |
+| 5b | **Ticket-facts extraction** (one Claude pass over `timeline_raw` — the UNSHAPED raw comment bodies) | **Claude** | `draft.ticket_facts` |
+| 6 | Support interaction frames (summarise events) | Zendesk + Claude | `draft.support_interaction_frames`, `sp_interaction_frames`, `support_summary` |
+| 7 | Similar complaints | BigQuery | `draft.similar_support`, `draft.similar_reviews` |
+| 8 | Stated issue | Claude | `draft.stated_issue` |
+| 9 | Classification (L1/L2/sub-theme) | Claude | `draft.l1`, `l2`, `sub_theme`, `l1_reasoning` |
+| 10 | Insights (needs L1/L2) | BigQuery | `draft.insights` |
+| 11 | DSS recommendation (scored on L1/L2) | Google Sheet | `draft.dss_rec` |
+| 12 | RCA generation | Claude (+ checklist sheet + DSS) | `draft.checklist_answers`, `issue_specific_answers`, `what_went_wrong_bullets`, `area_of_improving`, `actions_taken`, `resolution`, `tldr`, `wwr_chain`, `prevention`, `evidence` |
+| 13 | Response draft (+ canned sheet) | Claude + Sheet | `draft.suggested_response` |
+| 14 | Save → `review.status = "draft"` | — | persists all of the above |
+
+---
+
+## 2. External source reference
+
+**BigQuery tables** (`server/config.py`):
+- `fct_bookings` — booking record (the `draft.booking` dict is built from here)
+- `fct_reviews` — ratings / review history (insights, similar reviews)
+- `fct_fulfilments` — fulfilment status + **real ticket-sent timestamps** (completion, same-day, timeline times)
+- `fct_support_queries` — support-query counts (support ratio insights)
+
+**`draft.booking` dict keys** (the contract the UI reads — populated by BQ match):
+`id, experienceName, tgid, tid, vid, vidName/partner, fulfilmentType, bookedOn, visitDate, pax, amount, status, guestName` — note `guestName` from BQ is a **privacy hash**, not usable.
+
+**Zendesk** (`server/config.py`): tickets fetched via Zendesk search with `fieldvalue:<bid>` — matches any custom field carrying the BID (proven in `zendesk.py:186`, matches the 2024 Retool code). Falls back to free-text search on `"<bid>"` (`zendesk.py:191`). Custom field IDs for direct reads on returned tickets: BookingID `360021524471`, TGID `360024198092`, TID `360024232711`. `timeline_raw` = raw comment bodies (what Claude reads); `timeline` = display events.
+
+**Claude** = Replit AI Integration.
+
+**Google Sheets:**
+- **DSS** `1sz8KkxiBaGSxiQy4G-iPN_0gmzGg4wt3V8NI0MaVd88` — resolution policy (CE/RO), scored on L1/L2.
+- **Canned responses** `1aXnZzzFQ8tDiaXs0E2YRErOcTSOsbTOqnM7WhyOnmi4` — response tone examples.
+- **RCA Checklist** `1RpvQCz35_pOTnWGrYL0rfPKUXejmt5KeBppgI9QTYJ8` (gid `1186061023`) — the diagnostic checks: General Guidelines + CE Error + RO Error + 16 scenario checklists. **Baked into `server/checklist.py`** as structured data (the sheet is a merged-cell layout that won't parse as clean CSV); re-sync from the sheet when CX edits it. This sheet is the authoritative source for Column 3's diagnostic checks.
+
+---
+
+## 3. Field-by-field source map (what the dashboard shows)
+
+### COLUMN 1 — Inbox
+| Field | Source | Stored in / derived from | Status |
+|-------|--------|--------------------------|--------|
+| Tabs (BID / Possible / Untraceable / Sent) | Computed | `match_tier` + `review.status` | ✅ works |
+| Author, rating, snippet | Ingest | `review.author/rating/body_*` | ✅ works |
+| Language, DRAFT/SENT, T1/T2 chips | Computed | `review.language`, `status`, `match_tier` | ✅ works |
+
+### COLUMN 2 — Booking & Context
+| Field | Source | Where to take it from | Status |
+|-------|--------|-----------------------|--------|
+| Match tier / confidence / method | Computed | `draft.match_tier/match_confidence/match_method` | ⚠ **confidence `undefined`** — map it (T1 attachment ⇒ "high") |
+| Confidence trail | Computed | `draft.confidence_trail` | ✅ works |
+| Booking ID | **BigQuery** | `booking.id` | ✅ works |
+| Experience name | **BigQuery** | `booking.experienceName` | ✅ works |
+| TGID / TID | **BigQuery** | `booking.tgid / booking.tid` | ✅ works |
+| TID name | **BigQuery** | tour name for the TID | ⚠ **placeholder** — map from BQ |
+| Vendor ID / name | **BigQuery** | `booking.vid / booking.vidName` | ✅ works |
+| Fulfilment type | **BigQuery** | `booking.fulfilmentType` | ✅ works |
+| Visit date / Booking date | **BigQuery** | `booking.visitDate / booking.bookedOn` | ✅ works |
+| **Primary guest name** | **Zendesk** | `ticket_facts.guest_full_name` (BQ `guestName` is a hash — do NOT use) | ⚠ **shows hash** → use ticket-facts |
+| **Booking status** | **Zendesk** | `ticket_facts.booking_status` (fallback `booking.status`) | ⚠ **undefined** → extract from ticket |
+| Ticket mail seen | **Zendesk** | ticket tag `ticket_mail_seen` (fallback `ticket_facts.ticket_email_seen`) | ⚠ verify |
+| **Review date** | Ingest | `review.received_at` / Trustpilot publish date captured at ingestion | ⚠ **undefined** → capture & map |
+| **Lead time** | Computed | `visitDate − bookedOn` | ⚠ **not computed** → add |
+| Events Timeline | **Zendesk** | `draft.timeline` | ✅ works |
+| Experience Insights | **BigQuery** | `draft.insights` | ⚠ mostly zeros (thin data) |
+| Completion rate / same-day issues | **BigQuery** | new queries in `insights.py` | ⚠ **not built** (see §5) |
+
+### COLUMN 3 — Root-Cause Analysis
+| Field | Source | Where to take it from | Status |
+|-------|--------|-----------------------|--------|
+| Stated issue | Claude | `draft.stated_issue` / `tldr` | ✅ works |
+| L1 / L2 / sub-theme | Claude | `draft.l1 / l2 / sub_theme` | ✅ works |
+| **Diagnostic checks / checklist** | **Sheet → Claude** | Checks defined in the **RCA Checklist sheet** (`1RpvQCz35…`), baked into `server/checklist.py`. Claude verifies each item against `timeline_raw` + `ticket_facts` + `booking`, with evidence → `draft.checklist_answers` | ⚠ grounding WIP |
+| **Issue-specific answers** | **Claude (taxonomy)** | Sub-theme framework in `server/taxonomy.py::SUB_THEME_REGISTRY` for the classified (L1,L2) → `draft.issue_specific_answers` | ⚠ verify |
+| What went wrong | Claude | `draft.what_went_wrong_bullets` / `wwr_chain` | ✅ works |
+| Customer & SP interactions | Zendesk | `draft.support_interaction_frames`, `sp_interaction_frames` | ✅ works |
+| Area of improving / Actions | Claude | `draft.area_of_improving`, `actions_taken` | ✅ works |
+| Resolution | Claude (DSS-informed) | `draft.resolution` | ✅ works |
+| Response draft | Claude + Canned sheet | `draft.suggested_response` | ✅ works |
+
+---
+
+## 4. Ticket-facts extraction — fills the Zendesk-sourced Col-2 gaps
+
+Guest name, booking status, refund, etc. live **inside the ticket prose**, not in clean columns. Run one Claude pass after Zendesk enrichment (step 5b), store as `draft.ticket_facts`, then fill Col-2 fields from it (BQ as fallback). Every fact carries an evidence ticket id.
+
+Prompt: see **§8.2**.
+
+**Wiring:** run once per review on the full `timeline_raw`. Then:
+- `guest name = ticket_facts.guest_full_name || review.author`
+- `booking status = ticket_facts.booking_status || booking.status`
+- `refund / resolution` → feed into RCA generation (step 12)
+
+---
+
+## 5. Open fixes (finite, mostly Col-2 wiring)
+
+1. **Match confidence** — map `draft.match_confidence` to the UI (Tier-1 attachment ⇒ `"high"`).
+2. **Guest name** — use `ticket_facts.guest_full_name`, never the BQ hash.
+3. **Booking status** — from `ticket_facts.booking_status` (fallback `booking.status`).
+4. **Review date** — capture the Trustpilot publish date at ingestion; map to UI.
+5. **Lead time** — compute `visitDate − bookedOn` (label same-day when 0).
+6. **TID name** — map from the BQ tour name.
+7. **Insights zeros** — add to the **wired** `server/services/insights.py`:
+   - VID **completion rate** (4-week): `completed / total` from `fct_fulfilments`.
+   - **Same-day same-VID** issues (port the query from `bigquery.py` — currently orphaned/uncalled).
+   Output keys the consumers expect: `vidCompletionRate`, `sameDaySameVidIssues`.
+8. **Dashboard crashes** — client expected the old demo shape; add the normalization layer (§6).
+
+---
+
+## 6. Client — one normalization layer (stops the crashes)
+
+The render code was built for a hardcoded demo array (rich nested shape, every field present). Live `/api/reviews/{id}` is flat and partial, so `x.length` / `x.value` on a missing field white-screens the page. Fix once, centrally:
+
+- Add `toViewModel(api, ins)` that returns an object where **every field the renderer touches exists**, defaulted (`[]` lists, `''` text, `{value:'—',sub:'',tone:'gray'}` tiles).
+- Route `loadDraftOverlays` through it — render only from the view-model, never the raw API.
+- Guard remaining accesses: `(x || []).length`, `(obj || {}).value`.
+- If a field is mis-mapped, fix it **inside `toViewModel` only**, never in the renderer.
+
+Result: a missing field renders "—", never a crash.
+
+---
+
+## 7. Guardrails (do not violate)
+
+- **MOCK_MODE stays as configured.** Every external call has a mock fallback; `is_live(service)` gates it.
+- **No deploy.** No auto-send to the guest. Send posts the RCA to the Slack thread; the reply copy is copied from the dashboard and posted to Trustpilot **manually**.
+- **Response copy is NEVER included** in the Slack RCA post.
+- **Manual (`C_MANUAL`) reviews never post to Slack** (guard already exists in the pipeline).
+- Fix values at the **source named in §3**, not by hardcoding in the UI.
+- Keep both test suites green.
+
+---
+
+## 8. AI prompts — the source of every Claude-owned field
+
+All Claude calls live in `server/prompts.py`. Each prompt has one job. All return strict JSON (except translation/stated-issue/response, which return plain text), no markdown, no preamble. Every extracted fact must be inferable from the inputs — no fabrication.
+
+### 8.1 Translation — step 1
+```
+SYSTEM:
+You are a translation engine. Translate customer reviews from any source language into clear,
+natural English, preserving tone, facts, and any names/dates/IDs. Do NOT summarise, interpret,
+or add commentary.
+USER:
+=== SOURCE LANGUAGE ===
+{source_language}
+=== ORIGINAL REVIEW TEXT ===
+{review_body_original}
+Rules: preserve all names/places/dates/times/amounts/IDs verbatim; no bracketed notes; don't
+soften strong language; return only the translation — no label, no source text.
+Return plain text. No JSON, no markdown, no preamble.
+```
+
+### 8.2 Ticket-facts extraction — step 5b
+```
+SYSTEM:
+You are a data-extraction engine for Headout's ORM system. You read the raw Zendesk
+support-ticket comments for ONE booking and extract structured facts. You NEVER invent data.
+If a fact is not explicitly present, return null. Every value must be copyable from the ticket
+text. Return STRICT JSON only — no markdown, no preamble.
+USER:
+=== BOOKING (from BigQuery — authoritative for IDs/dates) ===
+{booking_json}
+=== ZENDESK TICKET COMMENTS (chronological, raw bodies) ===
+{timeline_raw}
+Extract using ONLY the text above. Null for anything not explicitly stated. Do not guess.
+Return STRICT JSON matching this schema exactly:
+{
+  "guest_full_name": null, "booking_status": null, "is_same_day_booking": null,
+  "is_cancellable": null, "is_reschedulable": null, "sla_breached": null,
+  "ticket_email_seen": null, "interaction_tags": [], "delay_or_issue_reason": null,
+  "refund": {"issued": null, "amount": null, "reference_id": null, "out_of_policy": null},
+  "ce_actions": [], "resolution_summary": null, "primary_issue": null, "evidence": {}
+}
+FIELD RULES:
+1. GENERAL — null over guessing. Every non-null scalar needs an `evidence` entry naming the
+   ticket (e.g. {"guest_full_name":"ZD-34011333"}); missing evidence = force null. Ticket ids
+   appear as headers like [ZD-34011333] — copy the numeric id.
+2. guest_full_name — only a plain human name from prose ("Hey David Hultsman," → "David
+   Hultsman"). Reject base64/hash/URL-encoded/masked values → null. Prefer the name the CE
+   addresses ("Hey X,").
+3. booking_status — only from an explicit status line. Normalise to one of PENDING, CONFIRMED,
+   FULFILLED, CANCELLED, REFUNDED (fulfilled/complete/completed→FULFILLED; canceled→CANCELLED;
+   "refund processed"→REFUNDED). Anything else → null.
+4. Booleans (is_same_day_booking, is_cancellable, is_reschedulable, sla_breached,
+   ticket_email_seen, refund.issued, refund.out_of_policy) — true/false/null only, from explicit
+   statements ("Is Cancellable: No"→false). "N/A"/"Unknown"/absent → null.
+5. interaction_tags — copy tag strings verbatim (e.g. "delay_fulfilment__delay__sp_dependency").
+   None → [].
+6. delay_or_issue_reason — one factual sentence on WHY; no guest emotion; absent → null.
+7. refund — issued true on "refund processed"/"amount refunded", false if explicitly denied,
+   else null. amount as "<CCY> <N.NN>" (use booking currency if none stated). reference_id
+   verbatim. out_of_policy true on "out of policy"/"exception".
+8. ce_actions — verb-first, grounded ("Refunded USD 19.42 as exception"). No "investigated" /
+   "helped". Empty [] if none.
+9. resolution_summary — one neutral sentence on the outcome; null if none.
+10. primary_issue — one sentence from the CE's classification (not guest words); null if none.
+11. evidence — {field → ticket id} for every non-null scalar; dotted keys for nested
+    (refund.amount); arrays need none.
+OUTPUT: the JSON only. No preamble, no fences.
+```
+
+### 8.3 Timeline shaping — step 6 (event summarisation)
+```
+SYSTEM:
+You shape raw Zendesk ticket comments into a clean Events Timeline (time · thread · label ·
+summary). You NEVER invent CE actions, SP responses, times, or comp amounts. Unintelligible
+body → keep=false. Return STRICT JSON only — a list of event objects.
+USER:
+=== BOOKING (context) ===
+{booking_json}
+=== REAL FULFILMENT TIMES (from BigQuery fct_fulfilments) ===
+{fulfilment_times_json}   // booking_created_at, ticket_sent_at — may be null
+=== REVIEW POSTED ON: {review_pub_date} ===
+=== REVIEW PREVIEW: "{review_body_preview}" ===
+=== RAW ZENDESK EVENTS (chronological, unshaped) ===
+{raw_events_json}
+RULES:
+1. Per event decide keep vs drop, then produce a clean frame. Drop: empty/whitespace bodies,
+   pure signature/logo HTML, internal syncs with no operational meaning, standalone acks.
+2. GROUP consecutive same-timestamp events that are one action across comments; set
+   idx_range=[first,last] (e.g. three 15:41 macro outputs → one "CE pulled up case context").
+3. LABEL = short verb-first phrase (what happened, not the source). No "[ZD-###]". Examples:
+   "Guest reached out", "Guest reply", "CE response", "CE pulled up case context",
+   "Minded AI response", "Skyler chat opened", "SP response", "CE prepared vendor login",
+   "Ticket generated", "Refund processed", "System event".
+4. SUMMARY = one neutral factual sentence. No HTML/logo/macro dumps; summarise the ACTION, not
+   field dumps; never invent CE reasoning or SP responses.
+5. THREAD: "Skyler chat"/"conversation with web user" → chat; SP-brand → sp; else keep input.
+6. ACTOR: guest→guest; co→support; ai(Minded/Skyler/bot)→ai; sp→sp; system→system (usually drop).
+7. NEVER INVENT. Every summary inferable from raw_body; else summary "Internal system event.",
+   keep=false.
+SYNTHETIC EVENTS — inject ONLY from REAL data, never fabricate a clock time:
+  • Booking created — time = fulfilment_times.booking_created_at IF present, else
+    "{booking.bookedOn}" (DATE ONLY, no clock time). label "Booking created",
+    summary "Guest booked <experience>."
+  • Tickets sent — ONLY IF fulfilment_times.ticket_sent_at is present. time = that value.
+    label "Tickets sent", summary "Voucher emailed." Do NOT state "within 1 min" or any
+    duration unless both timestamps are real and you computed the gap. If ticket_sent_at is
+    null, OMIT this event.
+  • Review posted — time = "{review_pub_date}", label "Review posted",
+    summary "Negative Trustpilot review posted with BID <bid> referenced."
+OUTPUT: JSON list of shaped events, chronological. No preamble.
+```
+
+### 8.4 Support interaction frames — step 6b
+```
+SYSTEM:
+You produce Support Interaction Frames for the RCA (one per interaction thread): what the guest
+said, what we did, guest reply, gap. You NEVER invent actions. Return STRICT JSON only.
+USER:
+=== BOOKING ===
+{booking_json}
+=== SHAPED TIMELINE ===
+{timeline_json}
+Return STRICT JSON:
+{
+  "guest_frames": [{"thread_type":"email|chat|call","start_time":"...","handled_by":"CE|Minded AI|Skyler",
+     "guest_said":"...","we_did":"...","guest_reply":"... or null","gap":"... or null"}],
+  "sp_frames": [{"thread_type":"email|chat","start_time":"...","sp_said":"...","our_response":"... or null"}],
+  "support_summary": "1-2 sentence roll-up"
+}
+RULES: never invent guest_said/we_did/guest_reply; gap null if none; if handled correctly say so;
+no guest emotion; null for missing fields, [] for missing arrays. JSON only.
+```
+
+### 8.5 Stated issue — step 8
+```
+SYSTEM:
+Produce a one-line neutral summary of what the guest is complaining about. Neutral, factual, no
+adopted emotion.
+USER:
+=== TRUSTPILOT REVIEW ===
+{review_body_english}
+One sentence: the guest's factual claim (what happened + what they expected). No adjectives like
+"scam"/"shady"; no fault attribution; no preamble/markdown. Plain text.
+```
+
+### 8.6 Classification — step 9
+```
+SYSTEM:
+You classify one negative review into L1 / L2 / sub-theme using ONLY the embedded taxonomy. You
+NEVER pick a value not in the taxonomy. Apply the embedded priority ruleset. Return STRICT JSON.
+USER:
+=== TAXONOMY (embedded — the only valid values) ===
+{taxonomy_registry_json}
+=== SUB-THEME FRAMEWORKS (per (L1,L2)) ===
+{sub_theme_registry_json}
+=== PRIORITY RULESET (verbatim from server/taxonomy.py::L1_L2_RULESET — authoritative) ===
+{l1_l2_ruleset_json}
+=== REVIEW ===
+{review_body_english}
+=== BOOKING ===
+{booking_json}
+=== SUPPORT TIMELINE (shaped) ===
+{timeline_json}
+Return STRICT JSON:
+{"l1":"<exact L1>","l2":"<exact L2 under that L1>","sub_theme":"<code if (L1,L2) has a framework, else null>","reasoning":"1-2 sentences citing review/timeline/booking evidence"}
+RULES: l1/l2 must be valid taxonomy values; sub_theme only if (L1,L2) in SUB_THEME_REGISTRY else
+null; reasoning cites specific evidence; apply the embedded ruleset (do NOT invent priority
+rules); don't default to Miscellaneous unless nothing fits. JSON only.
+```
+
+### 8.7 RCA generation — step 12
+```
+SYSTEM:
+You produce a leadership-review-grade RCA for a negative Trustpilot review. Every claim must be
+grounded in the evidence provided — never invent times, names, amounts, or events. If evidence
+is missing, say "not present in ticket or booking data" and mark the check Unknown. Return
+STRICT JSON only.
+USER:
+=== REVIEW ===
+{review_body_english}
+=== BOOKING (BigQuery) ===
+{booking_json}
+=== TICKET FACTS (Zendesk prose extraction) ===
+{ticket_facts_json}
+=== SHAPED TIMELINE ===
+{timeline_json}
+=== INSIGHTS ===
+{insights_json}
+=== CLASSIFICATION ===
+{classification_json}
+=== DSS RECOMMENDATION (from DSS sheet) ===
+{dss_rec_json}
+=== CHECKLIST (from server/checklist.py, sourced from RCA Checklist sheet 1RpvQCz35…) ===
+{checklist_json}   // General Guidelines + ALL CE checks + ALL RO checks + 16 scenario checklists
+=== SUB-THEME FRAMEWORK for this (L1,L2) (from taxonomy.py::SUB_THEME_REGISTRY) ===
+{sub_theme_framework_json}   // the issue-specific questions
+RCA OUTPUT RULES: fill every field; no internal jargon; raise every issue found; bullets not
+paragraphs inside stringlists; tag relevant teams for any major issue; do NOT offer DSS (we add
+them / give partial refund).
+CHECKS DISCIPLINE:
+• checklist_answers ← the CHECKLIST above: run ALL CE + ALL RO every time, plus ONLY the
+  scenario(s) that fit this case.
+• issue_specific_answers ← the SUB-THEME FRAMEWORK above: answer each of that framework's
+  questions. If (L1,L2) has no framework → {}.
+• Every check → Yes / No / Unknown / N/A + cite evidence (ticket id + line, or booking field).
+Return STRICT JSON:
+{
+  "tldr": "One line: '<what went wrong>; <what we did / didn't do>.'",
+  "wwr_chain": [
+    {"step":1,"what":"should have happened","why":"..."},
+    {"step":2,"what":"actually happened","why":"grounded in evidence"},
+    {"step":3,"what":"root cause","why":"systemic cause"},
+    {"step":4,"what":"why not caught","why":"failed control"}
+  ],
+  "prevention": "Durable fix — one paragraph, includes owning team + rough scope. Never 'be more careful'.",
+  "evidence": ["[booking:<bid>] <verbatim fact>","[ZD-<id>] <verbatim line>","[looker] <insight>"],
+  "issue_specific_answers": {"<framework question>":"Yes/No/Unknown / <evidence>"},
+  "checklist_answers": [
+    {"section":"CE","item":"<verbatim CE check>","answer":"Yes|No|Unknown|N/A","note":"one-line evidence"},
+    {"section":"RO","item":"<verbatim RO check>","answer":"...","note":"..."},
+    {"section":"Scenario","item":"<fitting scenario check>","answer":"...","note":"..."}
+  ],
+  "what_went_wrong_bullets": ["• bullet 1","• bullet 2"],
+  "area_of_improving": "One paragraph — ORM-owned actions, verb-first.",
+  "actions_taken": {"sp":[{"with":"SP name","handle":"[placeholder]","time":"date","context":"one line"}],"customer":[],"business":[],"product":[],"ce":[]},
+  "resolution": "One paragraph — comp given + fault attribution + refund fairness. Not full refund unless DSS says so."
+}
+RULES: never invent; missing evidence → say so; wwr_chain exactly 4 steps (should→actual→root→
+why-not-caught); prevention names the owning team; checklist_answers runs ALL CE+RO, fitting
+scenarios only; issue_specific_answers keys = the sub-theme framework's questions; handles use
+"[placeholder]" if unknown. JSON only.
+```
+
+### 8.8 Response draft — step 13
+```
+SYSTEM:
+You draft Headout's PUBLIC response to a negative Trustpilot review. Match the canned-response
+tone: warm, direct, no over-apologising, always addresses the specific complaint. NEVER promise
+comp Headout hasn't approved. NEVER invent facts.
+USER:
+=== REVIEW ===
+Author: {review_author}
+Body: {review_body_english}
+=== CLASSIFICATION ===
+{classification_json}
+=== RCA RESOLUTION (what we're offering) ===
+{resolution_text}
+=== CANNED RESPONSE EXAMPLES (from Canned sheet — Headout tone) ===
+{canned_examples_json}
+RULES:
+1. TONE: address by first name; warm but direct (no "we deeply apologise…"); own the mistake if
+   ours; explain briefly if guest error or SP issue; invent no features.
+2. STRUCTURE: acknowledge the issue (1 line) → what happened + what we're doing (2-3 lines) →
+   resolution + invite further contact (1 line).
+3. LENGTH: 60-120 words.
+4. COMP: reflect exactly the RCA resolution; if "no comp — guest error", acknowledge without
+   offering money; if refund/credit, state the amount.
+5. NEVER: "we've refunded you" unless RCA says processed; no internal links/ticket IDs; no third
+   person; avoid "regret"/"unfortunately".
+Return plain text — no preamble, no markdown, no signature block (added at post time).
+```
+
+---
+
+## 9. Wiring notes
+- Prompts live in `server/prompts.py`; called via `server/services/claude.py::_call(prompt)`.
+- Every parse wrapped in a safe JSON parser with schema-shape fallback (empty valid shape on failure).
+- Every step wrapped in try/except at the pipeline level — a failure degrades the field, never the run.
+- MOCK_MODE: each prompt has a fixture in `server/services/mock_data.py`; `is_live("anthropic")` gates the call (note `_call` still hits the model in mock — unknown review IDs generate real output).
