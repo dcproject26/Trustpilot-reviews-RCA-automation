@@ -60,3 +60,9 @@ id = "0xJRK1CMQbBdbz9ivKG2v"
 uri = "file://exports/v6_frameworks_dss_canned_delta.zip"
 type = "unspecified"
 title = "Delta v6 — CS Framework + DSS-as-Sheet + Canned responses (8 files)"
+
+[[outputs]]
+id = "hqKR7INXezTZBS8wEZry1"
+uri = "file://exports/full_state_audit.zip"
+type = "unspecified"
+title = "Full state audit — 30 files (server/*.py + server/services/*.py + migrations/*.sql + client/index.html)"
