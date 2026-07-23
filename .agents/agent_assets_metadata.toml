@@ -66,3 +66,9 @@ id = "hqKR7INXezTZBS8wEZry1"
 uri = "file://exports/full_state_audit.zip"
 type = "unspecified"
 title = "Full state audit — 30 files (server/*.py + server/services/*.py + migrations/*.sql + client/index.html)"
+
+[[outputs]]
+id = "rs6hCCL825egMho9u5ZYG"
+uri = "file://state_audit.zip"
+type = "unspecified"
+title = "State audit — server/, server/services/, client/index.html, migrations/"
