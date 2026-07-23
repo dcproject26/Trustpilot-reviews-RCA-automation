@@ -375,6 +375,9 @@ async def process_review(review_id: str):
                             "experienceName": cand.get("experience_name", ""),
                             "vendorName":     cand.get("vendorName", ""),
                         })
+                        # Enrich with booking_status and tid_name for the detail panel
+                        from server.services.bigquery import _get_booking_extra
+                        booking.update(_get_booking_extra(booking.get("id", "")))
                         match_tier = 1
                         narrowing_path = path_name
                         _ctr["t1_auto_promoted"] += 1
