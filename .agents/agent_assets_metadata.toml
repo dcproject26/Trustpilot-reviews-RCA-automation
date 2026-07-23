@@ -72,3 +72,21 @@ id = "rs6hCCL825egMho9u5ZYG"
 uri = "file://state_audit.zip"
 type = "unspecified"
 title = "State audit — server/, server/services/, client/index.html, migrations/"
+
+[[outputs]]
+id = "EG2_qU8PfdgCaCMgcb6dc"
+uri = "file://orm_rca_codebase.zip"
+type = "unspecified"
+title = "ORM RCA — full codebase (no secrets, no .git, no pycache)"
+
+[[outputs]]
+id = "KmZ72GzjBo7i-dnLllAZr"
+uri = "file://david_review_api.json"
+type = "unspecified"
+title = "GET /api/reviews/tp_1784722373_497379 — raw JSON (60 KB)"
+
+[[outputs]]
+id = "BJSs-s3wCwVjk0RdCzacx"
+uri = "file://david_insights_api.json"
+type = "unspecified"
+title = "GET /api/reviews/tp_1784722373_497379/insights — raw JSON"
