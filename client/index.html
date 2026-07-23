@@ -1725,6 +1725,7 @@ async function fetchInbox() {
           resolution: '',
           tldr: '', wwrChain: [], prevention: '',
           evidence: [], issueSpecificAnswers: {}, checklistAnswers: [],
+          checks: [],
         },
         insights: {
           tgidRating: {value:'—',sub:'',tone:''},
@@ -2748,7 +2749,7 @@ function renderRcaCol() {
       <div class="wwr-block">
         <div class="checks-section">
           <div class="checks-title">Diagnostic checks</div>
-          ${rca.checks.map(c => `
+          ${(rca.checks || []).map(c => `
             <div class="check-item ${c.check}">
               <span class="mark ${c.check === 'pass' ? '' : c.check}">${c.check === 'pass' ? '✓' : c.check === 'fail' ? '✗' : '!'}</span>
               <div class="check-body">
