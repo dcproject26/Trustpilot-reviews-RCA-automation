@@ -580,13 +580,45 @@ Return ONLY valid JSON, no markdown:
 }}"""
 
 
-# ─── 6. Response draft (unchanged) ─────────────────────────────────────────
+# ─── 6. Response draft ──────────────────────────────────────────────────────
 def response_draft_prompt(
     review_text: str, l1: str, l2: str, resolution: str,
-    canned_responses: str, guest_name: str = "",
+    canned_responses: str = "", guest_name: str = "",
     dss_rec: dict | None = None,
+    canned_list: list | None = None,
 ) -> str:
     name_hint = f"The guest's name is {guest_name}." if guest_name else ""
+
+    # Tone examples — from live canned sheet (preferred) or legacy string block
+    if canned_list:
+        tone_block_lines = [
+            "━━ TONE EXAMPLES (Headout's real past responses — use as tone reference, do NOT copy) ━━",
+        ]
+        for i, ex in enumerate(canned_list[:3], 1):
+            tone_block_lines.append(f"Example {i} [situation: {ex['situation']}]:")
+            tone_block_lines.append(ex["response"])
+        tone_block_lines.append(
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        )
+        tone_block = "\n".join(tone_block_lines)
+    elif canned_responses:
+        tone_block = f"TONE GUIDE (do not copy, structure only):\n{canned_responses}"
+    else:
+        tone_block = ""
+
+    brand_voice = """\
+━━ HEADOUT BRAND VOICE ━━
+- Warm and human, not corporate. Address the guest by first name if provided.
+- Own the mistake without excessive apology. One "I'm sorry" is enough.
+- Be specific: name the venue, the date, the concrete action taken/being taken.
+- Never make claims without evidence from the timeline. If we resolved: say what.
+  If we're still resolving: say what next step.
+- Direct language over hedging. No "we sincerely appreciate your patience".
+- Match language complexity to the guest's review — if they wrote 2 sentences,
+  reply in 2-3 sentences. If they wrote a story, engage with the story.
+- End with something the guest can do (link, timeline, contact) — not just "thanks".
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
+
     return f"""You are drafting a public reply to a Trustpilot review on behalf of Headout's CX team.
 
 REVIEW:
@@ -597,11 +629,12 @@ RESOLUTION: {resolution}
 DSS: {json.dumps(dss_rec or {}, indent=2)}
 {name_hint}
 
-TONE GUIDE (do not copy, structure only):
-{canned_responses}
+{tone_block}
+
+{brand_voice}
 
 INSTRUCTIONS:
-1. Tone guide only. Do not copy phrasing.
+1. Tone examples are reference only. Do not copy phrasing.
 2. Reference the guest's SPECIFIC complaint in their own terms.
 3. Compensation mentioned must match the resolution string exactly. Do NOT invent amounts.
 4. Non-defensive acknowledgement.

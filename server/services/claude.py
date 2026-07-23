@@ -240,14 +240,16 @@ async def generate_rca_v2(
 # ─── 6. Response draft (v2 — uses L1/L2 + resolution) ───────────────────────
 async def draft_response_v2(
     review_text: str, l1: str, l2: str, resolution: str,
-    canned_responses: str, review_id: str = None,
+    canned_responses: str = "", review_id: str = None,
     guest_name: str = "", dss_rec: dict | None = None,
+    canned_list: list | None = None,
 ) -> str:
     if not is_live("anthropic"):
         return MOCK_RESPONSES.get(review_id, "")
     return await _call(
         prompts.response_draft_prompt(
-            review_text, l1, l2, resolution, canned_responses, guest_name, dss_rec),
+            review_text, l1, l2, resolution, canned_responses, guest_name, dss_rec,
+            canned_list=canned_list),
         max_tokens=800,
     )
 

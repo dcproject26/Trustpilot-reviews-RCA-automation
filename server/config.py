@@ -64,11 +64,18 @@ APPS_SCRIPT_URL = os.getenv(
 BMS_URL_PATTERN  = os.getenv("BMS_URL_PATTERN",  "https://aries.headout.com/bms/booking/{bid}")
 TGID_URL_PATTERN = os.getenv("TGID_URL_PATTERN", "https://www.headout.com/tour/{tgid}")
 
-# Retool DSS
-DSS_WEBHOOK_URL = os.getenv("DSS_WEBHOOK_URL", "")
+# DSS — Google Sheet (CE/RO path)
+DSS_WEBHOOK_URL         = os.getenv("DSS_WEBHOOK_URL", "")        # legacy, unused
+DSS_SHEET_ID            = os.getenv("DSS_SHEET_ID",
+                                     "1sz8KkxiBaGSxiQy4G-iPN_0gmzGg4wt3V8NI0MaVd88")
+DSS_SHEET_TAB           = os.getenv("DSS_SHEET_TAB", "CE/RO")
 
-# Canned responses
-CANNED_RESPONSES_SHEET_ID = os.getenv("CANNED_RESPONSES_SHEET_ID", "")
+# Canned responses — Google Sheet
+CANNED_RESPONSES_SHEET_ID = os.getenv("CANNED_RESPONSES_SHEET_ID",
+                                        "1aXnZzzFQ8tDiaXs0E2YRErOcTSOsbTOqnM7WhyOnmi4")
+
+# Google Sheets API key (optional — used only to resolve tab names via metadata)
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").strip()
 
 # Database (auto-injected by Replit Postgres)
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./local.db")
@@ -111,7 +118,7 @@ def is_live(service: str) -> bool:
         "zendesk":        bool((ZENDESK_SUBDOMAIN and ZENDESK_API_TOKEN)
                                or _zd_connector_available()),
         "apps_script":    bool(APPS_SCRIPT_URL),
-        "dss":            bool(DSS_WEBHOOK_URL),
+        "dss":            bool(DSS_SHEET_ID),
         "canned":         bool(CANNED_RESPONSES_SHEET_ID),
     }
     return checks.get(service, False)

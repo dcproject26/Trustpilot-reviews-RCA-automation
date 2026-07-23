@@ -10,8 +10,8 @@ STAKEHOLDER STATUS:
   Ticket sub-theme framework:       RECEIVED
   Audio Guide sub-theme framework:  RECEIVED
   SP sub-theme framework:           RECEIVED
-  Customer Support Issues framework: PENDING
-  Content / Misleading Info framework: PENDING
+  Customer Support Issues framework: RECEIVED
+  Content / Misleading Info framework: RECEIVED
   Venue closure sub-theme framework:  PENDING
   Guide No Show sub-theme framework:  PENDING (may reuse SP framework)
   Venue Related sub-theme framework:  PENDING
@@ -277,6 +277,38 @@ CONTENT_SUB_THEMES = {
     "tiebreak_rule": "Prefer the most specific theme (food/seating/inclusions) over General Content Mismatch.",
 }
 
+CUSTOMER_SUPPORT_SUB_THEMES = {
+    "l2_key":         "Customer Support Issues",
+    "exclusion":      ["long queue", "waiting time", "crowding", "congestion",
+                       "overcrowding", "high pricing", "venue closure", "venue closed"],
+    "exclusion_label": "H. Irrelevant",
+    "sub_themes": [
+        ("A", "No Response / Ignored",
+            ["no response", "no reply", "never replied", "filed a complaint never heard back",
+             "multiple emails no response", "support unreachable", "chat kept cutting off"]),
+        ("B", "Refund Denied / Delayed",
+            ["refund denied", "refused to refund", "refund promised but not received",
+             "still awaiting refund", "no refund despite cancellation",
+             "refund delay past promised", "charged but not reimbursed", "bank chargeback refused"]),
+        ("C", "Reschedule / Cancellation Request Denied",
+            ["reschedule refused", "cannot change date", "emergency situation ignored",
+             "medical emergency no help", "family emergency no help",
+             "flight changed no accommodation", "strict cancellation no flexibility",
+             "refused to move booking"]),
+        ("D", "Wrong / Misleading Information Given by Support",
+            ["support told me wrong info", "agent gave incorrect details",
+             "false claims by support", "support said X but Y happened", "misled by CE"]),
+        ("E", "Support Slow / Delayed Resolution",
+            ["took days to resolve", "took weeks to get a response",
+             "long wait for support reply", "eventually resolved but far too late"]),
+        ("F", "Rude / Unprofessional Support",
+            ["rude agent", "dismissive support", "disrespectful CE",
+             "insulted by support", "unprofessional handling"]),
+        ("G", "Any Other Customer Support Issue", []),
+    ],
+    "tiebreak_rule": "A if support never engaged even on refund; B only if support engaged and denied",
+}
+
 # Registry: which sub-theme framework applies to which L1/L2
 SUB_THEME_REGISTRY = {
     ("Operations Issue", "Meeting Point Issues"): MP_SUB_THEMES,
@@ -290,6 +322,7 @@ SUB_THEME_REGISTRY = {
     ("Supply Partner Issue", "Timing Issues"):                                    SP_SUB_THEMES,
     ("Supply Partner Issue", "Tour Cancelled by Operator"):                       SP_SUB_THEMES,
     ("Operations Issue", "Content - Instructions not clear / Misleading Info"):   CONTENT_SUB_THEMES,
+    ("Operations Issue", "Customer Support Issues"):                              CUSTOMER_SUPPORT_SUB_THEMES,
 }
 
 

@@ -1,0 +1,237 @@
+Delta v6 — Frameworks sign-off + DSS-as-Sheet + Canned responses + client wire (support frames render, sub-theme row).
+
+Backend + client. Do NOT touch classification code, cascade logic, Zendesk timeline, insights, semaphores, or MOCK_MODE fallbacks. MOCK_MODE must still work everywhere.
+
+Ground truth to inherit
+BQ, Zendesk, Anthropic wired live. is_live() per-service gates hold.
+Content sub-theme framework (13 themes A–M, N. Irrelevant) is already in taxonomy.py::SUB_THEME_REGISTRY — do NOT replace it.
+_draft_dict() already returns sub_theme, support_interaction_frames, support_summary. Endpoints exist. Backend is done for these — this delta only wires the client.
+Do NOT touch redemption instructions.
+Part 1 — Customer Support sub-theme framework (add to taxonomy)
+Add to server/taxonomy.py, matching the shape of existing frameworks:
+
+CUSTOMER_SUPPORT_SUB_THEMES = {
+    "l2_key":         "Customer Support Issues",
+    "exclusion":      ["long queue", "waiting time", "crowding", "congestion",
+                       "overcrowding", "high pricing", "venue closure", "venue closed"],
+    "exclusion_label": "H. Irrelevant",
+    "sub_themes": [
+        ("A", "No Response / Ignored",
+            ["no response", "no reply", "never replied", "filed a complaint never heard back",
+             "multiple emails no response", "support unreachable", "chat kept cutting off"]),
+        ("B", "Refund Denied / Delayed",
+            ["refund denied", "refused to refund", "refund promised but not received",
+             "still awaiting refund", "no refund despite cancellation",
+             "refund delay past promised", "charged but not reimbursed", "bank chargeback refused"]),
+        ("C", "Reschedule / Cancellation Request Denied",
+            ["reschedule refused", "cannot change date", "emergency situation ignored",
+             "medical emergency no help", "family emergency no help",
+             "flight changed no accommodation", "strict cancellation no flexibility",
+             "refused to move booking"]),
+        ("D", "Wrong / Misleading Information Given by Support",
+            ["support told me wrong info", "agent gave incorrect details",
+             "false claims by support", "support said X but Y happened", "misled by CE"]),
+        ("E", "Support Slow / Delayed Resolution",
+            ["took days to resolve", "took weeks to get a response",
+             "long wait for support reply", "eventually resolved but far too late"]),
+        ("F", "Rude / Unprofessional Support",
+            ["rude agent", "dismissive support", "disrespectful CE",
+             "insulted by support", "unprofessional handling"]),
+        ("G", "Any Other Customer Support Issue", []),
+    ],
+    # Tiebreak: A (No Response) beats B (Refund Denied) when both apply
+    "tiebreak_rule": "A if support never engaged even on refund; B only if support engaged and denied",
+}
+Register it:
+
+("Operations Issue", "Customer Support Issues"): CUSTOMER_SUPPORT_SUB_THEMES,
+Update the STAKEHOLDER STATUS docblock:
+
+Customer Support Issues framework: RECEIVED
+Content is already registered — do NOT touch it. Confirm via grep before you finish; no changes to CONTENT_SUB_THEMES.
+
+Part 2 — DSS: rewrite services/dss.py from webhook to Sheet lookup
+Scope change from earlier design. DSS is no longer a Retool webhook — it's a Google Sheet with CE/RO and Escalations paths. Use CE/RO only. Do NOT fall back to the webhook code.
+
+Secrets to read:
+
+DSS_SHEET_ID          (add default: 1sz8KkxiBaGSxiQy4G-iPN_0gmzGg4wt3V8NI0MaVd88)
+DSS_SHEET_TAB         (default: "CE/RO" — but auto-detect if that fails; see below)
+Fetch strategy:
+
+On startup (and every 15 min via a simple TTL cache), fetch the sheet as CSV:
+https://docs.google.com/spreadsheets/d/{DSS_SHEET_ID}/export?format=csv&gid={gid}
+First try gid=0. If the sheet has multiple tabs, use the Sheets metadata JSON endpoint to find the tab that matches DSS_SHEET_TAB (case-insensitive, whitespace-normalised):
+https://sheets.googleapis.com/v4/spreadsheets/{DSS_SHEET_ID}?fields=sheets.properties(title,sheetId)&key={GOOGLE_API_KEY}
+If GOOGLE_API_KEY isn't set, fall back to the public CSV export at gid=0. Log which path was used.
+
+The sheet is publicly shared for read. No OAuth needed if the CSV endpoint returns 200. If it returns 302/401, log and fall back to mock.
+Parse:
+
+Read the CSV, first row = headers.
+Column detection is heuristic because I don't know the exact column names yet. Match column headers by keyword, case-insensitive:
+Situation → header contains any of: situation, case, scenario, issue
+Action → header contains: action, co action, ce action, ro, response, resolution
+Compensation → header contains: comp, hoc, refund, credit
+Policy → header contains: policy
+Owner/team → header contains: team, owner, route
+Filter rows where team/owner column matches CE, RO, or is empty. Skip rows where team = Escalations.
+Build an in-memory list: [{situation, action, compensation, policy, raw_row}, ...].
+Log column mapping on startup so we can verify: [dss] mapped columns: situation=<>, action=<>, compensation=<>.
+Matching for get_recommendation(booking, l1, l2, review_text):
+
+Score each row against the input:
++3 if the row's situation cell contains the L2 name (case-insensitive)
++2 if it contains the L1 name
++1 for each meaningful keyword overlap between situation and review_text (min 4 chars, stopwords stripped)
+Return the top-scored row as:
+{
+  "policy":       row.policy or "",
+  "compensation": row.compensation or "",
+  "action":       row.action or "",
+  "coverage":     "CE/RO",
+  "escalateTo":   "",              # empty — we skip Escalations rows
+  "matched_row":  row.raw_row,     # for debug
+  "match_score":  int,
+}
+If no row scores > 0, return empty dict + match_score: 0, log warning.
+Apps Script note: the user mentioned checking the Apps Script attached to the sheet. If the CSV export doesn't give enough info (e.g. it's a script-generated view), the Apps Script might expose a doGet(...) endpoint. Check the sheet's Extensions → Apps Script menu for any web-app deployment URL. If one exists, use it in preference to CSV parsing — set DSS_APPS_SCRIPT_URL env var and hit that instead. Report back on this. If nothing exists, CSV is fine.
+
+Do NOT call any Retool endpoint. Delete or comment out the Retool webhook code path.
+
+Part 3 — Canned responses: services/canned.py reads Sheet
+Same pattern as DSS.
+
+Secret:
+
+CANNED_RESPONSES_SHEET_ID  (default: 1aXnZzzFQ8tDiaXs0E2YRErOcTSOsbTOqnM7WhyOnmi4)
+CANNED_RESPONSES_TAB       (default: try gid=0 first)
+Fetch + parse (same as DSS): CSV export from Google Sheets, TTL 15 min, column headers detected heuristically:
+
+Situation → situation, case, scenario, theme
+Response → response, template, reply, message, text
+L1/L2 hints if columns exist for them.
+Function shape:
+
+async def get_canned_responses(l1: str | None, l2: str | None, sub_theme: str | None,
+                                review_text: str) -> list[dict]:
+    """
+    Returns up to 5 example responses ranked by relevance.
+    Shape: [{"situation": "...", "response": "..."}, ...]
+    Used by response_draft_prompt as tone reference — NOT to copy verbatim.
+    """
+Ranking: same keyword-overlap approach as DSS. Prefer rows where a matching (L1, L2) or (L2, sub_theme) column value is present. Return top 3–5.
+
+Update prompts.py::response_draft_prompt(...):
+
+Insert two new sections into the existing response-draft prompt:
+
+Tone examples — inject the top-3 canned examples verbatim, framed as:
+━━ TONE EXAMPLES (Headout's real past responses — use as tone reference, do NOT copy) ━━
+Example 1 [situation: <s1>]:
+<response 1>
+Example 2 [situation: <s2>]:
+<response 2>
+Example 3 [situation: <s3>]:
+<response 3>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Brand voice guidelines — hardcode into the prompt (until CX gives a formal doc):
+━━ HEADOUT BRAND VOICE ━━
+- Warm and human, not corporate. Address the guest by first name if provided.
+- Own the mistake without excessive apology. One "I'm sorry" is enough.
+- Be specific: name the venue, the date, the concrete action taken/being taken.
+- Never make claims without evidence from the timeline. If we resolved: say what.
+  If we're still resolving: say what next step.
+- Direct language over hedging. No "we sincerely appreciate your patience".
+- Match language complexity to the guest's review — if they wrote 2 sentences,
+  reply in 2-3 sentences. If they wrote a story, engage with the story.
+- End with something the guest can do (link, timeline, contact) — not just "thanks".
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Do NOT change the rest of the prompt (the L1/L2 context injection, resolution reference, etc.). Only add these two sections.
+
+Part 4 — Client wire: support frames render + sub-theme row
+Sub-theme row in Issue Classification block (was drafted, not applied yet):
+
+Inside .classify-block in client/index.html, right after the L2 classify-row, before reasoning-text:
+
+${(rca.subTheme || (SUB_THEME_OPTIONS[rca.issueL1 + '::' + rca.issueL2] || []).length) ? `
+<div class="classify-row">
+  <span class="classify-label">Sub-theme</span>
+  <select class="classify-select" data-field="sub_theme">
+    ${rca.subTheme ? '<option>' + rca.subTheme + '</option>' : '<option value="">— none —</option>'}
+    ${(SUB_THEME_OPTIONS[rca.issueL1 + '::' + rca.issueL2] || [])
+        .filter(o => o !== rca.subTheme)
+        .map(o => '<option>' + o + '</option>').join('')}
+  </select>
+</div>` : ''}
+Options loader (near existing L2_OPTIONS):
+
+const SUB_THEME_OPTIONS = {};
+async function loadSubThemeOptions() {
+  try {
+    const t = await (await fetch('/api/taxonomy')).json();
+    const fw = t.sub_theme_frameworks || {};
+    for (const key in fw) {
+      const f = fw[key];
+      const opts = (f.sub_themes || []).map(([code, name]) => code + '. ' + name);
+      if (f.exclusion_label) opts.push(f.exclusion_label);
+      SUB_THEME_OPTIONS[key] = opts;
+    }
+  } catch (e) {}
+}
+loadSubThemeOptions();
+Map to view-model: subTheme: draft.sub_theme || null,
+
+On change: PATCH /api/reviews/{id}/draft-v2 with {"sub_theme": <value>}.
+
+Support Interaction frames render — replace the hardcoded co_events/sp_events arrays in the demo with real data:
+
+View-model additions:
+
+supportFrames:  draft.support_interaction_frames || [],
+supportSummary: draft.support_summary || "",
+spFrames:       draft.sp_interaction_frames || [],
+Wherever the demo loops over hardcoded frames to build cards, iterate rca.supportFrames (and rca.spFrames if that section exists). Each card renders time · label · guestSaid · weDid · guestReply · gap — no new UI, just real data.
+
+Support summary paragraph — populate the existing summary line at the top of the section with rca.supportSummary. If no such element exists, add one above the frame list: <div class="support-summary-line">${rca.supportSummary}</div> using the demo's existing section-leader typography.
+
+Gap tags: render as a small colored pill only when gap is non-empty (matches demo v15 pattern). Empty gap → no pill.
+
+Empty state: if rca.supportFrames.length === 0, render <div class="empty-state">No support interactions on this booking</div>. Do not hide the whole section — the empty state is diagnostic.
+
+Verify
+Both existing test suites green: python -m tests.test_classifier_validators (23/23), python -m tests.test_classification_accuracy (14/14).
+/api/taxonomy returns sub_theme_frameworks including "Operations Issue::Customer Support Issues" — the new framework.
+Manual pipeline on a review that's likely CS: golden set gs_08_anon_train should classify as L1=Operations, L2=Customer Support Issues, sub_theme = "A. No Response / Ignored" (or similar).
+Manual pipeline with a real booking:
+Sub-theme row appears on the dashboard for any review whose L2 has a framework.
+Change sub-theme in dropdown → PATCH fires, reload persists.
+Support frames render from real Zendesk data (14+ events for BID 30837082).
+Support summary appears above frames.
+DSS:
+Log on startup shows: [dss] fetched N rows from sheet, mapped columns: situation=<>, action=<>, compensation=<>, tab=<>
+get_recommendation(...) returns a non-empty dict with coverage="CE/RO" and match_score > 0 on a real MP or Ticket review.
+If Apps Script URL exists and is used, log which path.
+Canned responses:
+Log: [canned] fetched N rows from sheet, tab=<>
+Response draft output includes tone that matches the sheet examples (spot check 3 drafts).
+is_live() for DSS + canned = True when the sheets fetch cleanly; False on failure (mock fallback preserved).
+Deliverable
+Zip of only changed files + this table:
+
+Check	Status	Notes
+CUSTOMER_SUPPORT_SUB_THEMES registered		
+Content framework UNTOUCHED		grep confirms
+STAKEHOLDER STATUS docblock updated		
+dss.py rewritten to Sheet lookup (CE/RO only)		
+DSS Apps Script check — path used		csv or apps-script
+canned.py rewritten to Sheet lookup		
+response_draft_prompt: tone examples + brand voice added		
+Sub-theme row rendered in classify-block		
+Sub-theme edit persists via PATCH		
+Support frames render from real API		
+Support summary line rendered		
+Both test suites green		
+CS golden case (gs_08) classifies correctly on live Claude		run REAL_CLAUDE=1 for this one review
+Report which columns were detected in each sheet, and paste the first 3 rows of each parsed sheet as a debug log (redact any personal names).
+

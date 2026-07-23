@@ -124,7 +124,7 @@ async def run_tests():
     # ═════════════════════════════════════════════════════════════════════
     st_when_none = json.dumps({
         "l1": "Operations Issue",
-        "l2": "Customer Support Issues",  # No framework yet for this L2
+        "l2": "Customer expectation mismatch",  # Valid L2, no sub-theme framework
         "sub_theme": "A. Something",  # Wrong — should be null
     })
     r = await classify("test", {}, [], mock_call(st_when_none))

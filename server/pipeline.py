@@ -497,12 +497,8 @@ async def process_review(review_id: str):
             except Exception as e:
                 log.exception(f"Similar complaints failed: {e}")
 
-        # ── 9. DSS (eager) ────────────────────────────────────────────────────
+        # ── 9. DSS placeholder — runs after classification (step 11d) ───────────
         dss_rec = {}
-        try:
-            dss_rec = await dss.get_recommendation(booking or {}, review_id)
-        except Exception as e:
-            log.exception(f"DSS failed: {e}")
 
         # ── 10. Stated Issue ──────────────────────────────────────────────────
         stated_issue = ""
@@ -546,6 +542,13 @@ async def process_review(review_id: str):
             except Exception as e:
                 log.exception(f"Insights failed: {e}")
 
+        # ── 11d. DSS (after classification — scores on L1/L2/review_text) ────
+        try:
+            dss_rec = await dss.get_recommendation(
+                booking or {}, review_id, l1=l1, l2=l2, review_text=review_text or "")
+        except Exception as e:
+            log.exception(f"DSS failed: {e}")
+
         # ── 12. Full structured RCA ───────────────────────────────────────────
         rca_v2 = {}
         try:
@@ -557,16 +560,16 @@ async def process_review(review_id: str):
         # ── 13. Response draft ────────────────────────────────────────────────
         response_draft = ""
         try:
-            canned         = await get_canned_responses()
+            canned         = await get_canned_responses(l1, l2, sub_theme, review_text or "")
             response_draft = await claude.draft_response_v2(
                 review_text=review_text,
                 l1=l1,
                 l2=l2,
                 resolution=rca_v2.get("resolution", ""),
-                canned_responses=canned,
                 review_id=review_id,
                 guest_name=(booking or {}).get("guestName") or (review.author or ""),
                 dss_rec=dss_rec,
+                canned_list=canned,
             )
         except Exception as e:
             log.exception(f"Response draft failed: {e}")
