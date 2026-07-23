@@ -1861,10 +1861,38 @@ async function loadDraftOverlays() {
         r.booking.experienceDate   = r.booking.experienceDate || db.visitDate || db.date_of_visit;
         r.booking.creationDate     = db.date_of_booking       || r.booking.creationDate || '';
         r.booking.bookingDate      = db.date_of_booking       || r.booking.bookingDate;
-        r.booking.primaryGuestName = db.primary_guest_name    || r.booking.primaryGuestName;
         r.booking.bmsLink          = db.bms_link;
         r.booking.tgidLink         = db.tgid_link;
         r.booking.ticketMailSeen   = !!db.ticket_mail_seen;
+
+        // booking_status and tid_name from BigQuery enrichment
+        r.booking.status  = db.booking_status || db.status || r.booking.status || '';
+        r.booking.tidName = db.tid_name || db.tour_name || r.booking.tidName || '';
+
+        // Mask encrypted primary_guest_name (base64-like: long, no whitespace)
+        const rawGuest = db.primary_guest_name || r.booking.primaryGuestName || '';
+        if (rawGuest && rawGuest.length > 20 && !/\s/.test(rawGuest)) {
+          r.booking.primaryGuestName = 'Guest (encrypted)';
+        } else {
+          r.booking.primaryGuestName = rawGuest || '';
+        }
+      }
+
+      // ── Review date and lead time ─────────────────────────────────────────
+      if (review && review.received_at) {
+        r.booking = r.booking || {};
+        r.booking.reviewDate = review.received_at.split('T')[0];
+
+        const visitStr = (r.booking.experienceDate || '').split('T')[0];
+        if (visitStr) {
+          const visitMs  = new Date(visitStr).getTime();
+          const reviewMs = new Date(review.received_at).getTime();
+          const diffDays = Math.round((reviewMs - visitMs) / 86400000);
+          r.booking.leadTime = diffDays > 1  ? `${diffDays} days`
+                             : diffDays === 1 ? '1 day'
+                             : diffDays === 0 ? 'Same day'
+                             : `${Math.abs(diffDays)}d before visit`;
+        }
       }
 
       // ── Live insights from API ────────────────────────────────────────────
@@ -2226,7 +2254,7 @@ function renderReviewCol() {
   }
 
   const b = r.booking;
-  const events = r.events.map(e => `
+  const events = (r.events || []).map(e => `
     <div class="tl-event">
       <div class="tl-time">${e.time}</div>
       <div class="tl-content">
@@ -2350,18 +2378,18 @@ function renderReviewCol() {
       <div class="details-grid">
         <div class="detail-row"><span class="k">Booking ID</span><span class="v mono">${b.bmsLink ? `<a href="${b.bmsLink}" target="_blank" rel="noopener" class="bms-link">${b.bid}</a>` : b.bid}</span></div>
         <div class="detail-row"><span class="k">Experience</span><span class="v">${b.experience}</span></div>
-        <div class="detail-row"><span class="k">TID name</span><span class="v placeholder">${b.tidName || '[TID name placeholder]'}</span></div>
+        <div class="detail-row"><span class="k">TID name</span><span class="v ${b.tidName ? '' : 'placeholder'}">${b.tidName || '—'}</span></div>
         <div class="detail-row"><span class="k">TGID / TID</span><span class="v mono">${b.tgidLink ? `<a href="${b.tgidLink}" target="_blank" rel="noopener" class="tgid-link">${b.tgid}</a>` : b.tgid} / ${b.tid}</span></div>
         <div class="detail-row"><span class="k">Vendor ID</span><span class="v mono">${b.vid}</span></div>
         <div class="detail-row"><span class="k">Vendor name</span><span class="v">${b.vendorName}</span></div>
         <div class="detail-row"><span class="k">Fulfilment type</span><span class="v mono">${b.fulfilmentType || '—'}</span></div>
         <div class="detail-row"><span class="k">Primary guest</span><span class="v">${b.primaryGuestName || '—'}</span></div>
-        <div class="detail-row"><span class="k">Visit date</span><span class="v mono">${b.experienceDate}</span></div>
+        <div class="detail-row"><span class="k">Visit date</span><span class="v mono">${b.experienceDate || '—'}</span></div>
         <div class="detail-row"><span class="k">Booking date</span><span class="v mono">${b.bookingDate || b.creationDate || '—'}</span></div>
-        <div class="detail-row"><span class="k">Review date</span><span class="v mono">${b.reviewDate}</span></div>
+        <div class="detail-row"><span class="k">Review date</span><span class="v mono">${b.reviewDate || '—'}</span></div>
         <div class="detail-row"><span class="k">Ticket mail seen</span><span class="v">${b.ticketMailSeen != null ? `<span class="pill-sm ${b.ticketMailSeen ? 'pill-green' : 'pill-grey'}">${b.ticketMailSeen ? 'Yes' : 'No'}</span>` : '—'}</span></div>
-        <div class="detail-row"><span class="k">Booking status</span><span class="v"><span class="booking-status-pill status-${b.status}">${b.status}</span></span></div>
-        <div class="detail-row"><span class="k">Lead time</span><span class="v mono">${b.leadTime}</span></div>
+        <div class="detail-row"><span class="k">Booking status</span><span class="v">${b.status ? `<span class="booking-status-pill status-${b.status}">${b.status}</span>` : '—'}</span></div>
+        <div class="detail-row"><span class="k">Lead time</span><span class="v mono">${b.leadTime || '—'}</span></div>
       </div>
     </div>
 

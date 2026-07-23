@@ -97,6 +97,7 @@ async def find_booking(review: dict) -> dict | None:
         rows = _run_query(sql, [_bqlib.ScalarQueryParameter("ref", "INT64", int(ref))])
         if rows:
             b = _row_to_dict(rows[0])
+            b.update(_get_booking_extra(str(rows[0].booking_id)))
             b["_match"] = {"tier": 1, "confidence": "high",
                            "method": "Booking ID in review text"}
             return b
@@ -126,6 +127,7 @@ async def find_booking(review: dict) -> dict | None:
         rows = _run_query(sql, [_bqlib.ScalarQueryParameter("name", "STRING", author)])
         if len(rows) == 1:
             b = _row_to_dict(rows[0])
+            b.update(_get_booking_extra(str(rows[0].booking_id)))
             b["_match"] = {"tier": 2, "confidence": "med",
                            "method": "Single name match"}
             return b
@@ -286,3 +288,35 @@ def _row_to_dict(row) -> dict:
         "visitDate":      str(getattr(row, "visit_date", "") or ""),
         "fulfilmentType": getattr(row, "fulfilment_type", "") or "",
     }
+
+
+def _get_booking_extra(bid: str) -> dict:
+    """Fetch booking_status and tour_name for a matched booking.
+
+    Runs as a separate query so that any schema mismatch never breaks the
+    primary booking-match query. Returns {} silently on any failure.
+    """
+    if not _bq or not bid:
+        return {}
+    try:
+        bid_int = int(bid)
+    except (TypeError, ValueError):
+        return {}
+    try:
+        sql = f"""
+        SELECT
+            b.booking_status,
+            b.tour_name
+        FROM `{BIGQUERY_BOOKINGS_TABLE}` b
+        WHERE b.booking_id = @bid
+        LIMIT 1
+        """
+        rows = _run_query(sql, [_bqlib.ScalarQueryParameter("bid", "INT64", bid_int)])
+        if rows:
+            return {
+                "booking_status": getattr(rows[0], "booking_status", None) or "",
+                "tid_name":       getattr(rows[0], "tour_name",      None) or "",
+            }
+    except Exception:
+        pass
+    return {}
