@@ -248,7 +248,7 @@ async def add_manual_review(
 
     review = Review(
         id=review_id, slack_ts=ts, slack_channel=data.slack_channel,
-        rating=data.rating, language="en",
+        rating=data.rating, language=None,
         author=data.author or None, body_original=data.body,
         reference_number=data.reference_number, status="new",
     )
@@ -570,6 +570,20 @@ async def send_review(review_id: str, db: Session = Depends(get_session)):
         m.sent = True
     db.commit()
     return {"ok": True, "ts": ts}
+
+
+@router.post("/api/reviews/{review_id}/reprocess")
+async def reprocess_review(
+    review_id: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_session),
+):
+    r = db.query(Review).filter(Review.id == review_id).first()
+    if not r:
+        raise HTTPException(404, "Review not found")
+    from server.pipeline import process_review as _pipeline
+    background_tasks.add_task(lambda rid: asyncio.run(_pipeline(rid)), review_id)
+    return {"ok": True, "review_id": review_id}
 
 
 @router.get("/api/reporting")

@@ -2250,7 +2250,7 @@ function renderReviewCol() {
       <div class="section">
         <div class="section-label"><span class="marker"></span>Identifier Checks</div>
         <div class="confidence-trail">
-          ${r.untraceableChecks.map(s => `
+          ${(r.untraceableChecks || []).map(s => `
             <div class="conf-step">
               <span class="mark fail">✗</span>
               <span class="label-text">${s.text}</span>

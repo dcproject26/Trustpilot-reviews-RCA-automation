@@ -1,0 +1,31 @@
+BRIEF v7.4 — Implement VID completion rate + same-day same-VID in the wired insights module
+
+1. Add two BigQuery queries to server/services/insights.py::get_insights (the one the pipeline actually calls), running alongside the existing 5 via the same asyncio.gather:
+
+Query F — VID completion rate (last 4 weeks) — the CX ruleset checks completion over 4 weeks:
+SELECT
+  COUNTIF(f.fulfilment_type NOT IN ('FAILED','UNFULFILLED','CANCELLED')) AS completed,
+  COUNT(*) AS total
+FROM `{_BOOKINGS_TABLE}` b
+LEFT JOIN `{_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
+WHERE b.tour_id = @tid AND b.vendor_id = @vid
+  AND DATE(b.created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 28 DAY)
+→ vid_completion_rate = round(completed/total, 3) (null-safe).
+
+Query G — same-day same-VID fulfilment issues — port the existing query from bigquery.py:188-203 (keyed on vid + visitDate), producing "{issues} of {total}".
+2. Add both to the output dict with the keys consumers already expect, plus raw values:
+
+"vid_completion_rate": 0.912,          # numeric
+"vidCompletionRate":  "91.2%",         # string for flag-to-biz + Slack
+"same_day_same_vid":  {"issues": 2, "total": 18},
+"sameDaySameVidIssues": "2 of 18",
+3. Guards: both return null/"N/A" when visitDate/tid/vid missing or BQ not live (extend the existing _zero_result to include the two new keys so mock still returns cleanly). Add _FULFILMENTS_TABLE constant.
+
+4. Delete the orphaned bigquery.py::get_insights (or repoint it to insights.py) so there aren't two competing implementations — confirm no importer first (there is none).
+
+5. Surface on the dashboard: in /api/reviews/{id}/insights (api.py:248) pass the two new fields through, and add tiles in index.html's insights section (~line 2279) reading the live values instead of the demo array.
+
+Guardrails: MOCK_MODE unchanged. No deploy. _zero_result keeps mock returning zeros cleanly.
+
+Want me to also verify the exact fulfilment_type enum values against your fct_fulfilments schema before the Agent writes the query? If those enum strings (FAILED/UNFULFILLED/CANCELLED) are wrong, the completion rate will compute but be inaccurate — worth confirming against the real table.
+

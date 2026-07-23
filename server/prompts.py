@@ -342,11 +342,20 @@ CRITICAL: L2 Issues must contain EXACTLY ONE value — never more than one.
 
 # ─── 1. Translation ─────────────────────────────────────────────────────────
 def translation_prompt(body: str, lang: str) -> str:
-    return f"""Translate this Trustpilot review into clear English.
+    if lang and lang not in ("en", "auto", ""):
+        return f"""Translate this Trustpilot review into clear English.
 Preserve tone exactly — frustration, sarcasm, urgency. Translate, do not paraphrase.
 Return ONLY the translation. No preamble, no label, no explanation.
 
 Original ({lang}):
+{body}"""
+    return f"""Detect the language of this Trustpilot review.
+If it is already written in English, reply with exactly the word: ENGLISH_ALREADY
+If it is in any other language, translate it into clear English — preserve tone exactly \
+(frustration, sarcasm, urgency). Do not paraphrase.
+Return ONLY the English translation, or the word ENGLISH_ALREADY. No preamble, no label.
+
+Review:
 {body}"""
 
 

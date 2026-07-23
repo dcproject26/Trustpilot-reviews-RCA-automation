@@ -24,6 +24,8 @@ Steps:
 import asyncio, logging, re
 from datetime import datetime
 
+from sqlalchemy.orm.attributes import flag_modified
+
 from server.config import is_live, MOCK_MODE
 from server.db import SessionLocal, Review, RcaDraft, ReviewMetric
 from server.services import claude, bigquery as bq, zendesk, dss, slack as slk
@@ -45,10 +47,12 @@ async def process_review(review_id: str):
         log.info(f"[pipeline] {review_id} — start")
 
         # ── 1. Translate ──────────────────────────────────────────────────────
-        if review.language and review.language != "en" and not review.body_english:
+        if not review.body_english:
             try:
-                review.body_english = await claude.translate(
-                    review.body_original, review.language, review_id)
+                result = await claude.translate(
+                    review.body_original, review.language or "auto", review_id)
+                if result and result.strip() != "ENGLISH_ALREADY":
+                    review.body_english = result.strip()
                 db.commit()
             except Exception as e:
                 log.exception(f"Translation failed: {e}")
@@ -662,6 +666,21 @@ async def process_review(review_id: str):
         draft.suggested_response          = response_draft
         draft.generated_at                = datetime.utcnow()
         review.status                     = "draft"
+
+        # Force SQLAlchemy to detect JSON column changes on re-runs
+        # (JSON type does not track in-place mutations automatically)
+        for _col in (
+            "booking", "candidates_list", "confidence_trail",
+            "extracted_signals", "narrowing_attempts",
+            "timeline", "insights", "similar_support", "similar_reviews",
+            "dss_rec", "zendesk_ticket_ids", "timeline_raw",
+            "diagnostic_checks", "what_went_wrong_bullets",
+            "support_interaction_frames", "sp_interaction_frames",
+            "area_of_improving", "actions_taken",
+            "wwr_chain", "evidence", "issue_specific_answers", "checklist_answers",
+        ):
+            flag_modified(draft, _col)
+
         db.commit()
 
         # ── 15. Slack post-back — disabled until explicitly re-enabled ──────────
