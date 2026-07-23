@@ -801,14 +801,15 @@ async def process_review(review_id: str):
                                               {"sp":[],"customer":[],"business":[],"product":[],"ce":[]})
         draft.resolution                  = rca_v2.get("resolution", "")
 
-        # v3 fields — independent of v2, both persist
-        if rca_v3:
-            draft.tldr                    = rca_v3.get("tldr")
-            draft.wwr_chain               = rca_v3.get("wwr_chain") or []
-            draft.prevention              = rca_v3.get("prevention")
-            draft.evidence                = rca_v3.get("evidence") or []
-            draft.issue_specific_answers  = rca_v3.get("issue_specific_answers") or {}
-            draft.checklist_answers       = rca_v3.get("checklist_answers") or []
+        # v3 fields — always assign so flag_modified never fires on an unset
+        # attribute (empty dict when RCA generation failed or returned nothing)
+        _v3 = rca_v3 or {}
+        draft.tldr                    = _v3.get("tldr") or draft.tldr
+        draft.wwr_chain               = _v3.get("wwr_chain") or []
+        draft.prevention              = _v3.get("prevention") or draft.prevention
+        draft.evidence                = _v3.get("evidence") or []
+        draft.issue_specific_answers  = _v3.get("issue_specific_answers") or {}
+        draft.checklist_answers       = _v3.get("checklist_answers") or []
 
         draft.ticket_facts                = ticket_facts or None
         draft.suggested_response          = response_draft
@@ -828,7 +829,10 @@ async def process_review(review_id: str):
             "wwr_chain", "evidence", "issue_specific_answers", "checklist_answers",
             "ticket_facts",
         ):
-            flag_modified(draft, _col)
+            try:
+                flag_modified(draft, _col)
+            except Exception as _fm_err:
+                log.warning(f"[pipeline] flag_modified({_col}) skipped: {_fm_err}")
 
         db.commit()
 

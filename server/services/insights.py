@@ -61,7 +61,7 @@ async def get_insights(booking: dict, l1: str | None, l2: str | None) -> dict:
     """
     tid        = str(booking.get("tid") or "").strip()
     vid        = str(booking.get("vid") or "").strip()
-    visit_date = str(booking.get("visitDate") or "").strip()
+    visit_date = str(booking.get("visitDate") or booking.get("date_of_visit") or "").strip()
 
     if not tid or not vid:
         log.warning("[insights] tid or vid missing — returning zeros")

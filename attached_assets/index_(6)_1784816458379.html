@@ -2054,52 +2054,43 @@ function renderReviewCol() {
   }
 
   const b = r.booking;
-
-  function _normTlEvent(e) {
-    // 1. Filter internal credential rows
-    const raw = ((e.label || '') + ' ' + (e.summary || '')).toLowerCase();
-    if (/pseudo.?email|credential|passwo/.test(raw)) return null;
-
-    // 2. Normalize ISO date-only times → "DD Mon"
-    let time = e.time || '';
-    if (/^\d{4}-\d{2}-\d{2}$/.test(time.trim())) {
-      try {
-        const d = new Date(time.trim() + 'T00:00:00Z');
-        time = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', timeZone: 'UTC' });
-      } catch (_) { /* keep as-is */ }
-    }
-
-    // 3. Strip "(×N)" artifacts from labels
-    const label = (e.label || '').replace(/\s*\(×\d+\)\s*$/, '').trim();
-
-    // 4. Infer correct thread pill from label + summary text when tagged wrong
-    let thread = e.thread || '';
-    if (!thread || thread === 'email') {
-      const lsLow = (label + ' ' + (e.summary || '')).toLowerCase();
-      if (/\bchat\b|\bwhatsapp\b|\bmessage\b/.test(lsLow)) thread = 'chat';
-      else if (/\bcall\b|\bphone\b|\bvoice\b/.test(lsLow))  thread = 'call';
-      else if (/\bsp\b|\bsupply.?partner\b|\boperator\b/.test(lsLow)) thread = 'sp';
-      else thread = e.thread || 'email';
-    }
-
-    return { ...e, time, label, thread };
-  }
-
+  const _MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const _normTime = (t) => {
+    t = (t || '').trim();
+    const iso = /^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/.exec(t);   // 2026-07-22 -> 22 Jul
+    if (iso) return `${iso[3]} ${_MONTHS[parseInt(iso[2],10)-1]}`;
+    return t;
+  };
+  const _cleanLabel = (l) => (l || '').replace(/\s*\(\s*[×xX]\s*\d+\s*\)\s*$/,'').trim();  // drop "(×2)"
+  const _threadOf = (e) => {
+    const blob = ((e.label || '') + ' ' + (e.summary || '')).toLowerCase();
+    if (/\bchat\b|skyler|web user|live chat/.test(blob)) return 'chat';
+    if (/\bcall\b|phone call/.test(blob)) return 'call';
+    if (/\bsp\b|supply partner|vendor replied/.test(blob)) return 'sp';
+    return e.thread || 'email';
+  };
+  const _isInternalNoise = (e) => {
+    const blob = ((e.label || '') + ' ' + (e.summary || '')).toLowerCase();
+    return /pseudo[- ]?e?mail|pseudo mail id|password to be used|vendor login credential/.test(blob);
+  };
   const events = (r.events || [])
-    .map(_normTlEvent)
-    .filter(Boolean)
-    .map(e => `
+    .filter(e => !_isInternalNoise(e))
+    .map(e => {
+      const time = _normTime(e.time);
+      const label = _cleanLabel(e.label);
+      const thread = _threadOf(e);
+      return `
     <div class="tl-event">
-      <div class="tl-time">${e.time}</div>
+      <div class="tl-time">${time}</div>
       <div class="tl-content">
         <div class="tl-header">
-          ${e.thread ? `<span class="tl-thread ${e.thread}">${e.thread}</span>` : ''}
-          <div class="tl-actor ${e.actor}">${e.label}</div>
+          <span class="tl-thread ${thread}">${thread}</span>
+          <div class="tl-actor ${e.actor}">${label}</div>
         </div>
         <div class="tl-summary">${e.summary}</div>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+    }).join('');
 
   const ins = r.insights;
   const similarSupport = ins.similarSupport || [];

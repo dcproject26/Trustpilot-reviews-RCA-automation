@@ -1,0 +1,18 @@
+I have five fixes to apply and one investigation. Please do all of them.
+
+Apply these code changes:
+
+client/index.html — the inbox still has a hardcoded demo REVIEWS array (Test User / Marcus T. / Mock Experience) that leaks fake reviews into the inbox and overwrites real rows sharing an id. Replace the entire let REVIEWS = [ … ]; block with let REVIEWS = []; so the inbox is built only from /api/reviews. Also, in fetchInbox, on fetch failure do NOT keep demo data.
+client/index.html — the Events Timeline renders raw: mixed time formats (2026-07-22 vs 22 Jul 15:22 IST), wrong thread pills (chat events tagged EMAIL), (×2) label artifacts, and internal "pseudo-email credentials" rows. In the events builder in renderReviewCol, normalize before rendering: convert ISO date-only times to DD Mon, strip (×N) from labels, infer the thread pill (chat/call/sp) from the label+summary text, and filter out internal credential rows (pseudo-email, password to be used, vendor login credential).
+server/pipeline.py — the v3 RCA fields are only assigned if rca_v3:, but the flag_modified() loop unconditionally flags wwr_chain/evidence/issue_specific_answers/checklist_answers. When RCA generation returns empty (API hiccup, bad JSON), those attributes are never set → flag_modified throws → the whole save aborts and the review is silently dropped (stuck on new). Fix: always assign the v3 fields (default to empty), and wrap each flag_modified(draft, _col) in try/except.
+server/services/insights.py — visit_date = booking.get("visitDate") but the BigQuery booking dict uses date_of_visit, so the completion-rate and same-day queries never run (always N/A). Change to booking.get("visitDate") or booking.get("date_of_visit").
+server/services/claude.py — extract_ticket_facts returns {} on any JSON parse hiccup and has no fallback. Add a lenient JSON-object parser (tolerates preamble/trailing prose and a truncated tail) and a deterministic fallback that fills guest_full_name (from zendesk_requester_name, rejecting hashes), booking_status, and ticket_email_seen from the booking dict, so ticket_facts is never blank when booking data exists.
+Investigation — the Experience Insights come back all-zero. I need to know if that's real or a schema mismatch:
+
+With BigQuery live, run the two insight queries from server/services/insights.py (similar reviews and similar support queries) against a popular experience's TID+VID (not an obscure one), and tell me:
+
+Do the queries error, or return 0 rows, or return real counts?
+Confirm the actual column names in fct_reviews and fct_support_queries — specifically: the review timestamp column (code assumes reviewed_at), the L2/issue-type field (code assumes issues → l2_issues), and the support tag + created-at columns (code assumes query_tag, query_created_at). If any differ from the real schema, list the correct names.
+Confirm the scope + window used by the original VectorShift insights logic (exact TID+VID vs TGID, and the day window X).
+Paste the query results and the confirmed column names back to me.
+
