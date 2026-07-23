@@ -145,6 +145,82 @@ def _strip_fences(text: str) -> str:
     return text.strip()
 
 
+def _extract_json_object(text: str):
+    """
+    Best-effort parse of a single JSON object out of model output.
+    Tolerates preamble/trailing prose, code fences, and a truncated tail
+    (e.g. when the response hit max_tokens mid-object). Returns a dict or None.
+    """
+    if not text:
+        return None
+    s = _strip_fences(text)
+    try:
+        return json.loads(s)
+    except Exception:
+        pass
+    start = s.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    end = -1
+    for i in range(start, len(s)):
+        c = s[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+        else:
+            if c == '"':
+                in_str = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+    if end != -1:
+        try:
+            return json.loads(_strip_trailing_commas(s[start:end + 1]))
+        except Exception:
+            pass
+    # Truncated tail — repair using the scan's final state.
+    frag = s[start:]
+    if in_str:
+        frag += '"'
+    frag = _strip_trailing_commas(frag.rstrip().rstrip(","))
+    if depth > 0:
+        frag += "}" * depth
+    try:
+        return json.loads(frag)
+    except Exception:
+        return None
+
+
+def _fill_facts_from_booking(facts: dict, booking: dict) -> None:
+    """
+    Deterministic fallback so ticket_facts is never blank when the booking
+    enrichment already carries the essentials. Only fills fields the model
+    left empty — never overwrites a real extracted value.
+    """
+    if not isinstance(facts, dict):
+        return
+    if not facts.get("guest_full_name"):
+        zr = (booking.get("zendesk_requester_name") or "").strip()
+        # Accept a real human name; reject hashes/base64 (long, no spaces).
+        if zr and (" " in zr or len(zr) <= 20):
+            facts["guest_full_name"] = zr
+    if not facts.get("booking_status") and booking.get("booking_status"):
+        facts["booking_status"] = booking.get("booking_status")
+    if facts.get("ticket_email_seen") is None and "ticket_mail_seen" in booking:
+        facts["ticket_email_seen"] = bool(booking.get("ticket_mail_seen"))
+
+
 # ─── 1. Translation ─────────────────────────────────────────────────────────
 async def translate(body: str, lang: str, review_id: str = None) -> str:
     if not is_live("anthropic"):
@@ -419,19 +495,26 @@ async def extract_ticket_facts(
 
     Always returns a dict (empty on any failure — never raises).
     """
-    if not is_live("anthropic"):
-        return {}
-    if not timeline_raw or not any(str(b).strip() for b in timeline_raw if b):
-        return {}
-    try:
-        raw = await _call(
-            prompts.ticket_extraction_prompt(booking, timeline_raw, timeline_raw_ticket_ids),
-            max_tokens=4000,
-        )
-        return json.loads(_strip_fences(raw))
-    except Exception:
-        log.warning("[claude] extract_ticket_facts: JSON parse failed or call error", exc_info=True)
-        return {}
+    facts = {}
+    have_tickets = bool(timeline_raw) and any(str(b).strip() for b in timeline_raw if b)
+    if is_live("anthropic") and have_tickets:
+        try:
+            raw = await _call(
+                prompts.ticket_extraction_prompt(booking, timeline_raw, timeline_raw_ticket_ids),
+                max_tokens=4000,
+            )
+            parsed = _extract_json_object(raw)
+            if isinstance(parsed, dict):
+                facts = parsed
+            else:
+                log.warning("[claude] extract_ticket_facts: could not parse a JSON object from model output")
+        except Exception:
+            log.warning("[claude] extract_ticket_facts: call error", exc_info=True)
+    # Deterministic fallback from booking enrichment so the essentials
+    # (guest name, booking status, ticket-seen) are present even if the model
+    # call failed, returned malformed JSON, or MOCK_MODE is on.
+    _fill_facts_from_booking(facts, booking or {})
+    return facts
 
 
 # ─── Legacy methods retained for backwards compatibility ────────────────────
