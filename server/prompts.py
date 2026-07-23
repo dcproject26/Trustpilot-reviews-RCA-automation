@@ -871,6 +871,25 @@ Return ONLY valid JSON (no markdown fences) matching this exact shape:
 
 
 # ─── 9a. Zendesk timeline shaping prompt ────────────────────────────────────
+def _fmt_date_ist(dt_str: str) -> str:
+    """Convert ISO date/datetime string → 'DD Mon HH:MM IST' (or 'DD Mon YYYY' if date-only)."""
+    if not dt_str:
+        return "unknown"
+    try:
+        from datetime import datetime, timezone, timedelta
+        IST = timezone(timedelta(hours=5, minutes=30))
+        s = str(dt_str).strip()
+        if "T" in s or (len(s) > 10 and ":" in s[10:]):
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(IST).strftime("%d %b %H:%M IST")
+        dt = datetime.strptime(s[:10], "%Y-%m-%d")
+        return dt.strftime("%d %b %Y")
+    except Exception:
+        return str(dt_str)[:16]
+
+
 def zendesk_timeline_shape_prompt(
     booking: dict,
     review_body: str,
@@ -878,22 +897,29 @@ def zendesk_timeline_shape_prompt(
     raw_events: list,
 ) -> str:
     """
-    Instructs Claude to batch-shape raw Zendesk events into clean timeline entries.
+    Instructs Claude to batch-shape raw Zendesk events into a clean, structured
+    timeline. Each kept event has: idx_range, time, thread, actor, label, summary, keep.
 
-    raw_events: list of {idx, time, thread, actor, ticket_id, raw_body}
-
-    Returns a prompt string. Claude must return JSON: a list of shaped event
-    objects with fields: idx_range, time, thread, actor, label, summary, keep.
-    Two injected bookend events ("Booking created", "Review posted") are required.
+    Changes vs previous version:
+    - Booking creation date pre-formatted in IST style (consistent with Zendesk times).
+    - "Booking created" summary uses visit date only — no full experience name.
+    - Hard drop list for bot/selenium/chat-session/tag noise events.
+    - Summary rules: guest events must state WHY they contacted; CE events must state
+      the specific action taken.
     """
-    booking_summary = {k: v for k, v in (booking or {}).items()
+    bk = booking or {}
+    booking_date_fmt = _fmt_date_ist(bk.get("date_of_booking") or bk.get("creationDate") or "")
+    visit_date_raw   = bk.get("visitDate") or bk.get("date_of_visit") or ""
+    visit_date_fmt   = _fmt_date_ist(visit_date_raw) if visit_date_raw else "the visit date"
+
+    booking_summary = {k: v for k, v in bk.items()
                        if k not in ("_match", "timeline_raw")}
     events_json = json.dumps(raw_events or [], indent=2)
     booking_json = json.dumps(booking_summary, indent=2)
 
     return f"""You are shaping raw Zendesk support events into a clean, human-readable
-timeline for an internal ORM dashboard. Your output will be shown directly to
-Headout CX analysts — it must be factual, concise, and free of system noise.
+timeline for an internal ORM dashboard. Headout CX analysts will read this — it must
+be factual, concise, and completely free of system noise.
 
 === BOOKING METADATA ===
 {booking_json}
@@ -908,52 +934,75 @@ Body: {(review_body or "")[:600]}
 === INSTRUCTIONS ===
 
 1. INJECT two synthetic bookend events (not present in raw_events):
-   - FIRST: {{"idx_range": [], "time": "<booking creation date from metadata or 'unknown'>",
-     "thread": "email", "actor": "system",
-     "label": "Booking created", "summary": "Guest booked <experience name> for <visit date>.", "keep": true}}
-   - LAST:  {{"idx_range": [], "time": "{review_pub_date or 'unknown'}",
-     "thread": "email", "actor": "system",
-     "label": "Review posted", "summary": "Guest posted a Trustpilot review.", "keep": true}}
+   - FIRST (booking creation):
+     {{"idx_range": [], "time": "{booking_date_fmt}",
+       "thread": "booking", "actor": "system",
+       "label": "Booking created",
+       "summary": "Guest booked the experience for {visit_date_fmt}.",
+       "keep": true}}
+   - LAST (review posted):
+     {{"idx_range": [], "time": "{review_pub_date or 'unknown'}",
+       "thread": "review", "actor": "system",
+       "label": "Review posted",
+       "summary": "Guest posted a Trustpilot review.",
+       "keep": true}}
 
-2. For each raw event, produce ONE shaped object:
+2. For each raw event produce ONE shaped object:
    {{
-     "idx_range": [<idx>, ...],   // single idx normally; multiple when collapsing
-     "time":      "<preserve as-is from raw event>",
-     "thread":    "<preserve from raw event>",
-     "actor":     "<preserve from raw event>",
-     "label":     "<short action label — NO [ZD-xxxxx] prefix, NO ticket IDs>",
-     "summary":   "<one neutral factual sentence — NO raw HTML, NO JSON, NO signatures>",
+     "idx_range": [<idx>],   // multiple when collapsing
+     "time":      "<copy time exactly from raw event — never reformat>",
+     "thread":    "<copy thread from raw event: email | chat | call | sp>",
+     "actor":     "<copy actor from raw event: guest | co | sp | ai | system>",
+     "label":     "<short plain-English label — see rule 5>",
+     "summary":   "<one to two factual sentences — see rule 6>",
      "keep":      true | false
    }}
 
-3. COLLAPSING — collapse consecutive events into ONE object when:
-   - Same timestamp AND same actor → macro/bot flood
-   - Pure auto-reply or "out of office" macros repeated ≥ 2 times in a row
-   List ALL collapsed idx values in idx_range. Label: e.g. "CE sent macro (×3)".
+3. COLLAPSING — merge consecutive events when:
+   - Same timestamp + same actor (macro/bot flood) — label: "CE sent macro (×N)"
+   - Repeated auto-reply or "out of office" macros ≥ 2 in a row
 
-4. DROP (keep: false) these noise events:
-   - Events whose raw_body is ONLY an email signature, logo tag, or legal footer
-     (no actionable text after stripping HTML)
-   - Automated system-sync events with no customer-visible action
-     (e.g. ticket field updated, tag added, assignment log — no body text)
-   - Blank or whitespace-only bodies
+4. DROP (keep: false) ALL of the following — be strict:
+   - Any event where actor is "ai" (bot auto-replies, bot assessments, selenium runs)
+   - Events whose label or body contains: "chat session opened", "chat session closed",
+     "bot tagged", "bot assessed", "bot log", "transcript logged", "chat transcript",
+     "selenium", "automation run", "tag added", "field updated", "assignment log"
+   - Events whose raw_body (after stripping HTML) is blank, only a signature/footer,
+     or only an order confirmation number / booking reference with no human text
+   - Pure system-sync events with no customer-visible action
 
-5. LABELS — write short, plain-English action labels:
-   - Guest wrote → "Guest contacted support", "Guest followed up", "Guest replied"
-   - CE/agent → "CE responded", "CE sent resolution", "CE sent macro"
-   - AI/bot → "Bot auto-reply"
-   - SP → "SP responded"
-   - System → "System event"
-   Never include ticket IDs, [ZD-xxxxx] prefixes, or Zendesk internal references.
+5. LABELS — concise, plain English, NO ticket IDs, NO [ZD-xxxxx] prefixes:
+   - Guest first contact → "Guest contacted support"
+   - Guest follow-up     → "Guest followed up"
+   - Guest reply         → "Guest replied"
+   - CE/agent action     → "CE responded", "CE sent refund", "CE sent resolution",
+                           "CE followed up", "CE sent cancellation confirmation"
+   - SP response         → "SP responded"
+   - System automation   → "System sent booking confirmation", "Tickets sent to guest"
+   Do NOT include actor "ai" events — they must be dropped (keep: false).
 
-6. SUMMARIES — one neutral, factual sentence per kept event:
-   - Strip all HTML tags, email signatures, and logo/image tags before summarising
-   - Do NOT quote booking JSON or raw system data
-   - Do NOT adopt the guest's emotional framing; describe the action factually
-   - Max ~150 characters
+6. SUMMARIES — this is the most important field. Rules:
+   a. GUEST events: summarise WHAT THE GUEST WAS ASKING ABOUT or complaining about.
+      Good: "Guest emailed asking why tickets had not been delivered yet."
+      Good: "Guest reported the tickets were rejected at the venue entrance."
+      Bad:  "Booking confirmation details submitted to support queue for 1 Adult."
+      Bad:  "Guest contacted support."  ← too vague; always state the issue
 
-7. OUTPUT ORDER: bookend "Booking created" first, then kept events in chronological
-   order (preserve time order from raw_events), then "Review posted" last.
+   b. CE/agent events: summarise the SPECIFIC ACTION THE CE TOOK.
+      Good: "CE explained the 2-hour processing delay and confirmed the tickets were valid."
+      Good: "CE issued a full refund of USD 19.42 and sent a confirmation email."
+      Good: "CE requested the guest provide photos of the rejected QR code."
+      Bad:  "CE responded to the guest's query."  ← too vague
+
+   c. SYSTEM events: briefly describe the automated action.
+      Good: "System sent booking confirmation email to guest."
+      Good: "Booking confirmed and tickets dispatched to guest."
+
+   d. Strip all HTML, email signatures, logo tags, legal footers.
+      Do NOT copy raw system data, booking JSON, or order numbers verbatim.
+      Max ~160 characters per summary.
+
+7. OUTPUT ORDER: "Booking created" first → kept events chronologically → "Review posted" last.
 
 Return ONLY valid JSON — a list of shaped event objects, nothing else:
 [
