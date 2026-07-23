@@ -221,11 +221,7 @@ async def process_review(review_id: str):
                 venue_hints = None
                 try:
                     prompt = venue_extraction_prompt(review_text or "")
-                    raw = await claude._call(
-                        [{"role": "user", "content": prompt}],
-                        max_tokens=256,
-                        review_id=review_id,
-                    )
+                    raw = await claude._call(prompt, max_tokens=256)
                     import json as _json
                     parsed_venue = _json.loads(raw.strip()
                                                .removeprefix("```json").removeprefix("```")

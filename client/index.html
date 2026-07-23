@@ -2285,11 +2285,9 @@ function renderReviewCol() {
             <div class="insight-tile-label">Completion %</div>
             <div class="insight-tile-value">${ins.completion.value}</div>
             <div class="insight-tile-sub">${ins.completion.sub} · ${state.insightsWindow}</div>
-            ${ins.completion.flagToBiz ? \`
-              <button class="flag-biz-btn \${ins.completion.flagged ? 'flagged' : ''}" data-flag-biz \${ins.completion.flagged ? 'disabled' : ''}>
-                \${ins.completion.flagged ? '✓ Flagged · sent to Slack' : '⚑ Flag to Biz · draft message'}
-              </button>
-            \` : ''}
+            ${ins.completion.flagToBiz
+              ? '<button class="flag-biz-btn' + (ins.completion.flagged ? ' flagged' : '') + '" data-flag-biz' + (ins.completion.flagged ? ' disabled' : '') + '>' + (ins.completion.flagged ? '✓ Flagged · sent to Slack' : '⚑ Flag to Biz · draft message') + '</button>'
+              : ''}
           </div>
           <div class="insight-tile ${ins.sameDayIssues.tone}">
             <div class="insight-tile-label">Same-Day Issues</div>

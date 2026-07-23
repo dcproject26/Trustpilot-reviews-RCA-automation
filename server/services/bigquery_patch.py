@@ -198,10 +198,10 @@ WHERE b.experience_id IN UNNEST(@tgid_list)
   AND b.experience_date BETWEEN
       DATE_SUB(@review_pub_date, INTERVAL @date_window DAY) AND @review_pub_date
   AND (
-    (@author_first IS NULL AND @author_last IS NULL)
-    OR (@author_first IS NOT NULL AND
+    (@author_first = '' AND @author_last = '')
+    OR (@author_first != '' AND
         LOWER(b.primary_guest_name) LIKE CONCAT('%', LOWER(@author_first), '%'))
-    OR (@author_last IS NOT NULL AND
+    OR (@author_last != '' AND
         LOWER(b.primary_guest_name) LIKE CONCAT('%', LOWER(@author_last), '%'))
   )
 ORDER BY b.experience_date DESC
@@ -224,10 +224,10 @@ LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
 WHERE b.experience_date BETWEEN
       DATE_SUB(@review_pub_date, INTERVAL @date_window DAY) AND @review_pub_date
   AND (
-    (@author_first IS NULL AND @author_last IS NULL)
-    OR (@author_first IS NOT NULL AND
+    (@author_first = '' AND @author_last = '')
+    OR (@author_first != '' AND
         LOWER(b.primary_guest_name) LIKE CONCAT('%', LOWER(@author_first), '%'))
-    OR (@author_last IS NOT NULL AND
+    OR (@author_last != '' AND
         LOWER(b.primary_guest_name) LIKE CONCAT('%', LOWER(@author_last), '%'))
   )
 ORDER BY b.experience_date DESC
