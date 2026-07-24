@@ -367,6 +367,7 @@ async def generate_rca_v3(
     checklist: dict,
     review_id: str = None,
     timeline_raw: list = None,
+    ticket_facts: dict = None,
 ) -> dict:
     """
     Returns the RCA v3 shape:
@@ -392,9 +393,8 @@ async def generate_rca_v3(
             "wwr_chain": [
                 {"step": 1, "what": "Booking completed", "why": "Guest selected experience and paid."},
                 {"step": 2, "what": "Issue arose on day of experience", "why": "Operational or SP-side gap."},
-                {"step": 3, "what": "Guest contacted CE", "why": "Guest was unsatisfied with experience."},
-                {"step": 4, "what": "CE responded", "why": "Standard support flow."},
-                {"step": 5, "what": "Guest posted review", "why": "Dissatisfied despite interaction."},
+                {"step": 3, "what": "Guest contacted CE and we responded", "why": "Standard support flow after guest raised the issue."},
+                {"step": 4, "what": "Guest posted review", "why": "Dissatisfied despite interaction."},
             ],
             "prevention": "Review pre-visit communications for this experience type; ensure CE SLA is met.",
             "evidence": [
@@ -410,7 +410,7 @@ async def generate_rca_v3(
         prompts.rca_v3_prompt(
             review_text, booking, timeline, insights, dss_rec,
             l1, l2, sub_theme, support_summary, checklist, review_id or "",
-            timeline_raw=timeline_raw),
+            timeline_raw=timeline_raw, ticket_facts=ticket_facts),
         max_tokens=6000,
     )
     try:

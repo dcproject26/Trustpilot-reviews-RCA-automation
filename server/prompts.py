@@ -726,10 +726,16 @@ def rca_v3_prompt(
     checklist: dict,
     review_id: str = "",
     timeline_raw: list = None,
+    ticket_facts: dict = None,
 ) -> str:
     """
     Generates RCA v3 shape: tldr, wwr_chain, prevention, evidence,
     issue_specific_answers, checklist_answers.
+
+    ticket_facts: structured facts already extracted from the Zendesk tickets
+    (guest_full_name, booking_status, refund {...}, ce_actions, resolution_summary,
+    primary_issue, sla_breached, ticket_email_seen, evidence, ...). These are
+    PRE-VERIFIED — prefer them over re-deriving the same facts from raw bodies.
 
     checklist: {"general": GENERAL_GUIDELINES, "ce": CE_ERROR_CHECKS,
                 "ro": RO_ERROR_CHECKS, "scenarios": SCENARIO_CHECKS}
@@ -759,6 +765,11 @@ def rca_v3_prompt(
     else:
         zendesk_raw_block = "(no raw ticket bodies)"
 
+    # Pre-extracted structured ticket facts (verified upstream)
+    _tf = {k: v for k, v in (ticket_facts or {}).items()
+           if v not in (None, "", [], {}, "Unknown")}
+    ticket_facts_block = json.dumps(_tf, indent=2) if _tf else "(no structured facts extracted)"
+
     # General guidelines → writing rules
     general = (checklist or {}).get("general", {})
     rca_output_rules = general.get("rca_output", [])
@@ -767,6 +778,20 @@ def rca_v3_prompt(
         writing_rules_block = (
             "\n━━ RCA OUTPUT RULES (non-negotiable) ━━\n"
             + "\n".join(f"• {r}" for r in rca_output_rules)
+            + "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        )
+
+    # "What went wrong" mandated writing structure (Headout ORM guideline).
+    wwr_structure = general.get("what_went_wrong_structure", [])
+    wwr_structure_block = ""
+    if wwr_structure:
+        wwr_structure_block = (
+            "\n━━ \"WHAT WENT WRONG\" — REQUIRED WRITING STRUCTURE ━━\n"
+            "Structure the what-went-wrong content (the wwr_chain steps) to cover these\n"
+            "5 sections in order. Headings 1–5 are mandatory; the (a)/(b)/(c) sub-points\n"
+            "are indicative — use only those relevant. Be concise and focus on the\n"
+            "OPERATIONAL failure; do NOT restate the review.\n"
+            + "\n".join(f"{r}" for r in wwr_structure)
             + "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         )
 
@@ -818,6 +843,9 @@ ZENDESK TIMELINE (structured):
 === ZENDESK TICKETS FOR THIS BOOKING (matched by booking_id + guest name) ===
 {zendesk_raw_block}
 
+=== VERIFIED TICKET FACTS (pre-extracted — trust these over re-deriving) ===
+{ticket_facts_block}
+
 INSIGHTS:
 {in_text}
 
@@ -827,6 +855,7 @@ DSS RECOMMENDATION:
 SUPPORT SUMMARY:
 {support_summary or "(none)"}
 {writing_rules_block}
+{wwr_structure_block}
 
 ━━ CORE RULES (non-negotiable) ━━
 1. NO FABRICATION. Every claim in wwr_chain, evidence, checklist_answers must be
@@ -834,8 +863,12 @@ SUPPORT SUMMARY:
    No evidence → write "not present in ticket or booking data".
 2. NEUTRAL TONE. Facts only. Do not adopt or defend the guest's narrative.
 3. tldr ≤ 25 words, one sentence, factual. Format: "what happened + what we're doing."
-4. wwr_chain: CAUSAL, not narrative. Root cause first, forward through to the review.
-   3–6 steps max. Each step: {{"step": N, "what": "...", "why": "..."}}.
+4. wwr_chain: follow the "WHAT WENT WRONG" required writing structure above —
+   cover guest issue → claim accuracy (Yes/Partially True/No) → what actually
+   happened (root cause / operational failure / SOP gap) → SP escalation (did CE
+   escalate; if not, why) → fixes (teams tagged + corrective actions). Keep it
+   causal and concise, not a restatement of the review. Up to ~6 steps.
+   Each step: {{"step": N, "what": "...", "why": "..."}}.
 5. prevention: ORM-ownable actions only. Pre-visit comms first. If cross-team action
    needed, label explicitly (e.g. "Product team:").
 6. evidence: prefix each item with its source in square brackets: [timeline], [review],
@@ -845,6 +878,11 @@ SUPPORT SUMMARY:
 8. Support-failure supersedes: if an external event occurred BUT CE mishandled the
    guest contact, the root cause is the CE failure, not the external event.
 9. No invented handles, timestamps, or comp amounts. Use [placeholder] if unknown.
+10. VERIFIED TICKET FACTS above are already extracted and checked. When a fact you
+    need (guest name, booking status, refund status/amount, CE actions, resolution,
+    SLA breach, primary issue) is present there, USE IT — do not contradict it or
+    re-derive a different value from the raw bodies. Raw bodies are for detail the
+    facts block does not already cover.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 === DIAGNOSTIC CHECKS — VERIFY, DON'T GUESS ===

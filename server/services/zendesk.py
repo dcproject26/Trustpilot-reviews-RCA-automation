@@ -378,23 +378,39 @@ async def find_bids_by_requester_name(
         log.warning("[zendesk] find_bids_by_requester_name: no client available")
         return []
 
+    def _as_query(name: str) -> str:
+        if any(c in name for c in [" ", "-", "'", "."]) or not name.isascii():
+            return f'"{name}"'
+        return name
+
     name_str = f"{author_first} {author_last}".strip() if author_last else author_first
-    if any(c in name_str for c in [" ", "-", "'", "."]) or not name_str.isascii():
-        name_query = f'"{name_str}"'
-    else:
-        name_query = name_str
-
     since = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
-    query = f"type:ticket requester:{name_query} created>{since}"
-    log.info(f"[zendesk] requester search: {query}")
 
-    try:
-        tickets = await asyncio.get_running_loop().run_in_executor(
-            None, lambda: _search_with_retry(_z, query)
-        )
-    except Exception as e:
-        log.warning(f"[zendesk] requester search failed: {e}")
-        return []
+    # Primary: full name. Fallback: the more distinctive single token (usually
+    # the surname). The Trustpilot display name often does not match the Zendesk
+    # requester name exactly (nickname, initial, different order), so a strict
+    # full-name search alone silently misses real tickets. Each BID is still
+    # BQ-verified + venue/date cross-checked downstream, so broadening recall
+    # here is safe.
+    name_variants = [name_str]
+    if author_last and author_first:
+        distinctive = max((author_first, author_last), key=len)
+        if len(distinctive) >= 3:
+            name_variants.append(distinctive)
+
+    tickets = []
+    for variant in name_variants:
+        query = f"type:ticket requester:{_as_query(variant)} created>{since}"
+        log.info(f"[zendesk] requester search: {query}")
+        try:
+            tickets = await asyncio.get_running_loop().run_in_executor(
+                None, lambda q=query: _search_with_retry(_z, q)
+            )
+        except Exception as e:
+            log.warning(f"[zendesk] requester search failed: {e}")
+            tickets = []
+        if tickets:
+            break
 
     bids = []
     for t in tickets[:15]:

@@ -3,6 +3,20 @@ Baked-in RCA checklist — verbatim from Brief v7.1.
 No runtime fetch. No Google Sheets dependency.
 """
 
+# Mandated structure for the "What went wrong" section (Headout ORM).
+# Headings 1–5 are ALWAYS included; the (a)/(b)/(c) sub-points are indicative —
+# use only the ones relevant to the case. Objective: concise, structured, and
+# focused on the operational failure, NOT a restatement of the customer's review.
+WHAT_WENT_WRONG_STRUCTURE = [
+    "1. Guest issue — brief 1–2 line summary (concise pointers) of the issue the guest experienced.",
+    "2. Is the guest's claim accurate? — state one of: Yes / Partially True / No.",
+    "3. What actually happened? — (a) root cause; (b) operational failure, if any; (c) SOP/process gap, if any.",
+    "4. Supply Partner escalation — (a) did CE escalate to SP? Yes / No / N/A; "
+    "(b) if we are not escalating, specify why (e.g. SP is on DND).",
+    "5. Fixes — (a) tag the relevant team(s)/stakeholder(s) who need to evaluate or address the identified gaps; "
+    "(b) briefly mention any corrective actions taken or proposed.",
+]
+
 GENERAL_GUIDELINES = {
     "rca_output": [
         "Fill every field: insights, booking details, what went wrong, customer/SP interactions",
@@ -12,6 +26,8 @@ GENERAL_GUIDELINES = {
         "Tag relevant teams for any underlying/major experience issue",
         "Do NOT offer DSS — we add them or give a partial refund",
     ],
+    # How the AI must structure the "What went wrong" section.
+    "what_went_wrong_structure": WHAT_WENT_WRONG_STRUCTURE,
     "response": [
         "Follow org-wide communication guidelines and Headout tone",
         "Address every issue raised in the review",

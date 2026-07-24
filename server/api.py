@@ -99,9 +99,41 @@ class FlagToBiz(BaseModel):
 # renders a taxonomy-driven Sub-theme row (options from /api/taxonomy
 # sub_theme_frameworks) in the Issue Classification block.
 
+def _looks_like_hash(s: str) -> bool:
+    """True for opaque tokens we should never show as a guest name
+    (long hex strings, no spaces)."""
+    s = (s or "").strip()
+    if not s or " " in s:
+        return False
+    return len(s) >= 16 and all(c in "0123456789abcdefABCDEF-" for c in s)
+
+
 def _draft_dict(d: RcaDraft) -> dict:
+    _tf = d.ticket_facts or {}
+    _bk = d.booking or {}
+
+    def _first_name(*cands):
+        for c in cands:
+            c = (c or "").strip()
+            if c and not _looks_like_hash(c):
+                return c
+        return ""
+
+    guest_name = _first_name(
+        _tf.get("guest_full_name"),
+        _bk.get("guestName"),
+        _bk.get("zendesk_requester_name"),
+    )
+    booking_status = _first_name(
+        _tf.get("booking_status"),
+        _bk.get("status"),
+        _bk.get("bookingStatus"),
+    )
+
     return {
         "booking":            d.booking,
+        "guest_name":         guest_name,
+        "booking_status":     booking_status,
         "match_tier":         d.match_tier,
         "match_confidence":   d.match_confidence,
         "match_method":       d.match_method,
