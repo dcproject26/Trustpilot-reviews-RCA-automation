@@ -180,145 +180,135 @@ async def post_to_thread(channel: str, thread_ts: str, text: str,
 
 def format_rca_slack(review, draft) -> str:
     """
-    Format the RCA draft into the Headout Slack thread post.
-    Pulls from v3-pipeline columns. NEVER includes guest response copy.
+    Format the RCA draft into the #team-orm-online-reputation Slack post.
+    Structure per Task #13 PART 4 — leadership view: WWR scenario blocks,
+    frames, actions, resolution, FLAGGED audit findings only, insights.
+    Never includes the guest response copy or the stated issue.
     """
     b   = draft.booking or {}
     div = "_" * 61
     nl  = "\n"
 
-    # ── Classification ────────────────────────────────────────────────────────
-    l1        = draft.l1 or "—"
-    l2        = draft.l2 or "—"
-    sub_theme = draft.sub_theme or ""
-    issue_line = f"{l1} / {l2}" + (f" / {sub_theme}" if sub_theme else "")
+    # 1. Header
+    stars = "★" * int(getattr(review, "rating", 0) or 0)
+    header = (f"*RCA — @reviewteam*{nl}"
+              f"BID {b.get('id', '—')} · {getattr(review, 'author', '') or '—'}"
+              f" · {stars or '—'}")
 
-    tldr          = draft.tldr or draft.stated_issue or "—"
+    # 2. Classification + scenarios (all applicable, comma-separated)
+    l1, l2 = draft.l1 or "—", draft.l2 or "—"
+    sub = draft.sub_theme or ""
+    scen_all = [s for s in ([draft.primary_scenario] +
+                            list(draft.overlay_scenarios or [])) if s]
+    cls_line = f"*Issue:* {l1} / {l2}" + (f" / {sub}" if sub else "")
+    if scen_all:
+        cls_line += f"{nl}*Scenarios:* " + ", ".join(scen_all)
 
-    # ── What went wrong ───────────────────────────────────────────────────────
-    wwb  = draft.what_went_wrong_bullets or []
-    wwb_text = nl.join(f"• {b_}" for b_ in wwb) if wwb else "—"
+    # 3. What Went Wrong — stacked scenario blocks (fallback: legacy chain)
+    wwr_parts = []
+    for sblock in (draft.wwr_scenarios or []):
+        tag = "PRIMARY" if sblock.get("is_primary") else "overlay"
+        wwr_parts.append(
+            f"*[{tag}] {sblock.get('scenario_name', '')}*{nl}"
+            f"• Accurate? {sblock.get('accuracy', '—')} — {sblock.get('accuracy_explanation', '')}{nl}"
+            f"• Why: {sblock.get('why', '')}{nl}"
+            f"• Fix: {sblock.get('fix', '')}")
+    if not wwr_parts:
+        for st in (draft.wwr_chain or []):
+            wwr_parts.append(f"{st.get('step', '')}. *{st.get('what', '')}* — {st.get('why', '')}")
+    wwr_text = (nl + nl).join(wwr_parts) if wwr_parts else "—"
 
-    wwr  = draft.wwr_chain or []
-    wwr_text = ""
-    if wwr:
-        wwr_text = (
-            f"{nl}*Root cause chain:*{nl}"
-            + nl.join(
-                f"  {s['step']}. *{s.get('what','')}* — {s.get('why','')}"
-                for s in wwr
-            )
-        )
+    # 4/5. Interaction frames
+    def _frames(frames, label):
+        if not frames:
+            return ""
+        lines = [f"*{label}:*"]
+        for fr in frames:
+            t = fr.get("time", "?")
+            said = fr.get("guestSaid") or fr.get("summary") or ""
+            did  = fr.get("weDid") or ""
+            gap  = fr.get("gap") or ""
+            row = f"• {t} — {said}"
+            if did: row += f" | we: {did}"
+            if gap: row += f" | ⚠ {gap}"
+            lines.append(row)
+        return nl.join(lines)
+    support_text = _frames(draft.support_interaction_frames or [], "Customer / CE interactions")
+    sp_text      = _frames(draft.sp_interaction_frames or [], "SP interactions")
 
-    # ── Checklist answers ─────────────────────────────────────────────────────
-    ca = draft.checklist_answers or []
-    checklist_text = ""
-    if ca:
-        from collections import defaultdict
-        by_section = defaultdict(list)
-        for item in ca:
-            by_section[item.get("section", "other")].append(item)
-        parts = []
-        for section in ["ce", "ro"] + [k for k in by_section if k not in ("ce", "ro")]:
-            items = by_section.get(section)
-            if not items:
-                continue
-            label = {"ce": "CE Errors", "ro": "RO Errors"}.get(section, section)
-            parts.append(f"*{label}*")
-            for it in items:
-                chk = it.get("item") or it.get("check", "")
-                ans = it.get("answer", "?")
-                ev  = it.get("evidence", "")
-                ev_part = f" ({ev})" if ev and ev != "not present in ticket or booking data" else ""
-                parts.append(f"• [{section.upper()}] {chk} → *{ans}*{ev_part}")
-        checklist_text = nl.join(parts)
-
-    # ── Support interactions ───────────────────────────────────────────────────
-    support_summary = draft.support_summary or "—"
-    sp_frames = draft.sp_interaction_frames or []
-    sp_text = ""
-    if sp_frames:
-        sp_text = (
-            f"{nl}*SP interactions:*{nl}"
-            + nl.join(
-                f"• {fr.get('time','?')} — {fr.get('summary','')}" +
-                (f" | comp: {fr['comp']}" if fr.get("comp") else "")
-                for fr in sp_frames
-            )
-        )
-
-    # ── Area of improving ─────────────────────────────────────────────────────
+    # 6. Area of improvement
     aoi = draft.area_of_improving or []
     aoi_text = nl.join(f"• {a}" for a in aoi) if aoi else "—"
 
-    # ── Actions taken ─────────────────────────────────────────────────────────
+    # 7. Actions taken — flattened, owner in parens
     at = draft.actions_taken or {}
-    actions_parts = []
-    for team in ("sp", "ce", "customer", "business", "product"):
-        items = at.get(team) or []
-        if items:
-            for item in items:
-                if isinstance(item, dict):
-                    desc = item.get("with") or item.get("context") or str(item)
-                    handle = item.get("handle", "")
-                    actions_parts.append(f"• [{team.upper()}] {desc}" + (f" — {handle}" if handle else ""))
-                else:
-                    actions_parts.append(f"• [{team.upper()}] {item}")
-    actions_text = nl.join(actions_parts) if actions_parts else "—"
+    action_lines = []
+    for team in ("sp", "customer", "business", "ce", "product"):
+        for item in (at.get(team) or []):
+            txt = item if isinstance(item, str) else (
+                item.get("context") or item.get("with") or "")
+            if txt:
+                action_lines.append(f"• {txt} ({team.upper()})")
+    actions_text = nl.join(action_lines) if action_lines else "—"
 
-    # ── Insights ──────────────────────────────────────────────────────────────
+    # 8. Resolution
+    resolution_text = draft.resolution or "—"
+
+    # 9. Audit findings — FLAGGED checklist items only
+    flagged = [c for c in (draft.checklist_answers or [])
+               if str(c.get("answer", "")).strip().lower() == "no"]
+    audit_lines = []
+    for c in flagged:
+        zd = c.get("zd_ref") or c.get("zd_id") or ""
+        ev = c.get("evidence") or ""
+        audit_lines.append(
+            f"• [{str(c.get('section', '')).upper()}] {c.get('item') or c.get('check', '')}"
+            + (f" — {ev}" if ev else "") + (f" ({zd})" if zd else ""))
+    audit_text = nl.join(audit_lines) if audit_lines else "No flagged checks"
+
+    # 10. Insights tiles
     ins = draft.insights or {}
-    insights_parts = []
-    if ins.get("similar_review_count") is not None:
-        insights_parts.append(f"*Similar reviews (same VID):* {ins['similar_review_count']}")
-    if ins.get("total_review_count") is not None:
-        insights_parts.append(f"*Total reviews (same VID):* {ins['total_review_count']}")
-    if ins.get("similar_support_count") is not None:
-        insights_parts.append(f"*Similar support queries:* {ins['similar_support_count']}")
-    if ins.get("avg_rating") is not None:
-        insights_parts.append(f"*Avg rating (VID):* {ins['avg_rating']}")
-    if ins.get("completion_rate") is not None:
-        insights_parts.append(f"*Completion rate (VID):* {ins['completion_rate']}")
-    insights_text = nl.join(insights_parts) if insights_parts else "—"
+    ins_parts = []
+    if ins.get("similar_reviews_30d") is not None:
+        ins_parts.append(f"*Similar reviews (30d):* {ins.get('similar_reviews_30d')}")
+    if ins.get("similar_support_queries_30d") is not None:
+        ins_parts.append(f"*Similar support queries (30d):* {ins.get('similar_support_queries_30d')}")
+    r30 = ins.get("rating_30d") or {}
+    if r30.get("avg") is not None:
+        ins_parts.append(f"*Avg rating (30d):* {r30.get('avg')} ({r30.get('n', 0)} ratings)")
+    if ins.get("vidCompletionRate"):
+        ins_parts.append(f"*Completion rate (VID):* {ins.get('vidCompletionRate')}")
+    if ins.get("sameDaySameVidIssues"):
+        ins_parts.append(f"*Same-day same-VID issues:* {ins.get('sameDaySameVidIssues')}")
+    insights_text = nl.join(ins_parts) if ins_parts else "—"
 
-    return f"""*RCA — @reviewteam*
-
-*Issue:* {issue_line}
-*TL;DR:* {tldr}
-{div}
-*Booking Details*
-
-Booking ID: {b.get('id', '—')}
-Experience: {b.get('experienceName', '—')}
-TGID / TID: {b.get('tgid', '—')} / {b.get('tid', '—')}
-Date of booking: {b.get('bookedOn', '—')}
-Date of visit: {b.get('visitDate', '—')}
-Supply partner: {b.get('partner', '—')}
+    return f"""{header}
+{cls_line}
 {div}
 *What went wrong*
 
-{wwb_text}{wwr_text}
+{wwr_text}
 {div}
-*Diagnostic checks*
-
-{checklist_text or '—'}
+{support_text or "*Customer / CE interactions:* —"}
 {div}
-*Customer / CE interactions*
-
-{support_summary}{sp_text}
+{sp_text or "*SP interactions:* —"}
 {div}
-*Area of improving*
+*Area of improvement*
 
 {aoi_text}
 {div}
-*Solution offered*
-
-{draft.resolution or '—'}
-{div}
-*Actions raised*
+*Actions taken*
 
 {actions_text}
 {div}
-*Insights*
+*Resolution*
+
+{resolution_text}
+{div}
+*Audit findings (flagged)*
+
+{audit_text}
+{div}
+*Experience insights*
 
 {insights_text}"""

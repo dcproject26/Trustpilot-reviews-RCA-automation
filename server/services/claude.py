@@ -353,6 +353,43 @@ async def draft_response_v2(
     )
 
 
+# ─── 5a2. WWR analysis — stacked scenario blocks (Task #13 §3) ──────────────
+async def analyze_wwr(
+    review_text: str, timeline: list, ticket_facts: dict, booking: dict,
+    l1: str, l2: str, sub_theme, primary_scenario, overlay_scenarios: list,
+) -> list:
+    """
+    Returns [{scenario_name, is_primary, accuracy, accuracy_explanation, why, fix}].
+    One block per applicable scenario (primary first). Empty list on failure.
+    """
+    scen_list = [s for s in ([primary_scenario] + list(overlay_scenarios or [])) if s]
+    if not is_live("anthropic"):
+        # Deterministic mock so the stacked UI is testable offline.
+        if not scen_list:
+            scen_list = ["CE-error review"]
+        return [{
+            "scenario_name": s,
+            "is_primary": i == 0,
+            "accuracy": "Partially",
+            "accuracy_explanation": "Mock verdict — validate on live tickets.",
+            "why": f"Mock root cause for {s} pending live Zendesk data.",
+            "fix": "Mock corrective action — owning team TBD.",
+        } for i, s in enumerate(scen_list)]
+    try:
+        raw = await _call(
+            prompts.wwr_analysis_prompt(
+                review_text, timeline, ticket_facts, booking,
+                l1, l2, sub_theme, primary_scenario, overlay_scenarios),
+            max_tokens=2000,
+        )
+        parsed = _extract_json_object(raw)
+        scenarios = (parsed or {}).get("scenarios") or []
+        return [s for s in scenarios if isinstance(s, dict) and s.get("scenario_name")]
+    except Exception:
+        log.exception("WWR analysis failed")
+        return []
+
+
 # ─── 5b. Full RCA (v3, structured with checklist) ───────────────────────────
 async def generate_rca_v3(
     review_text: str,
@@ -367,6 +404,7 @@ async def generate_rca_v3(
     checklist: dict,
     review_id: str = None,
     timeline_raw: list = None,
+    ticket_facts: dict = None,
 ) -> dict:
     """
     Returns the RCA v3 shape:
@@ -392,9 +430,8 @@ async def generate_rca_v3(
             "wwr_chain": [
                 {"step": 1, "what": "Booking completed", "why": "Guest selected experience and paid."},
                 {"step": 2, "what": "Issue arose on day of experience", "why": "Operational or SP-side gap."},
-                {"step": 3, "what": "Guest contacted CE", "why": "Guest was unsatisfied with experience."},
-                {"step": 4, "what": "CE responded", "why": "Standard support flow."},
-                {"step": 5, "what": "Guest posted review", "why": "Dissatisfied despite interaction."},
+                {"step": 3, "what": "Guest contacted CE and we responded", "why": "Standard support flow after guest raised the issue."},
+                {"step": 4, "what": "Guest posted review", "why": "Dissatisfied despite interaction."},
             ],
             "prevention": "Review pre-visit communications for this experience type; ensure CE SLA is met.",
             "evidence": [
@@ -410,7 +447,7 @@ async def generate_rca_v3(
         prompts.rca_v3_prompt(
             review_text, booking, timeline, insights, dss_rec,
             l1, l2, sub_theme, support_summary, checklist, review_id or "",
-            timeline_raw=timeline_raw),
+            timeline_raw=timeline_raw, ticket_facts=ticket_facts),
         max_tokens=6000,
     )
     try:

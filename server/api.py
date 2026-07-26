@@ -68,6 +68,7 @@ class DraftPatchV2(BaseModel):
     final_response:             str  | None = None
     tldr:                       str  | None = None
     wwr_chain:                  list | None = None
+    wwr_scenarios:              list | None = None
     prevention:                 str  | None = None
     evidence:                   list | None = None
     issue_specific_answers:     dict | None = None
@@ -99,9 +100,41 @@ class FlagToBiz(BaseModel):
 # renders a taxonomy-driven Sub-theme row (options from /api/taxonomy
 # sub_theme_frameworks) in the Issue Classification block.
 
+def _looks_like_hash(s: str) -> bool:
+    """True for opaque tokens we should never show as a guest name
+    (long hex strings, no spaces)."""
+    s = (s or "").strip()
+    if not s or " " in s:
+        return False
+    return len(s) >= 16 and all(c in "0123456789abcdefABCDEF-" for c in s)
+
+
 def _draft_dict(d: RcaDraft) -> dict:
+    _tf = d.ticket_facts or {}
+    _bk = d.booking or {}
+
+    def _first_name(*cands):
+        for c in cands:
+            c = (c or "").strip()
+            if c and not _looks_like_hash(c):
+                return c
+        return ""
+
+    guest_name = _first_name(
+        _tf.get("guest_full_name"),
+        _bk.get("guestName"),
+        _bk.get("zendesk_requester_name"),
+    )
+    booking_status = _first_name(
+        _tf.get("booking_status"),
+        _bk.get("status"),
+        _bk.get("bookingStatus"),
+    )
+
     return {
         "booking":            d.booking,
+        "guest_name":         guest_name,
+        "booking_status":     booking_status,
         "match_tier":         d.match_tier,
         "match_confidence":   d.match_confidence,
         "match_method":       d.match_method,
@@ -121,6 +154,9 @@ def _draft_dict(d: RcaDraft) -> dict:
         "l1":                          d.l1,
         "l2":                          d.l2,
         "sub_theme":                   d.sub_theme,
+        "primary_scenario":            d.primary_scenario or "",
+        "overlay_scenarios":           d.overlay_scenarios or [],
+        "wwr_scenarios":               d.wwr_scenarios or [],
         "l1_reasoning":                d.l1_reasoning,
         "diagnostic_checks":           d.diagnostic_checks or [],
         "what_went_wrong_bullets":     d.what_went_wrong_bullets or [],
@@ -358,7 +394,7 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
         "support_interaction_frames", "support_summary",
         "sp_interaction_frames", "area_of_improving",
         "actions_taken", "resolution", "final_response",
-        "tldr", "wwr_chain", "prevention", "evidence",
+        "tldr", "wwr_chain", "wwr_scenarios", "prevention", "evidence",
         "issue_specific_answers", "checklist_answers",
     ):
         val = getattr(patch, field, None)
@@ -622,3 +658,117 @@ def reporting(db: Session = Depends(get_session)):
         "tier_breakdown":      tier_counts,
         "by_rating":           by_rating,
     }
+
+
+# ── VectorShift bridge ───────────────────────────────────────────────────────
+# VS can call Zendesk directly, but BigQuery needs OAuth token signing a VS API
+# node can't do — so VS fetches both through these endpoints (this app already
+# holds the credentials), and posts its finished RCA back to /api/vs-intake.
+# Auth: set VS_API_KEY in env; callers pass it as the X-VS-Key header.
+from fastapi import Header
+
+
+def _vs_auth(x_vs_key: str | None):
+    expected = os.environ.get("VS_API_KEY", "")
+    if expected and x_vs_key != expected:
+        raise HTTPException(401, "bad or missing X-VS-Key")
+
+
+@router.get("/api/vs/booking/{bid}")
+async def vs_booking(bid: str, x_vs_key: str | None = Header(default=None)):
+    """Booking lookup for VectorShift (BigQuery verify_bid passthrough)."""
+    _vs_auth(x_vs_key)
+    from server.services.bigquery_patch import verify_bid
+    row = await asyncio.get_running_loop().run_in_executor(None, verify_bid, bid)
+    if not row:
+        raise HTTPException(404, f"BID {bid} not found in BigQuery")
+    return {"booking": row}
+
+
+@router.get("/api/vs/zendesk/{bid}")
+async def vs_zendesk(bid: str, x_vs_key: str | None = Header(default=None)):
+    """Zendesk tickets for VectorShift: raw bodies + concatenated text."""
+    _vs_auth(x_vs_key)
+    from server.services import zendesk as zd
+    timeline, extracted, meta = await zd.get_timeline(booking_id=bid)
+    raw = [b for b in (meta.get("timeline_raw") or []) if b and str(b).strip()]
+    return {
+        "ticket_ids":              meta.get("ticket_ids", []),
+        "zendesk_requester_name":  meta.get("zendesk_requester_name", ""),
+        "tickets_text":            "\n\n---\n\n".join(str(b)[:2000] for b in raw[:20]),
+        "raw_events_json":         [{"idx": i, "raw_body": str(b)[:2000]}
+                                    for i, b in enumerate(raw[:20])],
+        "extracted_booking_fields": extracted or {},
+    }
+
+
+class VsIntake(BaseModel):
+    """The assembled RCA record produced by the VectorShift pipeline."""
+    review: dict
+    booking: dict = {}
+    stated_issue: str = ""
+    classification: dict = {}
+    timeline: list = []
+    ticket_facts: dict = {}
+    rca: dict = {}
+    actions_taken: dict = {}
+    suggested_response: str = ""
+    guest_name: str = ""
+
+
+@router.post("/api/vs-intake")
+def vs_intake(body: VsIntake, x_vs_key: str | None = Header(default=None),
+              db: Session = Depends(get_session)):
+    """
+    Store a VectorShift-produced RCA so it shows on the dashboard like any
+    other review (status=draft, source tagged in the id: vs_<bid>_<ts>).
+    """
+    _vs_auth(x_vs_key)
+    rv = body.review or {}
+    bid = str(rv.get("bid") or (body.booking or {}).get("id") or "").strip()
+    rid = f"vs_{bid or 'nobid'}_{int(time.time())}"
+
+    review = Review(
+        id=rid,
+        slack_ts=None,
+        slack_channel="VECTORSHIFT",
+        rating=int(rv.get("rating") or 1),
+        language=rv.get("language") or "en",
+        author=rv.get("author") or "",
+        body_original=rv.get("body_original") or "",
+        body_english=rv.get("body_english") or rv.get("body_original") or "",
+        reference_number=bid or None,
+        received_at=datetime.utcnow(),
+        status="draft",
+    )
+    db.add(review)
+
+    cls = body.classification or {}
+    rca = body.rca or {}
+    draft = RcaDraft(
+        id=f"draft_{rid}", review_id=rid,
+        booking=body.booking or {},
+        match_tier=1 if bid else None,
+        match_method="vectorshift",
+        stated_issue=body.stated_issue or "",
+        l1=cls.get("l1") or "", l2=cls.get("l2") or "",
+        sub_theme=cls.get("sub_theme"),
+        primary_scenario=cls.get("primary_scenario"),
+        overlay_scenarios=cls.get("overlay_scenarios") or [],
+        wwr_scenarios=rca.get("wwr_scenarios") or [],
+        timeline=body.timeline or [],
+        ticket_facts=body.ticket_facts or None,
+        tldr=rca.get("tldr") or "",
+        wwr_chain=rca.get("wwr_chain") or [],
+        prevention=rca.get("prevention") or "",
+        evidence=rca.get("evidence") or [],
+        issue_specific_answers=rca.get("issue_specific_answers") or {},
+        checklist_answers=rca.get("checklist_answers") or [],
+        actions_taken=body.actions_taken or
+            {"sp": [], "customer": [], "business": [], "product": [], "ce": []},
+        suggested_response=body.suggested_response or "",
+        generated_at=datetime.utcnow(),
+    )
+    db.add(draft)
+    db.commit()
+    return {"ok": True, "review_id": rid}

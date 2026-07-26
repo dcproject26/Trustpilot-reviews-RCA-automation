@@ -1359,6 +1359,55 @@
     border-radius: 50%;
     flex-shrink: 0;
   }
+  /* Task #13 Column 3 additions */
+  .scenario-chip {
+    display: inline-block; padding: 3px 10px; border-radius: 12px;
+    background: var(--accent); color: #fff; font-size: 12px; font-weight: 600;
+  }
+  .dss-row-ref {
+    font-size: 11px; color: var(--text-mute); margin: 2px 0 6px;
+    font-family: ui-monospace, monospace;
+  }
+  .tpl-name {
+    font-size: 12px; font-weight: 600; color: var(--accent); margin: 4px 0 6px;
+  }
+  .chk-summary { font-size: 12px; margin: 4px 0 8px; }
+  .chk-summary .chk-p { color: var(--green); }
+  .chk-summary .chk-f { color: var(--amber); font-weight: 600; }
+  .chk-summary .chk-n { color: var(--text-mute); }
+  .chk-flagged, .chk-drawer { display: flex; flex-direction: column; gap: 6px; }
+  .chk-drawer { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+  .chk-none { font-size: 12px; color: var(--text-mute); }
+  .chk-row { display: grid; grid-template-columns: 16px 1fr auto; gap: 8px; align-items: start; }
+  .chk-mark { font-size: 12px; line-height: 1.5; }
+  .chk-row.chk-flag .chk-mark { color: var(--amber); }
+  .chk-row.chk-pass .chk-mark { color: var(--green); }
+  .chk-row.chk-na  .chk-mark { color: var(--text-mute); }
+  .chk-item { font-size: 12px; color: var(--text); }
+  .chk-sec { font-size: 9px; color: var(--text-mute); border: 1px solid var(--border); border-radius: 3px; padding: 0 3px; margin-left: 4px; }
+  .chk-ev { font-size: 11px; color: var(--text-mute); margin-top: 2px; }
+  .chk-zd { color: var(--accent); font-family: ui-monospace, monospace; }
+  .chk-ans { font-size: 11px; color: var(--text-mute); white-space: nowrap; }
+  .chk-toggle {
+    margin-top: 8px; background: none; border: none; color: var(--accent);
+    font-size: 12px; cursor: pointer; padding: 2px 0; font-weight: 600;
+  }
+  .chk-toggle:hover { text-decoration: underline; }
+  /* WWR stacked scenario blocks */
+  .wwr-scenarios { display: flex; flex-direction: column; gap: 12px; }
+  .wwr-scn { border-left: 2px solid var(--border); padding: 6px 0 6px 12px; }
+  .wwr-scn.primary { border-left-color: var(--accent); }
+  .wwr-scn-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .wwr-scn-tag {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.5px; padding: 1px 6px;
+    border-radius: 3px; background: var(--bg-elev-2); color: var(--text-mute);
+  }
+  .wwr-scn.primary .wwr-scn-tag { background: var(--accent); color: #fff; }
+  .wwr-scn-name { font-size: 13px; font-weight: 700; color: var(--text); }
+  .wwr-scn-row { display: flex; align-items: baseline; gap: 8px; margin: 4px 0; }
+  .wwr-scn-k { flex-shrink: 0; width: 70px; font-size: 11px; font-weight: 600; color: var(--text-mute); }
+  .wwr-scn-v { font-size: 12px; color: var(--text); flex: 1; cursor: text; }
+  .wwr-scn-v:focus { outline: 1px solid var(--accent); border-radius: 3px; }
   .dss-status-dot.off { background: var(--text-dim); }
   .dss-status-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
   .dss-status-dot.loading { background: var(--amber); animation: pulse 1.2s ease-in-out infinite; }
@@ -1724,9 +1773,10 @@ async function fetchInbox() {
           areaOfImproving: '',
           actionsTaken: {sp:[],customer:[],business:[],product:[],ce:[]},
           resolution: '',
-          tldr: '', wwrChain: [], prevention: '',
+          tldr: '', wwrChain: [], wwrScenarios: [], prevention: '',
           evidence: [], issueSpecificAnswers: {}, checklistAnswers: [],
           checks: [], reply: '', reasoning: '',
+          primaryScenario: '', templateName: '',
         },
         insights: {
           tgidRating: {value:'—',sub:'',tone:''},
@@ -1804,13 +1854,18 @@ async function loadDraftOverlays() {
 
       r.rca.resolution = draft.resolution || r.rca.resolution || '';
       r.rca.reply      = draft.final_response || draft.suggested_response || r.rca.reply || '';
+      r.rca.primaryScenario  = draft.primary_scenario || r.rca.primaryScenario || '';
+      r.rca.overlayScenarios = draft.overlay_scenarios || [];
+      r.rca.templateName     = draft.template_name    || r.rca.templateName    || '';
+      r.rca.wwrScenarios     = draft.wwr_scenarios    || [];
 
       // actions_taken: API returns {sp: [strings], ce: [strings], …}
       // render expects [{context, with, handle, time, where}]
       if (draft.actions_taken) {
-        const toItems = arr => (arr || []).map(s => ({
-          context: s, with: '', handle: '', time: '', where: '#'
-        }));
+        const toItems = arr => (arr || []).map(s => (typeof s === 'string'
+          ? { context: s, with: '', handle: '', time: '', where: '#' }
+          : { context: s.context || '', with: s.with || '', handle: s.handle || '',
+              time: s.time || '', where: s.where || '#' }));
         r.rca.actionsTaken = {
           sp:       toItems(draft.actions_taken.sp),
           customer: toItems(draft.actions_taken.customer),
@@ -2212,11 +2267,11 @@ function renderReviewCol() {
       <div class="section-label"><span class="marker"></span>Experience Details</div>
       <div class="details-grid">
         <div class="detail-row"><span class="k">Booking ID</span><span class="v mono">${b.bmsLink ? `<a href="${b.bmsLink}" target="_blank" rel="noopener" class="bms-link">${b.bid}</a>` : b.bid}</span></div>
-        <div class="detail-row"><span class="k">Experience</span><span class="v">${b.experience}</span></div>
+        <div class="detail-row"><span class="k">Experience</span><span class="v">${b.experience || "—"}</span></div>
         <div class="detail-row"><span class="k">TID name</span><span class="v ${b.tidName ? '' : 'placeholder'}">${b.tidName || '—'}</span></div>
-        <div class="detail-row"><span class="k">TGID / TID</span><span class="v mono">${b.tgidLink ? `<a href="${b.tgidLink}" target="_blank" rel="noopener" class="tgid-link">${b.tgid}</a>` : b.tgid} / ${b.tid}</span></div>
-        <div class="detail-row"><span class="k">Vendor ID</span><span class="v mono">${b.vid}</span></div>
-        <div class="detail-row"><span class="k">Vendor name</span><span class="v">${b.vendorName}</span></div>
+        <div class="detail-row"><span class="k">TGID / TID</span><span class="v mono">${b.tgidLink ? `<a href="${b.tgidLink}" target="_blank" rel="noopener" class="tgid-link">${b.tgid || "—"}</a>` : (b.tgid || "—")} / ${b.tid || "—"}</span></div>
+        <div class="detail-row"><span class="k">Vendor ID</span><span class="v mono">${b.vid || "—"}</span></div>
+        <div class="detail-row"><span class="k">Vendor name</span><span class="v">${b.vendorName || "—"}</span></div>
         <div class="detail-row"><span class="k">Fulfilment type</span><span class="v mono">${b.fulfilmentType || '—'}</span></div>
         <div class="detail-row"><span class="k">Primary guest</span><span class="v">${b.primaryGuestName || '—'}</span></div>
         <div class="detail-row"><span class="k">Visit date</span><span class="v mono">${b.experienceDate || '—'}</span></div>
@@ -2556,75 +2611,105 @@ function renderRcaCol() {
       </div>`
     : null;
 
-  // FULL Slack post preview — everything from column 2 + column 3
+  // Slack post preview — mirrors format_rca_slack (Task #13 PART 4 structure):
+  // header → classification+scenarios → WWR blocks → CE frames → SP frames →
+  // area of improvement → actions (owner) → resolution → flagged audit → insights.
   const b = r.booking;
+  const _scenAll = [rca.primaryScenario, ...((r.rca.overlayScenarios) || [])].filter(Boolean);
+  const _wwrPrev = (rca.wwrScenarios || []).length
+    ? rca.wwrScenarios.map(sc => `
+        <div class="sp-row" style="white-space:normal"><span class="v">[${sc.is_primary ? 'PRIMARY' : 'overlay'}] ${sc.scenario_name || ''}</span></div>
+        <div class="sp-row" style="white-space:normal">• Accurate? ${sc.accuracy || '—'} — ${sc.accuracy_explanation || ''}</div>
+        <div class="sp-row" style="white-space:normal">• Why: ${sc.why || ''}</div>
+        <div class="sp-row" style="white-space:normal;margin-bottom:6px">• Fix: ${sc.fix || ''}</div>`).join('')
+    : (rca.wwrChain || []).map(st => `<div class="sp-row" style="white-space:normal">${st.step}. <span class="v">${st.what || ''}</span> — ${st.why || ''}</div>`).join('') || '<div class="sp-row">—</div>';
+  const _frameRows = (frames) => (frames || []).map(f =>
+      `<div class="sp-row" style="white-space:normal">• ${f.time || '?'} — ${f.guestSaid || f.summary || ''}${f.weDid ? ' | we: ' + f.weDid : ''}${f.gap ? ' | ⚠ ' + f.gap : ''}</div>`).join('')
+    || '<div class="sp-row">—</div>';
+  const _actionRows = ['sp','customer','business','ce','product'].flatMap(tab =>
+      (rca.actionsTaken[tab] || []).map(a => `<div class="sp-row" style="white-space:normal">• ${a.context || a.with || ''} (${tab.toUpperCase()})</div>`))
+    .join('') || '<div class="sp-row">—</div>';
+  const _flagged = (rca.checklistAnswers || []).filter(c => String(c.answer || '').trim().toLowerCase() === 'no');
+  const _auditRows = _flagged.map(c =>
+      `<div class="sp-row" style="white-space:normal">• [${String(c.section || '').toUpperCase()}] ${c.item || c.check || ''}${c.evidence ? ' — ' + c.evidence : ''}${(c.zd_ref || c.zd_id) ? ' (' + (c.zd_ref || c.zd_id) + ')' : ''}</div>`).join('')
+    || '<div class="sp-row">No flagged checks</div>';
   const slackPost = `
     <div class="slack-preview">
       <div class="slack-preview-label">Posted to Slack thread on Send</div>
       <div class="slack-preview-content">
         <div class="sp-section">
-          <div class="sp-heading">Trustpilot review</div>
-          <div class="sp-row"><span class="v">${r.author}</span> <span class="k">·</span> ${r.stars} <span class="k">·</span> ${r.lang}</div>
-          <div class="sp-row" style="margin-top:4px;color:var(--text);white-space:normal">${(r.english || r.original).substring(0, 200)}${(r.english || r.original).length > 200 ? '…' : ''}</div>
-        </div>
-        ${r.english ? `
-        <div class="sp-section">
-          <div class="sp-heading">English translation (Claude)</div>
-          <div class="sp-row" style="color:var(--text);white-space:normal">${r.english}</div>
-        </div>` : ''}
-        <div class="sp-section">
-          <div class="sp-heading">Booking match</div>
-          <div class="sp-row"><span class="k">Tier:</span> <span class="v">${r.tier}</span> <span class="k">·</span> ${r.matchMethod}</div>
+          <div class="sp-heading">RCA — @reviewteam</div>
+          <div class="sp-row"><span class="k">BID</span> <span class="v">${b.bid || '—'}</span> <span class="k">·</span> ${r.author} <span class="k">·</span> ${r.stars}</div>
+          <div class="sp-row"><span class="k">Issue:</span> <span class="v">${rca.issueL1 || '—'} / ${rca.issueL2 || '—'}${rca.subTheme ? ' / ' + rca.subTheme : ''}</span></div>
+          ${_scenAll.length ? `<div class="sp-row"><span class="k">Scenarios:</span> <span class="v">${_scenAll.join(', ')}</span></div>` : ''}
         </div>
         <div class="sp-section">
-          <div class="sp-heading">Experience details</div>
-          <div class="sp-row"><span class="k">BID:</span> <span class="v">${b.bid}</span></div>
-          <div class="sp-row"><span class="k">Experience:</span> <span class="v">${b.experience}</span></div>
-          <div class="sp-row"><span class="k">TGID / TID:</span> <span class="v">${b.tgid} / ${b.tid}</span></div>
-          <div class="sp-row"><span class="k">VID:</span> <span class="v">${b.vid}</span> <span class="k">·</span> ${b.vendorName}</div>
-          <div class="sp-row"><span class="k">Visit date:</span> <span class="v">${b.experienceDate}</span></div>
-          <div class="sp-row"><span class="k">Creation date:</span> <span class="v">${b.creationDate}</span></div>
-          <div class="sp-row"><span class="k">Review date:</span> <span class="v">${b.reviewDate}</span></div>
-          <div class="sp-row"><span class="k">Status:</span> <span class="v">${b.status}</span> <span class="k">·</span> <span class="k">Lead time:</span> <span class="v">${b.leadTime}</span></div>
+          <div class="sp-heading">What went wrong</div>
+          ${_wwrPrev}
         </div>
         <div class="sp-section">
-          <div class="sp-heading">Events timeline</div>
-          ${r.events.map(e => `<div class="sp-row"><span class="k">${e.time}</span> · <span class="v">${e.label}</span> · ${e.summary}</div>`).join('')}
-          <div class="sp-row" style="margin-top:4px;font-style:italic;color:var(--text-mute);white-space:normal">${r.timelineSummary.replace(/<[^>]+>/g, '')}</div>
+          <div class="sp-heading">Customer / CE interactions</div>
+          ${_frameRows(rca.supportInteraction)}
+        </div>
+        <div class="sp-section">
+          <div class="sp-heading">SP interactions</div>
+          ${_frameRows(rca.spInteraction)}
+        </div>
+        <div class="sp-section">
+          <div class="sp-heading">Area of improvement</div>
+          <div class="sp-row" style="white-space:normal">${(rca.areaOfImproving || '—').toString().split('\n').map(x => '• ' + x).join('<br>')}</div>
+        </div>
+        <div class="sp-section">
+          <div class="sp-heading">Actions taken</div>
+          ${_actionRows}
+        </div>
+        <div class="sp-section">
+          <div class="sp-heading">Resolution</div>
+          <div class="sp-row" style="white-space:normal;color:var(--text)">${rca.resolution || '—'}</div>
+        </div>
+        <div class="sp-section">
+          <div class="sp-heading">Audit findings (flagged)</div>
+          ${_auditRows}
         </div>
         <div class="sp-section">
           <div class="sp-heading">Experience insights (${state.insightsWindow})</div>
           <div class="sp-row"><span class="k">TGID rating:</span> <span class="v">${r.insights.tgidRating.value}</span> <span class="k">(${r.insights.tgidRating.sub})</span></div>
-          <div class="sp-row"><span class="k">TID·VID rating:</span> <span class="v">${r.insights.tidVidRating.value}</span> <span class="k">(${r.insights.tidVidRating.sub})</span></div>
-          <div class="sp-row"><span class="k">Completion:</span> <span class="v">${r.insights.completion.value}</span> <span class="k">·</span> <span class="k">Same-day issues:</span> <span class="v">${r.insights.sameDayIssues.value}</span> <span class="k">(${r.insights.sameDayIssues.sub})</span></div>
-          ${((r.insights.similarSupport || []).length + (r.insights.similarReviews || []).length) > 0 ? `<div class="sp-row" style="margin-top:4px"><span class="k">Similar cases:</span> <span class="v">${(r.insights.similarSupport || []).length} support · ${(r.insights.similarReviews || []).length} reviews</span></div>` : ''}
-        </div>
-        <div class="sp-section">
-          <div class="sp-heading">RCA</div>
-          <div class="sp-row"><span class="k">L1:</span> <span class="v">${rca.issueL1}</span> <span class="k">·</span> <span class="k">L2:</span> <span class="v">${rca.issueL2}</span></div>
-          <div class="sp-row" style="margin-top:4px;white-space:normal;color:var(--text)">${rca.whatWentWrong}</div>
-        </div>
-        <div class="sp-section">
-          <div class="sp-heading">Resolution</div>
-          <div class="sp-row" style="white-space:normal;color:var(--text)">${rca.actionsTaken.customer[0]?.context || 'No comp issued — guest error case'}</div>
+          <div class="sp-row"><span class="k">Completion:</span> <span class="v">${r.insights.completion.value}</span> <span class="k">·</span> <span class="k">Same-day issues:</span> <span class="v">${r.insights.sameDayIssues.value}</span></div>
+          ${((r.insights.similarSupport || []).length + (r.insights.similarReviews || []).length) > 0 ? `<div class="sp-row"><span class="k">Similar cases:</span> <span class="v">${(r.insights.similarSupport || []).length} support · ${(r.insights.similarReviews || []).length} reviews</span></div>` : ''}
         </div>
       </div>
     </div>
   `;
 
   // ── v3 sections (gated on tldr presence) ──────────────────────────────────
-  const v3Block = rca.tldr ? `
-    <div class="section" id="rca-tldr-section">
-      <div class="section-label"><span class="marker"></span>TL;DR<span class="ai-tag-inline">AI</span></div>
-      <div class="field-block">
-        <div class="tldr-banner editable-text" contenteditable="true" spellcheck="false"
-             style="font-size:18px;font-weight:600;line-height:1.5;padding:10px 0"
-             data-patch-field="tldr">${rca.tldr}</div>
-      </div>
-    </div>
-
+  const v3Block = (rca.tldr || (rca.wwrScenarios || []).length) ? `
     <div class="section" id="rca-wwr-section">
       <div class="section-label"><span class="marker"></span>What Went Wrong<span class="ai-tag-inline">AI</span></div>
+      ${(rca.wwrScenarios || []).length ? `
+      <div class="wwr-scenarios">
+        ${rca.wwrScenarios.map((sc, i) => `
+          <div class="wwr-scn ${sc.is_primary ? 'primary' : ''}" data-scn-idx="${i}">
+            <div class="wwr-scn-head">
+              <span class="wwr-scn-tag">${sc.is_primary ? 'PRIMARY' : 'overlay'}</span>
+              <span class="wwr-scn-name">${sc.scenario_name || ''}</span>
+            </div>
+            <div class="wwr-scn-row">
+              <span class="wwr-scn-k">Accurate?</span>
+              <select class="classify-select" style="width:110px" data-scn-idx="${i}" data-scn-field="accuracy">
+                ${['Yes','Partially','No'].map(o => `<option${(sc.accuracy||'')===o?' selected':''}>${o}</option>`).join('')}
+              </select>
+              <span class="editable-text wwr-scn-v" contenteditable="true" spellcheck="false"
+                    data-scn-idx="${i}" data-scn-field="accuracy_explanation">${sc.accuracy_explanation || ''}</span>
+            </div>
+            <div class="wwr-scn-row"><span class="wwr-scn-k">Why</span>
+              <span class="editable-text wwr-scn-v" contenteditable="true" spellcheck="false"
+                    data-scn-idx="${i}" data-scn-field="why">${sc.why || ''}</span></div>
+            <div class="wwr-scn-row"><span class="wwr-scn-k">Fix</span>
+              <span class="editable-text wwr-scn-v" contenteditable="true" spellcheck="false"
+                    data-scn-idx="${i}" data-scn-field="fix">${sc.fix || ''}</span></div>
+          </div>
+        `).join('')}
+      </div>` : `
       <div class="wwr-stepper">
         ${(rca.wwrChain || []).map((step, i) => `
           <div class="wwr-step" data-step="${i}">
@@ -2640,32 +2725,8 @@ function renderRcaCol() {
           </div>
         `).join('<div class="wwr-connector"></div>')}
       </div>
-      <button class="action-add-btn" data-wwr-add>+ Add step</button>
+      <button class="action-add-btn" data-wwr-add>+ Add step</button>`}
     </div>
-
-    <div class="section" id="rca-prevention-section">
-      <div class="section-label"><span class="marker"></span>Prevention<span class="ai-tag-inline">AI</span></div>
-      <div class="field-block">
-        <textarea class="field-textarea" data-patch-field="prevention">${rca.prevention || ''}</textarea>
-      </div>
-    </div>
-
-    ${(rca.evidence || []).length > 0 ? `
-    <div class="section" id="rca-evidence-section">
-      <div class="section-label" style="cursor:pointer" data-toggle-evidence>
-        <span class="marker"></span>Evidence
-        <span class="ai-tag-inline">AI</span>
-        <span style="color:var(--text-mute);margin-left:6px">(${rca.evidence.length} items — click to expand)</span>
-      </div>
-      <div class="evidence-list" id="evidence-body" style="display:none">
-        ${rca.evidence.map(ev => {
-          const m = ev.match(/^\[([^\]]+)\]\s*(.*)$/);
-          return m
-            ? `<div class="ev-item"><span class="ev-source">[${m[1]}]</span> ${m[2]}</div>`
-            : `<div class="ev-item">${ev}</div>`;
-        }).join('')}
-      </div>
-    </div>` : ''}
 
     ${Object.keys(rca.issueSpecificAnswers || {}).length > 0 ? `
     <div class="section" id="rca-issue-answers-section">
@@ -2690,31 +2751,37 @@ function renderRcaCol() {
       </table>
     </div>` : ''}
 
-    ${(rca.checklistAnswers || []).length > 0 ? `
-    <div class="section" id="rca-checklist-answers-section">
-      <div class="section-label"><span class="marker"></span>RCA Checklist Answers<span class="ai-tag-inline">AI</span></div>
-      <table class="check-table" style="width:100%;border-collapse:collapse">
-        <thead><tr>
-          <th style="text-align:left;padding:4px 8px;font-size:11px;color:var(--text-mute)">Item</th>
-          <th style="text-align:left;padding:4px 8px;font-size:11px;color:var(--text-mute);width:130px">Answer</th>
-        </tr></thead>
-        <tbody>
-          ${rca.checklistAnswers.map((ca, ci) => `
-            <tr>
-              <td style="padding:4px 8px;font-size:12px;color:var(--text)">
-                ${ca.item}
-                ${ca.note ? `<div style="font-size:11px;color:var(--text-mute);margin-top:2px">${ca.note}</div>` : ''}
-              </td>
-              <td style="padding:4px 8px">
-                <select class="classify-select" style="font-size:12px;width:110px"
-                        data-ca-idx="${ci}">
-                  ${['Yes','No','Unknown'].map(opt => `<option${ca.answer===opt?' selected':''}>${opt}</option>`).join('')}
-                </select>
-              </td>
-            </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>` : ''}
+    ${(rca.checklistAnswers || []).length > 0 ? (() => {
+        const cas  = rca.checklistAnswers;
+        const norm = a => (a || '').toString().trim().toLowerCase();
+        const passed  = cas.filter(c => norm(c.answer) === 'yes').length;
+        const flagged = cas.filter(c => norm(c.answer) === 'no');
+        const na      = cas.length - passed - flagged.length;
+        const row = c => {
+          const k = norm(c.answer) === 'no' ? 'flag' : norm(c.answer) === 'yes' ? 'pass' : 'na';
+          const mark = k === 'flag' ? '⚠' : k === 'pass' ? '✓' : '○';
+          const ev = c.evidence || c.note || '';
+          const zd = c.zd_ref || c.zd_id || '';
+          return `<div class="chk-row chk-${k}">
+              <span class="chk-mark">${mark}</span>
+              <div class="chk-body">
+                <div class="chk-item">${c.item || c.check || ''}${c.section ? ` <span class="chk-sec">${String(c.section).toUpperCase()}</span>` : ''}</div>
+                ${ev ? `<div class="chk-ev">${ev}${zd ? ` · <span class="chk-zd">${zd}</span>` : ''}</div>` : ''}
+              </div>
+              <span class="chk-ans">${c.answer || '—'}</span>
+            </div>`;
+        };
+        return `
+    <div class="section" id="rca-checklist-section">
+      <div class="section-label"><span class="marker"></span>RCA Checklist<span class="ai-tag-inline">AI</span></div>
+      <div class="chk-summary"><span class="chk-p">✓ ${passed} passed</span> · <span class="chk-f">⚠ ${flagged.length} flagged</span> · <span class="chk-n">○ ${na} pending/NA</span></div>
+      ${flagged.length ? `<div class="chk-flagged">${flagged.map(row).join('')}</div>` : `<div class="chk-none">No flagged checks</div>`}
+      <button class="chk-toggle" data-checklist-toggle>▸ Show all ${cas.length} checks</button>
+      <div class="chk-drawer" id="checklist-drawer" style="display:none">
+        ${cas.map(row).join('')}
+      </div>
+    </div>`;
+      })() : ''}
   ` : '';
 
   col.innerHTML = `
@@ -2727,8 +2794,6 @@ function renderRcaCol() {
         <div class="rca-sub">BID ${r.booking.bid || '—'} · drafted ${r.time || ''} · click any field to edit</div>
       </div>
     </div>
-
-    ${v3Block}
 
     <div class="section">
       <div class="section-label"><span class="marker"></span>Guest's Stated Issue<span class="ai-tag-inline">AI</span></div>
@@ -2770,30 +2835,14 @@ function renderRcaCol() {
                 .map(o => `<option>${o}</option>`).join('')}
           </select>
         </div>` : ''}
-        <div class="reasoning-text editable-text" contenteditable="true" spellcheck="false">${rca.reasoning}</div>
+        <div class="classify-row">
+          <span class="classify-label">Scenario</span>
+          <span class="scenario-chip">${rca.primaryScenario || '—'}</span>
+        </div>
       </div>
     </div>
 
-    <div class="section">
-      <div class="section-label"><span class="marker"></span>What Went Wrong<span class="ai-tag-inline">AI</span></div>
-      <div class="wwr-block">
-        <div class="checks-section">
-          <div class="checks-title">Diagnostic checks</div>
-          ${(rca.checks || []).map(c => `
-            <div class="check-item ${c.check}">
-              <span class="mark ${c.check === 'pass' ? '' : c.check}">${c.check === 'pass' ? '✓' : c.check === 'fail' ? '✗' : '!'}</span>
-              <div class="check-body">
-                <div class="check-q editable-text" contenteditable="true" spellcheck="false">${c.question || c.text || ''}</div>
-                <div class="check-a editable-text" contenteditable="true" spellcheck="false">${c.answer || c.verdict || ''}</div>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-        <div class="wwr-text">
-          <textarea class="wwr-textarea">${rca.whatWentWrong}</textarea>
-        </div>
-      </div>
-    </div>
+    ${v3Block}
 
     <div class="section">
       <div class="section-label"><span class="marker"></span>Support Interaction<span class="ai-tag-inline">AI</span></div>
@@ -2850,25 +2899,22 @@ function renderRcaCol() {
     <div class="section">
       <div class="section-label">
         <span class="marker"></span>Resolution<span class="ai-tag-inline">AI</span>
-        <button class="connect-dss-btn" data-connect-dss>⚡ Click to connect</button>
       </div>
+      <div class="dss-row-ref">DSS row: ${rca.issueL1 || '—'} / ${rca.issueL2 || '—'}</div>
       <div class="resolution-block">
         <textarea class="field-textarea" placeholder="Final resolution offered to the guest — comp / refund / explanation">${rca.resolution || ''}</textarea>
-        <div class="dss-status" id="dss-status">
-          <span class="dss-status-dot off"></span>
-          <span class="dss-status-text">[DSS to be connected]</span>
-        </div>
       </div>
     </div>
 
     <div class="section">
       <div class="section-label"><span class="marker"></span>Response to Guest<span class="ai-tag-inline">AI</span></div>
+      ${rca.templateName ? `<div class="tpl-name">Template: ${rca.templateName}</div>` : ''}
       <div class="reply-block">
         <div class="reply-edit-header">
           <span>Editable — review before sending</span>
           <span class="edit-hint">✎ Click to edit</span>
         </div>
-        <textarea class="reply-text" placeholder="AI-drafted response — edit as needed">${rca.reply}</textarea>
+        <textarea class="reply-text" placeholder="${(rca.templateName && rca.templateName.indexOf('NO MATCHING') !== -1) ? rca.templateName : 'AI-drafted response — edit as needed'}">${rca.reply}</textarea>
         <div class="reply-meta">
           <span>Goes out via Trustpilot Slack integration on Send ↑</span>
           <span>${(rca.reply || '').length} chars</span>
@@ -2898,34 +2944,6 @@ function renderRcaCol() {
   });
 
   // ── v3 event handlers ──────────────────────────────────────────────────────
-
-  // TL;DR blur → PATCH
-  const tldrEl = col.querySelector('.tldr-banner[data-patch-field="tldr"]');
-  if (tldrEl) {
-    tldrEl.addEventListener('blur', async () => {
-      rca.tldr = tldrEl.textContent.trim();
-      try {
-        await fetch(`/api/reviews/${r.id}/draft-v2`, {
-          method: 'PATCH', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({tldr: rca.tldr}),
-        });
-      } catch (e) { /* keep local edit */ }
-    });
-  }
-
-  // Prevention blur → PATCH
-  const prevEl = col.querySelector('textarea[data-patch-field="prevention"]');
-  if (prevEl) {
-    prevEl.addEventListener('blur', async () => {
-      rca.prevention = prevEl.value;
-      try {
-        await fetch(`/api/reviews/${r.id}/draft-v2`, {
-          method: 'PATCH', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({prevention: rca.prevention}),
-        });
-      } catch (e) { /* keep local edit */ }
-    });
-  }
 
   // WWR chain — inline edits on what/why fields
   col.querySelectorAll('[data-wwr-idx]').forEach(el => {
@@ -2974,12 +2992,41 @@ function renderRcaCol() {
     });
   }
 
-  // Evidence — toggle collapsible
-  const evToggle = col.querySelector('[data-toggle-evidence]');
-  if (evToggle) {
-    evToggle.addEventListener('click', () => {
-      const body = col.querySelector('#evidence-body');
-      if (body) body.style.display = body.style.display === 'none' ? 'block' : 'none';
+  // WWR scenario blocks — edits persist the whole array
+  const persistWwrScenarios = async () => {
+    try {
+      await fetch(`/api/reviews/${r.id}/draft-v2`, {
+        method: 'PATCH', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({wwr_scenarios: rca.wwrScenarios}),
+      });
+    } catch (e) { /* keep local edit */ }
+  };
+  col.querySelectorAll('span[data-scn-idx]').forEach(el => {
+    el.addEventListener('blur', async () => {
+      const sc = (rca.wwrScenarios || [])[parseInt(el.dataset.scnIdx)];
+      if (!sc) return;
+      sc[el.dataset.scnField] = el.textContent.trim();
+      await persistWwrScenarios();
+    });
+  });
+  col.querySelectorAll('select[data-scn-idx]').forEach(el => {
+    el.addEventListener('change', async () => {
+      const sc = (rca.wwrScenarios || [])[parseInt(el.dataset.scnIdx)];
+      if (!sc) return;
+      sc[el.dataset.scnField] = el.value;
+      await persistWwrScenarios();
+    });
+  });
+
+  // RCA Checklist — expandable drawer (show all N checks)
+  const chkToggle = col.querySelector('[data-checklist-toggle]');
+  if (chkToggle) {
+    chkToggle.addEventListener('click', () => {
+      const drawer = col.querySelector('#checklist-drawer');
+      if (!drawer) return;
+      const open = drawer.style.display !== 'none';
+      drawer.style.display = open ? 'none' : 'block';
+      chkToggle.textContent = (open ? '▸ Show all ' : '▾ Hide ') + (rca.checklistAnswers || []).length + ' checks';
     });
   }
 
@@ -2991,20 +3038,6 @@ function renderRcaCol() {
         await fetch(`/api/reviews/${r.id}/draft-v2`, {
           method: 'PATCH', headers: {'Content-Type':'application/json'},
           body: JSON.stringify({issue_specific_answers: rca.issueSpecificAnswers}),
-        });
-      } catch (e) { /* keep local edit */ }
-    });
-  });
-
-  // Checklist Answers — select change → PATCH
-  col.querySelectorAll('[data-ca-idx]').forEach(sel => {
-    sel.addEventListener('change', async () => {
-      const idx = parseInt(sel.dataset.caIdx);
-      if (rca.checklistAnswers[idx]) rca.checklistAnswers[idx].answer = sel.value;
-      try {
-        await fetch(`/api/reviews/${r.id}/draft-v2`, {
-          method: 'PATCH', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({checklist_answers: rca.checklistAnswers}),
         });
       } catch (e) { /* keep local edit */ }
     });
@@ -3026,8 +3059,24 @@ function renderRcaCol() {
     });
   }
 
+  // Persist Actions Taken to the draft (send each tab as plain context strings).
+  const persistActions = async () => {
+    const flat = {};
+    for (const tab of ['sp', 'customer', 'business', 'ce', 'product']) {
+      flat[tab] = (rca.actionsTaken[tab] || [])
+        .map(a => (a.context || a.with || '').trim())
+        .filter(Boolean);
+    }
+    try {
+      await fetch(`/api/reviews/${r.id}/draft-v2`, {
+        method: 'PATCH', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({actions_taken: flat}),
+      });
+    } catch (e) { /* keep local edit */ }
+  };
+
   col.querySelectorAll('[data-add-action]').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       rca.actionsTaken[state.actionTab].push({
         with: 'New action',
         handle: '@handle',
@@ -3035,16 +3084,35 @@ function renderRcaCol() {
         context: 'Click to edit context',
         where: 'link.example.com',
       });
+      await persistActions();
       renderRcaCol();
     });
   });
 
   col.querySelectorAll('[data-action-delete]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
+    btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const idx = parseInt(btn.dataset.actionDelete);
       rca.actionsTaken[state.actionTab].splice(idx, 1);
+      await persistActions();
       renderRcaCol();
+    });
+  });
+
+  // Inline edits on action fields → update model + persist on blur
+  col.querySelectorAll('.action-item .action-edit').forEach(el => {
+    el.addEventListener('blur', async () => {
+      const item = el.closest('.action-item');
+      if (!item) return;
+      const idx = parseInt(item.dataset.actionIdx);
+      const a = (rca.actionsTaken[state.actionTab] || [])[idx];
+      if (!a) return;
+      if (el.classList.contains('action-where'))      a.where   = el.textContent.trim();
+      else if (el.classList.contains('handle'))       a.handle  = el.textContent.trim();
+      else if (el.closest('.action-context'))         a.context = el.textContent.trim();
+      else if (el.closest('.action-time'))            a.time    = el.textContent.trim();
+      else                                            a.with    = el.textContent.trim();
+      await persistActions();
     });
   });
 
@@ -3101,55 +3169,6 @@ function renderRcaCol() {
     });
   }
 
-  const dssBtn = col.querySelector('[data-connect-dss]');
-  if (dssBtn) {
-    dssBtn.addEventListener('click', () => {
-      const r = REVIEWS.find(x => x.id === state.selected);
-      if (!r) return;
-      const statusDot = col.querySelector('.dss-status-dot');
-      const statusText = col.querySelector('.dss-status-text');
-      const textarea = col.querySelector('.resolution-block .field-textarea');
-
-      // Loading state
-      dssBtn.disabled = true;
-      dssBtn.textContent = '⟳ Calling DSS…';
-      statusDot.className = 'dss-status-dot loading';
-      statusText.textContent = 'Calling DSS webhook…';
-
-      setTimeout(() => {
-        // Mock DSS response based on L1/L2
-        const dssRec = dssRecommendation(r.rca.issueL1, r.rca.issueL2, r);
-        textarea.value = dssRec.text;
-        dssBtn.classList.add('connected');
-        dssBtn.disabled = false;
-        dssBtn.textContent = '✓ DSS Connected';
-        statusDot.className = 'dss-status-dot connected';
-        statusText.innerHTML = `DSS · <strong>${dssRec.policy}</strong> · ${dssRec.coverage}`;
-      }, 900);
-    });
-  }
-}
-
-function dssRecommendation(l1, l2, r) {
-  // Mock DSS policy lookup — in production, this would call the Retool webhook
-  const key = `${l1}::${l2}`;
-  const lookup = {
-    'SP issue::Venue closure': {
-      policy: 'SP venue closure',
-      coverage: 'Full refund + 25% HOC',
-      text: `DSS Recommendation:\n• Full refund of booking value\n• 25% HOC credit on next booking\n• Coverage: Yes — SP-side failure with no advance notice to Headout`,
-    },
-    'Customer error::Misunderstood inclusions (upsell not selected)': {
-      policy: 'Customer error',
-      coverage: 'No comp · goodwill optional',
-      text: `DSS Recommendation:\n• No compensation — booking issued and fulfilled correctly\n• Goodwill HOC credit up to €10 at CE discretion (optional)\n• Coverage: No — guest error`,
-    },
-  };
-  return lookup[key] || {
-    policy: '[Policy not mapped]',
-    coverage: '[Coverage TBC]',
-    text: `DSS Recommendation:\n• [Policy lookup for L1: ${l1} / L2: ${l2} — webhook to return policy + coverage]\n• To be wired to live DSS service`,
-  };
 }
 
 function openFlagDraftModal(r) {

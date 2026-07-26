@@ -76,6 +76,9 @@ class RcaDraft(Base):
     })
     resolution                  = Column(Text, nullable=True)
     sub_theme                   = Column(String, nullable=True)
+    primary_scenario            = Column(String, nullable=True)   # Task #13 scenario routing
+    overlay_scenarios           = Column(JSON, default=list)      # scenario overlays
+    wwr_scenarios               = Column(JSON, default=list)      # stacked WWR blocks (per scenario)
 
     # ── Tier classification provenance ──
     bid_source         = Column(String, nullable=True)   # attachment | regex | manual | None
@@ -137,8 +140,37 @@ class SlackEventSeen(Base):
     seen_at  = Column(DateTime, default=datetime.utcnow, index=True)
 
 
+def _ensure_columns():
+    """
+    Idempotently add columns introduced after the initial schema so existing
+    installations self-heal on deploy without a manual migration.
+    create_all() only creates missing tables, never missing columns.
+    """
+    from sqlalchemy import inspect as _inspect, text as _text
+    try:
+        existing = {c["name"] for c in _inspect(engine).get_columns("rca_drafts")}
+    except Exception:
+        return
+    is_pg = engine.dialect.name == "postgresql"
+    wanted = {
+        "primary_scenario":  "VARCHAR",
+        "overlay_scenarios": "JSONB" if is_pg else "JSON",
+        "wwr_scenarios":     "JSONB" if is_pg else "JSON",
+        "ticket_facts":      "JSONB" if is_pg else "JSON",
+    }
+    for col, coltype in wanted.items():
+        if col in existing:
+            continue
+        try:
+            with engine.begin() as conn:
+                conn.execute(_text(f"ALTER TABLE rca_drafts ADD COLUMN {col} {coltype}"))
+        except Exception:
+            pass
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
+    _ensure_columns()
 
 
 def get_session():

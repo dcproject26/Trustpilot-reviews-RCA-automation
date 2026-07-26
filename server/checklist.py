@@ -2,6 +2,21 @@
 Baked-in RCA checklist — verbatim from Brief v7.1.
 No runtime fetch. No Google Sheets dependency.
 """
+import re
+
+# Mandated structure for the "What went wrong" section (Headout ORM).
+# Headings 1–5 are ALWAYS included; the (a)/(b)/(c) sub-points are indicative —
+# use only the ones relevant to the case. Objective: concise, structured, and
+# focused on the operational failure, NOT a restatement of the customer's review.
+WHAT_WENT_WRONG_STRUCTURE = [
+    "1. Guest issue — brief 1–2 line summary (concise pointers) of the issue the guest experienced.",
+    "2. Is the guest's claim accurate? — state one of: Yes / Partially True / No.",
+    "3. What actually happened? — (a) root cause; (b) operational failure, if any; (c) SOP/process gap, if any.",
+    "4. Supply Partner escalation — (a) did CE escalate to SP? Yes / No / N/A; "
+    "(b) if we are not escalating, specify why (e.g. SP is on DND).",
+    "5. Fixes — (a) tag the relevant team(s)/stakeholder(s) who need to evaluate or address the identified gaps; "
+    "(b) briefly mention any corrective actions taken or proposed.",
+]
 
 GENERAL_GUIDELINES = {
     "rca_output": [
@@ -12,6 +27,8 @@ GENERAL_GUIDELINES = {
         "Tag relevant teams for any underlying/major experience issue",
         "Do NOT offer DSS — we add them or give a partial refund",
     ],
+    # How the AI must structure the "What went wrong" section.
+    "what_went_wrong_structure": WHAT_WENT_WRONG_STRUCTURE,
     "response": [
         "Follow org-wide communication guidelines and Headout tone",
         "Address every issue raised in the review",
@@ -174,3 +191,187 @@ SCENARIO_CHECKS = {
         "Resend tickets (future DOV) or refund/credits per DSS",
     ],
 }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scenario routing (Task #13)
+# Routing precedence:  sub-theme family (by code)  →  L2 fallback  →  none.
+# The FIRST scenario in each list is the PRIMARY; the rest are OVERLAYS.
+# Scenario names must match SCENARIO_CHECKS keys (so actions/checks resolve).
+# Two non-check sentinels are allowed: "general" and None (CE-error guideline).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# (L2, sub_theme_code) -> [primary, *overlays].  "*" = applies to every code.
+# The Supply-Partner framework is shared across all SP L2s, so it is keyed by
+# the sentinel "__SP__" and matched on L1 == "Supply Partner Issue".
+SCENARIO_ROUTING_SUBTHEME = {
+    ("Meeting Point Issues", "*"):                                  ["Meeting point issues"],
+
+    ("Ticket Issues", "A"): ["Invalid tickets", "Redemption issue with tickets"],
+    ("Ticket Issues", "B"): ["Guest did not see tickets", "Tickets sent late"],
+    ("Ticket Issues", "C"): ["Tickets sent late"],
+    ("Ticket Issues", "D"): ["Invalid tickets", "Redemption issue with tickets"],
+    ("Ticket Issues", "E"): ["Unfulfilled booking"],
+    ("Ticket Issues", "F"): ["Content issues", "Redemption issue with tickets"],
+    ("Ticket Issues", "G"): ["Redemption issue with tickets", "Invalid tickets"],
+
+    ("Audio Guide Issues", "*"):                                    ["AG redemption issues"],
+
+    ("__SP__", "A"): ["SP — no shows / delays"],
+    ("__SP__", "B"): ["SP — guided tour quality"],
+    ("__SP__", "C"): ["SP — guided tour quality"],
+    ("__SP__", "D"): ["SP — no shows / delays"],
+    ("__SP__", "E"): ["SP — guided tour quality"],
+    ("__SP__", "F"): ["SP — no shows / delays", "Redemption issue with tickets"],
+    ("__SP__", "G"): ["SP — guided tour quality"],
+
+    ("Content - Instructions not clear / Misleading Info", "*"):    ["Content issues"],
+
+    # Customer Support: only B (Refund) maps to a scenario; A/C/D/E/F/G → CE-error
+    # guideline (no scenario → None), CE checks still always run.
+    ("Customer Support Issues", "B"): ["Refund issues"],
+}
+
+# L2 -> [primary, *overlays] for families with NO sub-theme framework.
+SCENARIO_ROUTING_L2 = {
+    "Venue closure":                    ["Venue closure (weather/strike)"],
+    "Customer expectation mismatch":    ["Content issues"],
+    "Inventory Listing Issue":          ["Unfulfilled booking"],
+    "App and Website Issues":           ["Tech error during booking"],
+    "Seating Issues":                   ["SP — guided tour quality", "Redemption issue with tickets"],
+    "Food & Catering":                  ["SP — guided tour quality", "Redemption issue with tickets"],
+    "Venue facility issue":             ["Venue closure (weather/strike)"],
+    "Venue Overcrowding (Venue)":       ["Venue closure (weather/strike)"],
+    "Venue Overcrowding (External)":    ["Venue closure (weather/strike)"],
+    "Pricing Issues":                   ["Pricing / convenience fee"],
+    "Customer Late":                    ["Guest error"],
+    "Customer Error":                   ["Guest error"],
+    "Weather Related":                  ["Venue closure (weather/strike)"],
+    "Force Majeure":                    ["Venue closure (weather/strike)"],
+    "Sold Free / Discounted Admission": ["Pricing / convenience fee"],
+    "Rating Mismatch":                  ["general"],
+    "Gibberish / Profanity":            ["general"],
+    "Vague review":                     ["general"],
+    "Negative Headout":                 ["general"],
+    "General negative exp":             ["general"],
+}
+
+
+def _sub_theme_code(sub_theme) -> str:
+    """'A. Ticket Invalid / Not Working' -> 'A'.  Returns '' when absent."""
+    if not sub_theme:
+        return ""
+    m = re.match(r"\s*([A-Z])[\.\)\s]", str(sub_theme).strip() + " ")
+    return m.group(1) if m else ""
+
+
+def scenarios_for(l1: str, l2: str, sub_theme=None) -> dict:
+    """
+    Resolve the scenario(s) for a classification.
+
+    Returns {"primary": str|None, "overlays": [str], "all": [str]}.
+    - "primary" is the header chip (may be a SCENARIO_CHECKS key, "general",
+      or None for the CE-error-guideline case).
+    - "overlays" stack under the primary in the What-Went-Wrong section.
+    """
+    l1 = (l1 or "").strip()
+    l2 = (l2 or "").strip()
+    code = _sub_theme_code(sub_theme)
+
+    scen = None
+    if l1 == "Supply Partner Issue" and ("__SP__", code) in SCENARIO_ROUTING_SUBTHEME:
+        scen = SCENARIO_ROUTING_SUBTHEME[("__SP__", code)]
+    elif (l2, code) in SCENARIO_ROUTING_SUBTHEME:
+        scen = SCENARIO_ROUTING_SUBTHEME[(l2, code)]
+    elif (l2, "*") in SCENARIO_ROUTING_SUBTHEME:
+        scen = SCENARIO_ROUTING_SUBTHEME[(l2, "*")]
+
+    if scen is None:
+        scen = SCENARIO_ROUTING_L2.get(l2)
+
+    scen = list(scen) if scen else []
+    return {
+        "primary":  scen[0] if scen else None,
+        "overlays": scen[1:],
+        "all":      scen,
+    }
+
+
+def compute_overlay_scenarios(l1: str, l2: str, sub_theme=None,
+                              ticket_facts: dict = None,
+                              booking: dict = None) -> list:
+    """
+    Overlay scenarios for the What-Went-Wrong stack. Starts from the static
+    routing overlays and adds dynamic ones from ticket_facts / booking signals
+    (never duplicating the primary). Safe on missing data.
+    """
+    routed = scenarios_for(l1, l2, sub_theme)
+    primary = routed["primary"]
+    overlays = list(routed["overlays"])
+    tf = ticket_facts or {}
+    bk = booking or {}
+
+    def _add(name):
+        if name and name != primary and name not in overlays and name in SCENARIO_CHECKS:
+            overlays.append(name)
+
+    # Refund signal present but not already a refund scenario → stack it.
+    refund = tf.get("refund") or {}
+    if isinstance(refund, dict) and (refund.get("issued") or refund.get("out_of_policy")):
+        _add("Refund issues")
+    # Cancelled booking with no fulfilment → unfulfilled overlay.
+    status = str(bk.get("booking_status") or bk.get("status") or "").lower()
+    if "cancel" in status:
+        _add("Unfulfilled booking")
+    return overlays
+
+
+def scenario_actions(scenario_name: str) -> list:
+    """Guideline action items for one scenario (from the baked Guidelines)."""
+    return list(SCENARIO_CHECKS.get(scenario_name, []))
+
+
+# Owner routing for Actions-Taken tabs. First matching rule wins; an item that
+# matches no rule is a pure check (not an ownable action) and is skipped.
+_OWNER_RULES = [
+    ("sp",       ["supply partner", "raise with sp", "with sp", "→ sp", "sp/biz",
+                  "operator", "guide", "vendor api"]),
+    ("product",  ["tech team", "with tech", "raise with tech", "tech for", "tech bug",
+                  "bms", "pdf", "app issue", "app issues", "selenium", "website", "→ tech"]),
+    ("business", ["inventory", "inv-ops", "io/", "→ io", "prepurchase→io", " biz", "business",
+                  "bdm", "bizops", "escalation team", "escalations", "arpit", "leads",
+                  "#co-issue", " fin ", "on priority"]),
+    ("customer", ["refund", "credit", "resend", "email guest", "arn", "reschedule",
+                  "cancel/reschedule", "share proof", "request proof", "callout"]),
+    ("ce",       ["ce error", "ce/ro", "macro", "clarity", "internal notes", "follow up",
+                  "48-72h", "action per dss"]),
+]
+
+
+def _owner_for_action(text: str):
+    t = " " + (text or "").lower() + " "
+    for owner, kws in _OWNER_RULES:
+        if any(k in t for k in kws):
+            return owner
+    return None
+
+
+def actions_for(scenario_names) -> dict:
+    """
+    Merge + dedupe guideline actions across the given scenarios and route each
+    to its owner tab. Returns {sp, customer, business, ce, product: [str]}.
+    Only ownable action items are included (pure checks are skipped).
+    """
+    tabs = {"sp": [], "customer": [], "business": [], "product": [], "ce": []}
+    seen = set()
+    for name in (scenario_names or []):
+        for item in scenario_actions(name):
+            key = item.strip().lower()
+            if key in seen:
+                continue
+            owner = _owner_for_action(item)
+            if not owner:
+                continue
+            seen.add(key)
+            tabs[owner].append(item)
+    return tabs

@@ -35,6 +35,29 @@ from server.taxonomy import DIAGNOSTIC_CHECKS, BID_REGEX
 
 log = logging.getLogger(__name__)
 
+# Generic travel/booking words that appear in almost every experience name.
+# A match on one of these is NOT evidence the review is about this venue.
+_VENUE_STOPWORDS = {
+    "tour", "tours", "pass", "ticket", "tickets", "entry", "visit", "trip",
+    "city", "day", "guided", "skip", "line", "with", "from", "and", "the",
+    "experience", "admission", "access", "combo", "package", "hours", "hour",
+    "half", "full", "private", "group", "small", "guide", "self", "audio",
+}
+
+
+def _venue_token_overlap(review_text: str, exp_name: str) -> bool:
+    """
+    Robust venue signal: True only when the review and the experience name
+    share a SIGNIFICANT word (len>=4, alphabetic, not a generic travel term),
+    compared at word level — not the old fragile substring scan where any
+    4-char fragment of a review word could match inside the experience name.
+    """
+    def _sig_tokens(s: str) -> set:
+        toks = re.findall(r"[a-z]{4,}", (s or "").lower())
+        return {t for t in toks if t not in _VENUE_STOPWORDS}
+
+    return bool(_sig_tokens(review_text) & _sig_tokens(exp_name))
+
 
 async def process_review(review_id: str):
     db = SessionLocal()
@@ -192,13 +215,11 @@ async def process_review(review_id: str):
                                     verify_hits.append("date")
                             except Exception:
                                 pass
-                        # 3. Venue match (if we can quickly extract from text)
+                        # 3. Venue match — significant-word overlap, not a naive
+                        #    substring scan (see _venue_token_overlap).
                         exp_name = (bq_row.get("experienceName") or "").lower()
-                        if exp_name:
-                            for word in (review_text or "").lower().split():
-                                if len(word) >= 4 and word in exp_name:
-                                    verify_hits.append("venue")
-                                    break
+                        if exp_name and _venue_token_overlap(review_text or "", exp_name):
+                            verify_hits.append("venue")
 
                         if verify_hits:
                             booking = bq_row
@@ -708,6 +729,41 @@ async def process_review(review_id: str):
         except Exception as e:
             log.exception(f"RCA v2 generation failed: {e}")
 
+        # ── 6c. Collect ticket fact extraction result (before RCA — feeds it) ─
+        try:
+            ticket_facts = await _facts_task
+            if ticket_facts:
+                log.info(f"[pipeline] ticket_facts extracted: {list(ticket_facts.keys())}")
+        except Exception as e:
+            log.warning(f"Ticket fact extraction collect failed: {e}")
+            ticket_facts = {}
+
+        # ── 11e. Scenario routing (sub-theme → primary scenario + overlays) ──
+        primary_scenario, overlay_scenarios, guideline_actions = None, [], {}
+        try:
+            from server.checklist import (
+                scenarios_for, compute_overlay_scenarios, actions_for, SCENARIO_CHECKS)
+            primary_scenario = scenarios_for(l1, l2, sub_theme)["primary"]
+            overlay_scenarios = compute_overlay_scenarios(
+                l1, l2, sub_theme, ticket_facts, booking)
+            scenario_keys = [s for s in ([primary_scenario] + overlay_scenarios)
+                             if s in SCENARIO_CHECKS]
+            guideline_actions = actions_for(scenario_keys)
+            log.info(f"[pipeline] scenario routing: primary={primary_scenario!r} "
+                     f"overlays={overlay_scenarios}")
+        except Exception as e:
+            log.exception(f"Scenario routing failed: {e}")
+
+        # ── 11f. WWR analysis — one block per scenario (Task #13 §3) ─────────
+        wwr_scenarios = []
+        try:
+            wwr_scenarios = await claude.analyze_wwr(
+                review_text, timeline, ticket_facts, booking or {},
+                l1 or "", l2 or "", sub_theme, primary_scenario, overlay_scenarios)
+            log.info(f"[pipeline] wwr_analysis: {len(wwr_scenarios)} scenario block(s)")
+        except Exception as e:
+            log.exception(f"WWR analysis failed: {e}")
+
         # ── 12b. RCA v3 (TL;DR + WWR chain + checklist) ──────────────────────
         rca_v3 = {}
         try:
@@ -726,18 +782,10 @@ async def process_review(review_id: str):
                 checklist=checklist,
                 review_id=review_id,
                 timeline_raw=zd_meta.get("timeline_raw", []),
+                ticket_facts=ticket_facts,
             )
         except Exception as e:
             log.exception(f"RCA v3 generation failed: {e}")
-
-        # ── 6c. Collect ticket fact extraction result ─────────────────────────
-        try:
-            ticket_facts = await _facts_task
-            if ticket_facts:
-                log.info(f"[pipeline] ticket_facts extracted: {list(ticket_facts.keys())}")
-        except Exception as e:
-            log.warning(f"Ticket fact extraction collect failed: {e}")
-            ticket_facts = {}
 
         # ── 13. Response draft ────────────────────────────────────────────────
         response_draft = ""
@@ -749,7 +797,11 @@ async def process_review(review_id: str):
                 l2=l2,
                 resolution=rca_v2.get("resolution", ""),
                 review_id=review_id,
-                guest_name=(booking or {}).get("guestName") or (review.author or ""),
+                guest_name=(
+                    (ticket_facts or {}).get("guest_full_name")
+                    or (booking or {}).get("guestName")
+                    or (review.author or "")
+                ),
                 dss_rec=dss_rec,
                 canned_list=canned,
             )
@@ -790,15 +842,24 @@ async def process_review(review_id: str):
         draft.l2                          = l2
         draft.l1_reasoning                = l1_reasoning
         draft.sub_theme                   = sub_theme
+        draft.primary_scenario            = primary_scenario
+        draft.overlay_scenarios           = overlay_scenarios or []
         draft.diagnostic_checks           = rca_v2.get("diagnosticChecks", [])
         draft.what_went_wrong_bullets     = rca_v2.get("whatWentWrongBullets", [])
         # Zendesk-derived frames (step 7b) are authoritative; RCA output is fallback.
         draft.support_interaction_frames  = support_frames or rca_v2.get("supportInteractionFrames", [])
         draft.support_summary             = support_summary_text or rca_v2.get("supportSummary", "")
         draft.sp_interaction_frames       = sp_frames or rca_v2.get("spInteractionFrames", [])
-        draft.area_of_improving           = rca_v2.get("areaOfImproving", [])
-        draft.actions_taken               = rca_v2.get("actionsTaken",
-                                              {"sp":[],"customer":[],"business":[],"product":[],"ce":[]})
+        draft.wwr_scenarios               = wwr_scenarios or []
+        # Area of Improvement auto-fills from each WWR scenario's fix bullet.
+        _wwr_fixes = [s.get("fix", "").strip() for s in (wwr_scenarios or []) if s.get("fix")]
+        draft.area_of_improving           = _wwr_fixes or rca_v2.get("areaOfImproving", [])
+        # Actions Taken sourced from Guidelines scenario action lists (Task #13).
+        # Fall back to the AI's actions only when routing produced none.
+        draft.actions_taken               = (
+            guideline_actions if any((guideline_actions or {}).values())
+            else rca_v2.get("actionsTaken",
+                            {"sp":[],"customer":[],"business":[],"product":[],"ce":[]}))
         draft.resolution                  = rca_v2.get("resolution", "")
 
         # v3 fields — always assign so flag_modified never fires on an unset
@@ -825,7 +886,7 @@ async def process_review(review_id: str):
             "dss_rec", "zendesk_ticket_ids", "timeline_raw",
             "diagnostic_checks", "what_went_wrong_bullets",
             "support_interaction_frames", "sp_interaction_frames",
-            "area_of_improving", "actions_taken",
+            "area_of_improving", "actions_taken", "overlay_scenarios", "wwr_scenarios",
             "wwr_chain", "evidence", "issue_specific_answers", "checklist_answers",
             "ticket_facts",
         ):
