@@ -1740,12 +1740,19 @@ async function fetchInbox() {
     const merged = rows.map(row => {
       const demo = byId.get(row.id);
       if (demo) {
+        // Recompute type/tier/title from the FRESH row — a re-run can move a
+        // review between tabs (untraceable -> candidates -> identified).
+        const t = row.match_tier ?? demo.matchTier;
+        const c = row.candidate_state ?? demo.candidateState;
         return {
           ...demo,
           receivedAt:     row.received_at || demo.receivedAt,
           status:         row.status      || demo.status,
-          matchTier:      row.match_tier  ?? demo.matchTier,
-          candidateState: row.candidate_state ?? demo.candidateState,
+          matchTier:      t,
+          candidateState: c,
+          type:           t === 1 ? 'identified' : (c ? 'candidates' : (t == null ? 'untraceable' : 'candidates')),
+          tier:           t ? `T${t}` : '—',
+          matchTitle:     t === 1 ? 'Direct match' : c ? 'Possible matches — associate to confirm' : 'Untraceable',
         };
       }
       // New API-only review (manual / Slack): minimal template
@@ -1764,7 +1771,7 @@ async function fetchInbox() {
         matchTier:      tier,
         matchTitle:     tier === 1 ? 'Direct match' : tier === 2 ? 'Possible matches — associate to confirm' : 'Untraceable',
         candidateState: row.candidate_state || false,
-        type:           tier === 1 ? 'identified' : tier === null ? 'untraceable' : 'candidates',
+        type:           tier === 1 ? 'identified' : (row.candidate_state ? 'candidates' : (tier == null ? 'untraceable' : 'candidates')),
         tier:           tier ? `T${tier}` : '—',
         experience:     row.experience || '',
         channel:        'orm',
@@ -1943,14 +1950,16 @@ async function loadDraftOverlays() {
       if (draft.booking) {
         const db = draft.booking;
         r.booking = r.booking || {};
-        r.booking.bid              = r.booking.bid            || db.id;
-        r.booking.experience       = r.booking.experience     || db.experienceName || db.experience_name;
-        r.booking.tgid             = r.booking.tgid           || db.tgid;
-        r.booking.tid              = r.booking.tid            || db.tid;
-        r.booking.vid              = r.booking.vid            || db.vid || db.vendor_id;
-        r.booking.vendorName       = r.booking.vendorName     || db.vendorName || db.vendor_name;
+        // Fresh draft data ALWAYS wins over whatever is on screen — a re-run
+        // can change the matched booking entirely; stale values must not stick.
+        r.booking.bid              = db.id                                || r.booking.bid;
+        r.booking.experience       = db.experienceName || db.experience_name || r.booking.experience;
+        r.booking.tgid             = db.tgid                              || r.booking.tgid;
+        r.booking.tid              = db.tid                               || r.booking.tid;
+        r.booking.vid              = db.vid || db.vendor_id               || r.booking.vid;
+        r.booking.vendorName       = db.vendorName || db.vendor_name      || r.booking.vendorName;
         r.booking.fulfilmentType   = db.fulfilmentType || db.fulfilment_type || r.booking.fulfilmentType;
-        r.booking.experienceDate   = r.booking.experienceDate || db.visitDate || db.date_of_visit;
+        r.booking.experienceDate   = db.visitDate || db.date_of_visit     || r.booking.experienceDate;
         r.booking.creationDate     = db.date_of_booking       || r.booking.creationDate || '';
         r.booking.bookingDate      = db.date_of_booking       || r.booking.bookingDate;
         r.booking.bmsLink          = db.bms_link;
@@ -2251,22 +2260,32 @@ function renderReviewCol() {
       ${r.candidateState && r.candidatesList ? `
         <div class="candidates-picker">
           <div class="candidates-picker-label">↑ Pick the correct booking to continue RCA</div>
-          ${r.candidatesList.map((c, i) => `
+          ${r.candidatesList.map((c, i) => {
+            const hasScore = typeof c.score === 'number' && c.score > 0;
+            const pct = hasScore ? Math.min(100, Math.round(c.score / 5 * 100)) : 0;
+            const metaParts = [
+              c.vendorName,
+              c.experienceDate,
+              (c.tgid || c.tid) ? `TGID ${c.tgid || '—'} / TID ${c.tid || '—'}` : '',
+              c.leadTime ? `lead ${c.leadTime}` : '',
+            ].filter(Boolean);
+            return `
             <div class="candidate-card ${i === 0 ? 'selected' : ''}" data-candidate-idx="${i}">
               <div class="candidate-top">
                 <div class="candidate-bid">#${c.bid}</div>
+                ${hasScore ? `
                 <div class="candidate-score">
-                  <span class="candidate-score-bar"><span class="candidate-score-fill" style="width: ${Math.round(c.score * 100)}%"></span></span>
-                  ${Math.round(c.score * 100)}%
-                </div>
+                  <span class="candidate-score-bar"><span class="candidate-score-fill" style="width: ${pct}%"></span></span>
+                  score ${c.score}
+                </div>` : ''}
               </div>
-              <div class="candidate-exp">${c.experience}</div>
-              <div class="candidate-meta">${c.vendorName} · ${c.experienceDate} · TGID ${c.tgid} / TID ${c.tid} · lead ${c.leadTime}</div>
+              <div class="candidate-exp">${c.experience || '—'}</div>
+              <div class="candidate-meta">${metaParts.length ? metaParts.join(' · ') : 'Booking details load on confirm'}</div>
               <div class="candidate-reasons">
-                ${c.matchReasons.map(r => `<span class="candidate-reason-pill">${r}</span>`).join('')}
+                ${(c.matchReasons || []).map(r => `<span class="candidate-reason-pill">${r}</span>`).join('')}
               </div>
-            </div>
-          `).join('')}
+            </div>`;
+          }).join('')}
           <button class="candidate-confirm-btn">Confirm selection · run full RCA</button>
         </div>
       ` : ''}
