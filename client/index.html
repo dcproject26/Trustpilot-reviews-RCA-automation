@@ -1393,6 +1393,13 @@
     font-size: 12px; cursor: pointer; padding: 2px 0; font-weight: 600;
   }
   .chk-toggle:hover { text-decoration: underline; }
+  .rerun-btn {
+    margin-left: auto; background: none; border: 1px solid var(--border);
+    color: var(--text-mute); font-size: 11px; padding: 2px 8px;
+    border-radius: 4px; cursor: pointer;
+  }
+  .rerun-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .rerun-btn:disabled { opacity: 0.6; cursor: default; }
   /* WWR stacked scenario blocks */
   .wwr-scenarios { display: flex; flex-direction: column; gap: 12px; }
   .wwr-scn { border-left: 2px solid var(--border); padding: 6px 0 6px 12px; }
@@ -2230,7 +2237,9 @@ function renderReviewCol() {
     </div>
 
     <div class="section">
-      <div class="section-label"><span class="marker"></span>Booking Match</div>
+      <div class="section-label"><span class="marker"></span>Booking Match
+        <button class="rerun-btn" data-rerun-match title="Re-run the booking search + full analysis for this review">↻ Re-run</button>
+      </div>
       <div class="match-card">
         <div class="match-tier-badge ${r.matchTier}">${r.tier}</div>
         <div class="match-info">
@@ -2545,7 +2554,7 @@ function renderRcaCol() {
           </div>
           <div class="untraceable-actions">
             <button class="verify-btn">Verify and send reply</button>
-            <button class="skip-btn">Skip</button>
+            <button class="skip-btn" data-rerun-match>↻ Re-run matching</button>
           </div>
           <div class="template-card">
             <div class="template-label">Template that fires on Verify</div>
@@ -3427,6 +3436,52 @@ document.querySelectorAll('.inbox-tab').forEach(tab => {
     renderReviewCol();
     renderRcaCol();
   });
+});
+
+// ↻ Re-run matching — one delegated handler covers the Booking Match header
+// button and the Untraceable panel button. Re-runs the FULL pipeline for the
+// selected review, then reloads when the fresh result lands.
+document.addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('[data-rerun-match]');
+  if (!btn || btn.disabled) return;
+  const r = REVIEWS.find(x => x.id === state.selected);
+  if (!r) return;
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = '⟳ Re-running…';
+  let before = null;
+  try {
+    const pre = await fetch(`/api/reviews/${r.id}`);
+    if (pre.ok) before = ((await pre.json()).draft || {}).generated_at || null;
+  } catch (_) {}
+  try {
+    const resp = await fetch(`/api/reviews/${r.id}/reprocess`, {method: 'POST'});
+    if (!resp.ok) throw new Error('reprocess failed');
+  } catch (e) {
+    btn.disabled = false; btn.textContent = '✗ Failed — try again';
+    return;
+  }
+  let polls = 0;
+  const poll = setInterval(async () => {
+    polls++;
+    try {
+      const check = await fetch(`/api/reviews/${r.id}`);
+      if (check.ok) {
+        const d = (await check.json()).draft;
+        if (d && d.generated_at && d.generated_at !== before) {
+          clearInterval(poll);
+          await fetchInbox();
+          await loadDraftOverlays();
+          renderInbox(); renderReviewCol(); renderRcaCol();
+          return;
+        }
+      }
+    } catch (_) {}
+    if (polls > 60) {  // give up after 3 min
+      clearInterval(poll);
+      btn.disabled = false; btn.textContent = orig;
+    }
+  }, 3000);
 });
 
 renderInbox();
