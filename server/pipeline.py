@@ -251,20 +251,31 @@ async def process_review(review_id: str):
 
             # ── Tier 2 cascade (runs when no Tier 1 booking yet) ──────────────
             if not booking or match_tier != 1:
-                # Extract venue hints via Claude
+                # Extract venue hints via Claude (robust parse + fallback)
                 venue_hints = None
                 try:
                     prompt = venue_extraction_prompt(review_text or "")
                     raw = await claude._call(prompt, max_tokens=256)
-                    import json as _json
-                    parsed_venue = _json.loads(raw.strip()
-                                               .removeprefix("```json").removeprefix("```")
-                                               .removesuffix("```").strip())
+                    parsed_venue = claude._extract_json_object(raw) or {}
                     venue_hints = parsed_venue.get("venue_hints") or []
-                    extracted_sigs["venue_hints"] = venue_hints
+                    if not venue_hints:
+                        log.warning(f"[tier2] venue extraction empty; raw={raw[:200]!r}")
                 except Exception as e:
                     log.warning(f"Venue extraction failed: {e}")
                     venue_hints = []
+                # Fallback: signal extraction also pulls experience/venue hints.
+                if not venue_hints:
+                    try:
+                        sig = await claude.extract_signals(review_text or "", review_id)
+                        venue_hints = [h.strip() for h in (
+                            sig.get("experience_hint"), sig.get("venue_or_city"))
+                            if h and str(h).strip()]
+                        if venue_hints:
+                            confidence_trail.append({"mark": "pass",
+                                "text": f"<strong>Venue fallback</strong> via signal extraction: {venue_hints}"})
+                    except Exception as e:
+                        log.warning(f"Signal-extraction venue fallback failed: {e}")
+                extracted_sigs["venue_hints"] = venue_hints or []
 
                 # Resolve venue hints → TGIDs
                 tgids = None
@@ -463,14 +474,37 @@ async def process_review(review_id: str):
                             confidence_trail.append({"mark": "pass",
                                 "text": f"<strong>Tier 2:</strong> {n_zd} Zendesk-verified candidates"})
                             cascade_done = True
+                        elif n_zd > 5:
+                            # Many name+BQ-verified bookings: do NOT discard —
+                            # rank by visit-date proximity to the review and
+                            # surface the closest 5 as candidates.
+                            def _date_gap(row):
+                                v = (row.get("date_of_visit") or row.get("visitDate") or "")
+                                try:
+                                    from datetime import date as _date
+                                    vd = _date.fromisoformat(str(v)[:10])
+                                    rd = (review.received_at or datetime.utcnow()).date()
+                                    return abs((rd - vd).days)
+                                except Exception:
+                                    return 9999  # unknown dates rank last
+                            ranked = sorted(zd_candidates, key=lambda t: _date_gap(t[1]))[:5]
+                            candidates = [_make_candidate(row, "zendesk_requester", ["name", "zendesk"])
+                                          for _, row in ranked]
+                            for i, (bid, _) in enumerate(ranked):
+                                candidates[i]["id"] = bid
+                            candidate_state = True
+                            match_tier = 2
+                            narrowing_path = "zendesk_requester_candidates"
+                            _ctr["t2_zendesk_candidates"] += 1
+                            _ctr["t2_candidates"] += 1
+                            confidence_trail.append({"mark": "pass",
+                                "text": f"<strong>Tier 2:</strong> {n_zd} Zendesk-verified — "
+                                        f"showing the 5 closest by visit date"})
+                            cascade_done = True
                         else:
                             _ctr["t2_zendesk_no_match"] += 1
-                            if n_zd > 5:
-                                confidence_trail.append({"mark": "warn",
-                                    "text": f"<strong>Zendesk:</strong> {n_zd} verified — too many to narrow"})
-                            else:
-                                confidence_trail.append({"mark": "warn",
-                                    "text": "<strong>Zendesk:</strong> 0 verified candidates after cross-check"})
+                            confidence_trail.append({"mark": "warn",
+                                "text": "<strong>Zendesk:</strong> 0 verified candidates after cross-check"})
                     else:
                         _ctr["t2_zendesk_no_match"] += 1
                         confidence_trail.append({"mark": "warn",
