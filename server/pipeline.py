@@ -251,31 +251,28 @@ async def process_review(review_id: str):
 
             # ── Tier 2 cascade (runs when no Tier 1 booking yet) ──────────────
             if not booking or match_tier != 1:
-                # Extract venue hints via Claude (robust parse + fallback)
-                venue_hints = None
+                # Matching indicators (approved prompt): one Claude call that
+                # reads the review and extracts everything usable for matching.
+                indicators = {}
                 try:
-                    prompt = venue_extraction_prompt(review_text or "")
-                    raw = await claude._call(prompt, max_tokens=256)
-                    parsed_venue = claude._extract_json_object(raw) or {}
-                    venue_hints = parsed_venue.get("venue_hints") or []
-                    if not venue_hints:
-                        log.warning(f"[tier2] venue extraction empty; raw={raw[:200]!r}")
+                    from server.prompts import match_indicator_prompt
+                    _pub = (review.received_at or datetime.utcnow()).date().isoformat()
+                    raw = await claude._call(match_indicator_prompt(review_text or "", _pub),
+                                             max_tokens=400)
+                    indicators = claude._extract_json_object(raw) or {}
                 except Exception as e:
-                    log.warning(f"Venue extraction failed: {e}")
-                    venue_hints = []
-                # Fallback: signal extraction also pulls experience/venue hints.
-                if not venue_hints:
-                    try:
-                        sig = await claude.extract_signals(review_text or "", review_id)
-                        venue_hints = [h.strip() for h in (
-                            sig.get("experience_hint"), sig.get("venue_or_city"))
-                            if h and str(h).strip()]
-                        if venue_hints:
-                            confidence_trail.append({"mark": "pass",
-                                "text": f"<strong>Venue fallback</strong> via signal extraction: {venue_hints}"})
-                    except Exception as e:
-                        log.warning(f"Signal-extraction venue fallback failed: {e}")
-                extracted_sigs["venue_hints"] = venue_hints or []
+                    log.warning(f"Indicator extraction failed: {e}")
+                venue_hints = [h for h in (
+                    indicators.get("experience_or_venue"),
+                    indicators.get("city_or_country")) if h and str(h).strip()]
+                extracted_sigs["venue_hints"] = venue_hints
+                extracted_sigs["match_indicators"] = indicators
+                if indicators:
+                    confidence_trail.append({"mark": "pass",
+                        "text": "<strong>Indicators:</strong> "
+                                f"venue='{indicators.get('experience_or_venue') or '—'}' · "
+                                f"city='{indicators.get('city_or_country') or '—'}' · "
+                                f"visit≈'{indicators.get('visit_date_hint') or '—'}'"})
 
                 # Resolve venue hints → TGIDs
                 tgids = None
@@ -412,36 +409,50 @@ async def process_review(review_id: str):
                                 log.info(f"[tier2] BID {bid} not in BQ — skipped")
                                 continue
 
-                            # Cross-check: venue match if hints available, else date window
-                            if venue_hints:
-                                exp_name = (
-                                    bq_row.get("experienceName") or
-                                    bq_row.get("experience_name") or ""
-                                ).lower()
-                                if not any(vh.lower() in exp_name for vh in venue_hints):
-                                    log.info(
-                                        f"[tier2] BID {bid} venue mismatch "
-                                        f"(hints={venue_hints}, exp='{exp_name}') — skipped")
-                                    continue
-                            else:
-                                visit_str = (
-                                    bq_row.get("date_of_visit") or
-                                    bq_row.get("visitDate") or ""
-                                )
-                                if visit_str:
-                                    try:
-                                        from datetime import date as _date
-                                        visit_dt = _date.fromisoformat(visit_str[:10])
-                                        recv_dt = (review.received_at or datetime.utcnow()).date()
-                                        gap = abs((recv_dt - visit_dt).days)
-                                        if gap > 90:
-                                            log.info(
-                                                f"[tier2] BID {bid} date too far ({gap}d) — skipped")
-                                            continue
-                                    except Exception:
-                                        pass
+                            # Hard filter only: visit date within the current
+                            # year (approved). Everything else is SCORED, not
+                            # filtered — indicators rank, they don't exclude.
+                            visit_str = (bq_row.get("date_of_visit") or
+                                         bq_row.get("visitDate") or "")
+                            if visit_str:
+                                try:
+                                    from datetime import date as _date
+                                    visit_dt = _date.fromisoformat(visit_str[:10])
+                                    if visit_dt.year < datetime.utcnow().year:
+                                        log.info(f"[tier2] BID {bid} visit {visit_str} before this year — skipped")
+                                        continue
+                                except Exception:
+                                    pass
 
                             zd_candidates.append((bid, bq_row))
+
+                        # Score every verified candidate against the indicators:
+                        # experience-name similarity (weighted 2x) + visit-date
+                        # closeness to visit_date_hint (else the review date).
+                        def _score(row):
+                            score = 0.0
+                            exp = (row.get("experienceName") or
+                                   row.get("experience_name") or "").lower()
+                            hint_text = " ".join(venue_hints).lower()
+                            if exp and hint_text:
+                                exp_toks = {t for t in re.findall(r"[a-z]{4,}", exp)
+                                            if t not in _VENUE_STOPWORDS}
+                                hint_toks = {t for t in re.findall(r"[a-z]{4,}", hint_text)
+                                             if t not in _VENUE_STOPWORDS}
+                                score += 2.0 * len(exp_toks & hint_toks)
+                            v = (row.get("date_of_visit") or row.get("visitDate") or "")
+                            ref = (indicators.get("visit_date_hint") or "")[:10]
+                            try:
+                                from datetime import date as _date
+                                vd = _date.fromisoformat(str(v)[:10])
+                                try:
+                                    rd = _date.fromisoformat(ref)
+                                except Exception:
+                                    rd = (review.received_at or datetime.utcnow()).date()
+                                score += 1.0 / (1 + abs((rd - vd).days))
+                            except Exception:
+                                pass
+                            return score
 
                         n_zd = len(zd_candidates)
                         if n_zd == 1:
@@ -461,37 +472,14 @@ async def process_review(review_id: str):
                                 "text": "<strong>Tier 1 auto-promote</strong> via Zendesk requester "
                                         "(single verified match)"})
                             cascade_done = True
-                        elif 2 <= n_zd <= 5:
-                            candidates = [_make_candidate(row, "zendesk_requester", ["name", "zendesk"])
-                                          for _, row in zd_candidates]
-                            for i, (bid, _) in enumerate(zd_candidates):
-                                candidates[i]["id"] = bid
-                            candidate_state = True
-                            match_tier = 2
-                            narrowing_path = "zendesk_requester_candidates"
-                            _ctr["t2_zendesk_candidates"] += 1
-                            _ctr["t2_candidates"] += 1
-                            confidence_trail.append({"mark": "pass",
-                                "text": f"<strong>Tier 2:</strong> {n_zd} Zendesk-verified candidates"})
-                            cascade_done = True
-                        elif n_zd > 5:
-                            # Many name+BQ-verified bookings: do NOT discard —
-                            # rank by visit-date proximity to the review and
-                            # surface the closest 5 as candidates.
-                            def _date_gap(row):
-                                v = (row.get("date_of_visit") or row.get("visitDate") or "")
-                                try:
-                                    from datetime import date as _date
-                                    vd = _date.fromisoformat(str(v)[:10])
-                                    rd = (review.received_at or datetime.utcnow()).date()
-                                    return abs((rd - vd).days)
-                                except Exception:
-                                    return 9999  # unknown dates rank last
-                            ranked = sorted(zd_candidates, key=lambda t: _date_gap(t[1]))[:5]
+                        elif n_zd >= 2:
+                            ranked = sorted(zd_candidates,
+                                            key=lambda t: _score(t[1]), reverse=True)[:5]
                             candidates = [_make_candidate(row, "zendesk_requester", ["name", "zendesk"])
                                           for _, row in ranked]
-                            for i, (bid, _) in enumerate(ranked):
+                            for i, (bid, row) in enumerate(ranked):
                                 candidates[i]["id"] = bid
+                                candidates[i]["score"] = round(_score(row), 2)
                             candidate_state = True
                             match_tier = 2
                             narrowing_path = "zendesk_requester_candidates"
@@ -499,7 +487,7 @@ async def process_review(review_id: str):
                             _ctr["t2_candidates"] += 1
                             confidence_trail.append({"mark": "pass",
                                 "text": f"<strong>Tier 2:</strong> {n_zd} Zendesk-verified — "
-                                        f"showing the 5 closest by visit date"})
+                                        f"top {len(ranked)} by indicator score (venue + date)"})
                             cascade_done = True
                         else:
                             _ctr["t2_zendesk_no_match"] += 1
@@ -563,25 +551,16 @@ async def process_review(review_id: str):
                             cascade_done = True
 
                     if not cascade_done:
-                        # 3c: date_14 only — no venue filter
-                        rows = _run_bq_attempt("date_only", 14, tgid_list=None)
-                        n = len(rows)
-                        if 1 <= n <= 5:
-                            candidates = [_make_candidate(r, "date_only_loose", ["date"])
-                                          for r in rows[:5]]
-                            candidate_state = True
-                            match_tier = 2
-                            narrowing_path = "date_only_loose"
-                            _ctr["t2_bq_date_only_loose"] += 1
-                            _ctr["t2_candidates"] += 1
-                            cascade_done = True
-                        else:
-                            # Step 4 — Untraceable
-                            _ctr["t2_untraceable"] += 1
-                            _ctr["untraceable_total"] += 1
-                            if venue_hints or author_first or author_last:
-                                _ctr["untraceable_has_signals"] += 1
-                            cascade_done = True
+                        # Date-only matching removed (approved): bookings that
+                        # merely share a date window prove nothing about the
+                        # reviewer. Name + venue paths exhausted → Untraceable.
+                        _ctr["t2_untraceable"] += 1
+                        _ctr["untraceable_total"] += 1
+                        if venue_hints or author_first or author_last:
+                            _ctr["untraceable_has_signals"] += 1
+                        confidence_trail.append({"mark": "warn",
+                            "text": "<strong>Untraceable</strong> — name and venue searches exhausted"})
+                        cascade_done = True
 
                 # ── Step 4: Untraceable fallback ──────────────────────────────
                 if not cascade_done and not booking:

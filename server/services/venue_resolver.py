@@ -15,7 +15,7 @@ _FALLBACK_SQL = """
     SELECT DISTINCT experience_id
     FROM `headout-analytics.analytics_reporting.fct_bookings`
     WHERE LOWER(experience_name) LIKE CONCAT('%', @hint, '%')
-    LIMIT 20
+    LIMIT 100
 """
 _WORKING_TABLE: str | None = None
 
@@ -24,7 +24,7 @@ def _probe_table(table: str, hint: str) -> list[dict] | None:
     try:
         rows = bq.run_query(
             f"SELECT DISTINCT experience_id FROM `{table}` "
-            f"WHERE LOWER(experience_name) LIKE CONCAT('%', @hint, '%') LIMIT 20",
+            f"WHERE LOWER(experience_name) LIKE CONCAT('%', @hint, '%') LIMIT 100",
             params={"hint": hint},
         )
         return rows
@@ -47,7 +47,7 @@ async def resolve(venue_hints: list[str] | None) -> list[int] | None:
             try:
                 rows = bq.run_query(
                     f"SELECT DISTINCT experience_id FROM `{_WORKING_TABLE}` "
-                    f"WHERE LOWER(experience_name) LIKE CONCAT('%', @hint, '%') LIMIT 20",
+                    f"WHERE LOWER(experience_name) LIKE CONCAT('%', @hint, '%') LIMIT 100",
                     params={"hint": hint},
                 )
             except Exception as e:

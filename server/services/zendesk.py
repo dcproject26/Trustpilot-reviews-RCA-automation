@@ -358,11 +358,13 @@ def _get_timeline_sync(_z, booking_id: str):
 async def find_bids_by_requester_name(
     author_first: str,
     author_last: str | None,
-    lookback_days: int = 60,
+    lookback_days: int | None = None,
 ) -> list[str]:
     """
-    Search Zendesk for tickets by requester name in a recent window.
-    Returns list of BIDs extracted from ticket subjects or custom fields.
+    Search Zendesk for tickets by requester name.
+    Default window: since the start of the current year (guests often review
+    months after the visit). Pass lookback_days to override.
+    Returns candidate booking numbers from subject + custom fields + body.
 
     Handles all name shapes:
     - Full name: quoted phrase search
@@ -384,7 +386,10 @@ async def find_bids_by_requester_name(
         return name
 
     name_str = f"{author_first} {author_last}".strip() if author_last else author_first
-    since = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    if lookback_days:
+        since = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    else:
+        since = datetime.now().strftime("%Y-01-01")
 
     # Primary: full name. Fallback: the more distinctive single token (usually
     # the surname). The Trustpilot display name often does not match the Zendesk
@@ -412,21 +417,28 @@ async def find_bids_by_requester_name(
         if tickets:
             break
 
+    # Harvest candidate booking numbers from subject + custom fields + BODY.
+    # A ticket's own id shares the same number space as BIDs — exclude it;
+    # every remaining number is verified against BigQuery downstream, which is
+    # what actually distinguishes a booking id from a ticket id / other digits.
     bids = []
     for t in tickets[:15]:
+        own_id = str(getattr(t, "id", "") or "")
+        found = []
         subject = (getattr(t, "subject", "") or "")
-        m = re.search(r"\b\d{7,12}\b", subject)
-        if m:
-            bids.append(m.group(0))
-            continue
+        body = (getattr(t, "description", "") or "")
+        found += re.findall(r"\b\d{7,12}\b", subject)
         for cf in getattr(t, "custom_fields", []) or []:
             val = cf.get("value") if isinstance(cf, dict) else None
             if val and re.fullmatch(r"\d{7,12}", str(val).strip()):
-                bids.append(str(val).strip())
-                break
+                found.append(str(val).strip())
+        found += re.findall(r"\b\d{7,12}\b", body[:4000])
+        for n in found:
+            if n != own_id:
+                bids.append(n)
 
-    deduped = list(dict.fromkeys(bids))
-    log.info(f"[zendesk] requester search for '{name_str}': {len(tickets)} tickets → {len(deduped)} BIDs")
+    deduped = list(dict.fromkeys(bids))[:25]
+    log.info(f"[zendesk] requester search for '{name_str}': {len(tickets)} tickets → {len(deduped)} candidate numbers (subject+fields+body)")
     return deduped
 
 

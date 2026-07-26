@@ -695,6 +695,27 @@ Return ONLY the 2-3 sentence paragraph, no headings."""
 
 
 # ─── 7. Venue extraction — multi-venue, for Tier 2 cascade ─────────────────
+def match_indicator_prompt(review_text: str, review_date: str) -> str:
+    """Approved matching-indicator extraction (booking match, Tier 2)."""
+    return f"""You are matching a Trustpilot review to a Headout booking. Read the review and
+extract every indicator that could identify the booking. Do not invent anything —
+only what the text supports.
+
+REVIEW (posted {review_date or "unknown"}):
+{review_text}
+
+Return ONLY valid JSON, no markdown:
+{{"guest_name": "<from reviewer name / any name in the text, or null>",
+  "experience_or_venue": "<what they visited or booked, in their words, or null>",
+  "city_or_country": "<if stated or clearly implied, else null>",
+  "visit_date_hint": "<any date reference normalized to YYYY-MM-DD or a range, given the post date; else null>",
+  "party": "<group size if mentioned, else null>",
+  "issue_keywords": ["<3-5 words describing the problem>"]}}
+
+These indicators are used to (1) search Zendesk by guest name and (2) score each
+candidate booking: experience-name similarity, visit-date closeness, city match."""
+
+
 def venue_extraction_prompt(review_text: str) -> str:
     return f"""Read the following Trustpilot review. Extract EVERY venue or experience the guest mentions — even if multiple.
 

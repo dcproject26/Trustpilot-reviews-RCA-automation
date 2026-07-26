@@ -2563,6 +2563,26 @@ function renderRcaCol() {
         </div>
       </div>
     `;
+    const vBtn = col.querySelector('.verify-btn');
+    if (vBtn) {
+      vBtn.addEventListener('click', async () => {
+        vBtn.disabled = true; vBtn.textContent = 'Sending…';
+        try {
+          const resp = await fetch(`/api/reviews/${r.id}/request-bid`, {method: 'POST'});
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.detail || 'failed');
+          if (data.posted) {
+            vBtn.textContent = '✓ Reply sent to Slack thread';
+          } else {
+            try { await navigator.clipboard.writeText(data.template); } catch (_) {}
+            vBtn.textContent = '✓ No Slack thread — reply copied, paste to guest';
+          }
+        } catch (e) {
+          vBtn.textContent = '✗ Failed — try again';
+          vBtn.disabled = false;
+        }
+      });
+    }
     return;
   }
 

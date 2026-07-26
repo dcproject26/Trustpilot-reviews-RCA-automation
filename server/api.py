@@ -772,3 +772,31 @@ def vs_intake(body: VsIntake, x_vs_key: str | None = Header(default=None),
     db.add(draft)
     db.commit()
     return {"ok": True, "review_id": rid}
+
+
+# ── Untraceable: one-click "ask for booking reference" reply ────────────────
+@router.post("/api/reviews/{review_id}/request-bid")
+async def request_bid(review_id: str, db: Session = Depends(get_session)):
+    """
+    Posts the standard ask-for-booking-reference reply to the review's Slack
+    thread (when the review came from Slack). For manual reviews there is no
+    thread — the template is returned for the associate to copy.
+    """
+    r = db.query(Review).filter(Review.id == review_id).first()
+    if not r:
+        raise HTTPException(404, "Review not found")
+    first = (r.author or "there").strip().split()[0] if (r.author or "").strip() else "there"
+    template = (
+        f"Hi {first}, thank you for sharing your feedback. We would love to look "
+        f"into this for you — could you share your Headout booking reference "
+        f"number or the email used at the time of booking?"
+    )
+    posted = False
+    if r.slack_ts and r.slack_channel and r.slack_channel not in ("C_MANUAL", "VECTORSHIFT"):
+        try:
+            await post_to_thread(r.slack_channel, r.slack_ts,
+                                 f"*Untraceable review — reply suggested:*\n{template}")
+            posted = True
+        except Exception as e:
+            raise HTTPException(502, f"Slack post failed: {e}")
+    return {"ok": True, "posted": posted, "template": template}
