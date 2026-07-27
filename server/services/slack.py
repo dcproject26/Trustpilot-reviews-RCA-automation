@@ -261,13 +261,21 @@ async def search_mentions(bid: str, limit: int = 20) -> list[dict]:
     Not restricted to ORM channels — any channel the user token can see.
     Requires a USER token with search:read. Returns [] when unavailable.
     """
-    if not _user or not bid:
+    # A sentinel row distinguishes "searched, found nothing" from "could not
+    # search". Reporting an unavailable search as "no mentions" is a claim we
+    # have not earned — search.messages needs a USER token with search:read and
+    # bot tokens cannot call it at all.
+    if not bid:
         return []
+    if not _user:
+        log.info("[slack] search_mentions: no user token (search:read) — cannot search")
+        return [{"_unavailable": "No Slack user token with search:read — "
+                                 "mentions could not be searched."}]
     try:
         res = _user.search_messages(query=str(bid), count=limit)
     except Exception as e:
         log.warning(f"[slack] search_mentions {bid} failed: {e}")
-        return []
+        return [{"_unavailable": f"Slack search failed: {e}"}]
     out = []
     for m in (res.get("messages") or {}).get("matches") or []:
         ch = m.get("channel", {}) or {}

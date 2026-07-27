@@ -2293,7 +2293,10 @@ function renderReviewCol() {
   const slackPings = r.booking && r.booking.bid
     ? `<div class="section">
          <div class="section-label"><span class="marker"></span>Slack mentions of this BID</div>
-         ${_mentions.length ? `
+         ${(_mentions.length && _mentions[0] && _mentions[0]._unavailable) ? `
+         <div class="chk-none" style="font-size:12px;color:var(--amber)">
+           ⚠ ${_mentions[0]._unavailable}
+         </div>` : _mentions.length ? `
          <div class="details-grid">
            ${_mentions.map(m => `
              <div class="detail-row" style="grid-template-columns:130px 1fr">
