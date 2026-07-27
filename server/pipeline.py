@@ -698,10 +698,28 @@ async def process_review(review_id: str):
                                     + _ticket_pts(bid) + _both_pts(bid)
                                     + _name_pts(row, bid))
 
-                        # Indicators RANK, they never exclude (approved point 6).
-                        # venue_signal is observational only — it drives the
-                        # "date-only, treat as weak" label, not the candidate set.
+                        # ── Venue filter ──────────────────────────────────────
+                        # When the review names a venue, only bookings for that
+                        # venue are possible matches. Showing a guest's Park
+                        # Guell and Lion King bookings against a salt-mine
+                        # complaint is noise, not a shortlist.
+                        #
+                        # Applied ONLY when a venue was actually extracted AND at
+                        # least one candidate matches it. With no venue, or no
+                        # match at all, nothing is removed — indicators fall back
+                        # to ranking, so a missing indicator never hides the
+                        # right booking.
                         venue_signal = any(_venue_pts(r, b) > 0 for b, r in zd_candidates)
+                        if venue_hints and venue_signal:
+                            _kept = [(b, r) for b, r in zd_candidates if _venue_pts(r, b) > 0]
+                            _dropped = len(zd_candidates) - len(_kept)
+                            zd_candidates = _kept
+                            confidence_trail.append({"mark": "pass",
+                                "text": f"<strong>Venue filter:</strong> kept "
+                                        f"{len(_kept)} booking(s) for {venue_hints}"
+                                        + (f", dropped {_dropped} unrelated" if _dropped else "")})
+                            log.info(f"[tier2] venue filter {venue_hints}: "
+                                     f"kept {len(_kept)}, dropped {_dropped}")
                         ticket_signal = any(_ticket_pts(b) > 0 for b, _ in zd_candidates)
                         if not venue_signal:
                             confidence_trail.append({

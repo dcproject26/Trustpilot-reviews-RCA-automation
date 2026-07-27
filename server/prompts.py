@@ -707,7 +707,11 @@ REVIEW (posted {review_date or "unknown"}):
 Return JSON:
 - guest_name — from the reviewer name and any name mentioned in the text
 - experience_or_venue — what they visited/booked, in their words
-  (e.g. "Eiffel Tower summit", "Rome catacombs tour")
+  (e.g. "Eiffel Tower summit", "Rome catacombs tour").
+  IMPORTANT: the review may end with a line like "Reference number: <text>".
+  Guests routinely type the VENUE there instead of a booking number — e.g.
+  "Reference number: Salt mines Krakow" means the venue is "Salt mines Krakow".
+  If that line holds anything other than a plain number, read it as the venue.
 - city_or_country — if stated or clearly implied
 - visit_date_hint — any date/time reference ("on May 2nd", "last Saturday",
   "two weeks ago") normalized to a best-guess date or range, given the review

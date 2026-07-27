@@ -131,3 +131,44 @@ if FAILURES:
     print(f"{len(FAILURES)} FAILURE(S): " + ", ".join(FAILURES))
     sys.exit(1)
 print("all checks passed")
+
+# ── Appended: venue filter behaviour ──────────────────────────────────────
+print("\n7. Venue filter — only bookings for the named venue survive")
+
+
+def _vpts(exp, hints):
+    ht = _sig_tokens(" ".join(hints))
+    return 2.0 * len(ht & _sig_tokens(exp)) if ht else 0.0
+
+
+FREDRIK_CANDIDATES = [
+    ("32885787", "Wieliczka Salt Mine Guided Tour with Skip-the-Line Tickets"),
+    ("31556404", "Disney's The Lion King"),
+    ("32706277", "Round-Trip Tickets to Top of Innsbruck with Optional Alpine Zoo"),
+    ("33026327", "Park Guell Tickets"),
+]
+hints = ["Salt mines Krakow", "Krakow, Poland"]
+signal = any(_vpts(e, hints) > 0 for _, e in FREDRIK_CANDIDATES)
+kept = [b for b, e in FREDRIK_CANDIDATES if _vpts(e, hints) > 0] if (hints and signal) else \
+       [b for b, _ in FREDRIK_CANDIDATES]
+check("only the salt mine survives", kept, ["32885787"])
+
+# No venue extracted -> nothing is filtered out, ranking still applies
+no_hints = []
+signal0 = any(_vpts(e, no_hints) > 0 for _, e in FREDRIK_CANDIDATES)
+kept0 = [b for b, e in FREDRIK_CANDIDATES if _vpts(e, no_hints) > 0] if (no_hints and signal0) else \
+        [b for b, _ in FREDRIK_CANDIDATES]
+check("no venue -> nothing dropped", len(kept0), 4)
+
+# Venue extracted but nothing matches -> keep all rather than hide the answer
+odd = ["Colosseum Rome"]
+signal1 = any(_vpts(e, odd) > 0 for _, e in FREDRIK_CANDIDATES)
+kept1 = [b for b, e in FREDRIK_CANDIDATES if _vpts(e, odd) > 0] if (odd and signal1) else \
+        [b for b, _ in FREDRIK_CANDIDATES]
+check("venue matches nothing -> keep all", len(kept1), 4)
+
+print("\n" + "=" * 62)
+if FAILURES:
+    print(f"{len(FAILURES)} FAILURE(S): " + ", ".join(FAILURES))
+    sys.exit(1)
+print("all checks passed")
