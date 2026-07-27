@@ -1095,7 +1095,8 @@ async def process_review(review_id: str):
         insights = {}
         if booking and booking.get("tid") and booking.get("vid"):
             try:
-                insights = await _get_insights(booking, l1 or None, l2 or None)
+                insights = await _get_insights(booking, l1 or None, l2 or None,
+                                               window="90d")
             except Exception as e:
                 log.exception(f"Insights failed: {e}")
 

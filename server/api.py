@@ -836,6 +836,33 @@ def vs_intake(body: VsIntake, x_vs_key: str | None = Header(default=None),
 
 
 # ── Untraceable: one-click "ask for booking reference" reply ────────────────
+@router.get("/api/reviews/{review_id}/insights")
+async def recompute_insights(review_id: str, window: str = "90d",
+                             db: Session = Depends(get_session)):
+    """
+    Recompute Experience Insights over an associate-chosen window.
+
+    The window picker previously only changed the caption; the figures stayed on
+    whatever the pipeline computed. This recomputes against the selected range so
+    the number and the label agree.
+    """
+    d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
+    if not d:
+        raise HTTPException(404, "Draft not found")
+    if not (d.booking or {}).get("tid"):
+        return {"ok": True, "window": window, "insights": d.insights or {}}
+    from server.services.insights import get_insights as _gi
+    try:
+        ins = await _gi(d.booking or {}, d.l1, d.l2, window=window)
+    except Exception as e:
+        log.warning(f"[insights] recompute failed for {review_id}: {e}")
+        raise HTTPException(502, "Insights query failed")
+    d.insights = ins
+    flag_modified(d, "insights")
+    db.commit()
+    return {"ok": True, "window": window, "insights": ins}
+
+
 @router.post("/api/reviews/{review_id}/mark-untraceable")
 def mark_untraceable(review_id: str, db: Session = Depends(get_session)):
     """

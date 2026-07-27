@@ -11,6 +11,7 @@ get_insights(booking, l1, l2) → dict
 MOCK_MODE: bq_connector.run_query_async returns [] → all zeros / nulls.
 """
 import asyncio
+import re
 import logging
 from datetime import datetime, timezone
 
@@ -54,11 +55,33 @@ async def _run(sql: str, params: dict) -> list:
         return []
 
 
-async def get_insights(booking: dict, l1: str | None, l2: str | None) -> dict:
+_WINDOWS = {"7d": 7, "4w": 28, "14d": 14, "15d": 15, "30d": 30, "90d": 90, "180d": 180}
+
+
+def window_days(window: str | None, default: int = 90) -> int:
+    """Associate-selected window -> days. Unknown values fall back to default."""
+    if not window:
+        return default
+    w = str(window).strip().lower()
+    if w in _WINDOWS:
+        return _WINDOWS[w]
+    m = re.match(r"^(\d+)\s*([dwm])$", w)
+    if m:
+        n, unit = int(m.group(1)), m.group(2)
+        return n * {"d": 1, "w": 7, "m": 30}[unit]
+    return default
+
+
+async def get_insights(booking: dict, l1: str | None, l2: str | None,
+                       window: str | None = None) -> dict:
     """
     Run 7 BQ queries in parallel and return the insights dict.
     Returns zeros/nulls immediately if tid/vid are missing or BQ is not live.
     """
+    # Every window below is the associate's selected range, not a hardcoded one.
+    # The picker used to change only the label on the tile while the query stayed
+    # at 15/30/28 days, so a tile could read "4.42 * · 90d" over a 15-day average.
+    _wd        = window_days(window)
     tid        = str(booking.get("tid") or "").strip()
     vid        = str(booking.get("vid") or "").strip()
     visit_date = str(booking.get("visitDate") or booking.get("date_of_visit") or "").strip()
@@ -81,7 +104,7 @@ LEFT JOIN UNNEST(r.issues) AS iss
 LEFT JOIN UNNEST(iss.l2_issues) AS l2v
 WHERE b.tour_id = @tid AND b.vendor_id = @vid
   AND LOWER(l2v) = LOWER(@l2)
-  AND DATE(r.reviewed_at) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND CURRENT_DATE()
+  AND DATE(r.reviewed_at) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL {_wd} DAY) AND CURRENT_DATE()
 """
 
     # ── Query B: total reviews ────────────────────────────────────────────────
@@ -90,7 +113,7 @@ SELECT COUNT(DISTINCT r.booking_id) AS c
 FROM `{_REVIEWS_TABLE}` r
 LEFT JOIN `{_BOOKINGS_TABLE}` b ON r.booking_id = b.booking_id
 WHERE b.tour_id = @tid AND b.vendor_id = @vid
-  AND DATE(r.reviewed_at) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND CURRENT_DATE()
+  AND DATE(r.reviewed_at) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL {_wd} DAY) AND CURRENT_DATE()
 """
 
     # ── Query D: total support ────────────────────────────────────────────────
@@ -100,7 +123,7 @@ FROM `{_SUPPORT_TABLE}` sq
 LEFT JOIN `{_BOOKINGS_TABLE}` b
   ON CAST(b.booking_id AS STRING) = sq.booking_id
 WHERE b.tour_id = @tid AND b.vendor_id = @vid
-  AND DATE(sq.query_created_at) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND CURRENT_DATE()
+  AND DATE(sq.query_created_at) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL {_wd} DAY) AND CURRENT_DATE()
 """
 
     # ── Query E: rating windows ───────────────────────────────────────────────
@@ -110,13 +133,13 @@ WITH bx AS (
   WHERE b.tour_id = @tid AND b.vendor_id = @vid
 )
 SELECT
-  ROUND(AVG(CASE WHEN DATE(r.reviewed_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 15 DAY)
+  ROUND(AVG(CASE WHEN DATE(r.reviewed_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL {_wd} DAY)
                  THEN r.rating END), 2)           AS avg_rating_15d,
-  COUNT(CASE WHEN DATE(r.reviewed_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 15 DAY)
+  COUNT(CASE WHEN DATE(r.reviewed_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL {_wd} DAY)
               THEN 1 END)                          AS n_ratings_15d,
-  ROUND(AVG(CASE WHEN DATE(r.reviewed_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+  ROUND(AVG(CASE WHEN DATE(r.reviewed_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL {_wd} DAY)
                  THEN r.rating END), 2)           AS avg_rating_30d,
-  COUNT(CASE WHEN DATE(r.reviewed_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+  COUNT(CASE WHEN DATE(r.reviewed_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL {_wd} DAY)
               THEN 1 END)                          AS n_ratings_30d
 FROM `{_REVIEWS_TABLE}` r
 JOIN bx ON bx.booking_id = r.booking_id
@@ -133,7 +156,7 @@ SELECT
 FROM `{_BOOKINGS_TABLE}` b
 LEFT JOIN `{_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
 WHERE b.vendor_id = @vid
-  AND DATE(b.experience_date) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 28 DAY) AND CURRENT_DATE()
+  AND DATE(b.experience_date) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL {_wd} DAY) AND CURRENT_DATE()
 """
 
     # ── Query G: same-day same-VID fulfilment issues ──────────────────────────
@@ -175,7 +198,7 @@ LEFT JOIN `{_BOOKINGS_TABLE}` b
   ON CAST(b.booking_id AS STRING) = sq.booking_id
 WHERE b.tour_id = @tid AND b.vendor_id = @vid
   AND sq.query_tag IN UNNEST(@tags)
-  AND DATE(sq.query_created_at) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND CURRENT_DATE()
+  AND DATE(sq.query_created_at) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL {_wd} DAY) AND CURRENT_DATE()
 """
         params_ac = {**base_params, "l2": l2, "tags": ("STRING", tags_spec)}
         params_c  = {**base_params, "tags": ("STRING", tags_spec)}
@@ -202,7 +225,7 @@ LEFT JOIN `{_BOOKINGS_TABLE}` b
   ON CAST(b.booking_id AS STRING) = sq.booking_id
 WHERE b.tour_id = @tid AND b.vendor_id = @vid
   AND ({or_clauses})
-  AND DATE(sq.query_created_at) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND CURRENT_DATE()
+  AND DATE(sq.query_created_at) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL {_wd} DAY) AND CURRENT_DATE()
 """
             params_c_like = {**base_params, **{f"pat{i}": p for i, p in enumerate(like_pats)}}
             coros = [

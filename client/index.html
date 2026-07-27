@@ -2586,10 +2586,25 @@ function renderReviewCol() {
     </div>
   `;
 
+  // Window picker — recompute against the chosen range. This used to only set
+  // state and re-render, so the caption changed ("· 90d") while the number
+  // underneath stayed on whatever window the pipeline had hardcoded.
   col.querySelectorAll('.window-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      state.insightsWindow = btn.dataset.window;
+    btn.addEventListener('click', async () => {
+      const w = btn.dataset.window;
+      state.insightsWindow = w;
       renderReviewCol();
+      const r = REVIEWS.find(x => x.id === state.selected);
+      if (!r || !(r.booking && r.booking.bid)) return;
+      try {
+        const resp = await fetch(`/api/reviews/${r.id}/insights?window=${encodeURIComponent(w)}`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (data && data.insights) {
+          r.liveInsights = data.insights;
+          renderReviewCol();
+        }
+      } catch (e) { /* keep what is on screen */ }
     });
   });
 
