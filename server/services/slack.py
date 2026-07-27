@@ -217,6 +217,58 @@ def parse_review(event: dict) -> dict:
     }
 
 
+async def search_bids(terms: list[str], limit: int = 20) -> tuple[list[str], list[dict]]:
+    """
+    Backup BID source: search Slack message history for the guest name / venue.
+
+    Prior ORM threads routinely carry a booking id that never reached Zendesk —
+    an associate pasting a BID into a thread, an escalation, a manual note. When
+    Zendesk yields nothing this is the next place to look.
+
+    Requires a USER token with search:read; bot tokens cannot call search.messages
+    at all. Returns ([], []) when unavailable rather than raising, so the caller
+    can treat it as a best-effort extra source.
+    """
+    from server.taxonomy import BID_REGEX
+    if not _user:
+        log.info("[slack] search_bids: no user token (search:read) — skipping")
+        return [], []
+    terms = [str(t).strip() for t in (terms or []) if str(t).strip()]
+    if not terms:
+        return [], []
+
+    bids, records, seen = [], [], set()
+    for term in terms[:3]:
+        try:
+            res = _user.search_messages(query=term, count=limit)
+        except Exception as e:
+            log.warning(f"[slack] search_bids {term!r} failed: {e}")
+            continue
+        for m in (res.get("messages") or {}).get("matches") or []:
+            key = f"{m.get('channel', {}).get('id')}/{m.get('ts')}"
+            if key in seen:
+                continue
+            seen.add(key)
+            body = m.get("text") or ""
+            found = [n for n in re.findall(BID_REGEX, body)]
+            if not found:
+                continue
+            bids += found
+            records.append({
+                "ticket_id":    "",
+                "subject":      f"Slack {m.get('channel', {}).get('name', '')}",
+                "body":         body[:4000],
+                "text":         body[:4000],
+                "bids":         list(dict.fromkeys(found)),
+                "matched_term": term,
+                "source":       "slack",
+            })
+
+    deduped = list(dict.fromkeys(bids))[:25]
+    log.info(f"[slack] search_bids {terms[:3]}: {len(seen)} messages → {len(deduped)} BIDs")
+    return deduped, records
+
+
 async def fetch_message(channel: str, ts: str) -> dict | None:
     """
     Re-fetch a single Slack message by channel + ts.

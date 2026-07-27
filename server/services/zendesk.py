@@ -20,6 +20,7 @@ import html as _html
 import logging
 import re
 import time
+import unicodedata
 from datetime import datetime, timedelta, timezone
 
 from server.config import (
@@ -355,6 +356,37 @@ def _get_timeline_sync(_z, booking_id: str):
     }
 
 
+def _fold(s: str) -> str:
+    """Lowercase + strip diacritics so 'Jörg' and 'Jorg' compare equal."""
+    return "".join(c for c in unicodedata.normalize("NFKD", s or "")
+                   if not unicodedata.combining(c)).lower()
+
+
+def _name_matches(candidate: str, first: str | None, last: str | None) -> bool:
+    """
+    Does a Zendesk requester name refer to the person who wrote the review?
+
+    Compared as TOKENS, not substrings. Every name the review gave us must
+    appear as a whole word in the requester's name:
+
+      review "Fredrik Olsen" vs "Fredrik Martin Olsen"  -> True  (middle name)
+      review "Fredrik Olsen" vs "Olsen, Fredrik"        -> True  (reordered)
+      review "Fredrik Olsen" vs "Fredrik Rostvold"      -> False (other Fredrik)
+      review "Ole Berg"      vs "Olsen Bergman"         -> False (substring trap)
+
+    This is the precision half of search-broad/match-strict: the queries are
+    deliberately loose because a middle name cannot be predicted, so nothing is
+    trusted until it passes here.
+    """
+    want = [_fold(x) for x in (first, last) if x and str(x).strip()]
+    if not want:
+        return False
+    cand_tokens = set(re.findall(r"[a-z0-9]+", _fold(candidate)))
+    if not cand_tokens:
+        return False
+    return all(w in cand_tokens for w in want)
+
+
 async def find_bids_by_requester_name(
     author_first: str,
     author_last: str | None,
@@ -404,49 +436,66 @@ async def find_bids_by_requester_name(
     # verify in BigQuery, so strangers' bookings become indistinguishable
     # candidates. Where the display name does not match the Zendesk requester
     # name, find_bids_by_text() covers it by searching the venue instead.
-    # requester:"Fredrik Olsen" is an EXACT phrase match, so it misses
-    # "Fredrik Martin Olsen" — middle names, initials and reordered names are
-    # common. Fall back to free text over the name, which matches the tokens
-    # wherever they appear on the ticket (Zendesk free text covers subject and
-    # comments), then verify the requester actually carries every name token.
-    queries = [f"type:ticket requester:{_as_query(name_str)}",
-               f"type:ticket {name_str}"]
+    # SEARCH BROAD, MATCH STRICT.
+    #
+    # The review only gives "Fredrik Olsen"; Zendesk holds "Fredrik Martin
+    # Olsen". There is no way to know about the middle name before searching, so
+    # an exact requester:"Fredrik Olsen" phrase match finds nothing. Equally, a
+    # loose search alone drags in every other Fredrik. The answer is to cast a
+    # wide net and then MATCH the results on the requester's real name.
+    #
+    # Every query below is a recall attempt; _name_matches is the precision
+    # step, and nothing reaches the caller without passing it.
+    queries = [
+        f"type:ticket requester:{_as_query(name_str)}",   # exact, cheapest hit
+        f"type:ticket {name_str}",                        # free text, both names
+    ]
+    if author_last:
+        queries.append(f"type:ticket requester:{_as_query(author_last)}")
     if since:
         queries = [f"{q} created>{since}" for q in queries]
 
-    tickets = []
-    for qi, query in enumerate(queries):
+    _user_cache: dict = {}
+
+    def _requester_name(tk) -> str:
+        rid = getattr(tk, "requester_id", None)
+        if rid not in _user_cache:
+            try:
+                _user_cache[rid] = getattr(_z.users(id=rid), "name", "") or ""
+            except Exception:
+                _user_cache[rid] = ""
+        return _user_cache[rid]
+
+    tickets, seen_ids = [], set()
+    for query in queries:
         log.info(f"[zendesk] requester search: {query}")
         try:
-            tickets = await asyncio.get_running_loop().run_in_executor(
+            hits = await asyncio.get_running_loop().run_in_executor(
                 None, lambda q=query: _search_with_retry(_z, q)
             )
         except Exception as e:
             log.warning(f"[zendesk] requester search failed: {e}")
-            tickets = []
-        # The free-text variant matches any ticket mentioning those words, so
-        # confirm the requester genuinely carries every token before trusting it.
-        if tickets and qi > 0:
-            want = [t.lower() for t in (author_first, author_last) if t]
-            _cache: dict = {}
+            continue
 
-            def _rname(tk):
-                rid = getattr(tk, "requester_id", None)
-                if rid not in _cache:
-                    try:
-                        _cache[rid] = getattr(_z.users(id=rid), "name", "") or ""
-                    except Exception:
-                        _cache[rid] = ""
-                return _cache[rid]
+        def _keep(ts):
+            out = []
+            for t in ts or []:
+                tid = str(getattr(t, "id", "") or "")
+                if tid in seen_ids:
+                    continue
+                if _name_matches(_requester_name(t), author_first, author_last):
+                    seen_ids.add(tid)
+                    out.append(t)
+            return out
 
-            before = len(tickets)
-            tickets = await asyncio.get_running_loop().run_in_executor(
-                None, lambda ts=tickets: [
-                    t for t in ts if all(w in _rname(t).lower() for w in want)])
-            log.info(f"[zendesk] free-text name variant: {before} → {len(tickets)} "
-                     f"after requester verification")
-        if tickets:
-            break
+        kept = await asyncio.get_running_loop().run_in_executor(
+            None, lambda h=hits: _keep(h))
+        if hits:
+            log.info(f"[zendesk]   {len(hits)} hit(s) → {len(kept)} kept after name match")
+        tickets.extend(kept)
+
+    if not tickets:
+        log.info(f"[zendesk] no ticket whose requester matches '{name_str}'")
 
     # Harvest candidate booking numbers from subject + custom fields + BODY.
     # A ticket's own id shares the same number space as BIDs — exclude it;

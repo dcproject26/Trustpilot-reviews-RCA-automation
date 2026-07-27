@@ -480,6 +480,30 @@ async def process_review(review_id: str):
                         except Exception as e:
                             log.warning(f"[tier2] Zendesk text search failed — continuing: {e}")
 
+                    # ── Slack search backup ───────────────────────────────────
+                    # Only when Zendesk gave us nothing. Prior ORM threads often
+                    # carry a BID that never made it into a ticket. Needs a user
+                    # token with search:read; degrades to a no-op without one.
+                    if not zd_bids:
+                        _sterms = [t for t in ([" ".join(x for x in (author_first, author_last) if x)]
+                                               + list(venue_hints)) if t]
+                        try:
+                            _shits, _srecs = await slk.search_bids(_sterms)
+                            for _sr in _srecs:
+                                for _sb in _sr.get("bids", []):
+                                    if _sb not in bid_ticket_text:
+                                        bid_ticket_text[_sb] = _sr.get("text", "")
+                            for _b in _shits:
+                                if _b not in zd_bids:
+                                    zd_bids.append(_b)
+                            if _sterms:
+                                confidence_trail.append({
+                                    "mark": "pass" if _shits else "warn",
+                                    "text": f"<strong>Slack search (backup):</strong> "
+                                            f"{len(_shits)} BID(s)"})
+                        except Exception as e:
+                            log.warning(f"[tier2] Slack search backup failed — continuing: {e}")
+
                     both_bids = {b for b in name_bids if b in set(venue_bids)}
                     if both_bids:
                         confidence_trail.append({"mark": "pass",
@@ -588,20 +612,55 @@ async def process_review(review_id: str):
                         n_zd = len(zd_candidates)
                         if n_zd == 1:
                             bid, bq_row = zd_candidates[0]
-                            booking = bq_row.copy()
-                            booking["id"] = bid
-                            booking.setdefault(
-                                "experienceName",
-                                bq_row.get("experience_name", ""))
-                            booking.update(_get_booking_extra(bid))
-                            match_tier = 1
-                            narrowing_path = "zendesk_requester_auto"
-                            _ctr["t2_zendesk_auto"] += 1
-                            _ctr["t1_auto_promoted"] += 1
-                            _ctr["t2_auto_promoted"] += 1
-                            confidence_trail.append({"mark": "pass",
-                                "text": "<strong>Tier 1 auto-promote</strong> via Zendesk requester "
-                                        "(single verified match)"})
+                            # Being the only survivor is NOT evidence. A single
+                            # wrong BID auto-promoted to Tier 1 is worse than a
+                            # wrong candidate — it presents as a direct match and
+                            # the whole RCA is then built on another guest's
+                            # booking. Require the BOOKING's own guest name to
+                            # match the reviewer, or a venue/ticket corroboration.
+                            from server.services.zendesk import _name_matches
+                            _pgn = bq_row.get("primary_guest_name") or ""
+                            _guest_ok  = _name_matches(_pgn, author_first, author_last)
+                            _venue_ok  = _venue_pts(bq_row) > 0
+                            _ticket_ok = _ticket_pts(bid) > 0
+                            if _guest_ok or _venue_ok or _ticket_ok:
+                                booking = bq_row.copy()
+                                booking["id"] = bid
+                                booking.setdefault(
+                                    "experienceName",
+                                    bq_row.get("experience_name", ""))
+                                booking.update(_get_booking_extra(bid))
+                                match_tier = 1
+                                narrowing_path = "zendesk_requester_auto"
+                                _ctr["t2_zendesk_auto"] += 1
+                                _ctr["t1_auto_promoted"] += 1
+                                _ctr["t2_auto_promoted"] += 1
+                                _why = ("guest name" if _guest_ok else
+                                        "venue" if _venue_ok else "ticket text")
+                                confidence_trail.append({"mark": "pass",
+                                    "text": f"<strong>Tier 1 auto-promote</strong> via Zendesk "
+                                            f"requester — corroborated by {_why}"})
+                            else:
+                                candidates = [_make_candidate(
+                                    bq_row, "zendesk_requester", ["name", "zendesk", "unconfirmed"])]
+                                candidates[0]["id"] = bid
+                                candidates[0]["score"] = round(_score(bq_row, bid), 2)
+                                candidates[0]["score_venue"]  = round(_venue_pts(bq_row), 2)
+                                candidates[0]["score_date"]   = round(_date_pts(bq_row), 2)
+                                candidates[0]["score_ticket"] = round(_ticket_pts(bid), 2)
+                                candidates[0]["venue_signal"] = False
+                                candidate_state = True
+                                match_tier = 2
+                                narrowing_path = "zendesk_requester_unconfirmed"
+                                _ctr["t2_zendesk_candidates"] += 1
+                                _ctr["t2_candidates"] += 1
+                                confidence_trail.append({"mark": "warn",
+                                    "text": "<strong>Not auto-matched</strong> — single Zendesk "
+                                            f"BID {bid}, but booking guest '{_pgn or '—'}' does not "
+                                            "match the reviewer and no venue/ticket corroboration. "
+                                            "Needs confirmation."})
+                                log.info(f"[tier2] single BID {bid} withheld from auto-promote: "
+                                         f"guest={_pgn!r} vs review={author_first} {author_last}")
                             cascade_done = True
                         elif n_zd >= 2:
                             ranked = sorted(zd_candidates,
