@@ -45,6 +45,19 @@ ZENDESK_EMAIL            = os.getenv("ZENDESK_EMAIL", "")
 ZENDESK_API_TOKEN        = os.getenv("ZENDESK_API_TOKEN", "")
 ZENDESK_BOOKING_FIELD_ID = os.getenv("ZENDESK_BOOKING_FIELD_ID", "360021524471")
 # Custom field IDs confirmed from the 2024 Retool workflow
+# Confirmed against a live ticket (ZD-33979875) via tools/zd_field_discovery.py.
+# These carry the booking's own facts, so matching does not depend on the guest
+# having named the venue in the review.
+ZENDESK_FIELD_GUEST_NAME  = os.getenv("ZENDESK_FIELD_GUEST_NAME",  "51116641874073")
+ZENDESK_FIELD_GUEST_EMAIL = os.getenv("ZENDESK_FIELD_GUEST_EMAIL", "360026670311")
+ZENDESK_FIELD_EXPERIENCE  = os.getenv("ZENDESK_FIELD_EXPERIENCE",  "360021471312")
+ZENDESK_FIELD_CITY        = os.getenv("ZENDESK_FIELD_CITY",        "360021522151")
+ZENDESK_FIELD_VISIT_DATE  = os.getenv("ZENDESK_FIELD_VISIT_DATE",  "360024232231")
+ZENDESK_FIELD_PAX         = os.getenv("ZENDESK_FIELD_PAX",         "360021522291")
+ZENDESK_FIELD_VENDOR_NAME = os.getenv("ZENDESK_FIELD_VENDOR_NAME", "8136487555225")
+# NOT a booking id — the itinerary / payment id. Must never be harvested as one.
+ZENDESK_FIELD_ITINERARY   = os.getenv("ZENDESK_FIELD_ITINERARY",   "360021524491")
+
 ZENDESK_TGID_FIELD = int(os.getenv("ZENDESK_TGID_FIELD", "360024198092"))
 ZENDESK_TID_FIELD  = int(os.getenv("ZENDESK_TID_FIELD",  "360024232711"))
 # Optional brand split (brand IDs). If either is unset, all tickets → guest timeline.

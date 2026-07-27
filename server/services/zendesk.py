@@ -27,6 +27,9 @@ from server.config import (
     is_live, MOCK_MODE,
     ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_API_TOKEN,
     ZENDESK_TGID_FIELD, ZENDESK_TID_FIELD, ZENDESK_BOOKING_FIELD_ID,
+    ZENDESK_FIELD_GUEST_NAME, ZENDESK_FIELD_GUEST_EMAIL, ZENDESK_FIELD_EXPERIENCE,
+    ZENDESK_FIELD_CITY, ZENDESK_FIELD_VISIT_DATE, ZENDESK_FIELD_PAX,
+    ZENDESK_FIELD_VENDOR_NAME, ZENDESK_FIELD_ITINERARY,
     ZENDESK_BRAND_GUEST, ZENDESK_BRAND_SP, ZENDESK_BOT_TAGS,
 )
 from server.services.mock_data import MOCK_TIMELINES, MOCK_BOOKINGS
@@ -75,6 +78,58 @@ try:
     _BOOKING_FIELD = int(str(ZENDESK_BOOKING_FIELD_ID).strip())
 except (TypeError, ValueError):
     _BOOKING_FIELD = None
+
+
+def _fid(v):
+    try:
+        return int(str(v).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+_F_GUEST_NAME  = _fid(ZENDESK_FIELD_GUEST_NAME)
+_F_GUEST_EMAIL = _fid(ZENDESK_FIELD_GUEST_EMAIL)
+_F_EXPERIENCE  = _fid(ZENDESK_FIELD_EXPERIENCE)
+_F_CITY        = _fid(ZENDESK_FIELD_CITY)
+_F_VISIT_DATE  = _fid(ZENDESK_FIELD_VISIT_DATE)
+_F_PAX         = _fid(ZENDESK_FIELD_PAX)
+_F_VENDOR_NAME = _fid(ZENDESK_FIELD_VENDOR_NAME)
+_F_ITINERARY   = _fid(ZENDESK_FIELD_ITINERARY)
+
+
+def ticket_signals(ticket) -> dict:
+    """
+    The booking's own facts, straight off the ticket's custom fields.
+
+    A Zendesk ticket already knows the guest's full name, the experience, the
+    city, the visit date and the party size. Matching therefore does not depend
+    on the guest having named the venue in their review — a one-line review with
+    no venue in it can still be matched against the ticket's own experience.
+
+    Field ids confirmed against a live ticket with tools/zd_field_discovery.py
+    and overridable per environment.
+    """
+    def _v(fid):
+        if fid is None:
+            return ""
+        val = get_custom_field(ticket, fid)
+        return str(val).strip() if val not in (None, "") else ""
+
+    pax_raw = _v(_F_PAX)
+    pax_total = sum(int(n) for n in re.findall(r"(\d+)\s*(?:adult|child|infant|senior|youth)",
+                                               pax_raw, re.I)) or None
+    return {
+        "booking_id":  booking_id_from_ticket(ticket) or "",
+        "guest_name":  _v(_F_GUEST_NAME),
+        "guest_email": _v(_F_GUEST_EMAIL),
+        "experience":  _v(_F_EXPERIENCE),
+        "city":        _v(_F_CITY),
+        "visit_date":  _v(_F_VISIT_DATE),
+        "pax_raw":     pax_raw,
+        "pax":         pax_total,
+        "vendor_name": _v(_F_VENDOR_NAME),
+        "itinerary_id": _v(_F_ITINERARY),
+    }
 
 
 def booking_id_from_ticket(ticket) -> str | None:
@@ -669,14 +724,20 @@ async def find_bids_by_requester_name(
         # but is frequently left empty, so subject, body and side conversations
         # all contribute. Union, not either/or: a ticket can carry the booking
         # id in one place and not another.
-        field_bid = booking_id_from_ticket(t)
-        scraped   = [n for n in found if n not in all_ticket_ids]
+        sig = ticket_signals(t)
+        field_bid = sig["booking_id"] or None
+        # The itinerary / payment id is 8 digits and sits in its own field, so
+        # scraping happily mistakes it for a booking id. Exclude it explicitly.
+        _not_bids = set(all_ticket_ids)
+        if sig.get("itinerary_id"):
+            _not_bids.add(sig["itinerary_id"])
+        scraped   = [n for n in found if n not in _not_bids]
 
         sc_list = side_conversations(own_id)
         sc_bids = []
         for sc in sc_list:
             sc_bids += [n for n in re.findall(r"\b\d{7,12}\b", sc.get("text", ""))
-                        if n not in all_ticket_ids]
+                        if n not in _not_bids]
 
         t_bids = list(dict.fromkeys(
             ([field_bid] if field_bid else []) + scraped + sc_bids))
@@ -694,6 +755,7 @@ async def find_bids_by_requester_name(
             "bid_source":     ("zendesk_field" if field_bid
                                else "side_conversation" if sc_bids else "scraped"),
             "side_conversations": sc_list,
+            "signals":        sig,
             "requester_name": getattr(t, "_requester_name", ""),
             "name_score":     round(getattr(t, "_name_score", 0.0), 2),
         })

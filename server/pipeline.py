@@ -493,6 +493,7 @@ async def process_review(review_id: str):
                     zd_bids = []
                     bid_ticket_text = {}   # bid -> subject+body of its source ticket
                     bid_name_score  = {}   # bid -> 0..1 requester-name confidence
+                    bid_signals     = {}   # bid -> ticket custom-field facts
                     for _f, _l in search_identities:
                         try:
                             # No lookback_days — the service defaults to since
@@ -510,6 +511,8 @@ async def process_review(review_id: str):
                                     bid_name_score[_tb] = max(
                                         bid_name_score.get(_tb, 0.0),
                                         float(_tr.get("name_score") or 0.0))
+                                    if _tr.get("signals"):
+                                        bid_signals[_tb] = _tr["signals"]
                             log.info(
                                 f"[tier2] zendesk requester: {len(_hits)} BIDs "
                                 f"for '{_f} {_l or ''}'")
@@ -615,14 +618,28 @@ async def process_review(review_id: str):
                         # ── Indicator scoring, split so each signal is visible ──
                         # Venue is scored against venue_hints ONLY (city excluded
                         # — see the venue_hints construction above).
-                        def _venue_pts(row):
-                            exp = (row.get("experienceName") or
-                                   row.get("experience_name") or "")
+                        def _venue_pts(row, bid=None):
+                            # Compare the review's venue hints against BOTH the
+                            # BigQuery experience name and the experience/city
+                            # the Zendesk ticket itself records. The ticket knows
+                            # the booking's venue even when the review does not
+                            # spell it out the same way.
                             hint_text = " ".join(venue_hints)
-                            if not (exp and hint_text):
+                            if not hint_text:
                                 return 0.0
-                            # _sig_tokens folds accents — see _fold_accents.
-                            return 2.0 * len(_sig_tokens(exp) & _sig_tokens(hint_text))
+                            hint_toks = _sig_tokens(hint_text)
+                            if not hint_toks:
+                                return 0.0
+                            sig = bid_signals.get(str(bid), {}) if bid else {}
+                            targets = [
+                                row.get("experienceName") or row.get("experience_name") or "",
+                                sig.get("experience", ""),
+                                sig.get("city", ""),
+                                sig.get("vendor_name", ""),
+                            ]
+                            best = max((len(hint_toks & _sig_tokens(t)) for t in targets
+                                        if t), default=0)
+                            return 2.0 * best
 
                         def _date_pts(row):
                             v = (row.get("date_of_visit") or row.get("visitDate") or "")
@@ -669,17 +686,22 @@ async def process_review(review_id: str):
                             zd = bid_name_score.get(str(bid), 0.0) if bid else 0.0
                             bq = _name_score(row.get("primary_guest_name") or "",
                                              author_first, author_last)
-                            return 3.0 * max(zd, bq)
+                            # The ticket's own guest-name field is the cleanest
+                            # source of all — "Fredrik Martin Olsen" verbatim.
+                            sig = bid_signals.get(str(bid), {}) if bid else {}
+                            tk = _name_score(sig.get("guest_name") or "",
+                                             author_first, author_last)
+                            return 3.0 * max(zd, bq, tk)
 
                         def _score(row, bid=None):
-                            return (_venue_pts(row) + _date_pts(row)
+                            return (_venue_pts(row, bid) + _date_pts(row)
                                     + _ticket_pts(bid) + _both_pts(bid)
                                     + _name_pts(row, bid))
 
                         # Indicators RANK, they never exclude (approved point 6).
                         # venue_signal is observational only — it drives the
                         # "date-only, treat as weak" label, not the candidate set.
-                        venue_signal = any(_venue_pts(r) > 0 for _, r in zd_candidates)
+                        venue_signal = any(_venue_pts(r, b) > 0 for b, r in zd_candidates)
                         ticket_signal = any(_ticket_pts(b) > 0 for b, _ in zd_candidates)
                         if not venue_signal:
                             confidence_trail.append({
@@ -726,17 +748,17 @@ async def process_review(review_id: str):
                                 confidence_trail.append({"mark": "pass",
                                     "text": f"<strong>Tier 1 auto-promote</strong> — indicator "
                                             f"confidence {_conf:.1f} (name {_name_pts(bq_row, bid):.1f} · "
-                                            f"venue {_venue_pts(bq_row):.1f} · ticket {_ticket_pts(bid):.1f})"})
+                                            f"venue {_venue_pts(bq_row, bid):.1f} · ticket {_ticket_pts(bid):.1f})"})
                             else:
                                 candidates = [_make_candidate(
                                     bq_row, "zendesk_requester", ["name", "zendesk", "unconfirmed"])]
                                 candidates[0]["id"] = bid
                                 candidates[0]["score"] = round(_score(bq_row, bid), 2)
-                                candidates[0]["score_venue"]  = round(_venue_pts(bq_row), 2)
+                                candidates[0]["score_venue"]  = round(_venue_pts(bq_row, bid), 2)
                                 candidates[0]["score_date"]   = round(_date_pts(bq_row), 2)
                                 candidates[0]["score_ticket"] = round(_ticket_pts(bid), 2)
                                 candidates[0]["score_name"]   = round(_name_pts(bq_row, bid), 2)
-                                candidates[0]["venue_signal"] = _venue_pts(bq_row) > 0
+                                candidates[0]["venue_signal"] = _venue_pts(bq_row, bid) > 0
                                 candidate_state = True
                                 match_tier = 2
                                 narrowing_path = "zendesk_requester_unconfirmed"
@@ -764,7 +786,7 @@ async def process_review(review_id: str):
                             candidates = [_make_candidate(row, "zendesk_requester", _matched_on)
                                           for _, row in ranked]
                             for i, (bid, row) in enumerate(ranked):
-                                _vp, _dp = _venue_pts(row), _date_pts(row)
+                                _vp, _dp = _venue_pts(row, bid), _date_pts(row)
                                 _tp, _bp = _ticket_pts(bid), _both_pts(bid)
                                 candidates[i]["id"]           = bid
                                 candidates[i]["score"]        = round(_score(row, bid), 2)

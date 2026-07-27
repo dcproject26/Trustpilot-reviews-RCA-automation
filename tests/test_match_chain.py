@@ -86,3 +86,48 @@ if FAILURES:
     print(f"{len(FAILURES)} FAILURE(S): " + ", ".join(FAILURES))
     sys.exit(1)
 print("all checks passed")
+
+# ── Appended: ticket custom fields (real values from ZD-33979875) ──────────
+print("\n6. Ticket custom fields — matching without the review naming anything")
+from server.services.zendesk import ticket_signals, booking_id_from_ticket
+
+
+class _FakeTicket:
+    """ZD-33979875's real custom_fields payload."""
+    id = 33979875
+    custom_fields = [
+        {"id": 360021524471, "value": "32885787"},        # booking id
+        {"id": 360021524491, "value": "28219778"},        # itinerary id — NOT a BID
+        {"id": 51116641874073, "value": "Fredrik Martin Olsen"},
+        {"id": 360021471312, "value": "Wieliczka Salt Mine - Skip the Line Tickets"},
+        {"id": 360021522151, "value": "Krakow"},
+        {"id": 360024232231, "value": "2026-07-21"},
+        {"id": 360021522291, "value": "2 Adult, 2 Child"},
+        {"id": 8136487555225, "value": "Wieliczka Salt Mine"},
+        {"id": 360026670311, "value": "f.olsen95@gmail.com"},
+    ]
+
+
+t = _FakeTicket()
+sig = ticket_signals(t)
+check("booking id from field", booking_id_from_ticket(t), "32885787")
+check("itinerary id kept separate", sig["itinerary_id"], "28219778")
+check("guest name", sig["guest_name"], "Fredrik Martin Olsen")
+check("experience", sig["experience"], "Wieliczka Salt Mine - Skip the Line Tickets")
+check("city", sig["city"], "Krakow")
+check("pax parsed", sig["pax"], 4)
+
+# Name confidence off the ticket's own field beats the requester lookup
+check("name score from ticket field",
+      round(_name_score(sig["guest_name"], "Fredrik", "Olsen"), 2), 1.0)
+
+# Venue matches the ticket's own experience even though the BQ row is not used
+hint = _sig_tokens("Salt mines Krakow")
+check("venue matches ticket experience", bool(hint & _sig_tokens(sig["experience"])), True)
+check("venue matches ticket city", bool(hint & _sig_tokens(sig["city"])), True)
+
+print("\n" + "=" * 62)
+if FAILURES:
+    print(f"{len(FAILURES)} FAILURE(S): " + ", ".join(FAILURES))
+    sys.exit(1)
+print("all checks passed")
