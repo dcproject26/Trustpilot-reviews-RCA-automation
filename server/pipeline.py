@@ -21,7 +21,7 @@ Steps:
   14. Save + post-back to Slack thread
   15. Metrics
 """
-import asyncio, logging, re
+import asyncio, logging, re, unicodedata
 from datetime import datetime
 
 from sqlalchemy.orm.attributes import flag_modified
@@ -45,17 +45,32 @@ _VENUE_STOPWORDS = {
 }
 
 
+def _fold_accents(s: str) -> str:
+    """
+    Strip diacritics so 'Oceanogràfic' and 'Oceanografic' tokenise identically.
+
+    The token regex below is ASCII-only, so without folding, an accent splits a
+    word into fragments: 'oceanogràfic' -> {'oceanogr'} but BigQuery's
+    unaccented 'Oceanografic' -> {'oceanografic'}. The sets never intersect and
+    a venue that matches perfectly scores zero. Hits every accented venue in the
+    European inventory (Sagrada Família, Museu Picasso, Château, Köln).
+    """
+    return "".join(c for c in unicodedata.normalize("NFKD", s or "")
+                   if not unicodedata.combining(c))
+
+
+def _sig_tokens(s: str) -> set:
+    """Significant venue words: len>=4, alphabetic, not a generic travel term."""
+    toks = re.findall(r"[a-z]{4,}", _fold_accents(s).lower())
+    return {t for t in toks if t not in _VENUE_STOPWORDS}
+
+
 def _venue_token_overlap(review_text: str, exp_name: str) -> bool:
     """
     Robust venue signal: True only when the review and the experience name
-    share a SIGNIFICANT word (len>=4, alphabetic, not a generic travel term),
-    compared at word level — not the old fragile substring scan where any
-    4-char fragment of a review word could match inside the experience name.
+    share a SIGNIFICANT word, compared at word level — not the old fragile
+    substring scan where any 4-char fragment could match inside the name.
     """
-    def _sig_tokens(s: str) -> set:
-        toks = re.findall(r"[a-z]{4,}", (s or "").lower())
-        return {t for t in toks if t not in _VENUE_STOPWORDS}
-
     return bool(_sig_tokens(review_text) & _sig_tokens(exp_name))
 
 
@@ -406,8 +421,12 @@ async def process_review(review_id: str):
                     zd_bids = []
                     for _f, _l in search_identities:
                         try:
-                            _hits = await zendesk.find_bids_by_requester_name(
-                                _f, _l, lookback_days=60)
+                            # No lookback_days — the service defaults to since
+                            # Jan 1 of the current year. Passing 60 here silently
+                            # overrode that agreed window and dropped tickets
+                            # older than 60 days (guests review months later),
+                            # which is how a requester's real BID went unharvested.
+                            _hits = await zendesk.find_bids_by_requester_name(_f, _l)
                             log.info(
                                 f"[tier2] zendesk requester: {len(_hits)} BIDs "
                                 f"for '{_f} {_l or ''}'")
@@ -452,15 +471,12 @@ async def process_review(review_id: str):
                         # — see the venue_hints construction above).
                         def _venue_pts(row):
                             exp = (row.get("experienceName") or
-                                   row.get("experience_name") or "").lower()
-                            hint_text = " ".join(venue_hints).lower()
+                                   row.get("experience_name") or "")
+                            hint_text = " ".join(venue_hints)
                             if not (exp and hint_text):
                                 return 0.0
-                            exp_toks = {t for t in re.findall(r"[a-z]{4,}", exp)
-                                        if t not in _VENUE_STOPWORDS}
-                            hint_toks = {t for t in re.findall(r"[a-z]{4,}", hint_text)
-                                         if t not in _VENUE_STOPWORDS}
-                            return 2.0 * len(exp_toks & hint_toks)
+                            # _sig_tokens folds accents — see _fold_accents.
+                            return 2.0 * len(_sig_tokens(exp) & _sig_tokens(hint_text))
 
                         def _date_pts(row):
                             v = (row.get("date_of_visit") or row.get("visitDate") or "")
