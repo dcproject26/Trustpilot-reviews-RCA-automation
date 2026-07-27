@@ -712,25 +712,21 @@ Return JSON:
 - visit_date_hint — any date/time reference ("on May 2nd", "last Saturday",
   "two weeks ago") normalized to a best-guess date or range, given the review
   was posted {review_date or "unknown"}
-- party — group size / composition if mentioned ("my wife and I" → 2)
-- issue_keywords — 3–5 words describing the problem (refund, tickets late,
-  guide no-show…) usable as Zendesk search terms
-- booking_channel_hints — anything about how they booked (app, website,
-  Headout by name)
 
 Return ONLY valid JSON, no markdown:
 {{"guest_name": "<or null>",
   "experience_or_venue": "<or null>",
   "city_or_country": "<or null>",
-  "visit_date_hint": "<or null>",
-  "party": "<or null>",
-  "issue_keywords": ["..."],
-  "booking_channel_hints": "<or null>"}}
+  "visit_date_hint": "<or null>"}}
 
-These indicators will be used to (1) search Zendesk by guest name, and (2) score
-each candidate booking: experience-name similarity to experience_or_venue,
-visit-date closeness to visit_date_hint (else the review date), and city match.
-Highest score = best match shown first."""
+Every field above is consumed by the matcher:
+1. guest_name — searched in Zendesk as the ticket requester, alongside the
+   Trustpilot display name.
+2. experience_or_venue + city_or_country — resolved to TGIDs, and scored by
+   significant-word overlap against each candidate's experience name (weight 2x).
+3. visit_date_hint — scored by closeness to each candidate's visit date, falling
+   back to the review post date when no hint is present.
+Highest combined score = best match shown first."""
 
 
 def venue_extraction_prompt(review_text: str) -> str:
