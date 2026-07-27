@@ -24,6 +24,10 @@ def main(ticket_id):
     print(f"configured tgid field    : {ZENDESK_TGID_FIELD}")
     print(f"configured tid field     : {ZENDESK_TID_FIELD}")
     print()
+    print("TICKET TAGS (these drive same-day / similar-support matching):")
+    for tg in (getattr(t, "tags", None) or []):
+        print(f"  {tg}")
+    print()
     print("ALL non-empty custom fields on this ticket:")
     for f in (getattr(t, "custom_fields", None) or []):
         fid = f.get("id") if isinstance(f, dict) else getattr(f, "id", None)
