@@ -184,6 +184,12 @@ if __name__ == "__main__":
     # so a re-run could never finish and the dashboard saw nothing change.
     _reload = os.getenv("UVICORN_RELOAD", "").lower() in ("1", "true", "yes")
     uvicorn.run("server.main:app", host="0.0.0.0",
-                port=int(os.getenv("PORT", "8000")),
+                # Default 5000, matching the .replit port mapping (5000 -> 80).
+                # It used to default to 8000, so a shell-launched server bound a
+                # different port from the Run button's, and the two could run at
+                # once serving different code on different URLs. Same default
+                # both ways means the second launch fails loudly on "address in
+                # use" instead of quietly shadowing the first.
+                port=int(os.getenv("PORT", "5000")),
                 reload=_reload,
                 reload_excludes=["*.db", "*.log", "__pycache__/*", ".git/*"] if _reload else None)
