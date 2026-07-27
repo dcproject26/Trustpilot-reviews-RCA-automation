@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 from server.config import (
     is_live, MOCK_MODE,
     ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_API_TOKEN,
-    ZENDESK_TGID_FIELD, ZENDESK_TID_FIELD,
+    ZENDESK_TGID_FIELD, ZENDESK_TID_FIELD, ZENDESK_BOOKING_FIELD_ID,
     ZENDESK_BRAND_GUEST, ZENDESK_BRAND_SP, ZENDESK_BOT_TAGS,
 )
 from server.services.mock_data import MOCK_TIMELINES, MOCK_BOOKINGS
@@ -69,6 +69,32 @@ def _search_with_retry(_z, query: str):
             _z = zd_connector.retry_client_on_auth_error()
             return list(_z.search(query=query, type="ticket"))
         raise
+
+
+try:
+    _BOOKING_FIELD = int(str(ZENDESK_BOOKING_FIELD_ID).strip())
+except (TypeError, ValueError):
+    _BOOKING_FIELD = None
+
+
+def booking_id_from_ticket(ticket) -> str | None:
+    """
+    The booking id from the ticket's dedicated booking-id custom field.
+
+    This is the authoritative source and it is what should be used: Zendesk
+    stores the booking id in its own field, so there is no need to guess which
+    of the numbers in a ticket body is a booking id versus a ticket id, an
+    amount, or a phone number. Scraping digits out of prose was always a
+    fallback dressed up as the primary path.
+    """
+    if _BOOKING_FIELD is None:
+        return None
+    val = get_custom_field(ticket, _BOOKING_FIELD)
+    if val is None:
+        return None
+    val = str(val).strip()
+    m = re.search(r"\b\d{7,12}\b", val)
+    return m.group(0) if m else None
 
 
 def get_custom_field(ticket, field_id: int):
@@ -545,7 +571,16 @@ async def find_bids_by_requester_name(
             if val and re.fullmatch(r"\d{7,12}", str(val).strip()):
                 found.append(str(val).strip())
         found += re.findall(r"\b\d{7,12}\b", body[:4000])
-        t_bids = [n for n in found if n not in all_ticket_ids]
+        # The booking-id custom field is authoritative. Only fall back to
+        # scraping the subject/body when the ticket does not carry it.
+        field_bid = booking_id_from_ticket(t)
+        if field_bid:
+            t_bids = [field_bid]
+            log.info(f"[zendesk] ZD-{own_id}: booking id {field_bid} from custom field")
+        else:
+            t_bids = [n for n in found if n not in all_ticket_ids]
+            if t_bids:
+                log.info(f"[zendesk] ZD-{own_id}: no booking field, scraped {t_bids}")
         bids += t_bids
         ticket_records.append({
             "ticket_id":      own_id,
@@ -553,6 +588,7 @@ async def find_bids_by_requester_name(
             "body":           body[:4000],
             "text":           f"{subject}\n{body[:4000]}".strip(),
             "bids":           list(dict.fromkeys(t_bids)),
+            "bid_source":     "zendesk_field" if field_bid else "scraped",
             "requester_name": getattr(t, "_requester_name", ""),
             "name_score":     round(getattr(t, "_name_score", 0.0), 2),
         })
@@ -641,9 +677,13 @@ async def find_bids_by_text(
                 if val and re.fullmatch(r"\d{7,12}", str(val).strip()):
                     found.append(str(val).strip())
             found += re.findall(r"\b\d{7,12}\b", body[:4000])
-            # Same ticket-id vs booking-id guard as the requester search.
-            t_bids = [n for n in found
-                      if n not in _batch_ids and n not in seen_tickets]
+            # Booking-id custom field first, same as the requester search.
+            field_bid = booking_id_from_ticket(t)
+            if field_bid:
+                t_bids = [field_bid]
+            else:
+                t_bids = [n for n in found
+                          if n not in _batch_ids and n not in seen_tickets]
             all_bids += t_bids
             all_records.append({
                 "ticket_id": own_id,
