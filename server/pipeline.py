@@ -909,19 +909,34 @@ async def process_review(review_id: str):
         # ── 7b. Support frames (Claude summarisation of each timeline event) ─
         support_frames = []
         sp_frames      = []
-        for i, ev in enumerate(timeline):
+        # One Claude call per timeline event. These were awaited in a loop, so a
+        # ticket at the 41-event cap cost 41 sequential round trips and dominated
+        # re-run time. They are independent of one another — each only needs its
+        # own event plus its neighbours — so they run concurrently, bounded so we
+        # do not hammer the API. Order is preserved via gather's result ordering.
+        _FRAME_CONCURRENCY = 8
+        _sem = asyncio.Semaphore(_FRAME_CONCURRENCY)
+        _blank = {"guestSaid": "", "weDid": "", "guestReply": "", "gap": ""}
+
+        async def _frame_for(i, ev):
             prev_ = timeline[i - 1] if i > 0 else None
             next_ = timeline[i + 1] if i + 1 < len(timeline) else None
-            try:
-                frame = await claude.summarise_support_event(ev, prev_, next_)
-                merged = {**ev, **(frame or
-                    {"guestSaid": "", "weDid": "", "guestReply": "", "gap": ""})}
-            except Exception:
-                merged = {**ev, "guestSaid": "", "weDid": "", "guestReply": "", "gap": ""}
+            async with _sem:
+                try:
+                    frame = await claude.summarise_support_event(ev, prev_, next_)
+                    return {**ev, **(frame or _blank)}
+                except Exception:
+                    return {**ev, **_blank}
+
+        merged_frames = await asyncio.gather(
+            *(_frame_for(i, ev) for i, ev in enumerate(timeline)))
+        for ev, merged in zip(timeline, merged_frames):
             if ev.get("thread") == "sp":
                 sp_frames.append(merged)
             else:
                 support_frames.append(merged)
+        log.info(f"[pipeline] {len(timeline)} support frames summarised "
+                 f"(concurrency {_FRAME_CONCURRENCY})")
 
         support_summary_text = ""
         try:
