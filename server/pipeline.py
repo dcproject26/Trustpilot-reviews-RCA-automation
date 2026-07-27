@@ -262,10 +262,22 @@ async def process_review(review_id: str):
                     indicators = claude._extract_json_object(raw) or {}
                 except Exception as e:
                     log.warning(f"Indicator extraction failed: {e}")
-                venue_hints = [h for h in (
-                    indicators.get("experience_or_venue"),
-                    indicators.get("city_or_country")) if h and str(h).strip()]
+                # venues[] is the current shape; experience_or_venue is the
+                # legacy single string, kept as a fallback. City is deliberately
+                # NOT folded into venue_hints — it can never legitimately match
+                # an experience name and only manufactures false overlaps
+                # (hint "Barcelona" scoring +2 against "Barcelona City Tour").
+                _venues = indicators.get("venues")
+                if isinstance(_venues, str):
+                    _venues = [_venues]
+                venue_hints = [str(h).strip() for h in (_venues or [])
+                               if h and str(h).strip()]
+                if not venue_hints and indicators.get("experience_or_venue"):
+                    venue_hints = [str(indicators["experience_or_venue"]).strip()]
+                city_hint = str(indicators.get("city")
+                                or indicators.get("city_or_country") or "").strip()
                 extracted_sigs["venue_hints"] = venue_hints
+                extracted_sigs["city_hint"]   = city_hint
                 extracted_sigs["match_indicators"] = indicators
                 if indicators:
                     confidence_trail.append({"mark": "pass",
@@ -278,7 +290,10 @@ async def process_review(review_id: str):
                 tgids = None
                 if venue_hints:
                     try:
-                        tgids = await venue_resolver.resolve(venue_hints)
+                        # City helps RESOLUTION (narrows the venue table probe)
+                        # even though it is excluded from venue SCORING below.
+                        tgids = await venue_resolver.resolve(
+                            venue_hints + ([city_hint] if city_hint else []))
                     except Exception as e:
                         log.warning(f"Venue resolver failed: {e}")
                 if tgids:
@@ -308,9 +323,17 @@ async def process_review(review_id: str):
                     return parts[0], parts[-1]
 
                 author_first, author_last = _parse_author(review.author or "")
+                # The Trustpilot display name is often not the name the booking
+                # sits under. Extraction reads the booker's name out of the
+                # review body, so search that identity too instead of using it
+                # only for ranking.
+                ind_first, ind_last = _parse_author(
+                    str(indicators.get("guest_name") or "").strip())
                 extracted_sigs.update({
                     "author_first": author_first,
                     "author_last":  author_last,
+                    "indicator_name_first": ind_first,
+                    "indicator_name_last":  ind_last,
                 })
 
                 # review_pub_date for BQ date param
@@ -329,7 +352,14 @@ async def process_review(review_id: str):
                         return True
                     return len(first) >= 3 and first.isalpha()
 
-                name_parseable = _name_parseable(author_first, author_last)
+                # Search identities, in priority order: the Trustpilot display
+                # name, then the booker name extracted from the review body.
+                # Deduped so a review where both agree costs one Zendesk search.
+                search_identities = []
+                for _f, _l in ((author_first, author_last), (ind_first, ind_last)):
+                    if _name_parseable(_f, _l) and (_f, _l) not in search_identities:
+                        search_identities.append((_f, _l))
+                name_parseable = bool(search_identities)
 
                 # ── Shared helpers ────────────────────────────────────────────
                 from server.services.bigquery import _get_booking_extra
@@ -384,18 +414,24 @@ async def process_review(review_id: str):
                 # ── Step 2: Zendesk requester lookup (primary name path) ───────
                 if name_parseable and not cascade_done:
                     _ctr["t2_zendesk_lookup_attempted"] += 1
+                    _names_str = ", ".join(
+                        f"'{f}{(' ' + l) if l else ''}'" for f, l in search_identities)
                     confidence_trail.append({"mark": "pass",
-                        "text": f"<strong>Zendesk lookup:</strong> '{author_first}"
-                                f"{(' ' + author_last) if author_last else ''}'"})
-                    try:
-                        zd_bids = await zendesk.find_bids_by_requester_name(
-                            author_first, author_last, lookback_days=60)
-                        log.info(
-                            f"[tier2] zendesk requester: {len(zd_bids)} BIDs "
-                            f"for '{author_first} {author_last or ''}'")
-                    except Exception as e:
-                        log.warning(f"[tier2] Zendesk requester lookup failed — continuing: {e}")
-                        zd_bids = []
+                        "text": f"<strong>Zendesk lookup:</strong> {_names_str}"})
+                    zd_bids = []
+                    for _f, _l in search_identities:
+                        try:
+                            _hits = await zendesk.find_bids_by_requester_name(
+                                _f, _l, lookback_days=60)
+                            log.info(
+                                f"[tier2] zendesk requester: {len(_hits)} BIDs "
+                                f"for '{_f} {_l or ''}'")
+                            for _b in _hits:
+                                if _b not in zd_bids:
+                                    zd_bids.append(_b)
+                        except Exception as e:
+                            log.warning(f"[tier2] Zendesk requester lookup failed for "
+                                        f"'{_f} {_l or ''}' — continuing: {e}")
 
                     if zd_bids:
                         zd_candidates = []
@@ -426,20 +462,22 @@ async def process_review(review_id: str):
 
                             zd_candidates.append((bid, bq_row))
 
-                        # Score every verified candidate against the indicators:
-                        # experience-name similarity (weighted 2x) + visit-date
-                        # closeness to visit_date_hint (else the review date).
-                        def _score(row):
-                            score = 0.0
+                        # ── Indicator scoring, split so each signal is visible ──
+                        # Venue is scored against venue_hints ONLY (city excluded
+                        # — see the venue_hints construction above).
+                        def _venue_pts(row):
                             exp = (row.get("experienceName") or
                                    row.get("experience_name") or "").lower()
                             hint_text = " ".join(venue_hints).lower()
-                            if exp and hint_text:
-                                exp_toks = {t for t in re.findall(r"[a-z]{4,}", exp)
-                                            if t not in _VENUE_STOPWORDS}
-                                hint_toks = {t for t in re.findall(r"[a-z]{4,}", hint_text)
-                                             if t not in _VENUE_STOPWORDS}
-                                score += 2.0 * len(exp_toks & hint_toks)
+                            if not (exp and hint_text):
+                                return 0.0
+                            exp_toks = {t for t in re.findall(r"[a-z]{4,}", exp)
+                                        if t not in _VENUE_STOPWORDS}
+                            hint_toks = {t for t in re.findall(r"[a-z]{4,}", hint_text)
+                                         if t not in _VENUE_STOPWORDS}
+                            return 2.0 * len(exp_toks & hint_toks)
+
+                        def _date_pts(row):
                             v = (row.get("date_of_visit") or row.get("visitDate") or "")
                             ref = (indicators.get("visit_date_hint") or "")[:10]
                             try:
@@ -449,10 +487,48 @@ async def process_review(review_id: str):
                                     rd = _date.fromisoformat(ref)
                                 except Exception:
                                     rd = (review.received_at or datetime.utcnow()).date()
-                                score += 1.0 / (1 + abs((rd - vd).days))
+                                return 1.0 / (1 + abs((rd - vd).days))
                             except Exception:
-                                pass
-                            return score
+                                return 0.0
+
+                        def _score(row):
+                            return _venue_pts(row) + _date_pts(row)
+
+                        # ── Venue agreement gate ───────────────────────────────
+                        # The extracted venue decides WHICH of this requester's
+                        # bookings are plausible at all. Without this the ranking
+                        # below collapses to "closest visit date", which surfaces
+                        # unrelated bookings from the same account (an Acropolis
+                        # and a Montserrat booking scoring 0.33/0.2 on date alone).
+                        # Preference order: TGID identity, then venue-token
+                        # overlap. If neither agrees with anything, we keep the
+                        # full set but mark it so the UI can say so.
+                        _tgid_set = {str(t) for t in (tgids or []) if str(t).strip()}
+                        _by_tgid = [(b, r) for (b, r) in zd_candidates
+                                    if str(r.get("tgid") or "") in _tgid_set] if _tgid_set else []
+                        _by_token = [(b, r) for (b, r) in zd_candidates if _venue_pts(r) > 0]
+                        venue_signal = True
+                        if _by_tgid:
+                            zd_candidates = _by_tgid
+                            confidence_trail.append({"mark": "pass",
+                                "text": f"<strong>Venue gate:</strong> {len(_by_tgid)} of "
+                                        f"{len(_by_token) or len(zd_candidates)} match the "
+                                        f"resolved TGID for {venue_hints}"})
+                        elif _by_token:
+                            zd_candidates = _by_token
+                            confidence_trail.append({"mark": "pass",
+                                "text": f"<strong>Venue gate:</strong> {len(_by_token)} match "
+                                        f"the extracted venue {venue_hints} by name"})
+                        else:
+                            venue_signal = False
+                            confidence_trail.append({"mark": "warn",
+                                "text": "<strong>No venue agreement</strong> — "
+                                        + (f"none of this requester's bookings match {venue_hints}"
+                                           if venue_hints else
+                                           "no venue could be extracted from the review")
+                                        + "; ranking below is date-proximity only"})
+                            log.info(f"[tier2] venue gate: no agreement "
+                                     f"(hints={venue_hints}, tgids={sorted(_tgid_set)})")
 
                         n_zd = len(zd_candidates)
                         if n_zd == 1:
@@ -475,19 +551,28 @@ async def process_review(review_id: str):
                         elif n_zd >= 2:
                             ranked = sorted(zd_candidates,
                                             key=lambda t: _score(t[1]), reverse=True)[:5]
-                            candidates = [_make_candidate(row, "zendesk_requester", ["name", "zendesk"])
+                            _matched_on = (["name", "zendesk", "venue"] if venue_signal
+                                           else ["name", "zendesk", "date-only"])
+                            candidates = [_make_candidate(row, "zendesk_requester", _matched_on)
                                           for _, row in ranked]
                             for i, (bid, row) in enumerate(ranked):
-                                candidates[i]["id"] = bid
-                                candidates[i]["score"] = round(_score(row), 2)
+                                _vp, _dp = _venue_pts(row), _date_pts(row)
+                                candidates[i]["id"]          = bid
+                                candidates[i]["score"]       = round(_vp + _dp, 2)
+                                candidates[i]["score_venue"] = round(_vp, 2)
+                                candidates[i]["score_date"]  = round(_dp, 2)
+                                candidates[i]["venue_signal"] = _vp > 0
                             candidate_state = True
                             match_tier = 2
-                            narrowing_path = "zendesk_requester_candidates"
+                            narrowing_path = ("zendesk_requester_candidates" if venue_signal
+                                              else "zendesk_requester_date_only")
                             _ctr["t2_zendesk_candidates"] += 1
                             _ctr["t2_candidates"] += 1
-                            confidence_trail.append({"mark": "pass",
+                            confidence_trail.append({"mark": "pass" if venue_signal else "warn",
                                 "text": f"<strong>Tier 2:</strong> {n_zd} Zendesk-verified — "
-                                        f"top {len(ranked)} by indicator score (venue + date)"})
+                                        f"top {len(ranked)} by indicator score "
+                                        + ("(venue + date)" if venue_signal
+                                           else "(DATE ONLY — no venue agreement, treat as weak)")})
                             cascade_done = True
                         else:
                             _ctr["t2_zendesk_no_match"] += 1
