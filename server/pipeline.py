@@ -460,7 +460,9 @@ async def process_review(review_id: str):
                     venue_bids = []
                     if venue_hints:
                         try:
-                            _thits, _trecs = await zendesk.find_bids_by_text(venue_hints)
+                            _rq = " ".join(x for x in (author_first, author_last) if x)
+                            _thits, _trecs = await zendesk.find_bids_by_text(
+                                venue_hints, requester_hint=_rq or None)
                             for _tr in _trecs:
                                 for _tb in _tr.get("bids", []):
                                     if _tb not in bid_ticket_text:

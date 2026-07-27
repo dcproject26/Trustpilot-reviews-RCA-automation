@@ -12,8 +12,10 @@ and adds the demo-parity endpoints:
   GET    /api/reviews/{id}/similar          — fetch similar complaints on demand
   GET    /api/taxonomy                      — return L1/L2/checks catalogue (dashboard uses this)
 """
-import asyncio, os, subprocess, time
+import asyncio, logging, os, subprocess, time
 from datetime import datetime
+
+log = logging.getLogger(__name__)
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
@@ -621,9 +623,39 @@ async def reprocess_review(
     r = db.query(Review).filter(Review.id == review_id).first()
     if not r:
         raise HTTPException(404, "Review not found")
+
+    # Re-fetch the original Slack message and re-parse it before re-running.
+    # Reviews ingested by an older parser lost content that parser discarded —
+    # the review headline, and any attachment field that was not a bare booking
+    # id (Trustpilot's free-text "Reference number", where guests put the venue).
+    # Re-running the pipeline over the stored text can never recover that, so
+    # every re-run starts by pulling the message again.
+    refreshed = False
+    if r.slack_ts and r.slack_channel and r.slack_channel not in ("C_MANUAL", "VECTORSHIFT"):
+        try:
+            from server.services.slack import fetch_message, parse_review
+            ev = await fetch_message(r.slack_channel, r.slack_ts)
+            if ev:
+                parsed = parse_review({**ev, "ts": r.slack_ts, "channel": r.slack_channel})
+                new_body = (parsed.get("body_original") or "").strip()
+                if new_body and new_body != (r.body_original or "").strip():
+                    r.body_original = new_body
+                    r.body_english  = None      # force re-translation of new text
+                    refreshed = True
+                if parsed.get("reference_number") and not r.reference_number:
+                    r.reference_number = parsed["reference_number"]
+                    refreshed = True
+                if refreshed:
+                    db.commit()
+                    log.info(f"[reprocess] {review_id}: refreshed from Slack "
+                             f"({len(new_body)} chars)")
+        except Exception as e:
+            log.warning(f"[reprocess] {review_id}: Slack refresh failed, "
+                        f"re-running on stored text: {e}")
+
     from server.pipeline import process_review as _pipeline
     background_tasks.add_task(lambda rid: asyncio.run(_pipeline(rid)), review_id)
-    return {"ok": True, "review_id": review_id}
+    return {"ok": True, "review_id": review_id, "refreshed_from_slack": refreshed}
 
 
 @router.get("/api/reporting")

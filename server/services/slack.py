@@ -217,6 +217,29 @@ def parse_review(event: dict) -> dict:
     }
 
 
+async def fetch_message(channel: str, ts: str) -> dict | None:
+    """
+    Re-fetch a single Slack message by channel + ts.
+
+    Needed because reviews are stored as parsed text: anything the parser of the
+    day discarded is gone from the DB, and re-running the pipeline cannot bring
+    it back. Pulling the original message lets a re-run re-parse with the
+    current parser and recover it.
+    """
+    client = _bot or _user
+    if not client:
+        log.info(f"[MOCK] Would fetch {channel}/{ts}")
+        return None
+    try:
+        res = client.conversations_history(
+            channel=channel, latest=ts, oldest=ts, inclusive=True, limit=1)
+        msgs = res.get("messages") or []
+        return msgs[0] if msgs else None
+    except Exception as e:
+        log.warning(f"[slack] fetch_message {channel}/{ts} failed: {e}")
+        return None
+
+
 async def post_to_thread(channel: str, thread_ts: str, text: str,
                           as_user: bool = True) -> str | None:
     client = _user if as_user and _user else _bot

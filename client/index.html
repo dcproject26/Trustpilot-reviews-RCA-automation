@@ -1974,6 +1974,13 @@ async function loadDraftOverlays() {
           : 'Untraceable';
       }
 
+      // ── Confidence trail + extracted signals ──────────────────────────────
+      // Both were read by the renderer but never populated here, so the
+      // "How we built this match" box never appeared.
+      r.confidenceTrail   = (draft.confidence_trail && draft.confidence_trail.length)
+                            ? draft.confidence_trail : null;
+      r.extractedSignals  = draft.extracted_signals || {};
+
       // ── Match method from confidence trail ────────────────────────────────
       r.matchMethod = draft.match_method
         || (draft.confidence_trail && draft.confidence_trail.length
@@ -2243,6 +2250,40 @@ function renderReviewCol() {
        ` : ''}
      </div>`;
 
+  // What the AI pulled out of the review — the inputs every search and score
+  // downstream is built from. Shown plainly so a wrong match is traceable to a
+  // wrong indicator rather than looking like a mystery.
+  const _sig = r.extractedSignals || {};
+  const _ind = _sig.match_indicators || {};
+  const _sigRows = [
+    ['Venue / experience', _ind.experience_or_venue],
+    ['City / country',     _ind.city_or_country],
+    ['Guest name',         _ind.guest_name],
+    ['Visit date hint',    _ind.visit_date_hint],
+    ['Pax',                _ind.pax || _sig.pax_hint],
+    ['Searched Zendesk as', [_sig.author_first, _sig.author_last].filter(Boolean).join(' ')],
+    ['Venue hints used',   (_sig.venue_hints || []).join(' · ')],
+  ].filter(([, v]) => v != null && String(v).trim() !== '');
+
+  const signalsBox = _sigRows.length
+    ? `<div class="section">
+         <div class="section-label"><span class="marker"></span>Extracted from review<span class="ai-tag-inline">AI</span></div>
+         <div class="details-grid">
+           ${_sigRows.map(([k, v]) => `
+             <div class="detail-row">
+               <span class="k">${k}</span>
+               <span class="v">${String(v)}</span>
+             </div>`).join('')}
+         </div>
+       </div>`
+    : `<div class="section">
+         <div class="section-label"><span class="marker"></span>Extracted from review<span class="ai-tag-inline">AI</span></div>
+         <div class="chk-none" style="font-size:12px;color:var(--amber)">
+           Nothing extracted — no venue, city, date or name found in the review text.
+           Matching has no indicators to search on.
+         </div>
+       </div>`;
+
   const confTrail = r.confidenceTrail
     ? `<div class="confidence-trail">
          <div class="confidence-trail-label">How we built this match</div>
@@ -2290,6 +2331,7 @@ function renderReviewCol() {
           <div class="match-method">${r.matchMethod}</div>
         </div>
       </div>
+      ${signalsBox}
       ${confTrail}
       ${r.candidateState && r.candidatesList ? `
         <div class="candidates-picker">

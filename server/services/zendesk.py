@@ -393,25 +393,60 @@ async def find_bids_by_requester_name(
         return name
 
     name_str = f"{author_first} {author_last}".strip() if author_last else author_first
-    if lookback_days:
-        since = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
-    else:
-        since = datetime.now().strftime("%Y-01-01")
+    # No created> clause by default. A date window silently drops the ticket
+    # that actually matches — guests review long after the visit, and the window
+    # cannot know how long. lookback_days is honoured only if explicitly passed.
+    since = ((datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+             if lookback_days else None)
 
     # The FULL name only. A single-token fallback (requester:Fredrik) matches
     # every user carrying that token; their tickets yield real booking ids that
     # verify in BigQuery, so strangers' bookings become indistinguishable
     # candidates. Where the display name does not match the Zendesk requester
     # name, find_bids_by_text() covers it by searching the venue instead.
-    query = f"type:ticket requester:{_as_query(name_str)} created>{since}"
-    log.info(f"[zendesk] requester search: {query}")
-    try:
-        tickets = await asyncio.get_running_loop().run_in_executor(
-            None, lambda q=query: _search_with_retry(_z, q)
-        )
-    except Exception as e:
-        log.warning(f"[zendesk] requester search failed: {e}")
-        tickets = []
+    # requester:"Fredrik Olsen" is an EXACT phrase match, so it misses
+    # "Fredrik Martin Olsen" — middle names, initials and reordered names are
+    # common. Fall back to free text over the name, which matches the tokens
+    # wherever they appear on the ticket (Zendesk free text covers subject and
+    # comments), then verify the requester actually carries every name token.
+    queries = [f"type:ticket requester:{_as_query(name_str)}",
+               f"type:ticket {name_str}"]
+    if since:
+        queries = [f"{q} created>{since}" for q in queries]
+
+    tickets = []
+    for qi, query in enumerate(queries):
+        log.info(f"[zendesk] requester search: {query}")
+        try:
+            tickets = await asyncio.get_running_loop().run_in_executor(
+                None, lambda q=query: _search_with_retry(_z, q)
+            )
+        except Exception as e:
+            log.warning(f"[zendesk] requester search failed: {e}")
+            tickets = []
+        # The free-text variant matches any ticket mentioning those words, so
+        # confirm the requester genuinely carries every token before trusting it.
+        if tickets and qi > 0:
+            want = [t.lower() for t in (author_first, author_last) if t]
+            _cache: dict = {}
+
+            def _rname(tk):
+                rid = getattr(tk, "requester_id", None)
+                if rid not in _cache:
+                    try:
+                        _cache[rid] = getattr(_z.users(id=rid), "name", "") or ""
+                    except Exception:
+                        _cache[rid] = ""
+                return _cache[rid]
+
+            before = len(tickets)
+            tickets = await asyncio.get_running_loop().run_in_executor(
+                None, lambda ts=tickets: [
+                    t for t in ts if all(w in _rname(t).lower() for w in want)])
+            log.info(f"[zendesk] free-text name variant: {before} → {len(tickets)} "
+                     f"after requester verification")
+        if tickets:
+            break
 
     # Harvest candidate booking numbers from subject + custom fields + BODY.
     # A ticket's own id shares the same number space as BIDs — exclude it;
@@ -488,13 +523,24 @@ async def find_bids_by_text(
         log.warning("[zendesk] find_bids_by_text: no client available")
         return [], []
 
-    since = since or datetime.now().strftime("%Y-01-01")
-
+    # No created> clause unless one is explicitly supplied — see the note in
+    # find_bids_by_requester_name. Fredrik's salt-mine ticket predates any
+    # sensible window.
     all_bids, all_records, seen_tickets = [], [], set()
-    for term in terms[:3]:
-        clauses = [f'type:ticket "{term}"', f"created>{since}"]
-        if requester_hint:
-            clauses.insert(1, f'requester:"{requester_hint}"')
+    search_terms = list(terms[:3])
+    # Combined name + venue, the equivalent of typing "Fredrik Olsen, salt mine"
+    # into Zendesk search: free text over both indicators at once. Run FIRST so
+    # its hits are the ones that survive the per-term cap.
+    if requester_hint:
+        search_terms.insert(0, f"{requester_hint} {terms[0]}")
+
+    for ti, term in enumerate(search_terms):
+        combined = bool(requester_hint) and ti == 0
+        # Combined search goes unquoted so the tokens can match wherever they
+        # appear; a single venue goes quoted for exact-phrase precision.
+        clauses = [f"type:ticket {term}" if combined else f'type:ticket "{term}"']
+        if since:
+            clauses.append(f"created>{since}")
         query = " ".join(clauses)
         log.info(f"[zendesk] text search: {query}")
         try:
