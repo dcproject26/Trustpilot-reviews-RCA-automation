@@ -431,8 +431,21 @@ async def select_candidate(review_id: str, body: CandidateSelect,
     if not match:
         raise HTTPException(400, f"BID {body.bid} not in candidates list")
 
-    # Set the confirmed booking and re-run the pipeline from Zendesk onwards.
-    d.booking = match
+    # Store the FULL BigQuery row, not the candidate dict. A candidate carries
+    # only what the picker needs to display (id, experience, tgid/tid, vendor,
+    # visit date); date_of_booking, fulfilment_type, booking_status and tid_name
+    # are never in it, so confirming a candidate used to leave those fields
+    # permanently blank on the booking card.
+    full = None
+    try:
+        from server.services.bigquery_patch import verify_bid
+        full = verify_bid(body.bid)
+    except Exception as e:
+        log.warning(f"[select-candidate] verify_bid({body.bid}) failed: {e}")
+    d.booking = {**match, **(full or {}), "id": body.bid} if full else match
+    if not full:
+        log.warning(f"[select-candidate] {body.bid}: BQ row unavailable, "
+                    f"storing candidate fields only")
     d.selected_candidate_bid = body.bid
     d.candidate_state = False
     d.match_tier = 2

@@ -167,6 +167,14 @@ async def process_review(review_id: str):
         )
 
         # ── 3+4. Tier 1 / Tier 2 booking match ───────────────────────────────
+        # An associate-confirmed candidate outranks anything matching can infer.
+        # Without this, re-running the pipeline (which select-candidate does, to
+        # pull Zendesk/insights for the confirmed booking) redid the search from
+        # scratch and overwrote the confirmation — leaving the card half-filled
+        # and the timeline empty.
+        _prior = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
+        confirmed_bid = (_prior.selected_candidate_bid if _prior else None)
+
         booking         = None
         match_tier      = None
         candidates      = []
@@ -175,7 +183,36 @@ async def process_review(review_id: str):
         extracted_sigs  = {}
         narrowing_attempts = []
 
-        if not is_live("bigquery"):
+        if confirmed_bid and is_live("bigquery"):
+            from server.services.bigquery_patch import verify_bid as _vb
+            from server.services.bigquery import _get_booking_extra as _gbe
+            try:
+                _row = _vb(confirmed_bid)
+            except Exception as e:
+                log.warning(f"confirmed BID {confirmed_bid} verify failed: {e}")
+                _row = None
+            if _row:
+                booking = _row
+                booking["id"] = confirmed_bid
+                try:
+                    booking.update(_gbe(confirmed_bid))
+                except Exception:
+                    pass
+                match_tier = 2
+                narrowing_path = "associate_confirmed"
+                confidence_trail.append({"mark": "pass",
+                    "text": f"<strong>Associate confirmed</strong> BID {confirmed_bid} — "
+                            "matching skipped"})
+                log.info(f"[pipeline] using associate-confirmed BID {confirmed_bid}")
+            else:
+                confidence_trail.append({"mark": "warn",
+                    "text": f"<strong>Confirmed BID {confirmed_bid}</strong> not found in "
+                            "BigQuery — re-running match"})
+                confirmed_bid = None
+
+        if confirmed_bid and booking:
+            pass   # confirmed booking in hand; skip the whole match cascade
+        elif not is_live("bigquery"):
             # MOCK_MODE: fall back to existing mock-aware find_booking
             try:
                 search_ctx = {

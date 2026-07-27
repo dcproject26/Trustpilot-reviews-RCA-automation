@@ -217,6 +217,38 @@ def parse_review(event: dict) -> dict:
     }
 
 
+# A Zendesk ticket id and a Headout booking id are both 7-12 digits and occupy
+# the same numeric range, so a bare number in a Slack message is ambiguous. The
+# message itself carries the disambiguating context, which is self-contained —
+# it does not depend on what this review's Zendesk search happened to return.
+_BMS_BID_RE   = re.compile(r"/bms/booking/(\d{7,12})")
+_ZD_URL_RE    = re.compile(r"zendesk\.com/agent/tickets/(\d{5,12})", re.I)
+_ZD_INLINE_RE = re.compile(r"(?:\bzd[-\s#]*|\bticket[-\s#]*|#)(\d{5,12})", re.I)
+
+
+def _bids_from_text(body: str) -> list[str]:
+    """
+    Booking ids in a Slack message, with ticket references removed.
+
+    Precedence:
+      1. A number inside a BMS booking URL is definitively a booking id — take
+         those and stop, they need no guessing.
+      2. Otherwise harvest bare numbers, minus anything the message identifies
+         as a ticket: a Zendesk ticket URL, or "ticket 123" / "ZD-123" / "#123".
+    Whatever survives is still BigQuery-verified downstream.
+    """
+    from server.taxonomy import BID_REGEX
+    body = body or ""
+
+    explicit = _BMS_BID_RE.findall(body)
+    if explicit:
+        return list(dict.fromkeys(explicit))
+
+    ticket_refs = set(_ZD_URL_RE.findall(body)) | set(_ZD_INLINE_RE.findall(body))
+    return [n for n in dict.fromkeys(re.findall(BID_REGEX, body))
+            if n not in ticket_refs]
+
+
 async def search_mentions(bid: str, limit: int = 20) -> list[dict]:
     """
     Find every Slack message mentioning a booking id, workspace-wide.
@@ -283,7 +315,7 @@ async def search_bids(terms: list[str], limit: int = 20) -> tuple[list[str], lis
                 continue
             seen.add(key)
             body = m.get("text") or ""
-            found = [n for n in re.findall(BID_REGEX, body)]
+            found = _bids_from_text(body)
             if not found:
                 continue
             bids += found
