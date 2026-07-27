@@ -73,6 +73,7 @@ class DraftPatchV2(BaseModel):
     evidence:                   list | None = None
     issue_specific_answers:     dict | None = None
     checklist_answers:          list | None = None
+    slack_thread_override:      str  | None = None
 
 
 class CandidateSelect(BaseModel):
@@ -182,6 +183,7 @@ def _draft_dict(d: RcaDraft) -> dict:
         "checklist_answers":           d.checklist_answers or [],
 
         "ticket_facts":        d.ticket_facts or {},
+        "slack_thread_override": d.slack_thread_override or "",
 
         "suggested_response": d.suggested_response or "",
         "final_response":     d.final_response or "",
@@ -395,7 +397,7 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
         "sp_interaction_frames", "area_of_improving",
         "actions_taken", "resolution", "final_response",
         "tldr", "wwr_chain", "wwr_scenarios", "prevention", "evidence",
-        "issue_specific_answers", "checklist_answers",
+        "issue_specific_answers", "checklist_answers", "slack_thread_override",
     ):
         val = getattr(patch, field, None)
         if val is not None:
@@ -599,7 +601,7 @@ async def send_review(review_id: str, db: Session = Depends(get_session)):
     r.status  = "sent"
     ts = None
     if r.slack_channel != "C_MANUAL":
-        rca_text = format_rca_slack(r, d)
+        rca_text = (d.slack_thread_override or "").strip() or format_rca_slack(r, d)
         ts = await post_to_thread(r.slack_channel, r.slack_ts, rca_text, as_user=True)
     m = db.query(ReviewMetric).filter(ReviewMetric.review_id == review_id).first()
     if m:

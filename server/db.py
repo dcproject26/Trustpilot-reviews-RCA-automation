@@ -96,6 +96,9 @@ class RcaDraft(Base):
     # ── Ticket fact extraction (Zendesk → structured facts) ──
     ticket_facts                = Column(JSON, nullable=True)
 
+    # ── Editable Slack thread post ──
+    slack_thread_override       = Column(Text, nullable=True)
+
     # ── Flag to Biz ──
     flag_to_biz_state           = Column(String, default="off")  # off | drafted | sent
     flag_to_biz_message         = Column(Text, nullable=True)
@@ -153,10 +156,11 @@ def _ensure_columns():
         return
     is_pg = engine.dialect.name == "postgresql"
     wanted = {
-        "primary_scenario":  "VARCHAR",
-        "overlay_scenarios": "JSONB" if is_pg else "JSON",
-        "wwr_scenarios":     "JSONB" if is_pg else "JSON",
-        "ticket_facts":      "JSONB" if is_pg else "JSON",
+        "primary_scenario":       "VARCHAR",
+        "overlay_scenarios":      "JSONB" if is_pg else "JSON",
+        "wwr_scenarios":          "JSONB" if is_pg else "JSON",
+        "ticket_facts":           "JSONB" if is_pg else "JSON",
+        "slack_thread_override":  "TEXT",
     }
     for col, coltype in wanted.items():
         if col in existing:

@@ -1371,28 +1371,57 @@
   .tpl-name {
     font-size: 12px; font-weight: 600; color: var(--accent); margin: 4px 0 6px;
   }
-  .chk-summary { font-size: 12px; margin: 4px 0 8px; }
-  .chk-summary .chk-p { color: var(--green); }
-  .chk-summary .chk-f { color: var(--amber); font-weight: 600; }
-  .chk-summary .chk-n { color: var(--text-mute); }
-  .chk-flagged, .chk-drawer { display: flex; flex-direction: column; gap: 6px; }
-  .chk-drawer { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
-  .chk-none { font-size: 12px; color: var(--text-mute); }
-  .chk-row { display: grid; grid-template-columns: 16px 1fr auto; gap: 8px; align-items: start; }
-  .chk-mark { font-size: 12px; line-height: 1.5; }
+  /* Checklist v2 — grouped by section with compact cards */
+  .chk-bar { display: flex; align-items: center; gap: 10px; font-size: 11px; margin: 2px 0 8px; font-family: 'JetBrains Mono', monospace; }
+  .chk-bar .chk-p { color: var(--green); }
+  .chk-bar .chk-f { color: var(--amber); font-weight: 600; }
+  .chk-bar .chk-n { color: var(--text-mute); }
+  .chk-bar .chk-pill { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 10px; font-size: 10px; }
+  .chk-bar .chk-pill.pass { background: var(--green-bg); color: var(--green); }
+  .chk-bar .chk-pill.flag { background: var(--amber-bg); color: var(--amber); }
+  .chk-bar .chk-pill.na   { background: rgba(150,150,165,0.08); color: var(--text-mute); }
+  .chk-groups { display: flex; flex-direction: column; gap: 4px; }
+  .chk-group { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .chk-group.has-flags { border-color: var(--amber); border-left: 3px solid var(--amber); }
+  .chk-group-head {
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+    background: var(--bg-elev-2); cursor: pointer; font-size: 11px;
+    font-weight: 600; color: var(--text); user-select: none;
+  }
+  .chk-group-head:hover { background: var(--bg-elev-3); }
+  .chk-group-head .chk-chevron { font-size: 10px; color: var(--text-mute); transition: transform .15s; }
+  .chk-group.open .chk-chevron { transform: rotate(90deg); }
+  .chk-group-head .chk-gtag { font-size: 9px; color: var(--text-mute); margin-left: auto; font-family: 'JetBrains Mono', monospace; }
+  .chk-group-body { display: none; padding: 4px 10px 6px; }
+  .chk-group.open .chk-group-body { display: block; }
+  .chk-row { display: grid; grid-template-columns: 14px 1fr auto; gap: 6px; align-items: start; padding: 3px 0; border-bottom: 1px solid var(--border); }
+  .chk-row:last-child { border-bottom: none; }
+  .chk-mark { font-size: 11px; line-height: 1.5; }
   .chk-row.chk-flag .chk-mark { color: var(--amber); }
   .chk-row.chk-pass .chk-mark { color: var(--green); }
   .chk-row.chk-na  .chk-mark { color: var(--text-mute); }
-  .chk-item { font-size: 12px; color: var(--text); }
-  .chk-sec { font-size: 9px; color: var(--text-mute); border: 1px solid var(--border); border-radius: 3px; padding: 0 3px; margin-left: 4px; }
-  .chk-ev { font-size: 11px; color: var(--text-mute); margin-top: 2px; }
+  .chk-item { font-size: 11px; color: var(--text); line-height: 1.45; }
+  .chk-ev { font-size: 10px; color: var(--text-mute); margin-top: 1px; }
   .chk-zd { color: var(--accent); font-family: ui-monospace, monospace; }
-  .chk-ans { font-size: 11px; color: var(--text-mute); white-space: nowrap; }
-  .chk-toggle {
-    margin-top: 8px; background: none; border: none; color: var(--accent);
-    font-size: 12px; cursor: pointer; padding: 2px 0; font-weight: 600;
+  .chk-ans { font-size: 10px; color: var(--text-mute); white-space: nowrap; }
+  /* Editable Slack thread post */
+  .slack-edit-wrap { position: relative; }
+  .slack-edit-area {
+    width: 100%; min-height: 200px; max-height: 500px; overflow-y: auto;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 5px;
+    padding: 12px 14px; font-size: 11px; color: var(--text); line-height: 1.65;
+    font-family: 'JetBrains Mono', monospace; resize: vertical;
   }
-  .chk-toggle:hover { text-decoration: underline; }
+  .slack-edit-hint {
+    position: absolute; top: 8px; right: 10px;
+    font-size: 9px; color: var(--text-dim); pointer-events: none;
+  }
+  .slack-regen-btn {
+    margin-top: 6px; background: none; border: 1px solid var(--border);
+    color: var(--text-mute); font-size: 10px; padding: 2px 8px;
+    border-radius: 4px; cursor: pointer;
+  }
+  .slack-regen-btn:hover { color: var(--accent); border-color: var(--accent); }
   .rerun-btn {
     margin-left: auto; background: none; border: 1px solid var(--border);
     color: var(--text-mute); font-size: 11px; padding: 2px 8px;
@@ -1791,6 +1820,7 @@ async function fetchInbox() {
           evidence: [], issueSpecificAnswers: {}, checklistAnswers: [],
           checks: [], reply: '', reasoning: '',
           primaryScenario: '', templateName: '',
+          slackThreadOverride: '',
         },
         insights: {
           tgidRating: {value:'—',sub:'',tone:''},
@@ -1891,6 +1921,7 @@ async function loadDraftOverlays() {
 
       r.rca.issueSpecificAnswers = draft.issue_specific_answers || {};
       r.rca.checklistAnswers     = draft.checklist_answers      || [];
+      r.rca.slackThreadOverride  = draft.slack_thread_override  || '';
       r.rca.supportInteraction   = (draft.support_interaction_frames || []).map(mapSupportFrame);
       r.rca.supportSummary       = draft.support_summary        || '';
       r.rca.spInteraction        = (draft.sp_interaction_frames || []).map(f => ({
@@ -2659,73 +2690,83 @@ function renderRcaCol() {
       </div>`
     : null;
 
-  // Slack post preview — mirrors format_rca_slack (Task #13 PART 4 structure):
-  // header → classification+scenarios → WWR blocks → CE frames → SP frames →
-  // area of improvement → actions (owner) → resolution → flagged audit → insights.
+  // Slack post preview — editable plain-text that mirrors format_rca_slack
   const b = r.booking;
-  const _scenAll = [rca.primaryScenario, ...((r.rca.overlayScenarios) || [])].filter(Boolean);
-  const _wwrPrev = (rca.wwrScenarios || []).length
-    ? rca.wwrScenarios.map(sc => `
-        <div class="sp-row" style="white-space:normal"><span class="v">[${sc.is_primary ? 'PRIMARY' : 'overlay'}] ${sc.scenario_name || ''}</span></div>
-        <div class="sp-row" style="white-space:normal">• Accurate? ${sc.accuracy || '—'} — ${sc.accuracy_explanation || ''}</div>
-        <div class="sp-row" style="white-space:normal">• Why: ${sc.why || ''}</div>
-        <div class="sp-row" style="white-space:normal;margin-bottom:6px">• Fix: ${sc.fix || ''}</div>`).join('')
-    : (rca.wwrChain || []).map(st => `<div class="sp-row" style="white-space:normal">${st.step}. <span class="v">${st.what || ''}</span> — ${st.why || ''}</div>`).join('') || '<div class="sp-row">—</div>';
-  const _frameRows = (frames) => (frames || []).map(f =>
-      `<div class="sp-row" style="white-space:normal">• ${f.time || '?'} — ${f.guestSaid || f.summary || ''}${f.weDid ? ' | we: ' + f.weDid : ''}${f.gap ? ' | ⚠ ' + f.gap : ''}</div>`).join('')
-    || '<div class="sp-row">—</div>';
-  const _actionRows = ['sp','customer','business','ce','product'].flatMap(tab =>
-      (rca.actionsTaken[tab] || []).map(a => `<div class="sp-row" style="white-space:normal">• ${a.context || a.with || ''} (${tab.toUpperCase()})</div>`))
-    .join('') || '<div class="sp-row">—</div>';
-  const _flagged = (rca.checklistAnswers || []).filter(c => String(c.answer || '').trim().toLowerCase() === 'no');
-  const _auditRows = _flagged.map(c =>
-      `<div class="sp-row" style="white-space:normal">• [${String(c.section || '').toUpperCase()}] ${c.item || c.check || ''}${c.evidence ? ' — ' + c.evidence : ''}${(c.zd_ref || c.zd_id) ? ' (' + (c.zd_ref || c.zd_id) + ')' : ''}</div>`).join('')
-    || '<div class="sp-row">No flagged checks</div>';
+  function _genSlackText() {
+    const nl = '\n';
+    const div = '_'.repeat(61);
+    const stars = '★'.repeat(parseInt(r.rating) || 0);
+    const header = 'RCA — @reviewteam' + nl + 'BID ' + (b.bid || '—') + ' · ' + (r.author || '—') + ' · ' + (stars || '—');
+    const l1 = rca.issueL1 || '—', l2 = rca.issueL2 || '—';
+    const sub = rca.subTheme || '';
+    const scenAll = [rca.primaryScenario, ...(rca.overlayScenarios || [])].filter(Boolean);
+    let cls = 'Issue: ' + l1 + ' / ' + l2 + (sub ? ' / ' + sub : '');
+    if (scenAll.length) cls += nl + 'Scenarios: ' + scenAll.join(', ');
+    const wwrParts = [];
+    for (const sc of (rca.wwrScenarios || [])) {
+      const tag = sc.is_primary ? 'PRIMARY' : 'overlay';
+      wwrParts.push('[' + tag + '] ' + (sc.scenario_name || '') + nl +
+        '• Accurate? ' + (sc.accuracy || '—') + ' — ' + (sc.accuracy_explanation || '') + nl +
+        '• Why: ' + (sc.why || '') + nl +
+        '• Fix: ' + (sc.fix || ''));
+    }
+    if (!wwrParts.length) {
+      for (const st of (rca.wwrChain || [])) {
+        wwrParts.push(st.step + '. ' + (st.what || '') + ' — ' + (st.why || ''));
+      }
+    }
+    const wwrText = wwrParts.join(nl + nl) || '—';
+    const fmtFrames = (frames, label) => {
+      if (!frames || !frames.length) return label + ': —';
+      const lines = [label + ':'];
+      for (const f of frames) {
+        let row = '• ' + (f.time || '?') + ' — ' + (f.guestSaid || f.summary || '');
+        if (f.weDid) row += ' | we: ' + f.weDid;
+        if (f.gap)   row += ' | ⚠ ' + f.gap;
+        lines.push(row);
+      }
+      return lines.join(nl);
+    };
+    const supportText = fmtFrames(rca.supportInteraction, 'Customer / CE interactions');
+    const spText = fmtFrames(rca.spInteraction, 'SP interactions');
+    const aoi = rca.areaOfImproving || '—';
+    const aoiText = Array.isArray(aoi) ? aoi.map(a => '• ' + a).join(nl) : aoi.toString().split('\\n').map(x => '• ' + x).join(nl);
+    const at = rca.actionsTaken || {};
+    const actionLines = [];
+    for (const team of ['sp','customer','business','ce','product']) {
+      for (const a of (at[team] || [])) {
+        const txt = typeof a === 'string' ? a : (a.context || a.with || '');
+        if (txt) actionLines.push('• ' + txt + ' (' + team.toUpperCase() + ')');
+      }
+    }
+    const actionsText = actionLines.join(nl) || '—';
+    const flaggedChk = (rca.checklistAnswers || []).filter(c => String(c.answer || '').trim().toLowerCase() === 'no');
+    const auditLines = flaggedChk.map(c => {
+      const zd = c.zd_ref || c.zd_id || '';
+      return '• [' + String(c.section || '').toUpperCase() + '] ' + (c.item || c.check || '') +
+        (c.evidence ? ' — ' + c.evidence : '') + (zd ? ' (' + zd + ')' : '');
+    });
+    const auditText = auditLines.join(nl) || 'No flagged checks';
+    const insParts = [];
+    const ins = r.insights || {};
+    if (ins.tgidRating && ins.tgidRating.value !== '—') insParts.push('TGID rating: ' + ins.tgidRating.value + ' (' + (ins.tgidRating.sub || '') + ')');
+    if (ins.completion && ins.completion.value !== '—') insParts.push('Completion: ' + ins.completion.value);
+    if (ins.sameDayIssues && ins.sameDayIssues.value !== '—') insParts.push('Same-day issues: ' + ins.sameDayIssues.value);
+    const insText = insParts.join(nl) || '—';
+    return [header, cls, div, 'What went wrong', '', wwrText, div, supportText, div, spText, div,
+      'Area of improvement', '', aoiText, div, 'Actions taken', '', actionsText, div,
+      'Resolution', '', (rca.resolution || '—'), div, 'Audit findings (flagged)', '', auditText, div,
+      'Experience insights', '', insText].join(nl);
+  }
+  const _slackText = rca.slackThreadOverride || _genSlackText();
   const slackPost = `
     <div class="slack-preview">
-      <div class="slack-preview-label">Posted to Slack thread on Send</div>
-      <div class="slack-preview-content">
-        <div class="sp-section">
-          <div class="sp-heading">RCA — @reviewteam</div>
-          <div class="sp-row"><span class="k">BID</span> <span class="v">${b.bid || '—'}</span> <span class="k">·</span> ${r.author} <span class="k">·</span> ${r.stars}</div>
-          <div class="sp-row"><span class="k">Issue:</span> <span class="v">${rca.issueL1 || '—'} / ${rca.issueL2 || '—'}${rca.subTheme ? ' / ' + rca.subTheme : ''}</span></div>
-          ${_scenAll.length ? `<div class="sp-row"><span class="k">Scenarios:</span> <span class="v">${_scenAll.join(', ')}</span></div>` : ''}
-        </div>
-        <div class="sp-section">
-          <div class="sp-heading">What went wrong</div>
-          ${_wwrPrev}
-        </div>
-        <div class="sp-section">
-          <div class="sp-heading">Customer / CE interactions</div>
-          ${_frameRows(rca.supportInteraction)}
-        </div>
-        <div class="sp-section">
-          <div class="sp-heading">SP interactions</div>
-          ${_frameRows(rca.spInteraction)}
-        </div>
-        <div class="sp-section">
-          <div class="sp-heading">Area of improvement</div>
-          <div class="sp-row" style="white-space:normal">${(rca.areaOfImproving || '—').toString().split('\n').map(x => '• ' + x).join('<br>')}</div>
-        </div>
-        <div class="sp-section">
-          <div class="sp-heading">Actions taken</div>
-          ${_actionRows}
-        </div>
-        <div class="sp-section">
-          <div class="sp-heading">Resolution</div>
-          <div class="sp-row" style="white-space:normal;color:var(--text)">${rca.resolution || '—'}</div>
-        </div>
-        <div class="sp-section">
-          <div class="sp-heading">Audit findings (flagged)</div>
-          ${_auditRows}
-        </div>
-        <div class="sp-section">
-          <div class="sp-heading">Experience insights (${state.insightsWindow})</div>
-          <div class="sp-row"><span class="k">TGID rating:</span> <span class="v">${r.insights.tgidRating.value}</span> <span class="k">(${r.insights.tgidRating.sub})</span></div>
-          <div class="sp-row"><span class="k">Completion:</span> <span class="v">${r.insights.completion.value}</span> <span class="k">·</span> <span class="k">Same-day issues:</span> <span class="v">${r.insights.sameDayIssues.value}</span></div>
-          ${((r.insights.similarSupport || []).length + (r.insights.similarReviews || []).length) > 0 ? `<div class="sp-row"><span class="k">Similar cases:</span> <span class="v">${(r.insights.similarSupport || []).length} support · ${(r.insights.similarReviews || []).length} reviews</span></div>` : ''}
-        </div>
+      <div class="slack-preview-label">Slack Thread Post (editable)</div>
+      <div class="slack-edit-wrap">
+        <textarea class="slack-edit-area" data-slack-edit>${_slackText.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
+        <span class="slack-edit-hint">edit &amp; blur to save</span>
       </div>
+      <button class="slack-regen-btn" data-slack-regen>↻ Regenerate from RCA</button>
     </div>
   `;
 
@@ -2805,6 +2846,17 @@ function renderRcaCol() {
         const passed  = cas.filter(c => norm(c.answer) === 'yes').length;
         const flagged = cas.filter(c => norm(c.answer) === 'no');
         const na      = cas.length - passed - flagged.length;
+        const groups = {};
+        cas.forEach(c => {
+          const sec = (c.section || 'general').toString().toUpperCase();
+          if (!groups[sec]) groups[sec] = [];
+          groups[sec].push(c);
+        });
+        const groupOrder = ['CE','RO','SCENARIO','GENERAL'];
+        const sortedSecs = Object.keys(groups).sort((a, b) => {
+          const ia = groupOrder.indexOf(a), ib = groupOrder.indexOf(b);
+          return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+        });
         const row = c => {
           const k = norm(c.answer) === 'no' ? 'flag' : norm(c.answer) === 'yes' ? 'pass' : 'na';
           const mark = k === 'flag' ? '⚠' : k === 'pass' ? '✓' : '○';
@@ -2812,22 +2864,31 @@ function renderRcaCol() {
           const zd = c.zd_ref || c.zd_id || '';
           return `<div class="chk-row chk-${k}">
               <span class="chk-mark">${mark}</span>
-              <div class="chk-body">
-                <div class="chk-item">${c.item || c.check || ''}${c.section ? ` <span class="chk-sec">${String(c.section).toUpperCase()}</span>` : ''}</div>
-                ${ev ? `<div class="chk-ev">${ev}${zd ? ` · <span class="chk-zd">${zd}</span>` : ''}</div>` : ''}
-              </div>
+              <div class="chk-item">${c.item || c.check || ''}${ev ? `<div class="chk-ev">${ev}${zd ? ` · <span class="chk-zd">${zd}</span>` : ''}</div>` : ''}</div>
               <span class="chk-ans">${c.answer || '—'}</span>
             </div>`;
         };
+        const groupHtml = sortedSecs.map(sec => {
+          const items = groups[sec];
+          const secFlags = items.filter(c => norm(c.answer) === 'no').length;
+          return `<div class="chk-group ${secFlags > 0 ? 'has-flags open' : ''}" data-chk-section="${sec}">
+            <div class="chk-group-head" data-chk-group-toggle>
+              <span class="chk-chevron">▸</span>
+              <span>${sec}</span>
+              <span class="chk-gtag">${items.length} checks${secFlags ? ' · ' + secFlags + ' flagged' : ''}</span>
+            </div>
+            <div class="chk-group-body">${items.map(row).join('')}</div>
+          </div>`;
+        }).join('');
         return `
     <div class="section" id="rca-checklist-section">
       <div class="section-label"><span class="marker"></span>RCA Checklist<span class="ai-tag-inline">AI</span></div>
-      <div class="chk-summary"><span class="chk-p">✓ ${passed} passed</span> · <span class="chk-f">⚠ ${flagged.length} flagged</span> · <span class="chk-n">○ ${na} pending/NA</span></div>
-      ${flagged.length ? `<div class="chk-flagged">${flagged.map(row).join('')}</div>` : `<div class="chk-none">No flagged checks</div>`}
-      <button class="chk-toggle" data-checklist-toggle>▸ Show all ${cas.length} checks</button>
-      <div class="chk-drawer" id="checklist-drawer" style="display:none">
-        ${cas.map(row).join('')}
+      <div class="chk-bar">
+        <span class="chk-pill pass">✓ ${passed}</span>
+        <span class="chk-pill flag">⚠ ${flagged.length}</span>
+        <span class="chk-pill na">○ ${na}</span>
       </div>
+      <div class="chk-groups">${groupHtml}</div>
     </div>`;
       })() : ''}
   ` : '';
@@ -3066,15 +3127,41 @@ function renderRcaCol() {
     });
   });
 
-  // RCA Checklist — expandable drawer (show all N checks)
-  const chkToggle = col.querySelector('[data-checklist-toggle]');
-  if (chkToggle) {
-    chkToggle.addEventListener('click', () => {
-      const drawer = col.querySelector('#checklist-drawer');
-      if (!drawer) return;
-      const open = drawer.style.display !== 'none';
-      drawer.style.display = open ? 'none' : 'block';
-      chkToggle.textContent = (open ? '▸ Show all ' : '▾ Hide ') + (rca.checklistAnswers || []).length + ' checks';
+  // RCA Checklist — collapsible section groups
+  col.querySelectorAll('[data-chk-group-toggle]').forEach(head => {
+    head.addEventListener('click', () => {
+      head.closest('.chk-group').classList.toggle('open');
+    });
+  });
+
+  // Slack thread post — editable textarea: blur → persist override
+  const slackArea = col.querySelector('[data-slack-edit]');
+  if (slackArea) {
+    slackArea.addEventListener('blur', async () => {
+      const val = slackArea.value.trim();
+      rca.slackThreadOverride = val;
+      try {
+        await fetch(`/api/reviews/${r.id}/draft-v2`, {
+          method: 'PATCH', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({slack_thread_override: val}),
+        });
+      } catch (e) { /* keep local edit */ }
+    });
+  }
+
+  // Slack thread post — regenerate button: clear override, regenerate from RCA fields
+  const slackRegen = col.querySelector('[data-slack-regen]');
+  if (slackRegen) {
+    slackRegen.addEventListener('click', async () => {
+      const fresh = _genSlackText();
+      if (slackArea) slackArea.value = fresh;
+      rca.slackThreadOverride = '';
+      try {
+        await fetch(`/api/reviews/${r.id}/draft-v2`, {
+          method: 'PATCH', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({slack_thread_override: ''}),
+        });
+      } catch (e) { /* keep local edit */ }
     });
   }
 
