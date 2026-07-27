@@ -140,14 +140,29 @@ def parse_review(event: dict) -> dict:
                 break
 
     # ── Body ─────────────────────────────────────────────────────────────────
+    # Trustpilot puts the review HEADLINE in attachment.title and the review
+    # text in attachment.text. The headline routinely carries the only venue
+    # reference in the whole review ("Overpriced Acropolis tickets"), and it was
+    # previously captured ONLY when the body came back empty — so whenever the
+    # Slack blocks produced any text at all, the headline was silently dropped
+    # and the matcher never saw the venue.
+    att_title = ""
+    for att in attachments:
+        if (att.get("title") or "").strip():
+            att_title = att["title"].strip()
+            break
+
     # Fall back to attachment.text when message text/blocks are empty
     if not body or not body.strip():
         for att in attachments:
-            att_text = att.get("text", "").strip()
+            att_text = (att.get("text") or "").strip()
             if att_text:
-                title = att.get("title", "").strip()
-                body = f"{title}\n\n{att_text}".strip() if title else att_text
+                body = att_text
                 break
+
+    # Always prepend the headline unless the body already opens with it.
+    if att_title and att_title.lower() not in (body or "").lower():
+        body = f"{att_title}\n\n{body}".strip() if body else att_title
 
     return {
         "slack_ts":         event["ts"],
