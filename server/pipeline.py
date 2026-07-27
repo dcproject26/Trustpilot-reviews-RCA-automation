@@ -1312,5 +1312,26 @@ async def process_review(review_id: str):
         except Exception as e:
             log.exception(f"Metrics write failed: {e}")
 
+    except Exception as _fatal:
+        # generated_at is stamped at the very end of the run, and the dashboard
+        # polls on it to know a re-run finished. Any exception before that point
+        # left nothing written at all: no result, no error, just a spinner that
+        # timed out after three minutes. Record the failure and stamp the run so
+        # it terminates visibly instead of silently.
+        log.exception(f"[pipeline] {review_id} failed: {_fatal}")
+        try:
+            db.rollback()
+            _d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
+            if _d:
+                _tr = list(_d.confidence_trail or [])
+                _tr.append({"mark": "fail",
+                            "text": f"<strong>Run failed</strong> — {type(_fatal).__name__}: "
+                                    f"{str(_fatal)[:300]}"})
+                _d.confidence_trail = _tr
+                _d.generated_at = datetime.utcnow()
+                flag_modified(_d, "confidence_trail")
+                db.commit()
+        except Exception:
+            log.exception(f"[pipeline] {review_id}: could not record the failure")
     finally:
         db.close()
