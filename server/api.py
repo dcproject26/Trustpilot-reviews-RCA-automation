@@ -271,6 +271,12 @@ def list_reviews(status: str | None = None, tab: str | None = None,
             "received_at": r.received_at.isoformat() if r.received_at else None,
             "match_tier":  tier,
             "candidate_state": cand_state,
+            # Chip 1 is "reviews with a BID", so the inbox has to know whether
+            # the id came from the review (attachment/manual/regex) or was
+            # inferred from Zendesk. Without this the client cannot tell them
+            # apart and every row falls through to chip 2.
+            "bid_source":  draft.bid_source if draft else None,
+            "reference_number": r.reference_number,
             "experience":  (draft.booking or {}).get("experienceName") if draft else None,
         })
     return result

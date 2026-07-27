@@ -1766,7 +1766,12 @@ loadSubThemeOptions();
 // attachment / manual / regex all mean the review carried it. Anything else
 // (a Zendesk requester match, a venue search) is inferred, however confident.
 function _bidFromReview(row) {
-  return ['attachment', 'manual', 'regex'].includes(row && row.bid_source);
+  if (!row) return false;
+  // The review carried a booking id: either the pipeline recorded where it came
+  // from, or the review row itself still holds the reference number. Falling
+  // back to reference_number matters for rows drafted before bid_source existed.
+  if (['attachment', 'manual', 'regex'].includes(row.bid_source)) return true;
+  return !!(row.reference_number && String(row.reference_number).trim());
 }
 
 async function fetchInbox() {
