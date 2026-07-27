@@ -449,18 +449,23 @@ async def process_review(review_id: str):
                                         f"'{_f} {_l or ''}' — continuing: {e}")
 
                     # ── Indicator-driven Zendesk search ───────────────────────
-                    # No BID anywhere in the review and the requester name found
-                    # nothing (display name != Zendesk requester name is common).
+                    # Runs ALWAYS when a venue was extracted, not as a fallback.
                     # Zendesk free-text search matches subject AND comments, so
-                    # the venue the guest named is directly searchable — that is
-                    # the indicator doing the searching, not just the ranking.
-                    if not zd_bids and venue_hints:
+                    # the venue the guest named is directly searchable — the
+                    # indicator does the searching, it does not merely re-rank a
+                    # name search. A BID returned by BOTH the name search and the
+                    # venue search is the strongest evidence available short of
+                    # the guest quoting the booking id.
+                    name_bids  = list(zd_bids)
+                    venue_bids = []
+                    if venue_hints:
                         try:
                             _thits, _trecs = await zendesk.find_bids_by_text(venue_hints)
                             for _tr in _trecs:
                                 for _tb in _tr.get("bids", []):
                                     if _tb not in bid_ticket_text:
                                         bid_ticket_text[_tb] = _tr.get("text", "")
+                            venue_bids = list(_thits)
                             for _b in _thits:
                                 if _b not in zd_bids:
                                     zd_bids.append(_b)
@@ -468,10 +473,17 @@ async def process_review(review_id: str):
                                      f"{len(_thits)} BIDs")
                             confidence_trail.append({
                                 "mark": "pass" if _thits else "warn",
-                                "text": f"<strong>Zendesk text search:</strong> "
+                                "text": f"<strong>Zendesk venue search:</strong> "
                                         f"{venue_hints} → {len(_thits)} BID(s)"})
                         except Exception as e:
                             log.warning(f"[tier2] Zendesk text search failed — continuing: {e}")
+
+                    both_bids = {b for b in name_bids if b in set(venue_bids)}
+                    if both_bids:
+                        confidence_trail.append({"mark": "pass",
+                            "text": f"<strong>Name + venue agree:</strong> "
+                                    f"{', '.join(sorted(both_bids))}"})
+                        log.info(f"[tier2] BIDs found by BOTH name and venue: {sorted(both_bids)}")
 
                     if zd_bids:
                         zd_candidates = []
@@ -544,8 +556,14 @@ async def process_review(review_id: str):
                                 return 0.0
                             return min(3.0, 0.5 * len(_sig_tokens(txt) & _review_toks))
 
+                        def _both_pts(bid):
+                            # Found independently by the name search AND the
+                            # venue search — the two indicators corroborate.
+                            return 4.0 if str(bid) in both_bids else 0.0
+
                         def _score(row, bid=None):
-                            return _venue_pts(row) + _date_pts(row) + _ticket_pts(bid)
+                            return (_venue_pts(row) + _date_pts(row)
+                                    + _ticket_pts(bid) + _both_pts(bid))
 
                         # Indicators RANK, they never exclude (approved point 6).
                         # venue_signal is observational only — it drives the
@@ -587,7 +605,9 @@ async def process_review(review_id: str):
                             ranked = sorted(zd_candidates,
                                             key=lambda t: _score(t[1], t[0]), reverse=True)[:5]
                             _matched_on = ["name", "zendesk"]
-                            if venue_signal:
+                            if both_bids:
+                                _matched_on.append("name+venue")
+                            elif venue_signal:
                                 _matched_on.append("venue")
                             elif any(_ticket_pts(b) > 0 for b, _ in ranked):
                                 _matched_on.append("ticket-text")
@@ -596,13 +616,15 @@ async def process_review(review_id: str):
                             candidates = [_make_candidate(row, "zendesk_requester", _matched_on)
                                           for _, row in ranked]
                             for i, (bid, row) in enumerate(ranked):
-                                _vp, _dp, _tp = _venue_pts(row), _date_pts(row), _ticket_pts(bid)
+                                _vp, _dp = _venue_pts(row), _date_pts(row)
+                                _tp, _bp = _ticket_pts(bid), _both_pts(bid)
                                 candidates[i]["id"]           = bid
-                                candidates[i]["score"]        = round(_vp + _dp + _tp, 2)
+                                candidates[i]["score"]        = round(_vp + _dp + _tp + _bp, 2)
                                 candidates[i]["score_venue"]  = round(_vp, 2)
                                 candidates[i]["score_date"]   = round(_dp, 2)
                                 candidates[i]["score_ticket"] = round(_tp, 2)
-                                candidates[i]["venue_signal"] = _vp > 0
+                                candidates[i]["score_both"]   = round(_bp, 2)
+                                candidates[i]["venue_signal"] = _vp > 0 or _bp > 0
                             candidate_state = True
                             match_tier = 2
                             narrowing_path = ("zendesk_requester_candidates" if venue_signal
