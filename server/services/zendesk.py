@@ -97,6 +97,78 @@ def booking_id_from_ticket(ticket) -> str | None:
     return m.group(0) if m else None
 
 
+def _zd_get(path: str):
+    """
+    Raw authenticated GET against the Zendesk REST API.
+
+    Zenpy has no side-conversation support, so those endpoints are called
+    directly, reusing whichever auth is already configured — the Replit
+    connector's OAuth bearer token first, else the email/API-token pair.
+    Returns parsed JSON, or None if unavailable or the call fails.
+    """
+    import requests
+    try:
+        from server.services import zd_connector
+        if zd_connector.available():
+            token, subdomain = zd_connector._settings()
+            r = requests.get(f"https://{subdomain}.zendesk.com{path}",
+                             headers={"Authorization": f"Bearer {token}"}, timeout=20)
+        elif ZENDESK_SUBDOMAIN and ZENDESK_API_TOKEN:
+            r = requests.get(f"https://{ZENDESK_SUBDOMAIN}.zendesk.com{path}",
+                             auth=(f"{ZENDESK_EMAIL}/token", ZENDESK_API_TOKEN), timeout=20)
+        else:
+            return None
+        if r.status_code != 200:
+            log.info(f"[zendesk] GET {path} -> {r.status_code}")
+            return None
+        return r.json()
+    except Exception as e:
+        log.warning(f"[zendesk] GET {path} failed: {e}")
+        return None
+
+
+def side_conversations(ticket_id) -> list[dict]:
+    """
+    Side conversations on a ticket, with their messages.
+
+    A side conversation is always the SP thread — the agent talking to the
+    supply partner about this booking. They are a separate Zendesk object from
+    ticket comments and were not being fetched at all, so SP interactions never
+    reached the RCA and any booking id mentioned only there was invisible.
+
+    Returns [{id, subject, participants, text, messages: [{time, actor, body}]}].
+    """
+    data = _zd_get(f"/api/v2/tickets/{ticket_id}/side_conversations.json")
+    if not data:
+        return []
+    out = []
+    for sc in (data.get("side_conversations") or []):
+        sc_id = sc.get("id")
+        subject = sc.get("subject") or ""
+        parts = ", ".join(
+            (p.get("name") or p.get("email") or "")
+            for p in (sc.get("participants") or []) if isinstance(p, dict))
+        msgs = []
+        ev = _zd_get(f"/api/v2/tickets/{ticket_id}/side_conversations/{sc_id}/events.json")
+        for e in ((ev or {}).get("events") or []):
+            msg = e.get("message") or {}
+            body = (msg.get("body") or msg.get("preview_text") or "").strip()
+            if not body:
+                continue
+            actor = ((e.get("actor") or {}).get("name")
+                     or (msg.get("from") or {}).get("name") or "")
+            msgs.append({"time": _to_ist(e.get("created_at")),
+                         "_raw_ts": e.get("created_at"),
+                         "actor": actor, "body": body[:2000]})
+        blob = "\n".join([subject] + [m["body"] for m in msgs]).strip()
+        out.append({"id": sc_id, "subject": subject, "participants": parts,
+                    "text": blob, "messages": msgs})
+    if out:
+        log.info(f"[zendesk] ZD-{ticket_id}: {len(out)} side conversation(s), "
+                 f"{sum(len(o['messages']) for o in out)} message(s)")
+    return out
+
+
 def get_custom_field(ticket, field_id: int):
     """Value of a ticket custom field by ID, or None."""
     for f in (getattr(ticket, "custom_fields", None) or []):
@@ -347,6 +419,28 @@ def _get_timeline_sync(_z, booking_id: str):
                 body,
             ))
 
+    # ── Side conversations → SP thread ───────────────────────────────────────
+    # A side conversation is the agent talking to the supply partner about this
+    # booking, so every message in one belongs in the SP interaction thread of
+    # the RCA. These are a separate Zendesk object from ticket comments and were
+    # never fetched, which is why SP interactions were routinely empty.
+    for ticket in tickets:
+        for sc in side_conversations(getattr(ticket, "id", "")):
+            for m in sc.get("messages", []):
+                events.append((
+                    _sort_key(m.get("_raw_ts")),
+                    {
+                        "time":      m.get("time", ""),
+                        "thread":    "sp",
+                        "actor":     "sp",
+                        "ticket_id": str(getattr(ticket, "id", "")),
+                        "raw_body":  (f"[Side conversation: {sc.get('subject', '')}"
+                                      f"{' · ' + sc['participants'] if sc.get('participants') else ''}]\n"
+                                      f"{m.get('actor', '')}: {m.get('body', '')}"),
+                    },
+                    m.get("body", ""),
+                ))
+
     events.sort(key=lambda e: e[0])
 
     # ── Truncation: keep first 20 + last 20 if >40 comments ─────────────────
@@ -571,16 +665,25 @@ async def find_bids_by_requester_name(
             if val and re.fullmatch(r"\d{7,12}", str(val).strip()):
                 found.append(str(val).strip())
         found += re.findall(r"\b\d{7,12}\b", body[:4000])
-        # The booking-id custom field is authoritative. Only fall back to
-        # scraping the subject/body when the ticket does not carry it.
+        # Every source, in trust order — the custom field is the most reliable
+        # but is frequently left empty, so subject, body and side conversations
+        # all contribute. Union, not either/or: a ticket can carry the booking
+        # id in one place and not another.
         field_bid = booking_id_from_ticket(t)
-        if field_bid:
-            t_bids = [field_bid]
-            log.info(f"[zendesk] ZD-{own_id}: booking id {field_bid} from custom field")
-        else:
-            t_bids = [n for n in found if n not in all_ticket_ids]
-            if t_bids:
-                log.info(f"[zendesk] ZD-{own_id}: no booking field, scraped {t_bids}")
+        scraped   = [n for n in found if n not in all_ticket_ids]
+
+        sc_list = side_conversations(own_id)
+        sc_bids = []
+        for sc in sc_list:
+            sc_bids += [n for n in re.findall(r"\b\d{7,12}\b", sc.get("text", ""))
+                        if n not in all_ticket_ids]
+
+        t_bids = list(dict.fromkeys(
+            ([field_bid] if field_bid else []) + scraped + sc_bids))
+        if t_bids:
+            log.info(f"[zendesk] ZD-{own_id}: bids={t_bids} "
+                     f"(field={field_bid or '-'}, scraped={scraped or '-'}, "
+                     f"side_conv={sc_bids or '-'})")
         bids += t_bids
         ticket_records.append({
             "ticket_id":      own_id,
@@ -588,7 +691,9 @@ async def find_bids_by_requester_name(
             "body":           body[:4000],
             "text":           f"{subject}\n{body[:4000]}".strip(),
             "bids":           list(dict.fromkeys(t_bids)),
-            "bid_source":     "zendesk_field" if field_bid else "scraped",
+            "bid_source":     ("zendesk_field" if field_bid
+                               else "side_conversation" if sc_bids else "scraped"),
+            "side_conversations": sc_list,
             "requester_name": getattr(t, "_requester_name", ""),
             "name_score":     round(getattr(t, "_name_score", 0.0), 2),
         })
@@ -677,13 +782,16 @@ async def find_bids_by_text(
                 if val and re.fullmatch(r"\d{7,12}", str(val).strip()):
                     found.append(str(val).strip())
             found += re.findall(r"\b\d{7,12}\b", body[:4000])
-            # Booking-id custom field first, same as the requester search.
+            # Same union of sources as the requester search.
             field_bid = booking_id_from_ticket(t)
-            if field_bid:
-                t_bids = [field_bid]
-            else:
-                t_bids = [n for n in found
-                          if n not in _batch_ids and n not in seen_tickets]
+            scraped = [n for n in found
+                       if n not in _batch_ids and n not in seen_tickets]
+            sc_bids = []
+            for sc in side_conversations(own_id):
+                sc_bids += [n for n in re.findall(r"\b\d{7,12}\b", sc.get("text", ""))
+                            if n not in _batch_ids and n not in seen_tickets]
+            t_bids = list(dict.fromkeys(
+                ([field_bid] if field_bid else []) + scraped + sc_bids))
             all_bids += t_bids
             all_records.append({
                 "ticket_id": own_id,
