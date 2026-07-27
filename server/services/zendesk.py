@@ -362,29 +362,37 @@ def _fold(s: str) -> str:
                    if not unicodedata.combining(c)).lower()
 
 
-def _name_matches(candidate: str, first: str | None, last: str | None) -> bool:
+def _name_score(candidate: str, first: str | None, last: str | None) -> float:
     """
-    Does a Zendesk requester name refer to the person who wrote the review?
+    How strongly a name refers to the review's author — 0.0 to 1.0.
 
-    Compared as TOKENS, not substrings. Every name the review gave us must
-    appear as a whole word in the requester's name:
+    A CONFIDENCE, not a gate. Names legitimately differ from the booking: middle
+    names, married names, nicknames, initials, or a booking made under a
+    partner's name. A boolean test throws away the real booking in all of those
+    cases, so this scores instead and lets the other indicators carry the rest.
 
-      review "Fredrik Olsen" vs "Fredrik Martin Olsen"  -> True  (middle name)
-      review "Fredrik Olsen" vs "Olsen, Fredrik"        -> True  (reordered)
-      review "Fredrik Olsen" vs "Fredrik Rostvold"      -> False (other Fredrik)
-      review "Ole Berg"      vs "Olsen Bergman"         -> False (substring trap)
+    Surname is weighted 0.7 and first name 0.3, because a surname is far more
+    distinctive than a shared first name:
 
-    This is the precision half of search-broad/match-strict: the queries are
-    deliberately loose because a middle name cannot be predicted, so nothing is
-    trusted until it passes here.
+      "Fredrik Olsen" vs "Fredrik Martin Olsen"     -> 1.0  (middle name)
+      "Fredrik Olsen" vs "Olsen, Fredrik"           -> 1.0  (reordered)
+      "Fredrik Olsen" vs "Fredrik Birkelund Holvik" -> 0.3  (first name only)
+      "Fredrik Olsen" vs "Fredrik Rostvold"         -> 0.3  (another Fredrik)
+      "Fredrik Olsen" vs "F. Olsen"                 -> 0.7  (surname carries it)
+
+    Tokens, not substrings, so "Ole Berg" does not match "Olsen Bergman".
+    Diacritics are folded, so "Jorg" matches "Jörg".
     """
-    want = [_fold(x) for x in (first, last) if x and str(x).strip()]
-    if not want:
-        return False
     cand_tokens = set(re.findall(r"[a-z0-9]+", _fold(candidate)))
     if not cand_tokens:
-        return False
-    return all(w in cand_tokens for w in want)
+        return 0.0
+    score = weight = 0.0
+    for part, w in ((first, 0.3), (last, 0.7)):
+        if part and str(part).strip():
+            weight += w
+            if _fold(part) in cand_tokens:
+                score += w
+    return (score / weight) if weight else 0.0
 
 
 async def find_bids_by_requester_name(
@@ -483,19 +491,30 @@ async def find_bids_by_requester_name(
                 tid = str(getattr(t, "id", "") or "")
                 if tid in seen_ids:
                     continue
-                if _name_matches(_requester_name(t), author_first, author_last):
-                    seen_ids.add(tid)
-                    out.append(t)
+                rname = _requester_name(t)
+                ns = _name_score(rname, author_first, author_last)
+                # Only a total non-match is dropped — nothing in the name lines
+                # up at all, so it is noise from a broad query, not a candidate.
+                # Everything else is kept WITH its score; the caller ranks on it
+                # together with venue, date and ticket-text confidence.
+                if ns <= 0.0:
+                    continue
+                seen_ids.add(tid)
+                setattr(t, "_name_score", ns)
+                setattr(t, "_requester_name", rname)
+                out.append(t)
             return out
 
         kept = await asyncio.get_running_loop().run_in_executor(
             None, lambda h=hits: _keep(h))
         if hits:
-            log.info(f"[zendesk]   {len(hits)} hit(s) → {len(kept)} kept after name match")
+            log.info(f"[zendesk]   {len(hits)} hit(s) → {len(kept)} scored")
         tickets.extend(kept)
 
+    # Strongest name confidence first, so the per-ticket cap keeps the best.
+    tickets.sort(key=lambda t: getattr(t, "_name_score", 0.0), reverse=True)
     if not tickets:
-        log.info(f"[zendesk] no ticket whose requester matches '{name_str}'")
+        log.info(f"[zendesk] nothing resembling '{name_str}'")
 
     # Harvest candidate booking numbers from subject + custom fields + BODY.
     # A ticket's own id shares the same number space as BIDs — exclude it;
@@ -523,11 +542,13 @@ async def find_bids_by_requester_name(
         t_bids = [n for n in found if n != own_id]
         bids += t_bids
         ticket_records.append({
-            "ticket_id": own_id,
-            "subject":   subject,
-            "body":      body[:4000],
-            "text":      f"{subject}\n{body[:4000]}".strip(),
-            "bids":      list(dict.fromkeys(t_bids)),
+            "ticket_id":      own_id,
+            "subject":        subject,
+            "body":           body[:4000],
+            "text":           f"{subject}\n{body[:4000]}".strip(),
+            "bids":           list(dict.fromkeys(t_bids)),
+            "requester_name": getattr(t, "_requester_name", ""),
+            "name_score":     round(getattr(t, "_name_score", 0.0), 2),
         })
 
     deduped = list(dict.fromkeys(bids))[:25]

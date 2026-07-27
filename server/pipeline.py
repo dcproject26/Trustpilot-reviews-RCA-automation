@@ -425,6 +425,7 @@ async def process_review(review_id: str):
                         "text": f"<strong>Zendesk lookup:</strong> {_names_str}"})
                     zd_bids = []
                     bid_ticket_text = {}   # bid -> subject+body of its source ticket
+                    bid_name_score  = {}   # bid -> 0..1 requester-name confidence
                     for _f, _l in search_identities:
                         try:
                             # No lookback_days — the service defaults to since
@@ -438,6 +439,10 @@ async def process_review(review_id: str):
                                 for _tb in _tr.get("bids", []):
                                     if _tb not in bid_ticket_text:
                                         bid_ticket_text[_tb] = _tr.get("text", "")
+                                    # Best name confidence seen for this BID.
+                                    bid_name_score[_tb] = max(
+                                        bid_name_score.get(_tb, 0.0),
+                                        float(_tr.get("name_score") or 0.0))
                             log.info(
                                 f"[tier2] zendesk requester: {len(_hits)} BIDs "
                                 f"for '{_f} {_l or ''}'")
@@ -587,9 +592,22 @@ async def process_review(review_id: str):
                             # venue search — the two indicators corroborate.
                             return 4.0 if str(bid) in both_bids else 0.0
 
+                        def _name_pts(row, bid=None):
+                            # Name confidence from two places: the Zendesk
+                            # requester the BID came from, and the booking's own
+                            # primary guest. Scored, never a gate — a booking
+                            # made under a partner's or married name is still the
+                            # right booking, and the other indicators say so.
+                            from server.services.zendesk import _name_score
+                            zd = bid_name_score.get(str(bid), 0.0) if bid else 0.0
+                            bq = _name_score(row.get("primary_guest_name") or "",
+                                             author_first, author_last)
+                            return 3.0 * max(zd, bq)
+
                         def _score(row, bid=None):
                             return (_venue_pts(row) + _date_pts(row)
-                                    + _ticket_pts(bid) + _both_pts(bid))
+                                    + _ticket_pts(bid) + _both_pts(bid)
+                                    + _name_pts(row, bid))
 
                         # Indicators RANK, they never exclude (approved point 6).
                         # venue_signal is observational only — it drives the
@@ -613,17 +631,18 @@ async def process_review(review_id: str):
                         if n_zd == 1:
                             bid, bq_row = zd_candidates[0]
                             # Being the only survivor is NOT evidence. A single
-                            # wrong BID auto-promoted to Tier 1 is worse than a
-                            # wrong candidate — it presents as a direct match and
-                            # the whole RCA is then built on another guest's
-                            # booking. Require the BOOKING's own guest name to
-                            # match the reviewer, or a venue/ticket corroboration.
-                            from server.services.zendesk import _name_matches
-                            _pgn = bq_row.get("primary_guest_name") or ""
-                            _guest_ok  = _name_matches(_pgn, author_first, author_last)
-                            _venue_ok  = _venue_pts(bq_row) > 0
-                            _ticket_ok = _ticket_pts(bid) > 0
-                            if _guest_ok or _venue_ok or _ticket_ok:
+                            # wrong BID auto-promoted to Tier 1 presents as a
+                            # direct match and the whole RCA is then built on
+                            # another guest's booking, so promotion needs actual
+                            # confidence from the indicators — not a bare count.
+                            #
+                            # Threshold 3.0. Reachable by a full name agreement
+                            # (3.0), a two-token venue match (4.0), name+venue
+                            # agreement (4.0), or partial signals combining. A
+                            # first-name-only brush (0.9) cannot reach it alone.
+                            _pgn  = bq_row.get("primary_guest_name") or ""
+                            _conf = _score(bq_row, bid)
+                            if _conf >= 3.0:
                                 booking = bq_row.copy()
                                 booking["id"] = bid
                                 booking.setdefault(
@@ -635,11 +654,10 @@ async def process_review(review_id: str):
                                 _ctr["t2_zendesk_auto"] += 1
                                 _ctr["t1_auto_promoted"] += 1
                                 _ctr["t2_auto_promoted"] += 1
-                                _why = ("guest name" if _guest_ok else
-                                        "venue" if _venue_ok else "ticket text")
                                 confidence_trail.append({"mark": "pass",
-                                    "text": f"<strong>Tier 1 auto-promote</strong> via Zendesk "
-                                            f"requester — corroborated by {_why}"})
+                                    "text": f"<strong>Tier 1 auto-promote</strong> — indicator "
+                                            f"confidence {_conf:.1f} (name {_name_pts(bq_row, bid):.1f} · "
+                                            f"venue {_venue_pts(bq_row):.1f} · ticket {_ticket_pts(bid):.1f})"})
                             else:
                                 candidates = [_make_candidate(
                                     bq_row, "zendesk_requester", ["name", "zendesk", "unconfirmed"])]
@@ -648,18 +666,18 @@ async def process_review(review_id: str):
                                 candidates[0]["score_venue"]  = round(_venue_pts(bq_row), 2)
                                 candidates[0]["score_date"]   = round(_date_pts(bq_row), 2)
                                 candidates[0]["score_ticket"] = round(_ticket_pts(bid), 2)
-                                candidates[0]["venue_signal"] = False
+                                candidates[0]["score_name"]   = round(_name_pts(bq_row, bid), 2)
+                                candidates[0]["venue_signal"] = _venue_pts(bq_row) > 0
                                 candidate_state = True
                                 match_tier = 2
                                 narrowing_path = "zendesk_requester_unconfirmed"
                                 _ctr["t2_zendesk_candidates"] += 1
                                 _ctr["t2_candidates"] += 1
                                 confidence_trail.append({"mark": "warn",
-                                    "text": "<strong>Not auto-matched</strong> — single Zendesk "
-                                            f"BID {bid}, but booking guest '{_pgn or '—'}' does not "
-                                            "match the reviewer and no venue/ticket corroboration. "
-                                            "Needs confirmation."})
-                                log.info(f"[tier2] single BID {bid} withheld from auto-promote: "
+                                    "text": f"<strong>Not auto-matched</strong> — single Zendesk BID "
+                                            f"{bid} at confidence {_conf:.1f} (need 3.0). Booking guest "
+                                            f"'{_pgn or '—'}'. Needs confirmation."})
+                                log.info(f"[tier2] single BID {bid} withheld: conf={_conf:.2f} "
                                          f"guest={_pgn!r} vs review={author_first} {author_last}")
                             cascade_done = True
                         elif n_zd >= 2:
@@ -680,11 +698,12 @@ async def process_review(review_id: str):
                                 _vp, _dp = _venue_pts(row), _date_pts(row)
                                 _tp, _bp = _ticket_pts(bid), _both_pts(bid)
                                 candidates[i]["id"]           = bid
-                                candidates[i]["score"]        = round(_vp + _dp + _tp + _bp, 2)
+                                candidates[i]["score"]        = round(_score(row, bid), 2)
                                 candidates[i]["score_venue"]  = round(_vp, 2)
                                 candidates[i]["score_date"]   = round(_dp, 2)
                                 candidates[i]["score_ticket"] = round(_tp, 2)
                                 candidates[i]["score_both"]   = round(_bp, 2)
+                                candidates[i]["score_name"]   = round(_name_pts(row, bid), 2)
                                 candidates[i]["venue_signal"] = _vp > 0 or _bp > 0
                             candidate_state = True
                             match_tier = 2
