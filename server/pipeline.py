@@ -684,13 +684,15 @@ async def process_review(review_id: str):
                         if not venue_signal:
                             confidence_trail.append({
                                 "mark": "pass" if ticket_signal else "warn",
-                                "text": "<strong>No venue agreement</strong> — "
-                                        + (f"no candidate matches {venue_hints}"
+                                "text": "<strong>No venue match</strong> — "
+                                        + (f"none of these bookings is for {venue_hints}"
                                            if venue_hints else
-                                           "no venue extracted from the review")
-                                        + ("; ranked on Zendesk ticket text vs the review"
+                                           "the review names no venue, so there is nothing to match on")
+                                        + ("; ranked instead on how well each Zendesk ticket "
+                                           "matches what the review complains about."
                                            if ticket_signal else
-                                           "; ranking below is date-proximity only")})
+                                           "; ranked only on how close the visit date is to the "
+                                           "review date, which proves very little.")})
                             log.info(f"[tier2] no venue agreement (hints={venue_hints}, "
                                      f"ticket_signal={ticket_signal})")
 
@@ -779,10 +781,13 @@ async def process_review(review_id: str):
                             _ctr["t2_zendesk_candidates"] += 1
                             _ctr["t2_candidates"] += 1
                             confidence_trail.append({"mark": "pass" if venue_signal else "warn",
-                                "text": f"<strong>Tier 2:</strong> {n_zd} Zendesk-verified — "
-                                        f"top {len(ranked)} by indicator score "
-                                        + ("(venue + date)" if venue_signal
-                                           else "(DATE ONLY — no venue agreement, treat as weak)")})
+                                "text": f"<strong>{n_zd} booking(s)</strong> found on this guest's "
+                                        f"Zendesk tickets and confirmed to exist in BigQuery. "
+                                        f"Showing the top {len(ranked)}, ranked by "
+                                        + ("venue and visit date — pick the right one."
+                                           if venue_signal else
+                                           "visit date only, because no venue matched. "
+                                           "These are weak — check before confirming.")})
                             cascade_done = True
                         else:
                             _ctr["t2_zendesk_no_match"] += 1
@@ -854,7 +859,8 @@ async def process_review(review_id: str):
                         if venue_hints or author_first or author_last:
                             _ctr["untraceable_has_signals"] += 1
                         confidence_trail.append({"mark": "warn",
-                            "text": "<strong>Untraceable</strong> — name and venue searches exhausted"})
+                            "text": "<strong>Untraceable</strong> — searched Zendesk by guest "
+                                    "name and by venue, and Slack as a backup. Nothing found."})
                         cascade_done = True
 
                 # ── Step 4: Untraceable fallback ──────────────────────────────
@@ -892,7 +898,11 @@ async def process_review(review_id: str):
 
                 confidence_trail.append({
                     "mark": "pass",
-                    "text": f"<strong>Final:</strong> Tier {match_tier} via {narrowing_path or 'none'}",
+                    "text": ("<strong>Result:</strong> " + (
+                        "matched to one booking" if match_tier == 1 and not candidate_state else
+                        f"{len(candidates)} possible match(es) — pick one to continue"
+                        if candidate_state else
+                        "no booking found — untraceable")),
                 })
 
         # ── 6. Zendesk timeline ──────────────────────────────────────────────
