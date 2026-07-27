@@ -651,9 +651,11 @@ async def reprocess_review(
     # "Associate confirmed ... matching skipped" and extracted no indicators,
     # while the card still read "Possible matches — associate to confirm".
     _d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
-    if _d and _d.selected_candidate_bid:
+    _was_confirmed = bool(_d and _d.selected_candidate_bid)
+    if _was_confirmed:
         log.info(f"[reprocess] {review_id}: clearing confirmation "
-                 f"{_d.selected_candidate_bid} — re-run redoes matching")
+                 f"{_d.selected_candidate_bid} — re-run redoes matching and "
+                 f"shows the options again")
         _d.selected_candidate_bid = None
         db.commit()
 
@@ -693,7 +695,10 @@ async def reprocess_review(
         # generated_at never moved, and the dashboard polled for three minutes
         # before giving up — indistinguishable from "re-run did nothing".
         try:
-            asyncio.run(_pipeline(rid))
+            # Re-running a review whose booking was already confirmed means the
+            # associate wants the choice back, so matching must not auto-promote
+            # its way straight into another confirmed state.
+            asyncio.run(_pipeline(rid, force_candidates=_was_confirmed))
         except Exception:
             log.exception(f"[reprocess] pipeline crashed for {rid}")
 

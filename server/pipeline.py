@@ -74,7 +74,14 @@ def _venue_token_overlap(review_text: str, exp_name: str) -> bool:
     return bool(_sig_tokens(review_text) & _sig_tokens(exp_name))
 
 
-async def process_review(review_id: str):
+async def process_review(review_id: str, force_candidates: bool = False):
+    """
+    force_candidates: an associate re-ran a review whose booking they had already
+    confirmed. They are asking to see the options again, so matching must present
+    the candidate list rather than silently auto-promoting the best one — which
+    would drop them straight back into a confirmed state they were trying to
+    leave.
+    """
     db = SessionLocal()
     try:
         review = db.query(Review).filter(Review.id == review_id).first()
@@ -173,7 +180,8 @@ async def process_review(review_id: str):
         # scratch and overwrote the confirmation — leaving the card half-filled
         # and the timeline empty.
         _prior = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
-        confirmed_bid = (_prior.selected_candidate_bid if _prior else None)
+        confirmed_bid = None if force_candidates else (
+            _prior.selected_candidate_bid if _prior else None)
 
         booking         = None
         match_tier      = None
@@ -757,7 +765,7 @@ async def process_review(review_id: str):
                             # first-name-only brush (0.9) cannot reach it alone.
                             _pgn  = bq_row.get("primary_guest_name") or ""
                             _conf = _score(bq_row, bid)
-                            if _conf >= 3.0:
+                            if _conf >= 3.0 and not force_candidates:
                                 booking = bq_row.copy()
                                 booking["id"] = bid
                                 booking.setdefault(
@@ -789,9 +797,13 @@ async def process_review(review_id: str):
                                 _ctr["t2_zendesk_candidates"] += 1
                                 _ctr["t2_candidates"] += 1
                                 confidence_trail.append({"mark": "warn",
-                                    "text": f"<strong>Not auto-matched</strong> — single Zendesk BID "
-                                            f"{bid} at confidence {_conf:.1f} (need 3.0). Booking guest "
-                                            f"'{_pgn or '—'}'. Needs confirmation."})
+                                    "text": (f"<strong>Showing options again</strong> — re-run after a "
+                                             f"confirmation, so BID {bid} (confidence {_conf:.1f}) is "
+                                             f"listed for you to confirm rather than applied."
+                                             if force_candidates else
+                                             f"<strong>Not auto-matched</strong> — single Zendesk BID "
+                                             f"{bid} at confidence {_conf:.1f} (need 3.0). Booking guest "
+                                             f"'{_pgn or '—'}'. Needs confirmation.")})
                                 log.info(f"[tier2] single BID {bid} withheld: conf={_conf:.2f} "
                                          f"guest={_pgn!r} vs review={author_first} {author_last}")
                             cascade_done = True
