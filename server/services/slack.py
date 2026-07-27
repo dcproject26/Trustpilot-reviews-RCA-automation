@@ -217,17 +217,50 @@ def parse_review(event: dict) -> dict:
     }
 
 
+async def search_mentions(bid: str, limit: int = 20) -> list[dict]:
+    """
+    Find every Slack message mentioning a booking id, workspace-wide.
+
+    Part of the RCA, not the matching step: once the booking is known, ops
+    channels frequently carry escalations, SP chases and manual interventions
+    for that BID which never appear in Zendesk. Those pings are context the RCA
+    needs, so they are surfaced on the dashboard rather than left buried.
+
+    Not restricted to ORM channels — any channel the user token can see.
+    Requires a USER token with search:read. Returns [] when unavailable.
+    """
+    if not _user or not bid:
+        return []
+    try:
+        res = _user.search_messages(query=str(bid), count=limit)
+    except Exception as e:
+        log.warning(f"[slack] search_mentions {bid} failed: {e}")
+        return []
+    out = []
+    for m in (res.get("messages") or {}).get("matches") or []:
+        ch = m.get("channel", {}) or {}
+        out.append({
+            "channel":   ch.get("name") or ch.get("id") or "",
+            "user":      m.get("username") or m.get("user") or "",
+            "ts":        m.get("ts") or "",
+            "text":      (m.get("text") or "")[:600],
+            "permalink": m.get("permalink") or "",
+        })
+    log.info(f"[slack] search_mentions {bid}: {len(out)} message(s)")
+    return out
+
+
 async def search_bids(terms: list[str], limit: int = 20) -> tuple[list[str], list[dict]]:
     """
-    Backup BID source: search Slack message history for the guest name / venue.
+    Backup BID source: search Slack for the SAME indicators used everywhere else
+    — the guest name and the venue extracted from the review.
 
-    Prior ORM threads routinely carry a booking id that never reached Zendesk —
-    an associate pasting a BID into a thread, an escalation, a manual note. When
-    Zendesk yields nothing this is the next place to look.
+    Searches the whole workspace, not just ORM channels: a booking id can be
+    pasted into any ops, escalation or SP channel and never reach Zendesk.
 
-    Requires a USER token with search:read; bot tokens cannot call search.messages
-    at all. Returns ([], []) when unavailable rather than raising, so the caller
-    can treat it as a best-effort extra source.
+    Requires a USER token with search:read; bot tokens cannot call
+    search.messages at all. Returns ([], []) when unavailable rather than
+    raising, so the caller can treat it as a best-effort extra source.
     """
     from server.taxonomy import BID_REGEX
     if not _user:

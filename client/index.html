@@ -1980,6 +1980,7 @@ async function loadDraftOverlays() {
       r.confidenceTrail   = (draft.confidence_trail && draft.confidence_trail.length)
                             ? draft.confidence_trail : null;
       r.extractedSignals  = draft.extracted_signals || {};
+      r.slackMentions     = draft.slack_mentions || [];
 
       // ── Match method from confidence trail ────────────────────────────────
       r.matchMethod = draft.match_method
@@ -2284,6 +2285,24 @@ function renderReviewCol() {
          </div>
        </div>`;
 
+  // Slack pings referencing this BID — ops/escalation/SP chatter that never
+  // reaches Zendesk but is part of what actually happened to the booking.
+  const _mentions = r.slackMentions || [];
+  const slackPings = r.booking && r.booking.bid
+    ? `<div class="section">
+         <div class="section-label"><span class="marker"></span>Slack mentions of this BID</div>
+         ${_mentions.length ? `
+         <div class="details-grid">
+           ${_mentions.map(m => `
+             <div class="detail-row" style="grid-template-columns:130px 1fr">
+               <span class="k">#${m.channel || '—'}${m.user ? ' · ' + m.user : ''}</span>
+               <span class="v" style="white-space:normal">${(m.text || '').replace(/</g,'&lt;')}${m.permalink ? ` <a href="${m.permalink}" target="_blank" style="color:var(--accent)">open</a>` : ''}</span>
+             </div>`).join('')}
+         </div>` : `
+         <div class="chk-none" style="font-size:12px">No Slack messages reference this booking.</div>`}
+       </div>`
+    : '';
+
   const confTrail = r.confidenceTrail
     ? `<div class="confidence-trail">
          <div class="confidence-trail-label">How we built this match</div>
@@ -2333,6 +2352,7 @@ function renderReviewCol() {
       </div>
       ${signalsBox}
       ${confTrail}
+      ${slackPings}
       ${r.candidateState && r.candidatesList ? `
         <div class="candidates-picker">
           <div class="candidates-picker-label">↑ Pick the correct booking to continue RCA</div>

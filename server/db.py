@@ -99,6 +99,9 @@ class RcaDraft(Base):
     # ── Editable Slack thread post ──
     slack_thread_override       = Column(Text, nullable=True)
 
+    # ── Slack pings mentioning this BID (RCA context, not matching) ──
+    slack_mentions              = Column(JSON, default=list)
+
     # ── Flag to Biz ──
     flag_to_biz_state           = Column(String, default="off")  # off | drafted | sent
     flag_to_biz_message         = Column(Text, nullable=True)
@@ -161,6 +164,7 @@ def _ensure_columns():
         "wwr_scenarios":          "JSONB" if is_pg else "JSON",
         "ticket_facts":           "JSONB" if is_pg else "JSON",
         "slack_thread_override":  "TEXT",
+        "slack_mentions":         "JSONB" if is_pg else "JSON",
     }
     for col, coltype in wanted.items():
         if col in existing:

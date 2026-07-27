@@ -209,50 +209,68 @@ async def process_review(review_id: str):
                             "text": f"<strong>BQ:</strong> BID {review.reference_number} confirmed"})
                         confidence_trail.append({"mark": "pass",
                             "text": f"<strong>Tier 1</strong> confirmed via {bid_source}"})
-                    else:  # regex — run 1-of-3 verify
+                    else:  # regex — a found number is not yet a booking
+                        # A 7-12 digit number in review prose may be an order
+                        # number, a phone number or an amount, so it is only
+                        # trusted once the booking it points at resembles this
+                        # review. Scored, not 1-of-3 booleans: the old test used
+                        # a SUBSTRING name check with a 2-char minimum ("ole"
+                        # matched "Olsen") and let a visit date landing anywhere
+                        # in a 30-day window promote to Tier 1 unaided.
+                        from server.services.zendesk import _name_score as _nsc
+                        _ap = (review.author or "").strip().split()
+                        _af = _ap[0] if _ap else None
+                        _al = _ap[-1] if len(_ap) > 1 else None
                         verify_hits = []
-                        # 1. Name match
-                        pgn = (bq_row.get("primary_guest_name") or "").lower()
-                        author_lower = (review.author or "").lower()
-                        if pgn and author_lower and (
-                            author_lower in pgn or pgn in author_lower
-                            or any(p in pgn for p in author_lower.split() if len(p) >= 2)
-                        ):
-                            verify_hits.append("name")
-                        # 2. Date within 30 days of visit
+
+                        pgn = bq_row.get("primary_guest_name") or ""
+                        name_conf = _nsc(pgn, _af, _al)
+                        if name_conf >= 0.7:          # surname agrees at minimum
+                            verify_hits.append(f"name({name_conf:.1f})")
+
+                        exp_name = (bq_row.get("experienceName") or "")
+                        venue_ok = bool(exp_name) and _venue_token_overlap(review_text or "", exp_name)
+                        if venue_ok:
+                            verify_hits.append("venue")
+
+                        date_ok = False
                         visit_str = bq_row.get("date_of_visit", "") or ""
                         if visit_str:
                             try:
                                 from datetime import date as _date
                                 visit_dt = _date.fromisoformat(visit_str)
                                 recv_dt = (review.received_at or datetime.utcnow()).date()
-                                if abs((recv_dt - visit_dt).days) <= 30:
-                                    verify_hits.append("date")
+                                date_ok = abs((recv_dt - visit_dt).days) <= 30
                             except Exception:
                                 pass
-                        # 3. Venue match — significant-word overlap, not a naive
-                        #    substring scan (see _venue_token_overlap).
-                        exp_name = (bq_row.get("experienceName") or "").lower()
-                        if exp_name and _venue_token_overlap(review_text or "", exp_name):
-                            verify_hits.append("venue")
+                        if date_ok:
+                            verify_hits.append("date")
 
-                        if verify_hits:
-                            booking = bq_row
-                            match_tier = 1
-                            _ctr["t1_regex_verified"] += 1
-                            confidence_trail.append({"mark": "pass",
-                                "text": f"<strong>BQ verify:</strong> regex BID confirmed via {', '.join(verify_hits)}"})
-                            confidence_trail.append({"mark": "pass",
-                                "text": "<strong>Tier 1</strong> confirmed via regex"})
-                        else:
-                            # Weak BID — downgrade to Tier 2
+                        # Date alone is not evidence — a 30-day window catches a
+                        # large share of bookings. It only corroborates.
+                        if not (name_conf >= 0.7 or venue_ok):
+                            # Weak BID — downgrade to Tier 2. booking stays
+                            # unset: an unverified number must not become the
+                            # matched booking.
                             bq_row["low_confidence_bid_match"] = True
                             candidates = [bq_row]
                             match_tier = 2
                             candidate_state = True
                             _ctr["t1_regex_downgraded"] += 1
                             confidence_trail.append({"mark": "warn",
-                                "text": "<strong>Weak BID</strong> — 0/3 verify checks passed; downgraded to Tier 2"})
+                                "text": f"<strong>Weak BID</strong> — number found in text, but "
+                                        f"booking guest '{pgn or '—'}' scores {name_conf:.1f} and no "
+                                        f"venue match{' (date only)' if date_ok else ''}. "
+                                        f"Needs confirmation."})
+                        else:
+                            booking = bq_row
+                            match_tier = 1
+                            _ctr["t1_regex_verified"] += 1
+                            confidence_trail.append({"mark": "pass",
+                                "text": f"<strong>BQ verify:</strong> regex BID confirmed via "
+                                        f"{', '.join(verify_hits)}"})
+                            confidence_trail.append({"mark": "pass",
+                                "text": "<strong>Tier 1</strong> confirmed via regex"})
                 else:
                     _ctr["t1_bq_missed"] += 1
                     confidence_trail.append({"mark": "warn",
@@ -849,6 +867,18 @@ async def process_review(review_id: str):
                 timeline, extracted_bk = [], {}
                 zd_meta = {"ticket_ids": [], "timeline_raw": []}
 
+        # ── 6a. Slack pings mentioning this BID ───────────────────────────────
+        # RCA context, not matching. Ops/escalation/SP channels often carry
+        # chases and manual interventions for a booking that never reach
+        # Zendesk. Workspace-wide, not just ORM channels.
+        slack_mentions = []
+        if bid_for_zd:
+            try:
+                slack_mentions = await slk.search_mentions(str(bid_for_zd))
+                log.info(f"[pipeline] slack mentions for {bid_for_zd}: {len(slack_mentions)}")
+            except Exception as e:
+                log.warning(f"Slack mention search failed — continuing: {e}")
+
         # ── 6b. Ticket fact extraction (Claude, runs concurrently with support frames) ──
         ticket_facts = {}
         _timeline_raw_for_extraction = zd_meta.get("timeline_raw", [])
@@ -1076,6 +1106,7 @@ async def process_review(review_id: str):
         draft.similar_reviews  = similar_reviews
         draft.dss_rec          = dss_rec
         draft.zendesk_ticket_ids = zd_meta.get("ticket_ids", [])
+        draft.slack_mentions     = slack_mentions
         draft.timeline_raw       = zd_meta.get("timeline_raw", [])
 
         draft.stated_issue                = stated_issue
@@ -1124,7 +1155,7 @@ async def process_review(review_id: str):
             "booking", "candidates_list", "confidence_trail",
             "extracted_signals", "narrowing_attempts",
             "timeline", "insights", "similar_support", "similar_reviews",
-            "dss_rec", "zendesk_ticket_ids", "timeline_raw",
+            "dss_rec", "zendesk_ticket_ids", "timeline_raw", "slack_mentions",
             "diagnostic_checks", "what_went_wrong_bullets",
             "support_interaction_frames", "sp_interaction_frames",
             "area_of_improving", "actions_taken", "overlay_scenarios", "wwr_scenarios",

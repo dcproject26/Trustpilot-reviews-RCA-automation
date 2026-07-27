@@ -186,6 +186,7 @@ def _draft_dict(d: RcaDraft) -> dict:
 
         "ticket_facts":        d.ticket_facts or {},
         "slack_thread_override": d.slack_thread_override or "",
+        "slack_mentions":        d.slack_mentions or [],
 
         "suggested_response": d.suggested_response or "",
         "final_response":     d.final_response or "",
