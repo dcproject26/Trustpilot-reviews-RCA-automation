@@ -1762,6 +1762,13 @@ async function loadSubThemeOptions() {
 loadSubThemeOptions();
 
 // ── Inbox wiring ─────────────────────────────────────────────────────────────
+// Did the booking id come from the review itself, or did we infer it?
+// attachment / manual / regex all mean the review carried it. Anything else
+// (a Zendesk requester match, a venue search) is inferred, however confident.
+function _bidFromReview(row) {
+  return ['attachment', 'manual', 'regex'].includes(row && row.bid_source);
+}
+
 async function fetchInbox() {
   try {
     const rows = await (await fetch('/api/reviews')).json();
@@ -1779,9 +1786,12 @@ async function fetchInbox() {
           status:         row.status      || demo.status,
           matchTier:      t,
           candidateState: c,
-          type:           t === 1 ? 'identified' : (c ? 'candidates' : (t == null ? 'untraceable' : 'candidates')),
+          type:           (t === 1 && _bidFromReview(row)) ? 'identified'
+                          : (c ? 'candidates' : (t == null ? 'untraceable' : 'candidates')),
           tier:           t ? `T${t}` : '—',
-          matchTitle:     t === 1 ? 'Direct match' : c ? 'Possible matches — associate to confirm' : 'Untraceable',
+          matchTitle:     (t === 1 && _bidFromReview(row)) ? 'Direct match'
+                          : t === 1 ? 'Matched from Zendesk — confirm to continue'
+                          : c ? 'Possible matches — associate to confirm' : 'Untraceable',
         };
       }
       // New API-only review (manual / Slack): minimal template
@@ -1798,9 +1808,12 @@ async function fetchInbox() {
         time:           row.received_at ? new Date(row.received_at).toLocaleString('en-GB', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '',
         status:         row.status || 'new',
         matchTier:      tier,
-        matchTitle:     tier === 1 ? 'Direct match' : tier === 2 ? 'Possible matches — associate to confirm' : 'Untraceable',
+        matchTitle:     (tier === 1 && _bidFromReview(row)) ? 'Direct match'
+                        : tier === 1 ? 'Matched from Zendesk — confirm to continue'
+                        : tier === 2 ? 'Possible matches — associate to confirm' : 'Untraceable',
         candidateState: row.candidate_state || false,
-        type:           tier === 1 ? 'identified' : (row.candidate_state ? 'candidates' : (tier == null ? 'untraceable' : 'candidates')),
+        type:           (tier === 1 && _bidFromReview(row)) ? 'identified'
+                        : (row.candidate_state ? 'candidates' : (tier == null ? 'untraceable' : 'candidates')),
         tier:           tier ? `T${tier}` : '—',
         experience:     row.experience || '',
         channel:        'orm',
