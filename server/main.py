@@ -177,5 +177,13 @@ if os.path.isdir(os.path.join(CLIENT_DIR, "static")):
 
 if __name__ == "__main__":
     import uvicorn
+    # reload is OPT-IN. With it on, watchfiles restarts the app on any file
+    # change under the workspace -- including __pycache__ and the sqlite file
+    # the app itself writes on every request. That produced a restart every few
+    # hundred milliseconds, and each restart killed the in-flight BackgroundTask,
+    # so a re-run could never finish and the dashboard saw nothing change.
+    _reload = os.getenv("UVICORN_RELOAD", "").lower() in ("1", "true", "yes")
     uvicorn.run("server.main:app", host="0.0.0.0",
-                port=int(os.getenv("PORT", "8000")), reload=True)
+                port=int(os.getenv("PORT", "8000")),
+                reload=_reload,
+                reload_excludes=["*.db", "*.log", "__pycache__/*", ".git/*"] if _reload else None)
