@@ -681,7 +681,17 @@ async def reprocess_review(
                         f"re-running on stored text: {e}")
 
     from server.pipeline import process_review as _pipeline
-    background_tasks.add_task(lambda rid: asyncio.run(_pipeline(rid)), review_id)
+
+    def _run(rid):
+        # Background-task exceptions were swallowed entirely: the pipeline died,
+        # generated_at never moved, and the dashboard polled for three minutes
+        # before giving up — indistinguishable from "re-run did nothing".
+        try:
+            asyncio.run(_pipeline(rid))
+        except Exception:
+            log.exception(f"[reprocess] pipeline crashed for {rid}")
+
+    background_tasks.add_task(_run, review_id)
     return {"ok": True, "review_id": review_id, "refreshed_from_slack": refreshed}
 
 
