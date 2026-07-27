@@ -2279,9 +2279,11 @@ function renderReviewCol() {
        </div>`
     : `<div class="section">
          <div class="section-label"><span class="marker"></span>Extracted from review<span class="ai-tag-inline">AI</span></div>
-         <div class="chk-none" style="font-size:12px;color:var(--amber)">
-           Nothing extracted — no venue, city, date or name found in the review text.
-           Matching has no indicators to search on.
+         <div class="chk-none" style="font-size:12px;color:${_sig.matching_skipped ? 'var(--text-mute)' : 'var(--amber)'}">
+           ${_sig.matching_skipped
+             ? _sig.matching_skipped
+             : `Nothing extracted — no venue, city, date or name found in the review text.
+                Matching has no indicators to search on.`}
          </div>
        </div>`;
 

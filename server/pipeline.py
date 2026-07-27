@@ -203,6 +203,8 @@ async def process_review(review_id: str):
                 confidence_trail.append({"mark": "pass",
                     "text": f"<strong>Associate confirmed</strong> BID {confirmed_bid} — "
                             "matching skipped"})
+                extracted_sigs["matching_skipped"] = (
+                    f"An associate confirmed BID {confirmed_bid}, so no matching was needed.")
                 log.info(f"[pipeline] using associate-confirmed BID {confirmed_bid}")
             else:
                 confidence_trail.append({"mark": "warn",
@@ -332,6 +334,10 @@ async def process_review(review_id: str):
             )
 
             # ── Tier 2 cascade (runs when no Tier 1 booking yet) ──────────────
+            if booking and match_tier == 1:
+                extracted_sigs["matching_skipped"] = (
+                    f"The review carried booking id {review.reference_number}, "
+                    "so no indicators were needed to find it.")
             if not booking or match_tier != 1:
                 # Matching indicators (approved prompt): one Claude call that
                 # reads the review and extracts everything usable for matching.
