@@ -528,6 +528,12 @@ async def find_bids_by_requester_name(
     # review is about.
     bids = []
     ticket_records = []
+    # Zendesk ticket ids and Headout booking ids share the same numeric space
+    # (both commonly 8 digits), so a ticket body referencing ANOTHER ticket
+    # ("duplicate of 33979875") would otherwise be harvested as a booking id.
+    # Excluding only the containing ticket's own id is not enough — exclude
+    # every ticket id seen in this search.
+    all_ticket_ids = {str(getattr(t, "id", "") or "") for t in tickets}
     for t in tickets[:15]:
         own_id = str(getattr(t, "id", "") or "")
         found = []
@@ -539,7 +545,7 @@ async def find_bids_by_requester_name(
             if val and re.fullmatch(r"\d{7,12}", str(val).strip()):
                 found.append(str(val).strip())
         found += re.findall(r"\b\d{7,12}\b", body[:4000])
-        t_bids = [n for n in found if n != own_id]
+        t_bids = [n for n in found if n not in all_ticket_ids]
         bids += t_bids
         ticket_records.append({
             "ticket_id":      own_id,
@@ -621,6 +627,7 @@ async def find_bids_by_text(
             log.warning(f"[zendesk] text search failed for {term!r}: {e}")
             continue
 
+        _batch_ids = {str(getattr(t, "id", "") or "") for t in (tickets or [])}
         for t in (tickets or [])[:15]:
             own_id = str(getattr(t, "id", "") or "")
             if own_id in seen_tickets:
@@ -634,7 +641,9 @@ async def find_bids_by_text(
                 if val and re.fullmatch(r"\d{7,12}", str(val).strip()):
                     found.append(str(val).strip())
             found += re.findall(r"\b\d{7,12}\b", body[:4000])
-            t_bids = [n for n in found if n != own_id]
+            # Same ticket-id vs booking-id guard as the requester search.
+            t_bids = [n for n in found
+                      if n not in _batch_ids and n not in seen_tickets]
             all_bids += t_bids
             all_records.append({
                 "ticket_id": own_id,

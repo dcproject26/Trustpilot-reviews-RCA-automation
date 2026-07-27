@@ -21,6 +21,7 @@ from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from server.db import get_session, Review, RcaDraft, ReviewMetric
 from server.taxonomy import L1_CATEGORIES, L2_OPTIONS, DIAGNOSTIC_CHECKS, ACTION_TABS, SUB_THEME_REGISTRY
@@ -810,6 +811,44 @@ def vs_intake(body: VsIntake, x_vs_key: str | None = Header(default=None),
 
 
 # ── Untraceable: one-click "ask for booking reference" reply ────────────────
+@router.post("/api/reviews/{review_id}/mark-untraceable")
+def mark_untraceable(review_id: str, db: Session = Depends(get_session)):
+    """
+    Move a Tier 2 "possible matches" review to Untraceable.
+
+    The candidates were wrong — none of them is this guest's booking. Clearing
+    them is the honest state: no booking, no tier, no picker. Keeping a wrong
+    candidate list around invites someone to confirm one of them later.
+    """
+    r = db.query(Review).filter(Review.id == review_id).first()
+    if not r:
+        raise HTTPException(404, "Review not found")
+    d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
+    if not d:
+        raise HTTPException(404, "Draft not found")
+
+    d.booking          = None
+    d.candidates_list  = []
+    d.candidate_state  = False
+    d.match_tier       = None
+    d.match_confidence = None
+    d.match_method     = "Marked untraceable by associate"
+    d.selected_candidate_bid = None
+    trail = list(d.confidence_trail or [])
+    trail.append({"mark": "warn",
+                  "text": "<strong>Marked untraceable</strong> — associate rejected "
+                          "all candidates"})
+    d.confidence_trail = trail
+    for f in ("booking", "candidates_list", "confidence_trail"):
+        try:
+            flag_modified(d, f)
+        except Exception:
+            pass
+    db.commit()
+    log.info(f"[api] {review_id} marked untraceable by associate")
+    return {"ok": True, "review_id": review_id, "match_tier": None}
+
+
 @router.post("/api/reviews/{review_id}/request-bid")
 async def request_bid(review_id: str, db: Session = Depends(get_session)):
     """

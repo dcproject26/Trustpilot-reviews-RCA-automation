@@ -2355,7 +2355,13 @@ function renderReviewCol() {
       ${slackPings}
       ${r.candidateState && r.candidatesList ? `
         <div class="candidates-picker">
-          <div class="candidates-picker-label">↑ Pick the correct booking to continue RCA</div>
+          <div class="candidates-picker-label" style="display:flex;align-items:center;gap:10px">
+            <span>↑ Pick the correct booking to continue RCA</span>
+            <button class="rerun-btn" data-mark-untraceable style="margin-left:auto"
+                    title="None of these is this guest's booking — clear them and move to Untraceable">
+              None of these → Untraceable
+            </button>
+          </div>
           ${r.candidatesList.some(c => c.scoreVenue != null) && !r.candidatesList.some(c => c.venueSignal) ? `
           <div class="candidates-picker-label" style="color:var(--amber);text-transform:none;letter-spacing:0">
             ⚠ No venue agreement — none of these match the venue in the review.
@@ -3614,6 +3620,40 @@ document.querySelectorAll('.inbox-tab').forEach(tab => {
     renderReviewCol();
     renderRcaCol();
   });
+});
+
+// "None of these → Untraceable" — the candidate list was wrong. Clears the
+// candidates server-side and moves the review to the Untraceable tab, so nobody
+// confirms a wrong booking later.
+document.addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('[data-mark-untraceable]');
+  if (!btn || btn.disabled) return;
+  const r = REVIEWS.find(x => x.id === state.selected);
+  if (!r) return;
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = 'Moving…';
+  try {
+    const resp = await fetch(`/api/reviews/${r.id}/mark-untraceable`, {method: 'POST'});
+    if (!resp.ok) throw new Error('mark-untraceable failed');
+    r.type            = 'untraceable';
+    r.matchTier       = null;
+    r.tier            = 'T—';
+    r.candidatesList  = [];
+    r.booking         = r.booking || {};
+    r.booking.bid     = '';
+    r.matchTitle      = 'Untraceable — no booking matched';
+    r.matchMethod     = 'Marked untraceable by associate';
+    await fetchInbox();
+    await loadDraftOverlays();
+    renderInbox(); renderReviewCol(); renderRcaCol();
+  } catch (e) {
+    btn.textContent = 'Failed — retry';
+    btn.disabled = false;
+    return;
+  }
+  btn.textContent = orig;
+  btn.disabled = false;
 });
 
 // ↻ Re-run matching — one delegated handler covers the Booking Match header
