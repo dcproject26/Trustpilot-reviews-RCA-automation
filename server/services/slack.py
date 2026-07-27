@@ -93,7 +93,35 @@ def parse_review(event: dict) -> dict:
             if stars:
                 break
 
-    # ── Booking ID: attachment fields → regex fallback ───────────────────────
+    # ── Every text surface a BID can appear on ───────────────────────────────
+    # The BID must be searched across the ENTIRE message. Guests write it in the
+    # prose, in the headline, or in any attachment field — not just
+    # attachment.text. Only text + attachment.text + attachment.fallback used to
+    # be scanned, so a BID arriving via blocks (which is where the review body
+    # actually comes from), via the headline, or in a field not titled
+    # "reference" was never found.
+    def _all_text_surfaces() -> str:
+        parts = [text]
+        for b in blocks:
+            t = (b.get("text") or {}).get("text", "")
+            if t:
+                parts.append(t)
+            for f in b.get("fields", []) or []:
+                if f.get("text"):
+                    parts.append(str(f["text"]))
+        for att in attachments:
+            for k in ("pretext", "title", "text", "fallback", "footer"):
+                if att.get(k):
+                    parts.append(str(att[k]))
+            for f in att.get("fields", []) or []:
+                for k in ("title", "value"):
+                    if f.get(k):
+                        parts.append(str(f[k]))
+        return "\n".join(parts)
+
+    full_text = _all_text_surfaces()
+
+    # ── Booking ID: attachment fields → full-text regex fallback ─────────────
     from server.taxonomy import BID_REGEX
     booking_id = None
     # Trustpilot's "Reference number" field is free text and guests routinely
@@ -119,13 +147,13 @@ def parse_review(event: dict) -> dict:
                     field_context.append(entry)
                     log.info(f"[extract] attachment field kept as context: {entry!r}")
     if not booking_id:
-        search_text = text
-        for att in attachments:
-            search_text += " " + (att.get("text") or "") + " " + (att.get("fallback") or "")
-        m = re.search(BID_REGEX, search_text)
+        m = re.search(BID_REGEX, full_text)
         if m:
             booking_id = m.group(0)
-            log.info(f"[extract] regex: booking id {booking_id} from message text")
+            log.info(f"[extract] regex: booking id {booking_id} from full message text")
+        else:
+            log.info("[extract] no BID on any text surface — indicators will drive "
+                     "the Zendesk search")
 
     # ── Author ───────────────────────────────────────────────────────────────
     # Priority: bold text in blocks → attachment.author_name → Unknown

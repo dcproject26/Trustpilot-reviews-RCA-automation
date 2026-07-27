@@ -448,6 +448,31 @@ async def process_review(review_id: str):
                             log.warning(f"[tier2] Zendesk requester lookup failed for "
                                         f"'{_f} {_l or ''}' — continuing: {e}")
 
+                    # ── Indicator-driven Zendesk search ───────────────────────
+                    # No BID anywhere in the review and the requester name found
+                    # nothing (display name != Zendesk requester name is common).
+                    # Zendesk free-text search matches subject AND comments, so
+                    # the venue the guest named is directly searchable — that is
+                    # the indicator doing the searching, not just the ranking.
+                    if not zd_bids and venue_hints:
+                        try:
+                            _thits, _trecs = await zendesk.find_bids_by_text(venue_hints)
+                            for _tr in _trecs:
+                                for _tb in _tr.get("bids", []):
+                                    if _tb not in bid_ticket_text:
+                                        bid_ticket_text[_tb] = _tr.get("text", "")
+                            for _b in _thits:
+                                if _b not in zd_bids:
+                                    zd_bids.append(_b)
+                            log.info(f"[tier2] zendesk text search {venue_hints}: "
+                                     f"{len(_thits)} BIDs")
+                            confidence_trail.append({
+                                "mark": "pass" if _thits else "warn",
+                                "text": f"<strong>Zendesk text search:</strong> "
+                                        f"{venue_hints} → {len(_thits)} BID(s)"})
+                        except Exception as e:
+                            log.warning(f"[tier2] Zendesk text search failed — continuing: {e}")
+
                     if zd_bids:
                         zd_candidates = []
                         for bid in zd_bids[:10]:

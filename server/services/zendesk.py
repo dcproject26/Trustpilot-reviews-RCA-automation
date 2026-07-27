@@ -465,6 +465,87 @@ async def find_bids_by_requester_name(
     return deduped
 
 
+async def find_bids_by_text(
+    terms: list[str],
+    since: str | None = None,
+    requester_hint: str | None = None,
+) -> tuple[list[str], list[dict]]:
+    """
+    Search Zendesk by free text — the venue/experience the guest named — rather
+    than by requester name.
+
+    Why this works: Zendesk free-text search matches against the ticket SUBJECT
+    and its COMMENTS (per Zendesk's ticket search reference), so a venue the
+    guest mentioned in the review will match the ticket where they raised it.
+    Terms are double-quoted, which Zendesk treats as an exact-phrase match.
+    Zendesk respects word boundaries and does NOT do partial-word matching, so
+    terms are passed verbatim rather than truncated or stemmed.
+
+    Returns (bids, ticket_records) in the same shape as
+    find_bids_by_requester_name(with_context=True).
+
+    Result cap: Zendesk's Search API returns at most 1,000 results (100/page);
+    we only ever consume the first page, which is far more than a single guest's
+    ticket history needs.
+    """
+    if not is_live("zendesk"):
+        return [], []
+    terms = [str(t).strip() for t in (terms or []) if str(t).strip()]
+    if not terms:
+        return [], []
+
+    _z = _get_client()
+    if _z is None:
+        log.warning("[zendesk] find_bids_by_text: no client available")
+        return [], []
+
+    since = since or datetime.now().strftime("%Y-01-01")
+
+    all_bids, all_records, seen_tickets = [], [], set()
+    for term in terms[:3]:
+        clauses = [f'type:ticket "{term}"', f"created>{since}"]
+        if requester_hint:
+            clauses.insert(1, f'requester:"{requester_hint}"')
+        query = " ".join(clauses)
+        log.info(f"[zendesk] text search: {query}")
+        try:
+            tickets = await asyncio.get_running_loop().run_in_executor(
+                None, lambda q=query: _search_with_retry(_z, q)
+            )
+        except Exception as e:
+            log.warning(f"[zendesk] text search failed for {term!r}: {e}")
+            continue
+
+        for t in (tickets or [])[:15]:
+            own_id = str(getattr(t, "id", "") or "")
+            if own_id in seen_tickets:
+                continue
+            seen_tickets.add(own_id)
+            subject = (getattr(t, "subject", "") or "")
+            body    = (getattr(t, "description", "") or "")
+            found   = re.findall(r"\b\d{7,12}\b", subject)
+            for cf in getattr(t, "custom_fields", []) or []:
+                val = cf.get("value") if isinstance(cf, dict) else None
+                if val and re.fullmatch(r"\d{7,12}", str(val).strip()):
+                    found.append(str(val).strip())
+            found += re.findall(r"\b\d{7,12}\b", body[:4000])
+            t_bids = [n for n in found if n != own_id]
+            all_bids += t_bids
+            all_records.append({
+                "ticket_id": own_id,
+                "subject":   subject,
+                "body":      body[:4000],
+                "text":      f"{subject}\n{body[:4000]}".strip(),
+                "bids":      list(dict.fromkeys(t_bids)),
+                "matched_term": term,
+            })
+
+    deduped = list(dict.fromkeys(all_bids))[:25]
+    log.info(f"[zendesk] text search {terms[:3]}: {len(seen_tickets)} tickets → "
+             f"{len(deduped)} candidate numbers")
+    return deduped, all_records
+
+
 def _fallback_shape(raw_events: list) -> list:
     """
     Mechanical fallback when Claude shaping fails.
