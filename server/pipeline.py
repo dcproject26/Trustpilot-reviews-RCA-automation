@@ -282,6 +282,11 @@ async def process_review(review_id: str):
                     indicators.get("city_or_country")) if h and str(h).strip()]
                 extracted_sigs["venue_hints"] = venue_hints
                 extracted_sigs["match_indicators"] = indicators
+                # pax is extracted and persisted, but cannot be SCORED yet: no
+                # BQ query in this codebase selects a pax/quantity column, and
+                # the Zendesk extractor does not populate one either. Wiring it
+                # needs the pax column name in fct_bookings.
+                extracted_sigs["pax_hint"] = indicators.get("pax")
                 if indicators:
                     confidence_trail.append({"mark": "pass",
                         "text": "<strong>Indicators:</strong> "
@@ -419,6 +424,7 @@ async def process_review(review_id: str):
                     confidence_trail.append({"mark": "pass",
                         "text": f"<strong>Zendesk lookup:</strong> {_names_str}"})
                     zd_bids = []
+                    bid_ticket_text = {}   # bid -> subject+body of its source ticket
                     for _f, _l in search_identities:
                         try:
                             # No lookback_days — the service defaults to since
@@ -426,7 +432,12 @@ async def process_review(review_id: str):
                             # overrode that agreed window and dropped tickets
                             # older than 60 days (guests review months later),
                             # which is how a requester's real BID went unharvested.
-                            _hits = await zendesk.find_bids_by_requester_name(_f, _l)
+                            _hits, _trecs = await zendesk.find_bids_by_requester_name(
+                                _f, _l, with_context=True)
+                            for _tr in _trecs:
+                                for _tb in _tr.get("bids", []):
+                                    if _tb not in bid_ticket_text:
+                                        bid_ticket_text[_tb] = _tr.get("text", "")
                             log.info(
                                 f"[tier2] zendesk requester: {len(_hits)} BIDs "
                                 f"for '{_f} {_l or ''}'")
@@ -492,21 +503,42 @@ async def process_review(review_id: str):
                             except Exception:
                                 return 0.0
 
-                        def _score(row):
-                            return _venue_pts(row) + _date_pts(row)
+                        # Ticket relevance: how much the Zendesk ticket a BID was
+                        # harvested from talks about the same thing the review
+                        # does. This is the signal that survives a bare review —
+                        # "it is a scam and they sell tickets at much higher
+                        # prices" has no venue or date, but the requester's
+                        # pricing-complaint ticket overlaps it strongly while
+                        # their unrelated bookings' tickets do not.
+                        # Capped so a long ticket body cannot dominate venue.
+                        _review_toks = _sig_tokens(review_text or "")
+
+                        def _ticket_pts(bid):
+                            txt = bid_ticket_text.get(str(bid), "")
+                            if not (txt and _review_toks):
+                                return 0.0
+                            return min(3.0, 0.5 * len(_sig_tokens(txt) & _review_toks))
+
+                        def _score(row, bid=None):
+                            return _venue_pts(row) + _date_pts(row) + _ticket_pts(bid)
 
                         # Indicators RANK, they never exclude (approved point 6).
                         # venue_signal is observational only — it drives the
                         # "date-only, treat as weak" label, not the candidate set.
                         venue_signal = any(_venue_pts(r) > 0 for _, r in zd_candidates)
+                        ticket_signal = any(_ticket_pts(b) > 0 for b, _ in zd_candidates)
                         if not venue_signal:
-                            confidence_trail.append({"mark": "warn",
+                            confidence_trail.append({
+                                "mark": "pass" if ticket_signal else "warn",
                                 "text": "<strong>No venue agreement</strong> — "
                                         + (f"no candidate matches {venue_hints}"
                                            if venue_hints else
                                            "no venue extracted from the review")
-                                        + "; ranking below is date-proximity only"})
-                            log.info(f"[tier2] no venue agreement (hints={venue_hints})")
+                                        + ("; ranked on Zendesk ticket text vs the review"
+                                           if ticket_signal else
+                                           "; ranking below is date-proximity only")})
+                            log.info(f"[tier2] no venue agreement (hints={venue_hints}, "
+                                     f"ticket_signal={ticket_signal})")
 
                         n_zd = len(zd_candidates)
                         if n_zd == 1:
@@ -528,17 +560,23 @@ async def process_review(review_id: str):
                             cascade_done = True
                         elif n_zd >= 2:
                             ranked = sorted(zd_candidates,
-                                            key=lambda t: _score(t[1]), reverse=True)[:5]
-                            _matched_on = (["name", "zendesk", "venue"] if venue_signal
-                                           else ["name", "zendesk", "date-only"])
+                                            key=lambda t: _score(t[1], t[0]), reverse=True)[:5]
+                            _matched_on = ["name", "zendesk"]
+                            if venue_signal:
+                                _matched_on.append("venue")
+                            elif any(_ticket_pts(b) > 0 for b, _ in ranked):
+                                _matched_on.append("ticket-text")
+                            else:
+                                _matched_on.append("date-only")
                             candidates = [_make_candidate(row, "zendesk_requester", _matched_on)
                                           for _, row in ranked]
                             for i, (bid, row) in enumerate(ranked):
-                                _vp, _dp = _venue_pts(row), _date_pts(row)
-                                candidates[i]["id"]          = bid
-                                candidates[i]["score"]       = round(_vp + _dp, 2)
-                                candidates[i]["score_venue"] = round(_vp, 2)
-                                candidates[i]["score_date"]  = round(_dp, 2)
+                                _vp, _dp, _tp = _venue_pts(row), _date_pts(row), _ticket_pts(bid)
+                                candidates[i]["id"]           = bid
+                                candidates[i]["score"]        = round(_vp + _dp + _tp, 2)
+                                candidates[i]["score_venue"]  = round(_vp, 2)
+                                candidates[i]["score_date"]   = round(_dp, 2)
+                                candidates[i]["score_ticket"] = round(_tp, 2)
                                 candidates[i]["venue_signal"] = _vp > 0
                             candidate_state = True
                             match_tier = 2

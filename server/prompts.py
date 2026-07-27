@@ -712,12 +712,16 @@ Return JSON:
 - visit_date_hint — any date/time reference ("on May 2nd", "last Saturday",
   "two weeks ago") normalized to a best-guess date or range, given the review
   was posted {review_date or "unknown"}
+- pax — how many people the booking was for, as a number. Count it from
+  whatever the review says: "9 combo tickets" → 9, "my wife and I" → 2,
+  "family of four" → 4, "2 adults 1 child" → 3. Null if not inferable.
 
 Return ONLY valid JSON, no markdown:
 {{"guest_name": "<or null>",
   "experience_or_venue": "<or null>",
   "city_or_country": "<or null>",
-  "visit_date_hint": "<or null>"}}
+  "visit_date_hint": "<or null>",
+  "pax": "<number or null>"}}
 
 Every field above is consumed by the matcher:
 1. guest_name — searched in Zendesk as the ticket requester, alongside the

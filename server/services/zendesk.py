@@ -359,12 +359,18 @@ async def find_bids_by_requester_name(
     author_first: str,
     author_last: str | None,
     lookback_days: int | None = None,
-) -> list[str]:
+    with_context: bool = False,
+):
     """
     Search Zendesk for tickets by requester name.
     Default window: since the start of the current year (guests often review
     months after the visit). Pass lookback_days to override.
     Returns candidate booking numbers from subject + custom fields + body.
+
+    with_context=True returns (bids, ticket_records) instead of just bids, where
+    each record is {ticket_id, subject, body, text, bids}. The caller needs that
+    text to decide WHICH of a requester's bookings a review refers to — the
+    review itself is frequently a single line with no venue or date in it.
 
     Handles all name shapes:
     - Full name: quoted phrase search
@@ -372,13 +378,14 @@ async def find_bids_by_requester_name(
     - Non-Latin / special chars: URL-encoded, quoted
     - Empty / null: returns []
     """
+    _empty = ([], []) if with_context else []
     if not is_live("zendesk") or not author_first:
-        return []
+        return _empty
 
     _z = _get_client()
     if _z is None:
         log.warning("[zendesk] find_bids_by_requester_name: no client available")
-        return []
+        return _empty
 
     def _as_query(name: str) -> str:
         if any(c in name for c in [" ", "-", "'", "."]) or not name.isascii():
@@ -421,7 +428,14 @@ async def find_bids_by_requester_name(
     # A ticket's own id shares the same number space as BIDs — exclude it;
     # every remaining number is verified against BigQuery downstream, which is
     # what actually distinguishes a booking id from a ticket id / other digits.
+    #
+    # The subject and body TEXT is retained alongside each BID, not just the
+    # digits scraped out of it. A one-line review ("it is a scam") carries no
+    # venue or date, but the ticket that BID came from describes the actual
+    # problem — that text is what tells us which of a requester's bookings the
+    # review is about.
     bids = []
+    ticket_records = []
     for t in tickets[:15]:
         own_id = str(getattr(t, "id", "") or "")
         found = []
@@ -433,12 +447,21 @@ async def find_bids_by_requester_name(
             if val and re.fullmatch(r"\d{7,12}", str(val).strip()):
                 found.append(str(val).strip())
         found += re.findall(r"\b\d{7,12}\b", body[:4000])
-        for n in found:
-            if n != own_id:
-                bids.append(n)
+        t_bids = [n for n in found if n != own_id]
+        bids += t_bids
+        ticket_records.append({
+            "ticket_id": own_id,
+            "subject":   subject,
+            "body":      body[:4000],
+            "text":      f"{subject}\n{body[:4000]}".strip(),
+            "bids":      list(dict.fromkeys(t_bids)),
+        })
 
     deduped = list(dict.fromkeys(bids))[:25]
-    log.info(f"[zendesk] requester search for '{name_str}': {len(tickets)} tickets → {len(deduped)} candidate numbers (subject+fields+body)")
+    log.info(f"[zendesk] requester search for '{name_str}': {len(tickets)} tickets → "
+             f"{len(deduped)} candidate numbers (subject+fields+body)")
+    if with_context:
+        return deduped, ticket_records
     return deduped
 
 
