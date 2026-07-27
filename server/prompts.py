@@ -696,45 +696,41 @@ Return ONLY the 2-3 sentence paragraph, no headings."""
 
 # ─── 7. Venue extraction — multi-venue, for Tier 2 cascade ─────────────────
 def match_indicator_prompt(review_text: str, review_date: str) -> str:
-    """Matching-indicator extraction (booking match, Tier 2).
-
-    These values are SEARCH INPUTS, not post-hoc ranking signals: `venues`
-    resolves to TGIDs that decide which bookings are plausible at all, and
-    `guest_name` is searched in Zendesk alongside the Trustpilot display name.
-    `city` is returned separately from `venues` on purpose — folding a city into
-    the venue text manufactures false venue matches ("Barcelona" scoring against
-    "Barcelona City Tour").
-    """
-    return f"""You are identifying which Headout booking a Trustpilot review is about.
-
-Read the review and extract every indicator that could identify the booking.
-These values are used to SEARCH — a wrong guess sends the search to the wrong
-account or the wrong venue. Return null / an empty list rather than inventing.
+    """Approved matching-indicator extraction (booking match, Tier 2)."""
+    return f"""You are matching a Trustpilot review to a Headout booking. Read the review and
+extract every indicator that could identify the booking. Do not invent anything —
+only what the text supports.
 
 REVIEW (posted {review_date or "unknown"}):
 {review_text}
 
-Extraction rules:
-- venues: the shortest recognisable PROPER NAME of each place the guest visited
-  or booked — e.g. "Palace of Culture and Science", "Sagrada Familia",
-  "Acropolis", "Vatican Museums". Strip ticket variants and descriptors: no
-  "skip-the-line", "guided", "audio guide", "combo", "priority", "with
-  observation deck", "half-day". List every venue mentioned, in order of
-  appearance. Empty list if no venue is explicit — do not guess from the city.
-- city: the city on its own. Never merge it into a venue name.
-- guest_name: the booker's name if it appears in the review text (it may differ
-  from the reviewer's display name); else null.
-- visit_date_hint: any date reference resolved to YYYY-MM-DD using the post date
-  above — "last Tuesday", "yesterday", "on the 14th" all resolve. Null if the
-  review gives no date reference.
+Return JSON:
+- guest_name — from the reviewer name and any name mentioned in the text
+- experience_or_venue — what they visited/booked, in their words
+  (e.g. "Eiffel Tower summit", "Rome catacombs tour")
+- city_or_country — if stated or clearly implied
+- visit_date_hint — any date/time reference ("on May 2nd", "last Saturday",
+  "two weeks ago") normalized to a best-guess date or range, given the review
+  was posted {review_date or "unknown"}
+- party — group size / composition if mentioned ("my wife and I" → 2)
+- issue_keywords — 3–5 words describing the problem (refund, tickets late,
+  guide no-show…) usable as Zendesk search terms
+- booking_channel_hints — anything about how they booked (app, website,
+  Headout by name)
 
 Return ONLY valid JSON, no markdown:
-{{"guest_name": "<name or null>",
-  "venues": ["<proper venue name>", "..."],
-  "city": "<city or null>",
-  "visit_date_hint": "<YYYY-MM-DD or null>",
-  "party": "<group size if mentioned, else null>",
-  "issue_keywords": ["<3-5 words describing the problem>"]}}"""
+{{"guest_name": "<or null>",
+  "experience_or_venue": "<or null>",
+  "city_or_country": "<or null>",
+  "visit_date_hint": "<or null>",
+  "party": "<or null>",
+  "issue_keywords": ["..."],
+  "booking_channel_hints": "<or null>"}}
+
+These indicators will be used to (1) search Zendesk by guest name, and (2) score
+each candidate booking: experience-name similarity to experience_or_venue,
+visit-date closeness to visit_date_hint (else the review date), and city match.
+Highest score = best match shown first."""
 
 
 def venue_extraction_prompt(review_text: str) -> str:

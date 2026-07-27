@@ -262,22 +262,10 @@ async def process_review(review_id: str):
                     indicators = claude._extract_json_object(raw) or {}
                 except Exception as e:
                     log.warning(f"Indicator extraction failed: {e}")
-                # venues[] is the current shape; experience_or_venue is the
-                # legacy single string, kept as a fallback. City is deliberately
-                # NOT folded into venue_hints — it can never legitimately match
-                # an experience name and only manufactures false overlaps
-                # (hint "Barcelona" scoring +2 against "Barcelona City Tour").
-                _venues = indicators.get("venues")
-                if isinstance(_venues, str):
-                    _venues = [_venues]
-                venue_hints = [str(h).strip() for h in (_venues or [])
-                               if h and str(h).strip()]
-                if not venue_hints and indicators.get("experience_or_venue"):
-                    venue_hints = [str(indicators["experience_or_venue"]).strip()]
-                city_hint = str(indicators.get("city")
-                                or indicators.get("city_or_country") or "").strip()
+                venue_hints = [h for h in (
+                    indicators.get("experience_or_venue"),
+                    indicators.get("city_or_country")) if h and str(h).strip()]
                 extracted_sigs["venue_hints"] = venue_hints
-                extracted_sigs["city_hint"]   = city_hint
                 extracted_sigs["match_indicators"] = indicators
                 if indicators:
                     confidence_trail.append({"mark": "pass",
@@ -290,10 +278,7 @@ async def process_review(review_id: str):
                 tgids = None
                 if venue_hints:
                     try:
-                        # City helps RESOLUTION (narrows the venue table probe)
-                        # even though it is excluded from venue SCORING below.
-                        tgids = await venue_resolver.resolve(
-                            venue_hints + ([city_hint] if city_hint else []))
+                        tgids = await venue_resolver.resolve(venue_hints)
                     except Exception as e:
                         log.warning(f"Venue resolver failed: {e}")
                 if tgids:
@@ -494,41 +479,18 @@ async def process_review(review_id: str):
                         def _score(row):
                             return _venue_pts(row) + _date_pts(row)
 
-                        # ── Venue agreement gate ───────────────────────────────
-                        # The extracted venue decides WHICH of this requester's
-                        # bookings are plausible at all. Without this the ranking
-                        # below collapses to "closest visit date", which surfaces
-                        # unrelated bookings from the same account (an Acropolis
-                        # and a Montserrat booking scoring 0.33/0.2 on date alone).
-                        # Preference order: TGID identity, then venue-token
-                        # overlap. If neither agrees with anything, we keep the
-                        # full set but mark it so the UI can say so.
-                        _tgid_set = {str(t) for t in (tgids or []) if str(t).strip()}
-                        _by_tgid = [(b, r) for (b, r) in zd_candidates
-                                    if str(r.get("tgid") or "") in _tgid_set] if _tgid_set else []
-                        _by_token = [(b, r) for (b, r) in zd_candidates if _venue_pts(r) > 0]
-                        venue_signal = True
-                        if _by_tgid:
-                            zd_candidates = _by_tgid
-                            confidence_trail.append({"mark": "pass",
-                                "text": f"<strong>Venue gate:</strong> {len(_by_tgid)} of "
-                                        f"{len(_by_token) or len(zd_candidates)} match the "
-                                        f"resolved TGID for {venue_hints}"})
-                        elif _by_token:
-                            zd_candidates = _by_token
-                            confidence_trail.append({"mark": "pass",
-                                "text": f"<strong>Venue gate:</strong> {len(_by_token)} match "
-                                        f"the extracted venue {venue_hints} by name"})
-                        else:
-                            venue_signal = False
+                        # Indicators RANK, they never exclude (approved point 6).
+                        # venue_signal is observational only — it drives the
+                        # "date-only, treat as weak" label, not the candidate set.
+                        venue_signal = any(_venue_pts(r) > 0 for _, r in zd_candidates)
+                        if not venue_signal:
                             confidence_trail.append({"mark": "warn",
                                 "text": "<strong>No venue agreement</strong> — "
-                                        + (f"none of this requester's bookings match {venue_hints}"
+                                        + (f"no candidate matches {venue_hints}"
                                            if venue_hints else
-                                           "no venue could be extracted from the review")
+                                           "no venue extracted from the review")
                                         + "; ranking below is date-proximity only"})
-                            log.info(f"[tier2] venue gate: no agreement "
-                                     f"(hints={venue_hints}, tgids={sorted(_tgid_set)})")
+                            log.info(f"[tier2] no venue agreement (hints={venue_hints})")
 
                         n_zd = len(zd_candidates)
                         if n_zd == 1:
