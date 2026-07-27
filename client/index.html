@@ -2311,10 +2311,7 @@ function renderReviewCol() {
   const slackPings = r.booking && r.booking.bid
     ? `<div class="section">
          <div class="section-label"><span class="marker"></span>Slack mentions of this BID</div>
-         ${(_mentions.length && _mentions[0] && _mentions[0]._unavailable) ? `
-         <div class="chk-none" style="font-size:12px;color:var(--amber)">
-           ⚠ ${_mentions[0]._unavailable}
-         </div>` : _mentions.length ? `
+         ${_mentions.length ? `
          <div class="details-grid">
            ${_mentions.map(m => `
              <div class="detail-row" style="grid-template-columns:130px 1fr">
@@ -2322,7 +2319,7 @@ function renderReviewCol() {
                <span class="v" style="white-space:normal">${(m.text || '').replace(/</g,'&lt;')}${m.permalink ? ` <a href="${m.permalink}" target="_blank" style="color:var(--accent)">open</a>` : ''}</span>
              </div>`).join('')}
          </div>` : `
-         <div class="chk-none" style="font-size:12px">No Slack messages reference this booking.</div>`}
+         <div class="chk-none" style="font-size:12px">No Slack messages found for this booking.</div>`}
        </div>`
     : '';
 

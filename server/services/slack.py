@@ -267,15 +267,16 @@ async def search_mentions(bid: str, limit: int = 20) -> list[dict]:
     # bot tokens cannot call it at all.
     if not bid:
         return []
+    # Scope/auth problems are an operator concern, not something to render into
+    # the dashboard. They go to the log; the panel just says nothing was found.
     if not _user:
         log.info("[slack] search_mentions: no user token (search:read) — cannot search")
-        return [{"_unavailable": "No Slack user token with search:read — "
-                                 "mentions could not be searched."}]
+        return []
     try:
         res = _user.search_messages(query=str(bid), count=limit)
     except Exception as e:
         log.warning(f"[slack] search_mentions {bid} failed: {e}")
-        return [{"_unavailable": f"Slack search failed: {e}"}]
+        return []
     out = []
     for m in (res.get("messages") or {}).get("matches") or []:
         ch = m.get("channel", {}) or {}
