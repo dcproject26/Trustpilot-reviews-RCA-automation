@@ -398,20 +398,33 @@ async def find_bids_by_requester_name(
     else:
         since = datetime.now().strftime("%Y-01-01")
 
-    # Primary: full name. Fallback: the more distinctive single token (usually
-    # the surname). The Trustpilot display name often does not match the Zendesk
-    # requester name exactly (nickname, initial, different order), so a strict
-    # full-name search alone silently misses real tickets. Each BID is still
-    # BQ-verified + venue/date cross-checked downstream, so broadening recall
-    # here is safe.
+    # Primary: full name. Fallback: the SURNAME only — the display name often
+    # differs from the Zendesk requester name (nickname, initial, order).
+    # Previously this picked max(first, last, key=len), which for most names
+    # yields the FIRST name ("Fredrik" over "Olsen"), turning the fallback into
+    # requester:Fredrik — every Fredrik in the instance. Those tickets belong to
+    # strangers, their BIDs still verify in BigQuery, and nothing downstream can
+    # tell them apart, so unrelated bookings surfaced as candidates.
     name_variants = [name_str]
-    if author_last and author_first:
-        distinctive = max((author_first, author_last), key=len)
-        if len(distinctive) >= 3:
-            name_variants.append(distinctive)
+    if author_last and author_first and len(author_last) >= 3:
+        name_variants.append(author_last)
+
+    _user_cache: dict = {}
+
+    def _requester_name(ticket) -> str:
+        rid = getattr(ticket, "requester_id", None)
+        if rid in _user_cache:
+            return _user_cache[rid]
+        nm = ""
+        try:
+            nm = getattr(_z.users(id=rid), "name", "") or ""
+        except Exception:
+            pass
+        _user_cache[rid] = nm
+        return nm
 
     tickets = []
-    for variant in name_variants:
+    for idx, variant in enumerate(name_variants):
         query = f"type:ticket requester:{_as_query(variant)} created>{since}"
         log.info(f"[zendesk] requester search: {query}")
         try:
@@ -421,6 +434,22 @@ async def find_bids_by_requester_name(
         except Exception as e:
             log.warning(f"[zendesk] requester search failed: {e}")
             tickets = []
+
+        # A single-token search matches every user carrying that token, so the
+        # broad variant MUST be verified: the ticket's real requester name has
+        # to contain both names we were actually looking for.
+        if tickets and idx > 0 and author_first and author_last:
+            want = [author_first.lower(), author_last.lower()]
+            before = len(tickets)
+            tickets = await asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda ts=tickets: [
+                    t for t in ts
+                    if all(w in _requester_name(t).lower() for w in want)
+                ],
+            )
+            log.info(f"[zendesk] broad variant {variant!r}: {before} tickets → "
+                     f"{len(tickets)} after requester-name verification")
         if tickets:
             break
 
