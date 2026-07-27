@@ -5,7 +5,7 @@ Data path per the 2026-07 wiring brief:
 1. Search tickets: fieldvalue:<bid> first, free-text "<bid>" fallback (logged).
 2. Extract tgid/tid from confirmed custom field IDs (2024 Retool workflow).
 3. Surface ticket_mail_seen tag on the booking.
-4. Fetch ALL comments per ticket (public + private notes), paginated by zenpy.
+4. Fetch PUBLIC comments per ticket (internal notes skipped), paginated by zenpy.
 5. Brand split: guest-brand tickets -> guest timeline, SP-brand -> sp thread
    (draft.sp_interaction_frames). If brands unset, everything is guest.
 6. Merge multi-ticket comments chronologically; _get_timeline_sync produces raw
@@ -182,6 +182,9 @@ def _zd_get(path: str):
         return None
 
 
+_SC_CACHE: dict = {}
+
+
 def side_conversations(ticket_id) -> list[dict]:
     """
     Side conversations on a ticket, with their messages.
@@ -193,8 +196,12 @@ def side_conversations(ticket_id) -> list[dict]:
 
     Returns [{id, subject, participants, text, messages: [{time, actor, body}]}].
     """
+    key = str(ticket_id)
+    if key in _SC_CACHE:
+        return _SC_CACHE[key]
     data = _zd_get(f"/api/v2/tickets/{ticket_id}/side_conversations.json")
     if not data:
+        _SC_CACHE[key] = []
         return []
     out = []
     for sc in (data.get("side_conversations") or []):
@@ -221,6 +228,7 @@ def side_conversations(ticket_id) -> list[dict]:
     if out:
         log.info(f"[zendesk] ZD-{ticket_id}: {len(out)} side conversation(s), "
                  f"{sum(len(o['messages']) for o in out)} message(s)")
+    _SC_CACHE[key] = out
     return out
 
 
@@ -456,6 +464,15 @@ def _get_timeline_sync(_z, booking_id: str):
                 continue
 
         for c in comments:
+            # Internal notes are Headout talking to itself — agent macros,
+            # fulfilment bookkeeping, system bookkeeping. They are not part of
+            # what happened to the guest, and summarising them produced timeline
+            # entries like "Fulfilment attempted across multiple tries via the
+            # vendor portal" that read as guest-facing events but are not.
+            # Zendesk marks them public=False. SP side conversations are handled
+            # separately and are NOT affected by this.
+            if getattr(c, "public", True) is False:
+                continue
             body = getattr(c, "body", "") or getattr(c, "html_body", "") or ""
             via_ch = getattr(getattr(c, "via", None), "channel", "") or ""
             author_id = getattr(c, "author_id", None)
@@ -733,11 +750,13 @@ async def find_bids_by_requester_name(
             _not_bids.add(sig["itinerary_id"])
         scraped   = [n for n in found if n not in _not_bids]
 
-        sc_list = side_conversations(own_id)
-        sc_bids = []
-        for sc in sc_list:
-            sc_bids += [n for n in re.findall(r"\b\d{7,12}\b", sc.get("text", ""))
-                        if n not in _not_bids]
+        # Side conversations are NOT fetched here. During candidate search this
+        # would be 15 tickets x (1 + N) sequential HTTP calls for booking ids we
+        # mostly discard, which is a large part of why re-runs were slow. The
+        # booking field, subject and body already cover the search; side
+        # conversations are read once the booking is known, when building the
+        # timeline, where their content is actually used.
+        sc_list, sc_bids = [], []
 
         t_bids = list(dict.fromkeys(
             ([field_bid] if field_bid else []) + scraped + sc_bids))
@@ -848,10 +867,7 @@ async def find_bids_by_text(
             field_bid = booking_id_from_ticket(t)
             scraped = [n for n in found
                        if n not in _batch_ids and n not in seen_tickets]
-            sc_bids = []
-            for sc in side_conversations(own_id):
-                sc_bids += [n for n in re.findall(r"\b\d{7,12}\b", sc.get("text", ""))
-                            if n not in _batch_ids and n not in seen_tickets]
+            sc_bids = []   # see note above — not fetched during search
             t_bids = list(dict.fromkeys(
                 ([field_bid] if field_bid else []) + scraped + sc_bids))
             all_bids += t_bids

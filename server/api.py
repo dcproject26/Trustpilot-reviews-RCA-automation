@@ -639,6 +639,18 @@ async def reprocess_review(
     if not r:
         raise HTTPException(404, "Review not found")
 
+    # Re-run means REDO THE MATCHING. A previous confirmation must not survive
+    # it: the pipeline honours selected_candidate_bid and skips matching
+    # entirely, so leaving it set made Re-run a no-op that reported
+    # "Associate confirmed ... matching skipped" and extracted no indicators,
+    # while the card still read "Possible matches — associate to confirm".
+    _d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
+    if _d and _d.selected_candidate_bid:
+        log.info(f"[reprocess] {review_id}: clearing confirmation "
+                 f"{_d.selected_candidate_bid} — re-run redoes matching")
+        _d.selected_candidate_bid = None
+        db.commit()
+
     # Re-fetch the original Slack message and re-parse it before re-running.
     # Reviews ingested by an older parser lost content that parser discarded —
     # the review headline, and any attachment field that was not a bare booking
