@@ -96,21 +96,28 @@ def parse_review(event: dict) -> dict:
     # ── Booking ID: attachment fields → regex fallback ───────────────────────
     from server.taxonomy import BID_REGEX
     booking_id = None
+    # Trustpilot's "Reference number" field is free text and guests routinely
+    # put something other than a booking id in it — most usefully the venue
+    # ("Salt mines Krakow"). Previously a non-BID value was logged and dropped,
+    # discarding what is often the only venue reference in the entire review.
+    # Keep every field value that is not simply the BID as review context.
+    field_context = []
     for att in attachments:
-        for field in att.get("fields", []):
-            title = (field.get("title") or "").lower()
-            if "reference" in title and field.get("value"):
-                raw_val = str(field["value"]).strip()
-                # Clean messy values like "Booking I'd 3168128" → extract numeric BID
-                bid_match = re.search(BID_REGEX, raw_val)
-                if bid_match:
-                    booking_id = bid_match.group(0)
-                    log.info(f"[extract] attachment field: booking id {booking_id} (raw: {raw_val!r})")
-                else:
-                    log.info(f"[extract] attachment field: reference value not a BID: {raw_val!r}")
-                break
-        if booking_id:
-            break
+        for field in att.get("fields", []) or []:
+            raw_val = str(field.get("value") or "").strip()
+            if not raw_val:
+                continue
+            title     = (field.get("title") or "").strip()
+            bid_match = re.search(BID_REGEX, raw_val)
+            if "reference" in title.lower() and bid_match and not booking_id:
+                booking_id = bid_match.group(0)
+                log.info(f"[extract] attachment field: booking id {booking_id} (raw: {raw_val!r})")
+            # Not a bare booking id → carry the text through as context.
+            if not re.fullmatch(r"\s*\d{7,12}\s*", raw_val):
+                entry = f"{title}: {raw_val}" if title else raw_val
+                if entry not in field_context:
+                    field_context.append(entry)
+                    log.info(f"[extract] attachment field kept as context: {entry!r}")
     if not booking_id:
         search_text = text
         for att in attachments:
@@ -163,6 +170,12 @@ def parse_review(event: dict) -> dict:
     # Always prepend the headline unless the body already opens with it.
     if att_title and att_title.lower() not in (body or "").lower():
         body = f"{att_title}\n\n{body}".strip() if body else att_title
+
+    # Append non-BID attachment fields. These are part of the review card the
+    # guest filled in, and they carry matching signal the prose often does not.
+    for entry in field_context:
+        if entry.split(": ", 1)[-1].lower() not in (body or "").lower():
+            body = f"{body}\n{entry}".strip() if body else entry
 
     return {
         "slack_ts":         event["ts"],
