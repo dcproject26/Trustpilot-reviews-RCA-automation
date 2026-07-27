@@ -97,6 +97,17 @@ async def process_review(review_id: str):
 
         review_text = review.body_english or review.body_original
 
+        # Text used for MATCHING indicators. Translation is lossy for anything
+        # that does not read as prose: Claude drops trailing metadata lines such
+        # as "Reference number: Salt mines Krakow", which is frequently the only
+        # venue in the whole review. Venue and guest names are proper nouns and
+        # survive untranslated, so matching reads the original alongside the
+        # translation. RCA/classification keep using review_text unchanged.
+        _orig = (review.body_original or "").strip()
+        _eng  = (review.body_english or "").strip()
+        match_text = _eng if not _orig else (
+            _eng if _orig in _eng else (f"{_eng}\n{_orig}".strip() if _eng else _orig))
+
         # ── Instrumentation counters ──────────────────────────────────────────
         _ctr = {
             "bid_attachment": 0, "bid_regex": 0, "bid_manual": 0, "bid_none": 0,
@@ -123,7 +134,8 @@ async def process_review(review_id: str):
         confidence_trail = []
         bid_source = None
 
-        ref_in_text = re.search(BID_REGEX, review_text or "")
+        ref_in_text = re.search(BID_REGEX,
+                                f"{review.body_original or ''}\n{review_text or ''}")
         if ref_in_text and not review.reference_number:
             review.reference_number = ref_in_text.group(0)
             db.commit()
@@ -290,7 +302,7 @@ async def process_review(review_id: str):
                 try:
                     from server.prompts import match_indicator_prompt
                     _pub = (review.received_at or datetime.utcnow()).date().isoformat()
-                    raw = await claude._call(match_indicator_prompt(review_text or "", _pub),
+                    raw = await claude._call(match_indicator_prompt(match_text or "", _pub),
                                              max_tokens=400)
                     indicators = claude._extract_json_object(raw) or {}
                 except Exception as e:
