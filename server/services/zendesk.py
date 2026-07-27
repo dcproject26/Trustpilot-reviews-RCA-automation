@@ -787,6 +787,52 @@ async def find_bids_by_requester_name(
     return deduped
 
 
+async def count_tickets_by_tags(tags, days: int = 30) -> tuple[int, int]:
+    """
+    Similar support volume: Zendesk tickets carrying any of these support tags
+    inside the window, and the total ticket volume over the same window.
+
+    Zendesk's `tags:` keyword matches one tag and multiple `tags:` clauses AND
+    together, so an OR across the tag set needs one query per tag with the
+    ticket ids unioned. Returns (matching, total) — the ratio the dashboard
+    shows as "matching tag / total".
+    """
+    if not is_live("zendesk"):
+        return 0, 0
+    tags = [str(t).strip() for t in (tags or []) if str(t).strip()]
+    if not tags:
+        return 0, 0
+    _z = _get_client()
+    if _z is None:
+        return 0, 0
+
+    since = (datetime.now() - timedelta(days=max(1, int(days)))).strftime("%Y-%m-%d")
+    loop = asyncio.get_running_loop()
+
+    matched = set()
+    for tag in tags[:8]:
+        q = f"type:ticket tags:{tag} created>{since}"
+        try:
+            hits = await loop.run_in_executor(None, lambda qq=q: _search_with_retry(_z, qq))
+        except Exception as e:
+            log.warning(f"[zendesk] tag search {tag!r} failed: {e}")
+            continue
+        for t in hits or []:
+            matched.add(str(getattr(t, "id", "")))
+
+    total = 0
+    try:
+        allq = f"type:ticket created>{since}"
+        hits = await loop.run_in_executor(None, lambda: _search_with_retry(_z, allq))
+        total = len(hits or [])
+    except Exception as e:
+        log.warning(f"[zendesk] total ticket count failed: {e}")
+
+    log.info(f"[zendesk] similar support: tags={tags[:8]} window={days}d "
+             f"-> {len(matched)} matching / {total} total")
+    return len(matched), total
+
+
 async def find_bids_by_text(
     terms: list[str],
     since: str | None = None,

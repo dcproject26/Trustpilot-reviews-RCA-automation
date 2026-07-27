@@ -274,6 +274,22 @@ WHERE b.tour_id = @tid AND b.vendor_id = @vid
     def _safe_div(n, d) -> float:
         return round(n / d, 4) if d else 0.0
 
+    # Similar support comes from Zendesk TAGS, not the BigQuery support table:
+    # a "similar" case is one whose ticket carries the same support tags inside
+    # the associate's window. The BQ figures stay as the fallback for when
+    # Zendesk is unavailable or the L1/L2 has no tag mapping.
+    if tags_spec and is_live("zendesk"):
+        try:
+            from server.services.zendesk import count_tickets_by_tags
+            _tags = tags_spec if isinstance(tags_spec, list) else tags_spec.get("like_any", [])
+            _m, _t = await count_tickets_by_tags(_tags, days=_wd)
+            if _t:
+                sim_sup, tot_sup = _m, _t
+                log.info(f"[insights] similar support from Zendesk tags: "
+                         f"{_m}/{_t} over {_wd}d")
+        except Exception as e:
+            log.warning(f"[insights] Zendesk tag count failed, keeping BQ figures: {e}")
+
     review_ratio  = _safe_div(sim_rev, tot_rev)
     support_ratio = _safe_div(sim_sup, tot_sup)
     escalation    = review_ratio > 0.15 or support_ratio > 0.15
