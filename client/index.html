@@ -2577,8 +2577,9 @@ function renderReviewCol() {
             const _li = r.liveInsights;
             const _cr = _li ? _li.vid_completion_rate : null;
             const _crStr = _li ? (_li.vidCompletionRate || 'N/A') : ins.completion.value;
-            const _crTone = _cr != null && _cr < 0.85 ? 'red' : _cr == null && !_li ? ins.completion.tone : _cr == null ? 'grey' : '';
-            const _crFlagToBiz = _cr != null ? _cr < 0.85 : ins.completion.flagToBiz;
+            const _ffv = _li ? _li.ff_vid : null;
+            const _crTone = _cr != null && _cr < 0.95 ? 'red' : _cr == null && !_li ? ins.completion.tone : _cr == null ? 'grey' : '';
+            const _crFlagToBiz = _ffv ? _ffv.needs_attention : (_cr != null ? _cr < 0.95 : ins.completion.flagToBiz);
             const _crFlagged = ins.completion.flagged;
             const _sdi = _li ? _li.sameDaySameVidIssues : ins.sameDayIssues.value;
             const _sdObj = _li ? _li.same_day_same_vid : null;

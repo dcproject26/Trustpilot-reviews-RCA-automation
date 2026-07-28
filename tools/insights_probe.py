@@ -18,6 +18,10 @@ def _fmt(v):
     if v is None:
         return "-"
     if isinstance(v, dict):
+        if "rate" in v:
+            r = "-" if v["rate"] is None else f"{v['rate'] * 100:.1f}%"
+            flag = " !" if v.get("needs_attention") else ""
+            return f"{r} (n={v['total']}){flag}"
         if "avg" in v:
             return f"{v['avg']} (n={v['n']})" if v["avg"] is not None else f"- (n={v['n']})"
         if "issues" in v:
@@ -64,8 +68,9 @@ async def main():
         ("total bookings",     "total_bookings_30d"),
         ("rating TGID",        "rating_tgid"),
         ("rating TID.VID",     "rating_tidvid"),
-        ("completion %",       "vidCompletionRate"),
-        ("same-day issues",    "same_day_same_vid"),
+        ("FF rate VID",        "ff_vid"),
+        ("FF rate TGID",       "ff_tgid"),
+        ("FF same day",        "ff_same_day"),
         ("escalation",         "escalation"),
     ]
 

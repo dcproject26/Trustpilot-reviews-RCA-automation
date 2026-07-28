@@ -20,12 +20,12 @@ does it differently:
   2. The window is anchored on the BOOKING'S EXPERIENCE DATE, not on today.
      Looker compares the 30 days before that booking's own experience date, so
      an old review is measured against its own period rather than this week's.
-  3. Completion is read from fct_fulfilments.completion_type, not
-     fulfilment_type. The old column name never matched, so the completion
-     figure was not measuring anything. Because the value domain of
-     completion_type is not documented anywhere we hold, query H returns the
-     BREAKDOWN by value rather than a single percentage - guessing which values
-     mean "failed" would produce a confident wrong number.
+  3. Fulfilment rate is Looker's booking_completion_rate: bookings whose
+     fulfilment_STATUS is Completed or Dirty, over EVERY booking. The old code
+     read fulfilment_type, which matched no column at all. completion_type is a
+     different field and is only used to identify Unfulfilled, as Looker's
+     unfulfilled_rate does. Computed at VID scope and at TGID scope, because
+     ops judges an experience on its TGID over four weeks.
   4. vendor_id comes from fct_fulfilments on the review queries and from
      fct_bookings on the booking and support queries - mirroring Looker, which
      mixes the two.
@@ -60,19 +60,23 @@ _NEGATIVE_RATING_MAX = 3
 # Support tags that are not guest contacts and would inflate the denominator.
 _EXCLUDED_SUPPORT_TAGS = ["Chat Abandoned", "Nar", "Out Call", "Vendor Query"]
 
-# fct_fulfilments.completion_type, by observed frequency: Super (1.23M),
-# Cancelled By Customer (39k), Cancelled By Vendor (8.2k), Unfulfilled (6.8k),
-# NULL (4.4k), Cancelled Fraudulent (1.6k), Amended (1.5k), Dummy (1.4k).
+# Fulfilment rate, straight off the Looker fulfilments view:
 #
-# Completion % flags a vendor to Biz below 85%, so it has to measure what the
-# VENDOR did. A guest cancelling, a fraud block or a test row says nothing
-# about the vendor and would drag the rate down for something outside their
-# control - those are excluded from the denominator rather than counted as
-# failures. NULL is Pending: not yet determined, so not yet evidence.
-_COMPLETION_SUCCESS = {"super", "amended"}
-_COMPLETION_FAILURE = {"cancelled by vendor", "unfulfilled"}
-_COMPLETION_IGNORED = {"cancelled by customer", "cancelled fraudulent",
-                       "dummy", "pending", "unknown", ""}
+#   count_completed_bookings: filters [fulfilment_status: "Completed, Dirty"]
+#   booking_completion_rate:  SAFE_DIVIDE(count_completed_bookings, count_bookings)
+#
+# So the metric keys on fulfilment_STATUS and the denominator is EVERY booking -
+# no exclusions. completion_type is a separate field and is only used to pick
+# out Unfulfilled specifically, per the unfulfilled_rate measure:
+#
+#   filters [fulfilment_status: "-Completed, -Dirty", completion_type: "Unfulfilled"]
+_FF_COMPLETED_STATUSES = ["Completed", "Dirty"]
+
+# Ops guidance: below 95% is terrible, but the rate is meaningless at low
+# volume - one unfulfilled booking out of two is 50%. The thumb rule is over
+# 100 bookings AND under 95%, so both are carried and the caller decides.
+_FF_RATE_FLOOR   = 0.95
+_FF_MIN_BOOKINGS = 100
 
 # Looker compares review_ratio against 0.15 and support_ratio against 15. Both
 # come out of safe_divide as fractions, so the support test can never fire and
@@ -97,8 +101,9 @@ def _zero_result(l2: str | None) -> dict:
         "rating_15d":    {"avg": None, "n": 0},
         "rating_30d":    {"avg": None, "n": 0},
         "redemption":                  None,
-        "completion_breakdown":        {},
-        "same_day_breakdown":          {},
+        "ff_vid":                      None,
+        "ff_tgid":                     None,
+        "ff_same_day":                 None,
         "vid_completion_rate":         None,
         "vidCompletionRate":           "N/A",
         "same_day_same_vid":           None,
@@ -145,54 +150,36 @@ def _fld(row, key):
     return row.get(key) if isinstance(row, dict) else getattr(row, key, None)
 
 
-def _completed_ratio(breakdown: dict):
+def _ff(res) -> dict:
     """
-    Vendor completion rate: fulfilled / (fulfilled + vendor failures).
+    One fulfilment row -> completed / unfulfilled / total / rate.
 
-    Guest cancellations, fraud blocks, test rows and Pending are left out of the
-    denominator entirely - a vendor should not be flagged to Biz because guests
-    changed their minds. Returns None when nothing is attributable, so the tile
-    shows a dash rather than a confident 0%.
+    rate is Looker's booking_completion_rate: completed over EVERY booking, no
+    exclusions. None when there are no bookings, so the tile shows a dash rather
+    than a confident 0%.
+
+    needs_attention follows the ops thumb rule - over 100 bookings and under
+    95%. Low volume is excluded because the rate is noise there: one unfulfilled
+    booking out of two reads as 50%.
     """
-    ok   = sum(v for k, v in breakdown.items()
-               if str(k).strip().lower() in _COMPLETION_SUCCESS)
-    bad  = sum(v for k, v in breakdown.items()
-               if str(k).strip().lower() in _COMPLETION_FAILURE)
-    return round(ok / (ok + bad), 4) if (ok + bad) else None
+    row   = res[0] if isinstance(res, list) and res else None
+    done  = int(_fld(row, "completed") or 0)
+    unful = int(_fld(row, "unfulfilled") or 0)
+    total = int(_fld(row, "total") or 0)
+    rate  = round(done / total, 4) if total else None
+    return {
+        "completed":       done,
+        "unfulfilled":     unful,
+        "total":           total,
+        "rate":            rate,
+        "unfulfilled_rate": round(unful / total, 4) if total else None,
+        "needs_attention": bool(total >= _FF_MIN_BOOKINGS
+                                and rate is not None and rate < _FF_RATE_FLOOR),
+    }
 
 
-def _pct_completed(breakdown: dict) -> str:
-    """
-    Share of bookings whose completion_type is neither Pending nor blank.
-
-    A placeholder until the completion_type value domain is confirmed: anything
-    that is not Pending is treated as resolved, which is the only reading that
-    does not require guessing at failure labels.
-    """
-    r = _completed_ratio(breakdown)
-    return "N/A" if r is None else f"{r * 100:.1f}%"
-
-
-def _issue_counts(breakdown: dict):
-    """
-    Vendor failures on the day, against every booking that day.
-
-    issues counts only what the vendor is answerable for - cancelled by vendor
-    and unfulfilled. total stays as every booking, because the question the tile
-    answers is "how much of that day went wrong", not "of the ones we can
-    attribute". Returns None when the day has no bookings at all.
-    """
-    total = sum(breakdown.values())
-    if not total:
-        return None
-    issues = sum(v for k, v in breakdown.items()
-                 if str(k).strip().lower() in _COMPLETION_FAILURE)
-    return {"issues": issues, "total": total}
-
-
-def _issue_summary(breakdown: dict) -> str:
-    c = _issue_counts(breakdown)
-    return "N/A" if c is None else f"{c['issues']} of {c['total']}"
+def _pct(rate) -> str:
+    return "N/A" if rate is None else f"{rate * 100:.1f}%"
 
 
 def _count(res) -> int:
@@ -357,35 +344,29 @@ WHERE t.tour_id = @tid AND t.vendor_id = @vid
 LIMIT 1
 """
 
-    # --- H: completion breakdown for this vendor -------------------------
-    # Looker does not compute a completion rate, but the dashboard shows one.
-    # Returning the counts per completion_type keeps the tile alive without
-    # inventing which values count as a failure - see the note in the module
-    # docstring. NULL is "Pending", as Looker labels it.
-    sql_h = f"""
+    # --- H / H2 / I: fulfilment rate ---------------------------------------
+    # Mirrors Looker's count_completed_bookings / count_bookings, and its
+    # unfulfilled measure, which needs both fields: a status outside
+    # Completed/Dirty AND completion_type = Unfulfilled.
+    _ff_select = f"""
 SELECT
-  IFNULL(f.completion_type, 'Pending') AS completion_type,
-  COUNT(DISTINCT b.booking_id)         AS c
+  COUNT(DISTINCT IF(f.fulfilment_status IN UNNEST(@ff_done),
+                    b.booking_id, NULL))            AS completed,
+  COUNT(DISTINCT IF(f.fulfilment_status NOT IN UNNEST(@ff_done)
+                    AND f.completion_type = 'Unfulfilled',
+                    b.booking_id, NULL))            AS unfulfilled,
+  COUNT(DISTINCT b.booking_id)                      AS total
 FROM `{_BOOKINGS_TABLE}` b
 LEFT JOIN `{_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
-WHERE b.vendor_id = @vid
-  AND {_win}
-GROUP BY 1
 """
-
-    # --- I: same vendor, same day as this booking's visit ------------------
-    sql_i = f"""
-SELECT
-  IFNULL(f.completion_type, 'Pending') AS completion_type,
-  COUNT(DISTINCT b.booking_id)         AS c
-FROM `{_BOOKINGS_TABLE}` b
-LEFT JOIN `{_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
-WHERE b.vendor_id = @vid
-  AND DATE(b.experience_date) = {anchor_sql}
-GROUP BY 1
-"""
+    sql_h  = f"{_ff_select}WHERE b.vendor_id = @vid AND {_win}"
+    # Ops checks fulfilment for the same TGID over the last four weeks, because
+    # that is the population that says whether this is a one-off or a pattern.
+    sql_h2 = f"{_ff_select}WHERE b.experience_id = @tgid AND {_win}"
+    sql_i  = f"{_ff_select}WHERE b.vendor_id = @vid AND DATE(b.experience_date) = {anchor_sql}"
 
     excluded = {"excluded": ("STRING", _EXCLUDED_SUPPORT_TAGS)}
+    ff_par   = {"ff_done": ("STRING", _FF_COMPLETED_STATUSES)}
 
     # A and C need a tag/L2 mapping. Without one they are skipped and the rest
     # still run - a missing framework should cost you two numbers, not all of
@@ -425,8 +406,9 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         _run(sql_e_tgid, {**anchor_par, "tgid": tgid}) if tgid else asyncio.sleep(0),
         _run(sql_f, base),
         _run(sql_g, {"tid": tid, "vid": vid}),
-        _run(sql_h, base),
-        _run(sql_i, base) if visit_date else asyncio.sleep(0),
+        _run(sql_h, {**base, **ff_par}),
+        _run(sql_h2, {**anchor_par, **ff_par, "tgid": tgid}) if tgid else asyncio.sleep(0),
+        _run(sql_i, {**base, **ff_par}) if visit_date else asyncio.sleep(0),
         return_exceptions=True,
     )
 
@@ -471,14 +453,9 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         )}
         redemption = {k: v for k, v in redemption.items() if v not in (None, "")}
 
-    def _breakdown(res):
-        if not isinstance(res, list) or not res:
-            return {}
-        return {str(_fld(r, "completion_type") or "Unknown"): int(_fld(r, "c") or 0)
-                for r in res}
-
-    completion = _breakdown(results[8])
-    same_day   = _breakdown(results[9])
+    ff_vid  = _ff(results[8])
+    ff_tgid = _ff(results[9])
+    ff_day  = _ff(results[10])
 
     out = {
         "similar_reviews_30d":         sim_rev,
@@ -492,18 +469,21 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         "rating_tgid":                 rating_tgid,
         "rating_tidvid":               rating_tidvid,
         "redemption":                  redemption,
-        "completion_breakdown":        completion,
-        "same_day_breakdown":          same_day,
+        "ff_vid":                      ff_vid,
+        "ff_tgid":                     ff_tgid,
+        "ff_same_day":                 ff_day,
         # The dashboard still reads these names. They were never windows - the
         # TGID tile reads rating_15d and the TID.VID tile reads rating_30d -
         # so they are aliased to the right scope rather than renamed, and both
         # respect whichever window the associate picked.
         "rating_15d": rating_tgid,
         "rating_30d": rating_tidvid,
-        "vid_completion_rate":  _completed_ratio(completion),
-        "vidCompletionRate":     _pct_completed(completion),
-        "same_day_same_vid":     _issue_counts(same_day),
-        "sameDaySameVidIssues":  _issue_summary(same_day),
+        "vid_completion_rate":   ff_vid["rate"],
+        "vidCompletionRate":     _pct(ff_vid["rate"]),
+        "same_day_same_vid":     ({"issues": ff_day["unfulfilled"], "total": ff_day["total"]}
+                                  if ff_day["total"] else None),
+        "sameDaySameVidIssues":  (f"{ff_day['unfulfilled']} of {ff_day['total']}"
+                                  if ff_day["total"] else "N/A"),
         "_window_days":     wd,
         "_anchored_on":     visit_date or "today",
         "_computed_for_l2": l2,
@@ -516,6 +496,9 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         f"bookings={tot_bkg} ratio_r={review_ratio} ratio_s={support_ratio} "
         f"rating_tgid={rating_tgid['avg']} rating_tidvid={rating_tidvid['avg']} "
         f"escalation={escalation} "
+        f"ff_vid={_pct(ff_vid['rate'])}({ff_vid['total']}) "
+        f"ff_tgid={_pct(ff_tgid['rate'])}({ff_tgid['total']}) "
+        f"attention={ff_tgid['needs_attention']} "
         f"redemption={'yes' if redemption else 'no'}"
     )
     return out
