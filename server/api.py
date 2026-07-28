@@ -878,7 +878,7 @@ async def vs_search(query: str, limit: int = 50,
 
 
 @router.get("/api/vs/insights")
-async def vs_insights(tid: str, vid: str, l1: str = "", l2: str = "",
+async def vs_insights(tid: str, vid: str, tgid: str = "", l1: str = "", l2: str = "",
                       window: str = "", visit_date: str = "",
                       x_vs_key: str | None = Header(default=None)):
     """
@@ -901,7 +901,7 @@ async def vs_insights(tid: str, vid: str, l1: str = "", l2: str = "",
     _vs_auth(x_vs_key)
     from server.services.insights import get_insights
 
-    booking = {"tid": tid, "vid": vid, "visitDate": visit_date}
+    booking = {"tid": tid, "vid": vid, "tgid": tgid, "visitDate": visit_date}
     data = await get_insights(booking, l1 or None, l2 or None, window or None)
     return {"insights": data}
 
