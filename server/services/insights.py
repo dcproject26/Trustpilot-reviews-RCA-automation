@@ -162,6 +162,45 @@ def _l2_key(s) -> str:
 _L2_TO_BUCKET = {_l2_key(v): b for b, vs in _L2_BUCKETS.items() for v in vs}
 
 
+# Our L2 -> extra spellings that fct_reviews actually stores.
+#
+# Kept separate from _L2_BUCKETS on purpose. Those buckets are Looker's
+# parent_l2_bucket, ported verbatim, and are worth leaving exactly as Looker
+# defines them. This is the other half of the problem: fct_reviews.issues is
+# written by Headout's own review classifier, which is a DIFFERENT vocabulary
+# from the L1/L2 framework this system classifies into. They overlap, they are
+# not the same list, and where they diverge the review count reads zero however
+# correct the bucket mapping is.
+#
+# Every entry here must be a spelling confirmed present in the warehouse -
+# tools/map_l2.py lists them with counts. Guessing puts us back where we
+# started, matching a string nobody stores.
+_L2_LIVE_ALIASES: dict = {
+    # Confirmed live, with 180-day row counts:
+    "Venue facility issue":   ["Venue facility issue"],        # live
+    "Customer Late":          ["Customer Late"],               # live
+    "Ticket Issues":          ["Ticket Issues"],               # 3,991
+    "Customer Support Issues": ["Customer Support Issues"],    # 1,839
+    "Pricing Issues":         ["Pricing Issues"],              # 1,786
+    "Meeting Point Issues":   ["Meeting Point Issues",
+                               "Meeting Point Issue"],         # 1,932 + 3
+    "Audio Guide Issues":     ["Audio Guide Issues"],          # 1,488
+    "Guide Behaviour Issues": ["Guide Behaviour Issues"],      # 437
+    "Guide No Show":          ["Guide no show"],               # 279
+    "Guide providing irrelevant/inexperienced/not clear": [
+        "Guide providing irrelevant/inexperienced/not clear"],  # 1,257
+    "App and Website Issues": ["App and website issues"],      # 361
+    "Customer Error":         ["Customer Error"],              # 324
+    "Venue closure":          ["Venue closure"],               # 220
+    "Inventory Listing Issue": ["Inventory Listing Issue"],    # 45
+    "Content - Instructions not clear / Misleading Info": [
+        "Content - Instructions not clear/misleading info"],    # 2
+    # The rest of the L1/L2 framework has no confirmed counterpart yet. Run
+    # tools/map_l2.py to list what fct_reviews holds that nothing maps to.
+}
+_L2_LIVE_ALIASES = {_l2_key(k): v for k, v in _L2_LIVE_ALIASES.items()}
+
+
 def l2_variants(l2: str | None) -> list:
     """
     Every spelling of the issue the classifier named.
@@ -181,6 +220,7 @@ def l2_variants(l2: str | None) -> list:
     bucket = _L2_TO_BUCKET.get(key)
     if bucket:
         out |= {_norm(v) for v in _L2_BUCKETS[bucket]}
+    out |= {_norm(v) for v in _L2_LIVE_ALIASES.get(key, [])}
     return sorted(out)
 
 
