@@ -107,7 +107,12 @@ def report(title, configured, live, is_pattern=False):
         lines, hit_total = [], 0
         for v in values:
             if is_pattern:
-                rx = re.compile("^" + re.escape(norm(v)).replace(r"\%", ".*") + "$")
+                # SQL LIKE -> regex. Split on % and escape the literal parts:
+                # re.escape does NOT escape % (it is not a regex metacharacter),
+                # so escaping first and substituting after is a no-op and every
+                # pattern would compile to ^%content%$ and match nothing.
+                rx = re.compile("^" + ".*".join(re.escape(part)
+                                                for part in norm(v).split("%")) + "$")
                 n = sum(c for k, c in live_norm.items() if rx.match(k))
             else:
                 n = live_norm.get(norm(v), 0)
