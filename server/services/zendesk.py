@@ -554,6 +554,68 @@ def _fold(s: str) -> str:
                    if not unicodedata.combining(c)).lower()
 
 
+# Nickname / formal-name pairs. Deliberately short: only forms common enough in
+# guest names to be worth the false-positive risk. Matching is symmetric.
+_NICKNAMES = [
+    ("joe", "joseph"), ("chris", "christopher"), ("dave", "david"),
+    ("bob", "robert"), ("rob", "robert"), ("bill", "william"),
+    ("will", "william"), ("mike", "michael"), ("nick", "nicholas"),
+    ("tom", "thomas"), ("jim", "james"), ("dan", "daniel"),
+    ("dick", "richard"), ("rick", "richard"), ("steve", "stephen"),
+    ("steve", "steven"), ("tony", "anthony"), ("alex", "alexander"),
+    ("sam", "samuel"), ("ben", "benjamin"), ("matt", "matthew"),
+    ("andy", "andrew"), ("kate", "katherine"), ("cathy", "catherine"),
+    ("liz", "elizabeth"), ("beth", "elizabeth"), ("sue", "susan"),
+    ("pat", "patricia"), ("peggy", "margaret"), ("meg", "margaret"),
+]
+
+
+def _token_match(want: str, tokens: set) -> bool:
+    """
+    One name token against a candidate's tokens.
+
+    Exact first, then prefix -- which covers initials ("C." -> "Catherine") and
+    the common nickname/formal pair ("Joe" -> "Joseph"). Prefix only applies in
+    that direction: a two-character stem must not swallow unrelated names, so a
+    single letter matches only as an initial.
+    """
+    want = want.strip(". ").lower()
+    if not want:
+        return False
+    if want in tokens:
+        return True
+    # Initials: a 1-2 letter stem matches a longer token it begins.
+    # "C." -> "Catherine". Prefix alone does NOT cover nicknames -- "joseph"
+    # does not start with "joe" -- so those need the table below.
+    if len(want) <= 2 and any(t.startswith(want) for t in tokens):
+        return True
+    for a, b in _NICKNAMES:
+        if want == a and b in tokens:
+            return True
+        if want == b and a in tokens:
+            return True
+    return False
+
+
+def name_matches(candidate: str, first: str | None, last: str | None) -> bool:
+    """
+    Does this booking's guest name refer to the reviewer?
+
+    BOTH names must be present. A surname alone is not a match: the reviewer
+    "Joe Christopher" must not pull in "Christopher McCardle" or
+    "Christopher E. Maclin", where Christopher is the FIRST name and Joe appears
+    nowhere. Middle names are ignored, so "Fredrik Martin Olsen" matches
+    "Fredrik Olsen" while "Fredrik Rostvold" does not.
+    """
+    tokens = set(re.findall(r"[a-z0-9]+", _fold(candidate)))
+    if not tokens:
+        return False
+    want = [w for w in (first, last) if w and str(w).strip()]
+    if not want:
+        return False
+    return all(_token_match(_fold(w), tokens) for w in want)
+
+
 def _name_score(candidate: str, first: str | None, last: str | None) -> float:
     """
     How strongly a name refers to the review's author — 0.0 to 1.0.
