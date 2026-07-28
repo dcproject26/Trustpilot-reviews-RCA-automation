@@ -649,6 +649,134 @@ def _name_score(candidate: str, first: str | None, last: str | None) -> float:
     return (score / weight) if weight else 0.0
 
 
+def _venue_tokens(s: str) -> set:
+    """Significant words of a venue/experience name, accents folded."""
+    stop = {"tour", "tours", "pass", "ticket", "tickets", "entry", "visit",
+            "trip", "city", "day", "guided", "skip", "line", "with", "from",
+            "and", "the", "experience", "admission", "access", "combo",
+            "package", "hours", "hour", "half", "full", "private", "group",
+            "small", "guide", "self", "audio", "optional", "direct"}
+    return {t for t in re.findall(r"[a-z]{4,}", _fold(s)) if t not in stop}
+
+
+def matches_indicators(sig: dict, ind: dict, first, last) -> tuple[bool, list]:
+    """
+    Does this ticket satisfy EVERY indicator the review actually gave us?
+
+    AND across what is present; absent indicators are skipped, never blocking.
+    Returns (ok, which indicators were used) so the trail can say why.
+    """
+    used = []
+
+    if first or last:
+        if not name_matches(sig.get("guest_name") or "", first, last):
+            return False, used
+        used.append("name")
+
+    venue = (ind.get("experience_or_venue") or "").strip()
+    if venue:
+        want = _venue_tokens(venue)
+        got  = _venue_tokens(sig.get("experience") or "")
+        if not (want and got and (want & got)):
+            return False, used
+        used.append("venue")
+
+    city = (ind.get("city_or_country") or "").split(",")[0].strip()
+    if city:
+        want = {t for t in re.findall(r"[a-z]{3,}", _fold(city))}
+        got  = {t for t in re.findall(r"[a-z]{3,}", _fold(sig.get("city") or ""))}
+        # City is only allowed to reject when the ticket states one.
+        if got and not (want & got):
+            return False, used
+        if got:
+            used.append("city")
+
+    pax = ind.get("pax")
+    if pax and sig.get("pax"):
+        try:
+            if int(pax) != int(sig["pax"]):
+                return False, used
+            used.append("pax")
+        except (TypeError, ValueError):
+            pass
+
+    return True, used
+
+
+async def shortlist(indicators: dict, author_first, author_last,
+                    limit_name_only: int = 5) -> list[dict]:
+    """
+    The bookings a review's indicators actually point at.
+
+    Search Zendesk with whatever indicators exist, then keep only the tickets
+    that satisfy ALL of them. No BigQuery: the booking id and every fact needed
+    to judge a match are on the ticket itself, and BQ is only needed once an
+    associate confirms one.
+
+    When the guest name is the only indicator there is, the filter cannot
+    discriminate beyond the name, so the most recent `limit_name_only` are
+    returned rather than that guest's entire history.
+    """
+    if not is_live("zendesk"):
+        return []
+    _z = _get_client()
+    if _z is None:
+        return []
+
+    name  = " ".join(x for x in (author_first, author_last) if x).strip()
+    venue = (indicators.get("experience_or_venue") or "").strip()
+    city  = (indicators.get("city_or_country") or "").split(",")[0].strip()
+    if not (name or venue):
+        return []
+
+    ORDER = "order_by:created_at sort:desc"
+    queries = []
+    if name:           queries.append((f'type:ticket requester:"{name}" {ORDER}', "name"))
+    if name:           queries.append((f'type:ticket {name} {ORDER}',            "name"))
+    if venue:          queries.append((f'type:ticket "{venue}" {ORDER}',         "venue"))
+    if name and venue: queries.append((f'type:ticket {name} {venue} {ORDER}',    "name+venue"))
+    if name and city:  queries.append((f'type:ticket {name} {city} {ORDER}',     "name+city"))
+
+    loop = asyncio.get_running_loop()
+    seen_tickets, by_bid = set(), {}
+    for q, label in queries:
+        try:
+            hits = await loop.run_in_executor(None, lambda qq=q: _search_with_retry(_z, qq))
+        except Exception as e:
+            log.warning(f"[shortlist] query failed ({label}): {e}")
+            continue
+        for t in hits or []:
+            tid = str(getattr(t, "id", ""))
+            if tid in seen_tickets:
+                continue
+            seen_tickets.add(tid)
+            sig = ticket_signals(t)
+            bid = sig.get("booking_id")
+            if not bid or bid in by_bid:
+                continue
+            ok, used = matches_indicators(sig, indicators, author_first, author_last)
+            if not ok:
+                continue
+            sig["matched_on"]  = used
+            sig["found_via"]   = label
+            sig["created_at"]  = str(getattr(t, "created_at", "") or "")
+            sig["ticket_id"]   = tid
+            by_bid[bid] = sig
+
+    out = list(by_bid.values())
+    out.sort(key=lambda s: s.get("created_at") or "", reverse=True)
+
+    name_only = bool(name) and not venue and not city
+    if name_only and len(out) > limit_name_only:
+        log.info(f"[shortlist] name-only: {len(out)} -> newest {limit_name_only}")
+        out = out[:limit_name_only]
+
+    log.info(f"[shortlist] {len(seen_tickets)} ticket(s) searched -> {len(out)} match "
+             f"(indicators: name={bool(name)} venue={bool(venue)} city={bool(city)} "
+             f"pax={indicators.get('pax')})")
+    return out
+
+
 async def find_bids_by_requester_name(
     author_first: str,
     author_last: str | None,

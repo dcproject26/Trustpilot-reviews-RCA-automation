@@ -518,7 +518,49 @@ async def process_review(review_id: str, force_candidates: bool = False):
 
                 cascade_done = False
 
-                # ── Step 2: Zendesk requester lookup (primary name path) ───────
+                # ── Step 2: indicator shortlist ────────────────────────────
+                # Search Zendesk with whatever indicators the review gave us and
+                # keep only tickets satisfying ALL of them. No BigQuery here --
+                # the booking id and every fact needed to judge a match are on
+                # the ticket; BQ runs when the associate confirms.
+                if not cascade_done and (name_parseable or venue_hints):
+                    try:
+                        _short = await zendesk.shortlist(
+                            indicators, author_first, author_last)
+                    except Exception as e:
+                        log.warning(f"[tier2] shortlist failed: {e}")
+                        _short = []
+
+                    if _short:
+                        candidates = []
+                        for _sig in _short:
+                            _c = _make_candidate(
+                                {"id": _sig["booking_id"],
+                                 "primary_guest_name": _sig.get("guest_name", ""),
+                                 "experienceName": _sig.get("experience", ""),
+                                 "date_of_visit": _sig.get("visit_date", ""),
+                                 "vendorName": _sig.get("vendor_name", "")},
+                                "indicator_shortlist",
+                                _sig.get("matched_on") or ["name"])
+                            _c["id"] = _sig["booking_id"]
+                            _c["matched_on"] = _sig.get("matched_on") or ["name"]
+                            candidates.append(_c)
+                        candidate_state = True
+                        match_tier = 2
+                        narrowing_path = "indicator_shortlist"
+                        _ctr["t2_candidates"] += 1
+                        confidence_trail.append({"mark": "pass",
+                            "text": f"<strong>{len(candidates)} booking(s)</strong> match the "
+                                    f"indicators from this review "
+                                    f"({', '.join(_short[0].get('matched_on') or ['name'])}). "
+                                    f"Pick the right one to continue."})
+                        cascade_done = True
+                    else:
+                        confidence_trail.append({"mark": "warn",
+                            "text": "<strong>No booking matches these indicators</strong> — "
+                                    "Zendesk returned nothing that satisfies them."})
+
+                # ── Legacy requester lookup (only if the shortlist found none) ──
                 if name_parseable and not cascade_done:
                     _ctr["t2_zendesk_lookup_attempted"] += 1
                     _names_str = ", ".join(

@@ -172,3 +172,63 @@ if FAILURES:
     print(f"{len(FAILURES)} FAILURE(S): " + ", ".join(FAILURES))
     sys.exit(1)
 print("all checks passed")
+
+# ── Appended: the agreed shortlist rule, against real probe data ───────────
+print("\n8. AND-filter across every indicator present")
+from server.services.zendesk import matches_indicators, name_matches
+
+FRED = {"guest_name": "Fredrik Olsen", "experience_or_venue": "Salt mines Krakow",
+        "city_or_country": "Krakow", "pax": None}
+fred_tickets = [
+    ("32885787", "Fredrik Martin Olsen", "Wieliczka Salt Mine - Skip the Line Tickets", "Krakow", None, True),
+    ("32706277", "Fredrik Martin Olsen", "Top of Innsbruck: Round-Trip to Nordkettenbahn", "Innsbruck", None, False),
+    ("31556404", "Fredrik Frydenborg-Olsen", "The Lion King", "London", None, False),
+    ("31774438", "Fredrik Rostvold", "Wieliczka Salt Mine - Skip the Line Tickets", "Krakow", None, False),
+    ("33036250", "Rafael Guzman Murillo", "From Krakow: Wieliczka Salt Mine Guided Tour", "Krakow", None, False),
+]
+for bid, guest, exp, city, pax, want in fred_tickets:
+    sig = {"guest_name": guest, "experience": exp, "city": city, "pax": pax}
+    ok, _ = matches_indicators(sig, FRED, "Fredrik", "Olsen")
+    check(f"fredrik {bid}", ok, want)
+
+CIP = {"guest_name": "Ciprian", "experience_or_venue": "combo tickets for Oceanogràfic València",
+       "city_or_country": "Valencia, Spain", "pax": 9}
+cip_tickets = [
+    ("32900044", "Ciprian Rosu", "Oceanogràfic Tickets with Optional 4D Cinema", "Valencia", 9, True),
+    ("32342285", "Ciprian Toma", "Combo: Oceanogràfic + Hemisfèric Tickets", "Valencia", 8, False),
+    ("32550006", "Dumitru Ciprian Iscu", "Oceanogràfic & Science Museum Valencia", "Valencia", 3, False),
+    ("32978225", "Stefan Ciprian Neagu", "Acropolis & Parthenon Entrance Tickets", "Athens", None, False),
+]
+for bid, guest, exp, city, pax, want in cip_tickets:
+    sig = {"guest_name": guest, "experience": exp, "city": city, "pax": pax}
+    ok, _ = matches_indicators(sig, CIP, "Ciprian", None)
+    check(f"ciprian {bid}", ok, want)
+
+NAU = {"guest_name": "C. Nauleau", "experience_or_venue": "Louvre entry tickets",
+       "city_or_country": "Paris, France", "pax": None}
+for bid, guest, exp, city, want in [
+    ("32244357", "Catherine Nauleau", "Direct Entry Tickets to Louvre Museum", "Paris", True),
+    ("31525525", "Sophie NAULEAU", "1/2/3/7-Day Pass: Venice ACTV Water Bus", "Venice", False),
+    ("28390803", "NAULEAU Marie-Charlotte", "Entrance Ticket to Pompeii", "Naples", False),
+]:
+    sig = {"guest_name": guest, "experience": exp, "city": city, "pax": None}
+    ok, _ = matches_indicators(sig, NAU, "C", "Nauleau")
+    check(f"nauleau {bid}", ok, want)
+
+JOE = {"guest_name": "Joe Christopher", "experience_or_venue": None,
+       "city_or_country": None, "pax": None}
+for bid, guest, want in [
+    ("32102364", "Joseph Christopher", True),
+    ("32317283", "Joseph Christopher Newall", True),
+    ("32318434", "Christopher McCardle", False),
+    ("32077108", "Christopher E. Maclin", False),
+]:
+    sig = {"guest_name": guest, "experience": "x", "city": "x", "pax": None}
+    ok, _ = matches_indicators(sig, JOE, "Joe", "Christopher")
+    check(f"joe {bid}", ok, want)
+
+print("\n" + "=" * 62)
+if FAILURES:
+    print(f"{len(FAILURES)} FAILURE(S): " + ", ".join(FAILURES))
+    sys.exit(1)
+print("all checks passed")
