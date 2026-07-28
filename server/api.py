@@ -877,6 +877,35 @@ async def vs_search(query: str, limit: int = 50,
             "queries_run": ran, "queries_failed": failed}
 
 
+@router.get("/api/vs/insights")
+async def vs_insights(tid: str, vid: str, l1: str = "", l2: str = "",
+                      window: str = "", visit_date: str = "",
+                      x_vs_key: str | None = Header(default=None)):
+    """
+    Experience insights for VectorShift.
+
+    Seven BigQuery queries run in parallel: similar and total reviews, similar
+    and total support queries, the rating window, the vendor's completion rate,
+    and same-day fulfilment issues for that vendor.
+
+    Unlike the Zendesk proxy, this is not a thin passthrough and is not meant to
+    become one. The queries depend on the L1/L2 taxonomy and its support-tag
+    mapping, which live here; splitting the SQL from the taxonomy would mean
+    keeping two copies of the mapping in step. VectorShift asks for insights on
+    a booking, this app decides how to compute them.
+
+    tid and vid come off the confirmed booking. Missing either returns zeros
+    rather than an error, because a review with no booking yet is a normal
+    state, not a failure.
+    """
+    _vs_auth(x_vs_key)
+    from server.services.insights import get_insights
+
+    booking = {"tid": tid, "vid": vid, "visitDate": visit_date}
+    data = await get_insights(booking, l1 or None, l2 or None, window or None)
+    return {"insights": data}
+
+
 class VsIntake(BaseModel):
     """The assembled RCA record produced by the VectorShift pipeline."""
     review: dict
