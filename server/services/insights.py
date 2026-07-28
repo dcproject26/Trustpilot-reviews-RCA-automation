@@ -197,12 +197,18 @@ _FF_COMPLETED_STATUSES = ["Completed", "Dirty"]
 _FF_RATE_FLOOR   = 0.95
 _FF_MIN_BOOKINGS = 100
 
-# Looker compares review_ratio against 0.15 and support_ratio against 15. Both
-# come out of safe_divide as fractions, so the support test can never fire and
-# escalation is review-ratio-only there. Treated as a typo and both are 0.15
-# here; change _SUPPORT_ESCALATION if the intended threshold is different.
-_REVIEW_ESCALATION  = 0.15
-_SUPPORT_ESCALATION = 0.15
+# Escalation is deliberately not computed. It was a boolean over these two
+# ratios, and no threshold for it survived contact with the data:
+#
+#   Looker compares review_ratio > 0.15 and support_ratio > 15. Both come out
+#   of safe_divide as fractions, so the support test can never fire - Looker's
+#   escalation is review-ratio-only. Reading that as a typo and using 0.15 for
+#   both fired on every booking measured: real support ratios run 0.23-0.38, so
+#   a 15% bar is below the baseline rather than above it, and a flag that is
+#   always true carries no information.
+#
+# review_ratio and support_ratio are still returned. Whoever sets a threshold
+# next should set it from the distribution, not from the LookML.
 
 
 def _zero_result(l2: str | None) -> dict:
@@ -214,7 +220,6 @@ def _zero_result(l2: str | None) -> dict:
         "total_bookings_30d":          0,
         "review_ratio":                0.0,
         "support_ratio":               0.0,
-        "escalation":                  False,
         "rating_tgid":   {"avg": None, "n": 0},
         "rating_tidvid": {"avg": None, "n": 0},
         "rating_15d":    {"avg": None, "n": 0},
@@ -564,8 +569,6 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
 
     review_ratio  = _safe_div(sim_rev, tot_rev)
     support_ratio = _safe_div(sim_sup, tot_sup)
-    escalation    = (review_ratio > _REVIEW_ESCALATION
-                     or support_ratio > _SUPPORT_ESCALATION)
 
     def _rating(res):
         if not isinstance(res, list) or not res:
@@ -606,7 +609,6 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         "total_bookings_30d":          tot_bkg,
         "review_ratio":                review_ratio,
         "support_ratio":               support_ratio,
-        "escalation":                  escalation,
         "rating_tgid":                 rating_tgid,
         "rating_tidvid":               rating_tidvid,
         "redemption":                  redemption,
@@ -637,7 +639,6 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         f"window={wd}d neg_reviews={sim_rev}/{tot_rev} queries={sim_sup}/{tot_sup} "
         f"bookings={tot_bkg} ratio_r={review_ratio} ratio_s={support_ratio} "
         f"rating_tgid={rating_tgid['avg']} rating_tidvid={rating_tidvid['avg']} "
-        f"escalation={escalation} "
         f"ff_vid={_pct(ff_vid['rate'])}/bs={_pct(ff_vid['rate_by_booking_status'])}"
         f"({ff_vid['total']}) "
         f"ff_tgid={_pct(ff_tgid['rate'])}({ff_tgid['total']}) "

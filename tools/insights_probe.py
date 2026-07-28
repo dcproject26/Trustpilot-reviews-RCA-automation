@@ -78,7 +78,6 @@ async def main():
         ("FF rate VID",        "ff_vid"),
         ("FF rate TGID",       "ff_tgid"),
         ("FF same day",        "ff_same_day"),
-        ("escalation",         "escalation"),
     ]
 
     # Width from the widest cell, not a guess. A fixed 18 was fine until the

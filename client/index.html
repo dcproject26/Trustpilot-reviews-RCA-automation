@@ -2491,24 +2491,33 @@ function renderReviewCol() {
         ${r.liveInsights ? (() => {
           const li = r.liveInsights;
           const _pct = (v) => (v == null || (v === 0 && li.total_reviews_30d === 0)) ? '—' : `${(v * 100).toFixed(1)}%`;
-          const _rat15 = li.rating_15d || {};
-          const _rat30 = li.rating_30d || {};
-          const _r15n = _rat15.n || 0;
-          const _r30n = _rat30.n || 0;
+          // rating_15d / rating_30d are back-compat aliases: the server sends
+          // TGID in the first and TID.VID in the second. They are SCOPES, not
+          // windows - the window is whatever the picker above is set to.
+          const _ratTgid = li.rating_tgid || li.rating_15d || {};
+          const _ratTv   = li.rating_tidvid || li.rating_30d || {};
+          const _rTgidN  = _ratTgid.n || 0;
+          const _rTvN    = _ratTv.n || 0;
+          // Ops thumb rule: under 95%, and only over ~100 bookings, because the
+          // rate is noise below that - one unfulfilled booking out of two is
+          // 50%. The server applies both halves; needs_attention is the answer.
+          const _ffAttn  = li.ff_vid ? !!li.ff_vid.needs_attention
+                                     : (li.vid_completion_rate != null
+                                        && li.vid_completion_rate < 0.95);
           const _rr = li.review_ratio || 0;
           const _sr = li.support_ratio || 0;
           const _rr0 = li.similar_reviews_30d === 0 && li.total_reviews_30d === 0;
           const _sr0 = li.similar_support_queries_30d === 0 && li.total_support_queries_30d === 0;
           return `<div class="insights-grid">
-            <div class="insight-tile ${_r15n === 0 ? 'grey' : ''}">
-              <div class="insight-tile-label">Rating (15d)</div>
-              <div class="insight-tile-value">${_rat15.avg != null ? `${_rat15.avg} ★` : '—'}</div>
-              <div class="insight-tile-sub">(${_r15n} ratings)</div>
+            <div class="insight-tile ${_rTgidN === 0 ? 'grey' : ''}">
+              <div class="insight-tile-label">Rating · TGID</div>
+              <div class="insight-tile-value">${_ratTgid.avg != null ? `${_ratTgid.avg} ★` : '—'}</div>
+              <div class="insight-tile-sub">every tour &amp; vendor (${_rTgidN} ratings)</div>
             </div>
-            <div class="insight-tile ${_r30n === 0 ? 'grey' : ''}">
-              <div class="insight-tile-label">Rating (30d)</div>
-              <div class="insight-tile-value">${_rat30.avg != null ? `${_rat30.avg} ★` : '—'}</div>
-              <div class="insight-tile-sub">(${_r30n} ratings)</div>
+            <div class="insight-tile ${_rTvN === 0 ? 'grey' : ''}">
+              <div class="insight-tile-label">Rating · TID &middot; VID</div>
+              <div class="insight-tile-value">${_ratTv.avg != null ? `${_ratTv.avg} ★` : '—'}</div>
+              <div class="insight-tile-sub">this tour &amp; vendor (${_rTvN} ratings)</div>
             </div>
             <div class="insight-tile ${_rr > 0.15 ? 'red' : ''}">
               <div class="insight-tile-label">Review ratio (30d)</div>
@@ -2530,20 +2539,11 @@ function renderReviewCol() {
               <div class="insight-tile-value">${_sr0 ? '—' : `${li.similar_support_queries_30d} / ${li.total_support_queries_30d}`}</div>
               <div class="insight-tile-sub">matching tag / total</div>
             </div>
-            <div class="insight-tile ${li.escalation ? 'red' : ''}">
-              <div class="insight-tile-label">Escalation</div>
-              <div class="insight-tile-value">
-                ${li.escalation
-                  ? '<span class="pill-sm pill-red">Yes</span>'
-                  : '<span class="pill-sm pill-grey">No</span>'}
-              </div>
-              <div class="insight-tile-sub">ratio &gt; 15%</div>
-            </div>
-            <div class="insight-tile ${li.vid_completion_rate != null && li.vid_completion_rate < 0.85 ? 'red' : li.vid_completion_rate == null ? 'grey' : ''}">
+            <div class="insight-tile ${_ffAttn ? 'red' : li.vid_completion_rate == null ? 'grey' : ''}">
               <div class="insight-tile-label">Completion %</div>
               <div class="insight-tile-value">${li.vidCompletionRate || 'N/A'}</div>
-              <div class="insight-tile-sub">VID ${li.vid_completion_rate != null ? (li.vid_completion_rate * 100).toFixed(1) + '% · 28d' : 'no visit date'}</div>
-              ${li.vid_completion_rate != null && li.vid_completion_rate < 0.85
+              <div class="insight-tile-sub">VID ${li.vid_completion_rate != null ? `${(li.vid_completion_rate * 100).toFixed(1)}% of ${(li.ff_vid && li.ff_vid.total || 0).toLocaleString()} bookings` : 'no visit date'}</div>
+              ${_ffAttn
                 ? '<button class="flag-biz-btn" data-flag-biz>⚑ Flag to Biz · draft message</button>'
                 : ''}
             </div>
