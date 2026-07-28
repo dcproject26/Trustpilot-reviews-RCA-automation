@@ -176,27 +176,69 @@ _L2_TO_BUCKET = {_l2_key(v): b for b, vs in _L2_BUCKETS.items() for v in vs}
 # tools/map_l2.py lists them with counts. Guessing puts us back where we
 # started, matching a string nobody stores.
 _L2_LIVE_ALIASES: dict = {
-    # Confirmed live, with 180-day row counts:
-    "Venue facility issue":   ["Venue facility issue"],        # live
-    "Customer Late":          ["Customer Late"],               # live
-    "Ticket Issues":          ["Ticket Issues"],               # 3,991
-    "Customer Support Issues": ["Customer Support Issues"],    # 1,839
-    "Pricing Issues":         ["Pricing Issues"],              # 1,786
-    "Meeting Point Issues":   ["Meeting Point Issues",
-                               "Meeting Point Issue"],         # 1,932 + 3
-    "Audio Guide Issues":     ["Audio Guide Issues"],          # 1,488
-    "Guide Behaviour Issues": ["Guide Behaviour Issues"],      # 437
-    "Guide No Show":          ["Guide no show"],               # 279
+    # --- guide issues -----------------------------------------------------
+    # Looker's parent_l2_bucket collapses every guide complaint into one, so
+    # all three of these L2s returned the same 1,714 and "Guide No Show" read
+    # 1,714 when three reviews are actually guide-no-show. Split, because on an
+    # RCA the question is whether THIS failure recurs, not whether guides are
+    # generally a theme.
+    "Guide No Show":          ["Guide no show"],                        # 3
+    "Guide Behaviour Issues": ["Guide Behaviour Issues",
+                               "Guide Service Issues"],                 # 437 + 17
     "Guide providing irrelevant/inexperienced/not clear": [
-        "Guide providing irrelevant/inexperienced/not clear"],  # 1,257
-    "App and Website Issues": ["App and website issues"],      # 361
-    "Customer Error":         ["Customer Error"],              # 324
-    "Venue closure":          ["Venue closure"],               # 220
-    "Inventory Listing Issue": ["Inventory Listing Issue"],    # 45
+        "Guide providing irrelevant/inexperienced/not clear"],           # 1,257
+
+    # --- everything below is confirmed live, counts over 180 days ---------
+    "Ticket Issues":          ["Ticket Issues",
+                               "Ticket & Booking Issues"],              # 3,991 + 46
     "Content - Instructions not clear / Misleading Info": [
-        "Content - Instructions not clear/misleading info"],    # 2
-    # The rest of the L1/L2 framework has no confirmed counterpart yet. Run
-    # tools/map_l2.py to list what fct_reviews holds that nothing maps to.
+        "Content - Instructions not clear / Misleading Info",
+        "Content - Instructions not clear/misleading info"],             # 3,813 + 2
+    "Meeting Point Issues":   ["Meeting Point Issues",
+                               "Meeting Point Issue"],                  # 1,932 + 3
+    "Customer Support Issues": ["Customer Support Issues",
+                               "Customer Support",
+                               "Unresponsive / No Reply",
+                               "Refund Not Processed"],                 # 1,839 +17+4+4
+    "Pricing Issues":         ["Pricing Issues"],                       # 1,786
+    "Venue Overcrowding (Venue)": ["Venue Overcrowding (Venue)",
+                                   "Queue & Crowd Management",
+                                   "Long waiting time"],                # 1,734 +18+2
+    "Audio Guide Issues":     ["Audio Guide Issues",
+                               "Audio Guide App"],                      # 1,488 + 15
+    "Venue facility issue":   ["Venue facility issue",
+                               "Venue Conditions"],                     # 1,038 + 2
+    "Vague review":           ["Vague review"],                         # 929
+    "General negative exp":   ["General negative exp"],                 # 897
+    "Rating Mismatch":        ["Rating Mismatch"],                      # 647
+    "Timing Issues":          ["Timing Issues"],                        # 526
+    "Tour Cancelled by Operator": ["Tour Cancelled by Operator"],       # 462
+    "Customer Error":         ["Customer Error"],                       # 324
+    "Customer Late":          ["Customer Late"],                        # 323
+    "Negative Headout":       ["Negative Headout"],                     # 298
+    "Force Majeure":          ["Force Majeure"],                        # 188
+    "Weather Related":        ["Weather Related"],                      # 186
+    "Food & Catering":        ["Food & Catering", "Food Issue"],        # 152 + 1
+    "Seating Issues":         ["Seating Issues"],                       # 131
+    "Gibberish / Profanity":  ["Gibberish / Profanity"],                # 117
+    "Inventory Listing Issue": ["Inventory Listing Issue"],             # 45
+    "Venue Overcrowding (External)": ["Venue Overcrowding (External)"],  # 36
+    "Guide Left / Abandoned Tour": ["Guide Left / Abandoned Tour"],     # 35
+    "Venue closure":          ["Venue Closure", "Venue Cancelled"],     # 2 + 1
+    "App and Website Issues": ["App and website issues"],               # 1
+
+    # Live but deliberately unmapped, pending a decision on where they belong:
+    #   Staff behavior / Staff Behavior  3   venue staff or guide?
+    #   Logistical Issues                2
+    #   Language Issue                   1   tour language, or support language?
+    #   Management & Scheduling Issue    1
+    #   Partner unaware of Headout       1
+    #   No Issue                         3   not an issue - correctly unmapped
+    #   Manual Review Required           3   a workflow state, not an issue
+    #
+    # No live counterpart at all, so these are honestly zero:
+    #   Customer expectation mismatch
+    #   Sold Free / Discounted Admission
 }
 _L2_LIVE_ALIASES = {_l2_key(k): v for k, v in _L2_LIVE_ALIASES.items()}
 
@@ -217,10 +259,18 @@ def l2_variants(l2: str | None) -> list:
     if not key:
         return []
     out = {_norm(l2)}
-    bucket = _L2_TO_BUCKET.get(key)
-    if bucket:
-        out |= {_norm(v) for v in _L2_BUCKETS[bucket]}
-    out |= {_norm(v) for v in _L2_LIVE_ALIASES.get(key, [])}
+    aliases = _L2_LIVE_ALIASES.get(key)
+    if aliases:
+        # An explicit alias wins over the bucket. The buckets are Looker's
+        # parent_l2_bucket and are deliberately coarse - they exist to group a
+        # theme for reporting. On an RCA the question is narrower: does THIS
+        # failure recur for THIS experience. Where we have named the exact
+        # spellings, use them and nothing else.
+        out |= {_norm(v) for v in aliases}
+    else:
+        bucket = _L2_TO_BUCKET.get(key)
+        if bucket:
+            out |= {_norm(v) for v in _L2_BUCKETS[bucket]}
     return sorted(out)
 
 

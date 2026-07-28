@@ -227,6 +227,29 @@ def t_taxonomy_comparisons_are_normalised():
                 assert "REGEXP_REPLACE" in line, f"unnormalised comparison: {line.strip()}"
 
 
+def t_guide_l2s_do_not_collapse():
+    """
+    Looker's bucket lumps every guide complaint together, which made
+    "Guide No Show" report 1,714 similar reviews when three reviews are
+    guide-no-show. On an RCA the question is whether THIS failure recurs.
+    """
+    from server.services.insights import l2_variants
+    a = set(l2_variants("Guide No Show"))
+    b = set(l2_variants("Guide Behaviour Issues"))
+    c = set(l2_variants("Guide providing irrelevant/inexperienced/not clear"))
+    assert a != b and b != c and a != c, "guide L2s must resolve distinctly"
+    assert "guide no show" in a and len(a) <= 2, f"Guide No Show too broad: {a}"
+
+
+def t_alias_wins_over_bucket():
+    """An L2 with explicit aliases must not also drag in its coarse bucket."""
+    from server.services.insights import l2_variants, _L2_BUCKETS
+    vs = set(l2_variants("Ticket Issues"))
+    bucket = {v.lower() for v in _L2_BUCKETS["Ticket Delivery Issues(FF issues)"]}
+    assert not (bucket - vs) or "lost tickets" not in vs, \
+        f"bucket leaked into an aliased L2: {vs}"
+
+
 def main():
     for name, fn in CASES:
         try:
