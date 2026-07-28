@@ -527,6 +527,84 @@ SUPPORT_TAG_MAP = {
     # An exact list would be better still, as the other four L2s have. That
     # needs the full 106 live tag values eyeballed once; verify_taxonomy now
     # prints the ones nothing maps to.
+    # ── mapped from the live query_tag vocabulary, 180 days ──────────────
+    # The five above came verbatim from the VectorShift brief. These twenty
+    # were unmapped, which is not the same as having no support history - it
+    # meant the tile read zero by construction. Each tag below is a live value
+    # with its row count; an L2 with no honest counterpart is left out rather
+    # than mapped to something adjacent, because a wrong tag attributes one
+    # issue's support history to another.
+
+    ("Operations Issue", "Inventory Listing Issue"): [
+        "Cancellation Request  Headout Related  Inventory Issues",   # 2,605
+        "Delay Fulfilment  Delay  Inventory Issue",                  #   661
+        "Modification Request  Headout Related  Inventory Issues",   #   601
+    ],
+    ("Operations Issue", "Venue closure"): [
+        "Cancellation Request  Sp Related  Strike/venue Closure",    # 5,108
+        "Modification Request  Sp Related  Strike/venue Closure",    #   371
+    ],
+    ("Operations Issue", "Customer expectation mismatch"): [
+        # What they were told they would get, against what they got.
+        "General Information  Experience Related  Inclusions/exclusions Related",  # 5,883
+        "Ticket Redemption Details  Inclusions/exclusions Related",  # 5,506
+        "Refund Related  Refund Request  Inclusions Not Met In The Experience",    # 4,174
+        "Service Issues  Experience Related  Unsatisfactory Tour Experience",      # 1,976
+        "Service Issues  Experience Related  Inclusions Not Met/closed",           # 1,529
+    ],
+    ("Venue Related Issue", "Venue closure"): [
+        "Cancellation Request  Sp Related  Strike/venue Closure",    # 5,108
+        "Modification Request  Sp Related  Strike/venue Closure",    #   371
+    ],
+    ("Business Issue", "Pricing Issues"): [
+        "General Information  Pricing Related  Offers/discount",     # 3,646
+        "Refund Related  Refund Request  Price Disparity",           # 3,199
+        "General Information  Pricing Related  Convenience Fee",     #   428
+        "General Information  Pricing Related  Others",              #   370
+        "Cancellation Request  Customer Related  Found Cheaper Options",  # 352
+        "General Information  Pricing Related  Conversion Fee",      #    42
+    ],
+    ("External Factor", "Customer Error"): [
+        "Cancellation Request  Customer Related  Customer Error",    # 11,411
+        "Modification Request  Customer Related  Wrong Date/time",   # 11,327
+        "Delay Fulfilment  Ticket Related Issues  Booked With Wrong Email",  # 4,938
+        "Modification Request  Customer Related  Wrong Pax",         #  2,484
+        "Cancellation Request  Customer Related  Booked Twice",      #  1,731
+    ],
+    ("External Factor", "Weather Related"): [
+        "Cancellation Request  Headout Related  Weather Related",    # 1,696
+        "Modification Request  Headout Related  Weather Related",    #   649
+    ],
+    ("External Factor", "Force Majeure"): [
+        # Strikes and sudden venue closure are force majeure as much as they
+        # are a closure, so they appear here and under Venue closure. Two L2s
+        # legitimately drawing on one tag is not double counting - each asks a
+        # different question of the same contact.
+        "Cancellation Request  Sp Related  Strike/venue Closure",    # 5,108
+        "Modification Request  Sp Related  Strike/venue Closure",    #   371
+        "War Conflict 2026",                                         #    86
+    ],
+    ("Product Issue", "App and Website Issues"): [
+        # Checkout failing IS the website failing, from the guest's side.
+        "Payment Failure  Sift/fingerprint Block",                   # 1,198
+        "Payment Failure  3ds Failure",                              #   916
+    ],
+
+    # Left unmapped on purpose - no tag in the vocabulary means these, and
+    # mapping them to something adjacent would invent history:
+    #   Operations Issue / Customer Support Issues   the guest contacts us
+    #       ABOUT something; being unhappy with the handling is not a contact
+    #       reason, so no tag records it
+    #   Venue Related / Venue facility issue         no facility tag exists
+    #   Venue Related / Venue Overcrowding (Venue)   no queue or crowd tag
+    #   External Factor / Venue Overcrowding (External)
+    #   External Factor / Customer Late
+    #   External Factor / Sold Free / Discounted Admission
+    #   External Factor / Rating Mismatch            a review-only concept
+    #   External Factor / Gibberish / Profanity      a review-only concept
+    #   Miscellaneous / Vague review, Negative Headout, General negative exp
+    #       all three describe a REVIEW, not a reason for contacting support
+
     ("Operations Issue", "Content - Instructions not clear / Misleading Info"): {
         "like_any": [
             "%inclusion%", "%exclusion%", "%validity%",

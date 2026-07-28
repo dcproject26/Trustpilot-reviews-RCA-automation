@@ -250,6 +250,56 @@ def t_alias_wins_over_bucket():
         f"bucket leaked into an aliased L2: {vs}"
 
 
+def t_support_tags_are_live_values():
+    """
+    Every tag in SUPPORT_TAG_MAP must be a spelling the warehouse holds.
+    Checked against the 180-day dump, normalised the way the query compares.
+    """
+    from server.taxonomy import SUPPORT_TAG_MAP
+    from server.services.insights import _norm
+    heads = {"delay fulfilment", "general information", "ticket redemption details",
+             "cancellation request", "modification request", "service issues",
+             "refund related", "payment failure", "amended booking response",
+             "war conflict 2026"}
+    # Dead in the VS brief as written, confirmed against 180 days. Kept rather
+    # than deleted - they are someone's intent, and the vocabulary may yet
+    # carry them - but pinned here so a NEW dead tag fails instead of joining
+    # them unnoticed.
+    known_dead = {
+        _norm("Delay Fulfilment Ticket Related Issues Sp Related"),
+        _norm("Delay Ticket Related Issues Guest Names Are Missing"),
+        _norm("Audio Guide Redemption Issue"),
+        _norm("Delay Fulfilment  Ticket Related Issues  Sp Related"),
+        _norm("Delay  Delay Fulfilment  Sp Dependency"),
+    }
+    for key, spec in SUPPORT_TAG_MAP.items():
+        if not isinstance(spec, list):
+            continue
+        for tag in spec:
+            if _norm(tag) in known_dead:
+                continue
+            assert any(_norm(tag).startswith(h) for h in heads), \
+                f"{key}: {tag!r} is neither a known tag family nor known-dead"
+
+
+def t_non_guest_tags_are_excluded():
+    """
+    Looker's NAR list leaves a fifth of all rows in the denominator. These are
+    the ones we exclude on top of it - all confirmed live, none a guest issue.
+    """
+    from server.services.insights import _NAR_PATTERN
+    for v in ["No Customer Interaction", "Bulk Resolve Email Temp",
+              "Issue Not Specified/dropped Midway", "Test Chat 2024",
+              "Test Call", "Bug Alert", "Email Deflected",
+              "Agentsforce Missed", "Minded Fallback"]:
+        assert re.search(_NAR_PATTERN, v, re.I), f"{v!r} should be excluded"
+    # Unusual but genuine contacts that must survive.
+    for v in ["Fraudulent", "Reserve Now Pay Later",
+              "Ticket Redemption Details  Sp Information",
+              "General Information  About Headout"]:
+        assert not re.search(_NAR_PATTERN, v, re.I), f"{v!r} must be kept"
+
+
 def main():
     for name, fn in CASES:
         try:

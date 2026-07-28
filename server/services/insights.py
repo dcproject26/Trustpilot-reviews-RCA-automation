@@ -298,8 +298,27 @@ _QUERY_CATEGORY_SQL = (
 # the old list's "Nar" would not have matched a stored "NAR".
 _NAR_PATTERN = (
     r"(?i)Blank Call/no Response|Chat Abandoned|Missed Chat|"
-    r"Out Call|Vendor Query|Vendor Ticket Email|Outbound Call|NAR"
+    r"Out Call|Vendor Query|Vendor Ticket Email|Outbound Call|NAR|"
+    # Below are ours, not Looker's. The full 180-day tag dump showed that
+    # Looker's NAR list leaves 21.8% of rows in the denominator that are not a
+    # guest raising an issue - "No Customer Interaction" alone is 93,187 rows,
+    # a fifth of everything. Counting them makes every support ratio smaller
+    # than the truth, uniformly, which is the kind of error that never looks
+    # like one.
+    r"No Customer Interaction|"          # 93,187 - by its own name, no contact
+    r"Bulk Resolve Email Temp|"          #  3,351 - a bulk close, not a contact
+    r"Issue Not Specified/dropped Midway|"  # 1,176 - same shape as Chat Abandoned
+    r"Test Chat|Test Call|"              #    491 - internal testing
+    r"Bug Alert|"                        #    295 - a system alert, not a guest
+    r"Email Deflected|"                  #    143 - deflected before a human
+    r"Agentsforce Missed|"               #     62
+    r"Minded Fallback"                   #      4 - a bot handoff state
 )
+
+# Deliberately NOT excluded, though they are unusual:
+#   Fraudulent            929  a real interaction, and a real outcome
+#   Reserve Now Pay Later 768  a genuine query about a payment option
+#   (blank)             2,076  untagged, but a contact happened - IFNULL keeps it
 
 # "Auto resolved" is dropped from the pattern above and handled as a column.
 # Measured over 180 days: 34,241 rows have is_auto_resolved = TRUE and ZERO
