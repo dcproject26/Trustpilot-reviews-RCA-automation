@@ -756,13 +756,27 @@ async def shortlist(indicators: dict, author_first, author_last,
     if not (name or venue):
         return []
 
+    # Query set is chosen so nothing is broad enough for Zendesk to truncate.
+    # A bare `type:ticket <name>` matches every ticket mentioning that name
+    # anywhere and reliably trips "more results than Zendesk allows" -- the
+    # correct booking can then fall outside the window entirely. Likewise a
+    # bare venue query returns everyone who booked that venue. Both are only
+    # used when they are the ONLY indicator available; otherwise the combined
+    # queries cover the same ground precisely.
     ORDER = "order_by:created_at sort:desc"
-    queries = []
-    if name:           queries.append((f'type:ticket requester:"{name}" {ORDER}', "name"))
-    if name:           queries.append((f'type:ticket {name} {ORDER}',            "name"))
-    if venue:          queries.append((f'type:ticket "{venue}" {ORDER}',         "venue"))
-    if name and venue: queries.append((f'type:ticket {name} {venue} {ORDER}',    "name+venue"))
-    if name and city:  queries.append((f'type:ticket {name} {city} {ORDER}',     "name+city"))
+    queries = [] 
+    if name:
+        queries.append((f'type:ticket requester:"{name}" {ORDER}', "name"))
+    if name and venue:
+        queries.append((f'type:ticket {name} {venue} {ORDER}', "name+venue"))
+    if name and city:
+        queries.append((f'type:ticket {name} {city} {ORDER}', "name+city"))
+    if name and not venue and not city:
+        # Name-only review: the requester search alone can miss tickets raised
+        # under a different requester, so the free-text name is needed here.
+        queries.append((f'type:ticket {name} {ORDER}', "name"))
+    if venue and not name:
+        queries.append((f'type:ticket "{venue}" {ORDER}', "venue"))
 
     loop = asyncio.get_running_loop()
     seen_tickets, by_bid = set(), {}
