@@ -102,8 +102,9 @@ def report(title, configured, live, is_pattern=False):
         live_norm[norm(v)] += n
     live_keys = list(live_norm)
 
-    dead = []
+    dead, empty, n_values = [], [], 0
     for label, values in sorted(configured.items()):
+        n_values += len(values)
         lines, hit_total = [], 0
         for v in values:
             if is_pattern:
@@ -129,7 +130,9 @@ def report(title, configured, live, is_pattern=False):
         print(f"\n{mark} {label}   ->  {hit_total:,} rows")
         for ln in lines:
             print(ln)
-    return dead
+        if not hit_total:
+            empty.append(label)
+    return dead, empty, n_values
 
 
 def main():
@@ -150,10 +153,15 @@ def main():
     likes = {f"{l1} / {l2}": v.get("like_any", [])
              for (l1, l2), v in SUPPORT_TAG_MAP.items() if isinstance(v, dict)}
 
-    dead = report("SUPPORT_TAG_MAP - exact query_tag lists", exact, tags_live)
-    dead += report("SUPPORT_TAG_MAP - LIKE patterns", likes, tags_live,
-                   is_pattern=True)
-    dead += report("_L2_BUCKETS - review issue spellings", I._L2_BUCKETS, l2_live)
+    dead, empty_groups, total_values = [], [], 0
+    for title, cfg, live, pat in (
+            ("SUPPORT_TAG_MAP - exact query_tag lists", exact, tags_live, False),
+            ("SUPPORT_TAG_MAP - LIKE patterns", likes, tags_live, True),
+            ("_L2_BUCKETS - review issue spellings", I._L2_BUCKETS, l2_live, False)):
+        d, e, n = report(title, cfg, live, pat)
+        dead += d
+        empty_groups += e
+        total_values += n
 
     # --- is the NAR exclusion keying on the right thing? --------------------
     print("\n" + "=" * 74)
@@ -189,12 +197,28 @@ WHERE DATE(query_created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL {DAYS} DAY)
     for v, n in hits:
         print(f"    {n:>8,}  {v}")
 
+    # The detail above already lists every dead value under its group. Repeat
+    # only the groups that matched NOTHING - those are the ones where a tile
+    # silently reads zero. A group with some live values still works.
     print("\n" + "=" * 74)
+    by_label = defaultdict(list)
+    for label, v in dead:
+        by_label[label].append(v)
+    if empty_groups:
+        print(f"{len(empty_groups)} GROUPS MATCH NOTHING AT ALL - these report "
+              f"zero similar issues for every booking:\n")
+        for label in empty_groups:
+            vals = by_label.get(label, [])
+            print(f"  {label}  ({len(vals)} values, none live)")
     if dead:
-        print(f"{len(dead)} CONFIGURED VALUES MATCH NOTHING\n")
-        for label, v in dead:
-            print(f"  {label}\n      {v}")
+        print(f"\n{len(dead)} of {total_values} configured values are dead "
+              f"across {len(by_label)} groups. Full detail above.")
+    if empty_groups:
         return 1
+    if dead:
+        print("Every group still matches something, so no tile reads a "
+              "silent zero.")
+        return 0
     print("Every configured value matches at least one row.")
     return 0
 

@@ -33,7 +33,7 @@ def _capture(configured, live, is_pattern=False):
     import contextlib
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        dead = report("test", configured, live, is_pattern)
+        dead, _empty, _n = report("test", configured, live, is_pattern)
     return dead, buf.getvalue()
 
 
