@@ -497,11 +497,39 @@ SUPPORT_TAG_MAP = {
         "Delay Fulfilment  Delay  Sp Dependency",
         "Modification Request  Sp Related  Offered A Different Time",
     ],
+    # This L2 means "we told the guest something wrong or unclear". Narrowed
+    # against 180 days of real query_tag values, where the ten patterns as
+    # written matched 161,939 of 464,295 rows - 35% of every support contact
+    # Headout receives. A number that large is not "similar issues", it is
+    # "any issue", and it made this L2's tile indistinguishable from the total.
+    #
+    # Dropped, too broad:
+    #   %cancellation%  55,183 - overwhelmingly cancellation REQUESTS. Wanting
+    #                   to cancel is not a complaint about what we published.
+    #   %information%   74,688 - matches whole unrelated families, including
+    #                   "Ticket Redemption Details  Sp Information" and the
+    #                   Audio Guide "Redemption Information/issues" tags that
+    #                   the Meeting Point and Audio Guide L2s already own. It
+    #                   was the main reason two different issues returned
+    #                   identical counts.
+    #
+    # Dropped, matched nothing at all - the tag vocabulary does not use these
+    # words, so they were never doing anything:
+    #   %content%  %description%  %website%  %incorrect details%  %misleading%
+    #
+    # Kept - live, and genuinely about what was published rather than what
+    # happened. Together 32,068 rows, 6.9% of support contacts, which is a
+    # plausible share for one issue type:
+    #   %inclusion%  17,092    what the ticket said was included
+    #   %exclusion%  11,389    what it said was not
+    #   %validity%    3,587    when the ticket was said to be valid
+    #
+    # An exact list would be better still, as the other four L2s have. That
+    # needs the full 106 live tag values eyeballed once; verify_taxonomy now
+    # prints the ones nothing maps to.
     ("Operations Issue", "Content - Instructions not clear / Misleading Info"): {
         "like_any": [
-            "%content%", "%information%", "%description%", "%inclusion%",
-            "%exclusion%", "%cancellation%", "%validity%", "%website%",
-            "%incorrect details%", "%misleading%",
+            "%inclusion%", "%exclusion%", "%validity%",
         ],
     },
 }
