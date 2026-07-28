@@ -695,17 +695,22 @@ Return ONLY the 2-3 sentence paragraph, no headings."""
 
 
 # ─── 7. Venue extraction — multi-venue, for Tier 2 cascade ─────────────────
-def match_indicator_prompt(review_text: str, review_date: str) -> str:
+def match_indicator_prompt(review_text: str, review_date: str,
+                           reviewer_name: str = "") -> str:
     """Approved matching-indicator extraction (booking match, Tier 2)."""
     return f"""You are matching a Trustpilot review to a Headout booking. Read the review and
 extract every indicator that could identify the booking. Do not invent anything —
 only what the text supports.
 
+REVIEWER NAME: {reviewer_name or "unknown"}
+
 REVIEW (posted {review_date or "unknown"}):
 {review_text}
 
 Return JSON:
-- guest_name — from the reviewer name and any name mentioned in the text
+- guest_name — the REVIEWER NAME above, unless the text clearly names a
+  different person as the booker, in which case use that. Never null when a
+  reviewer name is given: it is often the only indicator available.
 - experience_or_venue — what they visited/booked, in their words
   (e.g. "Eiffel Tower summit", "Rome catacombs tour").
   IMPORTANT: the review may end with a line like "Reference number: <text>".
@@ -714,8 +719,10 @@ Return JSON:
   If that line holds anything other than a plain number, read it as the venue.
 - city_or_country — if stated or clearly implied
 - visit_date_hint — any date/time reference ("on May 2nd", "last Saturday",
-  "two weeks ago") normalized to a best-guess date or range, given the review
-  was posted {review_date or "unknown"}
+  "two weeks ago") resolved against the post date {review_date or "unknown"}.
+  Output a BARE DATE, exactly YYYY-MM-DD, and nothing else — no ranges, no
+  alternatives, no explanation. If two dates are equally likely, pick the more
+  likely one. Null if the review gives no date reference at all.
 - pax — how many people the booking was for, as a number. Count it from
   whatever the review says: "9 combo tickets" → 9, "my wife and I" → 2,
   "family of four" → 4, "2 adults 1 child" → 3. Null if not inferable.

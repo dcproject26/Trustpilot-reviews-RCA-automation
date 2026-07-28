@@ -364,14 +364,24 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 try:
                     from server.prompts import match_indicator_prompt
                     _pub = (review.received_at or datetime.utcnow()).date().isoformat()
-                    raw = await claude._call(match_indicator_prompt(match_text or "", _pub),
-                                             max_tokens=400)
+                    raw = await claude._call(
+                        match_indicator_prompt(match_text or "", _pub,
+                                               reviewer_name=review.author or ""),
+                        max_tokens=400)
                     indicators = claude._extract_json_object(raw) or {}
                 except Exception as e:
                     log.warning(f"Indicator extraction failed: {e}")
                 venue_hints = [h for h in (
                     indicators.get("experience_or_venue"),
                     indicators.get("city_or_country")) if h and str(h).strip()]
+                # The model occasionally answers with a range or an explanation
+                # ("2026-07-23 or 2026-07-24 (booked yesterday...)"). Anything
+                # that is not a bare date cannot be parsed downstream and scored
+                # zero silently, so pull the first date out or drop it.
+                _vd = str(indicators.get("visit_date_hint") or "")
+                _m = re.search(r"\d{4}-\d{2}-\d{2}", _vd)
+                indicators["visit_date_hint"] = _m.group(0) if _m else None
+
                 extracted_sigs["venue_hints"] = venue_hints
                 extracted_sigs["match_indicators"] = indicators
                 # pax is extracted and persisted, but cannot be SCORED yet: no
