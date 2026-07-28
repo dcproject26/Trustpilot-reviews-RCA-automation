@@ -23,7 +23,11 @@ def _fmt(v):
             b = v.get("rate_by_booking_status")
             b = "-" if b is None else f"{b * 100:.1f}%"
             flag = " !" if v.get("needs_attention") else ""
-            return f"{r}/{b} n={v['total']}{flag}"
+            # Two Looker views define booking_completion_rate over different
+            # columns. Both are computed so a disagreement is visible; when
+            # they agree, printing the number twice is just noise.
+            rate = r if r == b else f"{r}/{b}"
+            return f"{rate} n={v['total']}{flag}"
         if "avg" in v:
             return f"{v['avg']} (n={v['n']})" if v["avg"] is not None else f"- (n={v['n']})"
         if "issues" in v:
@@ -77,11 +81,18 @@ async def main():
         ("escalation",         "escalation"),
     ]
 
-    w = 20
-    print("\n" + " " * w + "".join(f"{x:>18}" for x in WINDOWS))
-    print(" " * w + "-" * (18 * len(WINDOWS)))
+    # Width from the widest cell, not a guess. A fixed 18 was fine until the
+    # FF cells grew a second rate and started running into each other.
+    cells = {(label, i): _fmt(r.get(key))
+             for label, key in rows for i, r in enumerate(runs)}
+    w = max(len(label) for label, _ in rows) + 2
+    cw = max([len(v) for v in cells.values()] + [len(x) for x in WINDOWS]) + 2
+
+    print("\n" + " " * w + "".join(f"{x:>{cw}}" for x in WINDOWS))
+    print(" " * w + "-" * (cw * len(WINDOWS)))
     for label, key in rows:
-        print(f"{label:<{w}}" + "".join(f"{_fmt(r.get(key)):>18}" for r in runs))
+        print(f"{label:<{w}}"
+              + "".join(f"{cells[(label, i)]:>{cw}}" for i in range(len(runs))))
 
     red = runs[1].get("redemption") or {}
     print(f"\nredemption details: {len(red)} fields" if red else "\nredemption details: none")
