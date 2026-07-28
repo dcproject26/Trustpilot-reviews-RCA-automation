@@ -29,8 +29,10 @@ does it differently:
   4. vendor_id comes from fct_fulfilments on the review queries and from
      fct_bookings on the booking and support queries - mirroring Looker, which
      mixes the two.
-  5. Support queries exclude Chat Abandoned, Nar, Out Call and Vendor Query,
-     which inflated the support denominator.
+  5. Support queries are filtered on Looker's derived query_category, not on
+     the raw query_tag column, and the NAR bucket is excluded from both the
+     numerator and the denominator. Chat Abandoned is computed from `tags` and
+     is not a query_tag value at all, so the old exclusion matched nothing.
   6. dim_vendor_tours is read for redemption details - meeting point, cancel
      policy, instructions. Not surfaced on the dashboard yet, but it is the
      table that says what the experience was SUPPOSED to do, which is what a
@@ -139,8 +141,32 @@ def l2_variants(l2: str | None) -> list:
     return sorted({v.strip().lower() for v in _L2_BUCKETS[bucket]})
 
 
-# Support tags that are not guest contacts and would inflate the denominator.
-_EXCLUDED_SUPPORT_TAGS = ["Chat Abandoned", "Nar", "Out Call", "Vendor Query"]
+# query_category, verbatim from the fct_support_queries LookML:
+#
+#   CASE WHEN tags IN ("CHATBOT, CHATBOT-TRANSFER", "CHATBOT-TRANSFER, CHATBOT")
+#        THEN "Chat Abandoned" ELSE query_tag END
+#
+# "Chat Abandoned" is DERIVED from the tags column - it is not a value query_tag
+# ever holds. The old code excluded it by matching query_tag = "Chat Abandoned",
+# which matched no row at all, so every abandoned chatbot session stayed in the
+# support denominator and pushed the support ratio down.
+_QUERY_CATEGORY_SQL = (
+    'CASE WHEN sq.tags IN ("CHATBOT, CHATBOT-TRANSFER", "CHATBOT-TRANSFER, CHATBOT") '
+    'THEN "Chat Abandoned" ELSE sq.query_tag END'
+)
+
+# Contacts that are not a guest reaching out. This is the NAR bucket from the
+# fcr_dashboard LookML, which is broader than the four values this file used to
+# list - auto-resolved sessions, missed chats, outbound calls and vendor email
+# are all counted as support contacts otherwise.
+#
+# Matched as a regex, as Looker does, so "NAR" catches the several spellings in
+# the data rather than one. (?i) is ours: the column is not case-consistent, and
+# the old list's "Nar" would not have matched a stored "NAR".
+_NAR_PATTERN = (
+    r"(?i)Auto resolved|Blank Call/no Response|Chat Abandoned|Missed Chat|"
+    r"Out Call|Vendor Query|Vendor Ticket Email|Outbound Call|NAR"
+)
 
 # Fulfilment rate, straight off the Looker fulfilments view:
 #
@@ -363,7 +389,7 @@ LEFT JOIN `{_BOOKINGS_TABLE}` b ON CAST(b.booking_id AS STRING) = sq.booking_id
 """
     _support_where = f"""
 WHERE b.tour_id = @tid AND b.vendor_id = @vid
-  AND sq.query_tag NOT IN UNNEST(@excluded)
+  AND NOT REGEXP_CONTAINS(IFNULL({_QUERY_CATEGORY_SQL}, ''), @nar)
   AND {_win}
 """
     sql_d = f"""
@@ -476,7 +502,7 @@ LEFT JOIN `{_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
     sql_h2 = f"{_ff_select}WHERE b.experience_id = @tgid AND {_win}"
     sql_i  = f"{_ff_select}WHERE b.vendor_id = @vid AND DATE(b.experience_date) = {anchor_sql}"
 
-    excluded = {"excluded": ("STRING", _EXCLUDED_SUPPORT_TAGS)}
+    nar_par  = {"nar": _NAR_PATTERN}
     ff_par   = {"ff_done": ("STRING", _FF_COMPLETED_STATUSES)}
 
     # A and C need a tag/L2 mapping. Without one they are skipped and the rest
@@ -493,19 +519,20 @@ LEFT JOIN `{_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
         sql_c = f"""
 SELECT COUNT(DISTINCT sq.booking_id) AS c
 {_support_from}{_support_where}
-  AND sq.query_tag IN UNNEST(@tags)
+  AND {_QUERY_CATEGORY_SQL} IN UNNEST(@tags)
 """
-        coro_c = _run(sql_c, {**base, **excluded, "tags": ("STRING", tags_spec)})
+        coro_c = _run(sql_c, {**base, **nar_par, "tags": ("STRING", tags_spec)})
     else:
         pats = tags_spec.get("like_any", [])
         if pats:
-            ors = " OR ".join(f"LOWER(sq.query_tag) LIKE @pat{i}" for i in range(len(pats)))
+            ors = " OR ".join(f"LOWER({_QUERY_CATEGORY_SQL}) LIKE @pat{i}"
+                              for i in range(len(pats)))
             sql_c = f"""
 SELECT COUNT(DISTINCT sq.booking_id) AS c
 {_support_from}{_support_where}
   AND ({ors})
 """
-            coro_c = _run(sql_c, {**base, **excluded,
+            coro_c = _run(sql_c, {**base, **nar_par,
                                   **{f"pat{i}": p for i, p in enumerate(pats)}})
         else:
             coro_c, skip_ac = asyncio.sleep(0), True
@@ -514,7 +541,7 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         coro_a,
         _run(sql_b, base),
         coro_c,
-        _run(sql_d, {**base, **excluded}),
+        _run(sql_d, {**base, **nar_par}),
         _run(sql_e_tidvid, base),
         _run(sql_e_tgid, {**anchor_par, "tgid": tgid}) if tgid else asyncio.sleep(0),
         _run(sql_f, base),
