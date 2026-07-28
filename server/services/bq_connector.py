@@ -110,6 +110,30 @@ def _convert(value, bq_type: str):
     return value  # strings, dates, timestamps stay as strings
 
 
+def _wire_params(params: list) -> list:
+    """Our parameter shims -> the REST API's queryParameters wire format."""
+    out = []
+    for p in params:
+        if isinstance(p, ArrayQueryParameter):
+            out.append({
+                "name": p.name,
+                "parameterType": {
+                    "type": "ARRAY",
+                    "arrayType": {"type": p.array_type},
+                },
+                "parameterValue": {
+                    "arrayValues": [{"value": str(v)} for v in p.values],
+                },
+            })
+        else:
+            out.append({
+                "name": p.name,
+                "parameterType": {"type": p.type_},
+                "parameterValue": {"value": str(p.value)},
+            })
+    return out
+
+
 class Client:
     """Minimal read-only client using the synchronous jobs.query REST endpoint."""
 
@@ -119,26 +143,7 @@ class Client:
         params = (job_config.query_parameters if job_config else []) or []
         if params:
             body["parameterMode"] = "NAMED"
-            bq_params = []
-            for p in params:
-                if isinstance(p, ArrayQueryParameter):
-                    bq_params.append({
-                        "name": p.name,
-                        "parameterType": {
-                            "type": "ARRAY",
-                            "arrayType": {"type": p.array_type},
-                        },
-                        "parameterValue": {
-                            "arrayValues": [{"value": str(v)} for v in p.values],
-                        },
-                    })
-                else:
-                    bq_params.append({
-                        "name": p.name,
-                        "parameterType": {"type": p.type_},
-                        "parameterValue": {"value": str(p.value)},
-                    })
-            body["queryParameters"] = bq_params
+            body["queryParameters"] = _wire_params(params)
 
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         r = requests.post(f"{_BQ_API}/projects/{project}/queries",
@@ -206,6 +211,12 @@ def run_query(sql: str, params: dict | None = None) -> list[dict]:
     `params` maps param name → (type_str, value) tuple, OR just value for STRING scalars.
     Array params: pass value as a list, type_str as 'INT64' etc. (auto-detected).
     """
+    qp = _shim_params(params)
+    job = Client().query(sql, QueryJobConfig(query_parameters=qp) if qp else None)
+    return [vars(row) for row in job.result()]
+
+
+def _shim_params(params: dict | None) -> list:
     qp = []
     for name, spec in (params or {}).items():
         if isinstance(spec, tuple):
@@ -216,5 +227,77 @@ def run_query(sql: str, params: dict | None = None) -> list[dict]:
             qp.append(ArrayQueryParameter(name, type_str, val))
         else:
             qp.append(ScalarQueryParameter(name, type_str, val))
-    job = Client().query(sql, QueryJobConfig(query_parameters=qp) if qp else None)
-    return [vars(row) for row in job.result()]
+    return qp
+
+
+def dry_run(sql: str, params: dict | None = None) -> dict:
+    """
+    Validate a query against the live schema without running it.
+
+    BigQuery type-checks a dry run in full: every table, every column, and
+    every operand type. It scans nothing and costs nothing, which makes it the
+    cheap way to answer the only question that matters about a query written
+    from a LookML paste - do these columns exist, and are they the types the
+    SQL assumes?
+
+    Returns {"ok": True, "bytes": int} or {"ok": False, "error": str}. It does
+    not raise: the caller is usually checking a batch of queries and wants
+    every result, not the first failure.
+    """
+    if MOCK_MODE:
+        return {"ok": False, "error": "MOCK_MODE - no BigQuery connection"}
+    try:
+        token, project = _settings()
+    except Exception as e:
+        return {"ok": False, "error": f"no BigQuery connection: {e}"}
+
+    body: dict = {"query": sql, "useLegacySql": False, "dryRun": True}
+    qp = _shim_params(params)
+    if qp:
+        body["parameterMode"] = "NAMED"
+        body["queryParameters"] = _wire_params(qp)
+
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    r = requests.post(f"{_BQ_API}/projects/{project}/queries",
+                      headers=headers, json=body, timeout=60)
+    if r.status_code == 401:
+        token, project = _settings(force=True)
+        headers["Authorization"] = f"Bearer {token}"
+        r = requests.post(f"{_BQ_API}/projects/{project}/queries",
+                          headers=headers, json=body, timeout=60)
+
+    j = {}
+    try:
+        j = r.json()
+    except ValueError:
+        pass
+    if r.status_code >= 400:
+        err = (j.get("error") or {}).get("message") or r.text[:400]
+        return {"ok": False, "error": err}
+    return {"ok": True, "bytes": int(j.get("totalBytesProcessed") or 0)}
+
+
+def column_types(table: str, columns: list[str] | None = None) -> dict:
+    """
+    Column name -> BigQuery type for one table, straight off INFORMATION_SCHEMA.
+
+    `table` is the fully-qualified name. Used to report WHY a dry run failed -
+    "tags is ARRAY<STRING>, not STRING" is actionable where BigQuery's own
+    "No matching signature for operator IN" is not.
+    """
+    parts = table.replace("`", "").split(".")
+    if len(parts) != 3:
+        return {}
+    project, dataset, name = parts
+    sql = (f"SELECT column_name, data_type "
+           f"FROM `{project}.{dataset}.INFORMATION_SCHEMA.COLUMNS` "
+           f"WHERE table_name = @t")
+    try:
+        rows = run_query(sql, {"t": name})
+    except Exception as e:
+        log.warning(f"[bq_connector] column_types({table}) failed: {e}")
+        return {}
+    got = {r["column_name"]: r["data_type"] for r in rows}
+    if columns:
+        return {c: got.get(c) for c in columns}
+    return got
