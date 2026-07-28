@@ -62,7 +62,8 @@ def review_date_column():
     check already caught once.
     """
     cols = BQ.column_types(I._REVIEWS_TABLE)
-    for c in ("review_created_at", "created_at", "review_date", "submitted_at"):
+    for c in ("reviewed_at", "review_created_at", "created_at", "review_date",
+              "submitted_at"):
         if c in cols:
             return c
     dated = [c for c, t in cols.items()
@@ -132,9 +133,11 @@ def main():
               "Run this on Replit, where the connector is bound.")
         return 2
 
+    date_col = review_date_column()
     tags_live = live_query_tags()
-    l2_live = live_l2_values()
-    print(f"Warehouse, last {DAYS} days: "
+    l2_live = live_l2_values(date_col)
+    print(f"Warehouse, last {DAYS} days "
+          f"(fct_reviews windowed on {date_col or 'NOTHING - no date column found'}): "
           f"{len(tags_live)} distinct query_tag, {len(l2_live)} distinct l2_issue")
 
     exact = {f"{l1} / {l2}": v for (l1, l2), v in SUPPORT_TAG_MAP.items()
