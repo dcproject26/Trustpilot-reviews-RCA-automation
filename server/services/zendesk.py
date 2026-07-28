@@ -649,6 +649,21 @@ def _name_score(candidate: str, first: str | None, last: str | None) -> float:
     return (score / weight) if weight else 0.0
 
 
+# Venue-TYPE nouns. These appear in thousands of unrelated experience names, so
+# an overlap consisting only of these is not evidence of the same venue: a
+# review about the "palace of culture and science" must not match Pena Palace,
+# Buckingham Palace or Doge's Palace. They still count once a distinctive word
+# agrees ("palace" + "culture" + "science").
+_VENUE_GENERIC = {
+    "palace", "museum", "castle", "park", "tower", "cathedral", "church",
+    "garden", "gardens", "zoo", "bridge", "square", "house", "hall", "centre",
+    "center", "gallery", "temple", "arena", "stadium", "cruise", "river",
+    "basilica", "chapel", "fortress", "monument", "aquarium", "observatory",
+    "market", "island", "beach", "lake", "mountain", "valley", "national",
+    "royal", "grand", "central", "old", "new", "great",
+}
+
+
 def _venue_tokens(s: str) -> set:
     """Significant words of a venue/experience name, accents folded."""
     stop = {"tour", "tours", "pass", "ticket", "tickets", "entry", "visit",
@@ -677,7 +692,10 @@ def matches_indicators(sig: dict, ind: dict, first, last) -> tuple[bool, list]:
     if venue:
         want = _venue_tokens(venue)
         got  = _venue_tokens(sig.get("experience") or "")
-        if not (want and got and (want & got)):
+        overlap = want & got
+        # At least one DISTINCTIVE word must agree. Overlapping only on venue
+        # -type nouns ("palace") matches half the catalogue.
+        if not (overlap and (overlap - _VENUE_GENERIC)):
             return False, used
         used.append("venue")
 
