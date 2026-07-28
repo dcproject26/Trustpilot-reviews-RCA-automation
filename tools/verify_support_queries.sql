@@ -8,18 +8,23 @@
 
 
 -- ===========================================================================
--- 1. Does the `tags` column exist, and is it a scalar STRING?
+-- 1. ANSWERED 2026-07-28. Kept for the record.
 --
--- The whole change rests on this. The LookML compares tags to comma-joined
--- strings ("CHATBOT, CHATBOT-TRANSFER"), which only makes sense if tags is one
--- STRING per row rather than an ARRAY. If it comes back ARRAY<STRING>, the
--- CASE in insights.py will not even compile and needs rewriting as a
--- membership test.
+--   tags             STRING    - scalar, so the query_category CASE compiles
+--   query_tag        STRING
+--   query_category   absent    - LookML-derived only, correct to rebuild it
+--   booking_id       STRING    - hence the CAST on the fct_bookings join
+--   vendor_id        absent    - so the join to fct_bookings is unavoidable
+--   created_at       absent    - the column is query_created_at
+--   is_auto_resolved BOOL      - see query 3a
+--
+-- Full column list, since the point is to learn what is there rather than
+-- confirm what was assumed.
 -- ===========================================================================
 SELECT column_name, data_type
 FROM `headout-analytics.analytics_reporting.INFORMATION_SCHEMA.COLUMNS`
 WHERE table_name = 'fct_support_queries'
-  AND column_name IN ('tags', 'query_tag', 'query_category', 'booking_id');
+ORDER BY ordinal_position;
 
 
 -- ===========================================================================
@@ -39,7 +44,7 @@ SELECT
   COUNTIF(query_tag IS NULL)                                  AS null_query_tag,
   COUNT(*)                                                    AS total_rows
 FROM `headout-analytics.analytics_reporting.fct_support_queries`
-WHERE DATE(created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY);
+WHERE DATE(query_created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY);
 
 
 -- ===========================================================================
@@ -60,7 +65,7 @@ WITH c AS (
     CASE WHEN tags IN ('CHATBOT, CHATBOT-TRANSFER', 'CHATBOT-TRANSFER, CHATBOT')
          THEN 'Chat Abandoned' ELSE query_tag END AS query_category
   FROM `headout-analytics.analytics_reporting.fct_support_queries`
-  WHERE DATE(created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
+  WHERE DATE(query_created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
 )
 SELECT
   query_category,
@@ -74,7 +79,46 @@ SELECT
 FROM c
 GROUP BY query_category
 ORDER BY n DESC
-LIMIT 100;
+LIMIT 200;
+
+
+-- ===========================================================================
+-- 3a. Is the regex the wrong mechanism entirely?
+--
+-- fct_support_queries has a BOOL is_auto_resolved, and separate contact_type
+-- and query_type columns. The NAR exclusion currently matches the STRING
+-- "Auto resolved" against query_category - which is exactly the mistake that
+-- was just fixed for Chat Abandoned, if the phrase is not a literal query_tag
+-- value.
+--
+-- What to read:
+--   - auto_resolved_rows vs regex_says_auto. If the first is large and the
+--     second is ~0, the regex term is dead and the exclusion should be
+--     "is_auto_resolved = TRUE".
+--   - The contact_type and query_type breakdowns. If NAR-ish contacts are
+--     classified there rather than in query_tag, the exclusion belongs on
+--     those columns and the regex over query_category is the wrong idea.
+-- ===========================================================================
+SELECT
+  COUNTIF(is_auto_resolved)                                  AS auto_resolved_rows,
+  COUNTIF(REGEXP_CONTAINS(IFNULL(query_tag, ''), r'(?i)Auto resolved'))
+                                                             AS regex_says_auto,
+  COUNTIF(is_auto_resolved
+          AND NOT REGEXP_CONTAINS(IFNULL(query_tag, ''), r'(?i)Auto resolved'))
+                                                             AS auto_but_regex_misses,
+  COUNT(*)                                                   AS total_rows
+FROM `headout-analytics.analytics_reporting.fct_support_queries`
+WHERE DATE(query_created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY);
+
+SELECT contact_type, COUNT(*) AS n
+FROM `headout-analytics.analytics_reporting.fct_support_queries`
+WHERE DATE(query_created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
+GROUP BY contact_type ORDER BY n DESC LIMIT 50;
+
+SELECT query_type, COUNT(*) AS n
+FROM `headout-analytics.analytics_reporting.fct_support_queries`
+WHERE DATE(query_created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
+GROUP BY query_type ORDER BY n DESC LIMIT 50;
 
 
 -- ===========================================================================
