@@ -486,6 +486,26 @@ SUPPORT_TAG_MAP = {
         "Ticket Redemption Details  Audio Guide Related  Tech Issues",
         "Ticket Redemption Details  Audio Guide Related  Redemption Information/issues",
     ],
+    # DELIBERATE, and confirmed: every Supply Partner L2 shares this one tag
+    # set, exactly as the VectorShift brief specifies. Do not split it.
+    #
+    # The consequence is visible and looks like a bug: all eight SP L2s report
+    # the same support count, so Food & Catering claims the same history as
+    # Guide No Show, including 8,249 Sp Dependency delay contacts. The tags do
+    # divide cleanly by L2 - Tour Cancelled By Sp, Guide Was Late, Offered A
+    # Different Time each belong to an obvious one - and splitting them was
+    # proposed and declined.
+    #
+    # The reasoning to preserve: for a supply partner the question is whether
+    # THE VENDOR is failing, not which flavour of failure this ticket was. SP
+    # problems bleed into each other - a late guide becomes a cancelled tour
+    # becomes a delay - and narrowing to one L2 would hide a vendor that is
+    # failing steadily in three different ways at once.
+    #
+    # Note this is the opposite call from the review side, where the guide L2s
+    # were deliberately un-collapsed. That is not an inconsistency: a review is
+    # one guest describing one visit, and a support tag set is a vendor's
+    # operating record.
     ("Supply Partner Issue", "__all__"): [
         "Service Issues  Sp Related  Guide Was Late/didn T Arrive",
         "Delay Fulfilment  Ticket Related Issues  Sp Related",
