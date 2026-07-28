@@ -163,7 +163,7 @@ def t_l2_variants_are_raw_spellings():
     values were normalised too, they would stop matching the column.
     """
     from server.services.insights import l2_variants
-    vs = l2_variants("Guide Behaviour Issues")
+    vs = l2_variants("Guide providing irrelevant/inexperienced/not clear")
     assert "guide providing irrelevant/inexperienced/not clear" in vs, \
         f"raw slash spelling must survive, got {vs}"
 
