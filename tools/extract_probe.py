@@ -21,7 +21,9 @@ async def main():
         match_text = _eng if not _orig else (
             _eng if _orig in _eng else (f"{_eng}\n{_orig}".strip() if _eng else _orig))
         pub = r.received_at.date().isoformat() if r.received_at else ""
-        raw = await claude._call(match_indicator_prompt(match_text, pub), max_tokens=400)
+        raw = await claude._call(
+            match_indicator_prompt(match_text, pub, reviewer_name=r.author or ""),
+            max_tokens=400)
         ind = claude._extract_json_object(raw) or {}
         print("=" * 76)
         print(f"{r.author}  ({r.id})")

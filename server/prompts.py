@@ -702,15 +702,17 @@ def match_indicator_prompt(review_text: str, review_date: str,
 extract every indicator that could identify the booking. Do not invent anything —
 only what the text supports.
 
-REVIEWER NAME: {reviewer_name or "unknown"}
+REVIEWER NAME: {reviewer_name or "(not provided)"}
 
 REVIEW (posted {review_date or "unknown"}):
 {review_text}
 
 Return JSON:
-- guest_name — the REVIEWER NAME above, unless the text clearly names a
-  different person as the booker, in which case use that. Never null when a
-  reviewer name is given: it is often the only indicator available.
+- guest_name — copy the REVIEWER NAME above verbatim, unless the text clearly
+  names a different person as the booker, in which case use that. It is often
+  the only indicator available, so never omit it. If and only if the reviewer
+  name is "(not provided)" and the text names nobody, return null — never the
+  word "unknown".
 - experience_or_venue — what they visited/booked, in their words
   (e.g. "Eiffel Tower summit", "Rome catacombs tour").
   IMPORTANT: the review may end with a line like "Reference number: <text>".
@@ -718,8 +720,11 @@ Return JSON:
   "Reference number: Salt mines Krakow" means the venue is "Salt mines Krakow".
   If that line holds anything other than a plain number, read it as the venue.
 - city_or_country — if stated or clearly implied
-- visit_date_hint — any date/time reference ("on May 2nd", "last Saturday",
-  "two weeks ago") resolved against the post date {review_date or "unknown"}.
+- visit_date_hint — the date the guest VISITED or was due to visit. Not the
+  date they booked, not the date they were emailed, not the date they
+  complained. "I booked yesterday" is a booking date and must be ignored;
+  "we went last Saturday" or "our visit on the 14th" is a visit date. Resolve
+  it against the post date {review_date or "unknown"}.
   Output a BARE DATE, exactly YYYY-MM-DD, and nothing else — no ranges, no
   alternatives, no explanation. If two dates are equally likely, pick the more
   likely one. Null if the review gives no date reference at all.
