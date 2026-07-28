@@ -126,23 +126,62 @@ _L2_BUCKETS = {
         "Partial closure of venue/ activity closure at venue"],
     "Services did not start on time": ["Service Timing"],
 }
-_L2_TO_BUCKET = {v.strip().lower(): b for b, vs in _L2_BUCKETS.items() for v in vs}
+def _norm_sql(expr: str) -> str:
+    """
+    BigQuery-side twin of _norm(): lowercase, collapse runs of whitespace, trim.
+
+    Both sides of every taxonomy comparison go through this. Without it the
+    warehouse is compared literally while the verification probe compares
+    normalised - so the probe reports a tag as live and production quietly
+    fails to match it. The tag values carry double spaces
+    ("Ticket Redemption Details  Sp Information"), which makes that gap a
+    question of when rather than whether.
+    """
+    return f"TRIM(REGEXP_REPLACE(LOWER({expr}), r'\\s+', ' '))"
+
+
+def _norm(s) -> str:
+    """Python-side twin of _norm_sql(). Keep the two in step."""
+    return re.sub(r"\s+", " ", str(s or "")).strip().lower()
+
+
+def _l2_key(s) -> str:
+    """
+    Lookup key for the bucket mapping.
+
+    Case-folded, whitespace-collapsed, and insensitive to spacing around a
+    slash. That last part is not cosmetic: the classifier emits
+    "Content - Instructions not clear / Misleading Info" while the Looker
+    mapping and the warehouse both write it without the spaces. Compared
+    literally, that L2 misses its own bucket, falls through to the fallback,
+    and matches nothing - it reported zero similar reviews for every booking.
+    """
+    return re.sub(r"\s*/\s*", "/", _norm(s))
+
+
+_L2_TO_BUCKET = {_l2_key(v): b for b, vs in _L2_BUCKETS.items() for v in vs}
 
 
 def l2_variants(l2: str | None) -> list:
     """
     Every spelling of the issue the classifier named.
 
-    Falls back to the value itself when it is not in the mapping, so an L2 we
-    have not seen still matches its own name rather than nothing.
+    The values returned are the RAW spellings, only case-folded - they are
+    compared against the warehouse column, so they have to look like what is
+    stored. Only the lookup is slash-insensitive.
+
+    The L2's own name is always included, so an L2 that is in a bucket can
+    still match itself, and one that is in no bucket matches its own name
+    rather than nothing.
     """
-    key = str(l2 or "").strip().lower()
+    key = _l2_key(l2)
     if not key:
         return []
+    out = {_norm(l2)}
     bucket = _L2_TO_BUCKET.get(key)
-    if not bucket:
-        return [key]
-    return sorted({v.strip().lower() for v in _L2_BUCKETS[bucket]})
+    if bucket:
+        out |= {_norm(v) for v in _L2_BUCKETS[bucket]}
+    return sorted(out)
 
 
 # query_category, verbatim from the fct_support_queries LookML:
@@ -416,7 +455,7 @@ LEFT JOIN UNNEST(r.issues) AS iss
 LEFT JOIN UNNEST(iss.l2_issues) AS l2v
 WHERE b.tour_id = @tid AND f.vendor_id = @vid
   AND r.rating <= {_NEGATIVE_RATING_MAX}
-  AND LOWER(l2v) IN UNNEST(@l2v)
+  AND {_norm_sql('l2v')} IN UNNEST(@l2v)
   AND {_win}
 """
 
@@ -575,13 +614,14 @@ LEFT JOIN `{_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
         sql_c = f"""
 SELECT COUNT(DISTINCT sq.booking_id) AS c
 {_support_from}{_support_where}
-  AND {_QUERY_CATEGORY_SQL} IN UNNEST(@tags)
+  AND {_norm_sql(_QUERY_CATEGORY_SQL)} IN UNNEST(@tags)
 """
-        coro_c = _run(sql_c, {**base, **nar_par, "tags": ("STRING", tags_spec)})
+        coro_c = _run(sql_c, {**base, **nar_par,
+                              "tags": ("STRING", [_norm(t) for t in tags_spec])})
     else:
         pats = tags_spec.get("like_any", [])
         if pats:
-            ors = " OR ".join(f"LOWER({_QUERY_CATEGORY_SQL}) LIKE @pat{i}"
+            ors = " OR ".join(f"{_norm_sql(_QUERY_CATEGORY_SQL)} LIKE @pat{i}"
                               for i in range(len(pats)))
             sql_c = f"""
 SELECT COUNT(DISTINCT sq.booking_id) AS c
@@ -589,7 +629,7 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
   AND ({ors})
 """
             coro_c = _run(sql_c, {**base, **nar_par,
-                                  **{f"pat{i}": p for i, p in enumerate(pats)}})
+                                  **{f"pat{i}": _norm(p) for i, p in enumerate(pats)}})
         else:
             coro_c, skip_ac = asyncio.sleep(0), True
 

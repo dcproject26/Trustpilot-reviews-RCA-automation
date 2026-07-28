@@ -132,6 +132,101 @@ def t_auto_resolved_excluded_on_the_column():
         "the support filter must exclude auto-resolved contacts on the column"
 
 
+# --- l2_variants: the classifier's L2 -> the warehouse's spellings ---------
+def t_l2_slash_spacing_is_ignored_on_lookup():
+    """
+    The classifier emits "Content - Instructions not clear / Misleading Info";
+    the Looker mapping and the warehouse both write it without spaces around
+    the slash. Compared literally it missed its bucket and reported zero
+    similar reviews for every booking.
+    """
+    from server.services.insights import l2_variants
+    vs = l2_variants("Content - Instructions not clear / Misleading Info")
+    assert "content - instructions not clear/misleading info" in vs, \
+        f"the live spelling must be searched, got {vs}"
+
+
+def t_l2_always_matches_its_own_name():
+    from server.taxonomy import L2_OPTIONS
+    from server.services.insights import l2_variants
+    for l2s in L2_OPTIONS.values():
+        for l2 in l2s:
+            vs = l2_variants(l2)
+            own = re.sub(r"\s+", " ", l2).strip().lower()
+            assert own in vs, f"{l2!r} cannot match itself: {vs}"
+
+
+def t_l2_variants_are_raw_spellings():
+    """
+    Variants are compared against the warehouse column, so they must look like
+    what is stored. Only the LOOKUP is slash-insensitive - if the returned
+    values were normalised too, they would stop matching the column.
+    """
+    from server.services.insights import l2_variants
+    vs = l2_variants("Guide Behaviour Issues")
+    assert "guide providing irrelevant/inexperienced/not clear" in vs, \
+        f"raw slash spelling must survive, got {vs}"
+
+
+def t_l2_buckets_are_not_pruned():
+    """Dead buckets are kept deliberately - they cost nothing and the
+    vocabulary may change. This pins the count so none go missing."""
+    from server.services.insights import _L2_BUCKETS
+    assert len(_L2_BUCKETS) == 21, f"expected 21 buckets, got {len(_L2_BUCKETS)}"
+    assert sum(len(v) for v in _L2_BUCKETS.values()) == 80, "bucket values changed"
+
+
+# --- the two normalisers must stay in step --------------------------------
+def t_norm_collapses_and_folds():
+    from server.services.insights import _norm
+    assert _norm("  Ticket Redemption Details  Sp Information ") == \
+        "ticket redemption details sp information"
+    assert _norm("A\tB\nC") == "a b c"
+    assert _norm(None) == ""
+
+
+def t_norm_sql_mirrors_norm():
+    """
+    The SQL twin must lowercase, collapse whitespace and trim - the same three
+    operations, in a form BigQuery applies to the column. If they drift, the
+    probe validates one comparison and production runs another.
+    """
+    from server.services.insights import _norm_sql
+    expr = _norm_sql("x")
+    assert "LOWER(x)" in expr, expr
+    assert "REGEXP_REPLACE" in expr and r"\s+" in expr, expr
+    assert expr.startswith("TRIM("), expr
+
+
+def t_taxonomy_comparisons_are_normalised():
+    """
+    Every taxonomy comparison in the built SQL goes through _norm_sql. A bare
+    LOWER() or a raw column here is the bug this closes: tag values carry
+    double spaces, so a literal comparison misses them.
+    """
+    import asyncio
+    from server.services import insights as I
+    seen = []
+
+    async def fake(sql, params):
+        seen.append(sql)
+        return []
+
+    r, m, l = I._run, I.MOCK_MODE, I.is_live
+    I._run, I.MOCK_MODE, I.is_live = fake, False, (lambda *a, **k: True)
+    try:
+        asyncio.run(I.get_insights(
+            {"tid": "1", "vid": "2", "tgid": "3", "visitDate": "2026-06-01"},
+            "Operations Issue", "Meeting Point Issues", window="30d"))
+    finally:
+        I._run, I.MOCK_MODE, I.is_live = r, m, l
+
+    for sql in seen:
+        for line in sql.splitlines():
+            if "UNNEST(@l2v)" in line or "UNNEST(@tags)" in line or "LIKE @pat" in line:
+                assert "REGEXP_REPLACE" in line, f"unnormalised comparison: {line.strip()}"
+
+
 def main():
     for name, fn in CASES:
         try:
