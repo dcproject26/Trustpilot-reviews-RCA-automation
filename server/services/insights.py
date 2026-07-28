@@ -72,6 +72,17 @@ _EXCLUDED_SUPPORT_TAGS = ["Chat Abandoned", "Nar", "Out Call", "Vendor Query"]
 #   filters [fulfilment_status: "-Completed, -Dirty", completion_type: "Unfulfilled"]
 _FF_COMPLETED_STATUSES = ["Completed", "Dirty"]
 
+# Two Looker views define a measure called booking_completion_rate, over
+# different columns:
+#
+#   bookings     count_completed_bookings: filters [booking_status: "Completed, Dirty"]
+#   fulfilments  count_completed_bookings: filters [fulfilment_status: "Completed, Dirty"]
+#
+# The ops guidance is about FF and unfulfilled bookings, which points at the
+# fulfilments view, so fulfilment_status is what rate reports. Both are computed
+# and returned - they can disagree, and a tile that silently picked one would
+# be impossible to reconcile against whichever view someone had open.
+
 # Ops guidance: below 95% is terrible, but the rate is meaningless at low
 # volume - one unfulfilled booking out of two is 50%. The thumb rule is over
 # 100 bookings AND under 95%, so both are carried and the caller decides.
@@ -154,24 +165,30 @@ def _ff(res) -> dict:
     """
     One fulfilment row -> completed / unfulfilled / total / rate.
 
-    rate is Looker's booking_completion_rate: completed over EVERY booking, no
-    exclusions. None when there are no bookings, so the tile shows a dash rather
-    than a confident 0%.
+    rate is the fulfilments view's booking_completion_rate: bookings whose
+    fulfilment_status is Completed or Dirty, over EVERY booking, no exclusions.
+    rate_by_booking_status is the bookings view's measure of the same name, over
+    booking_status instead. None when there are no bookings, so the tile shows a
+    dash rather than a confident 0%.
 
     needs_attention follows the ops thumb rule - over 100 bookings and under
     95%. Low volume is excluded because the rate is noise there: one unfulfilled
     booking out of two reads as 50%.
     """
-    row   = res[0] if isinstance(res, list) and res else None
-    done  = int(_fld(row, "completed") or 0)
-    unful = int(_fld(row, "unfulfilled") or 0)
-    total = int(_fld(row, "total") or 0)
-    rate  = round(done / total, 4) if total else None
+    row    = res[0] if isinstance(res, list) and res else None
+    done   = int(_fld(row, "completed") or 0)
+    done_b = int(_fld(row, "completed_by_booking_status") or 0)
+    unful  = int(_fld(row, "unfulfilled") or 0)
+    total  = int(_fld(row, "total") or 0)
+    rate   = round(done / total, 4) if total else None
     return {
         "completed":       done,
         "unfulfilled":     unful,
         "total":           total,
         "rate":            rate,
+        # The bookings view's reading of the same measure name. Kept alongside
+        # so the two can be compared rather than quietly diverging.
+        "rate_by_booking_status": round(done_b / total, 4) if total else None,
         "unfulfilled_rate": round(unful / total, 4) if total else None,
         "needs_attention": bool(total >= _FF_MIN_BOOKINGS
                                 and rate is not None and rate < _FF_RATE_FLOOR),
@@ -352,6 +369,8 @@ LIMIT 1
 SELECT
   COUNT(DISTINCT IF(f.fulfilment_status IN UNNEST(@ff_done),
                     b.booking_id, NULL))            AS completed,
+  COUNT(DISTINCT IF(b.booking_status IN UNNEST(@ff_done),
+                    b.booking_id, NULL))            AS completed_by_booking_status,
   COUNT(DISTINCT IF(f.fulfilment_status NOT IN UNNEST(@ff_done)
                     AND f.completion_type = 'Unfulfilled',
                     b.booking_id, NULL))            AS unfulfilled,
@@ -496,7 +515,8 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         f"bookings={tot_bkg} ratio_r={review_ratio} ratio_s={support_ratio} "
         f"rating_tgid={rating_tgid['avg']} rating_tidvid={rating_tidvid['avg']} "
         f"escalation={escalation} "
-        f"ff_vid={_pct(ff_vid['rate'])}({ff_vid['total']}) "
+        f"ff_vid={_pct(ff_vid['rate'])}/bs={_pct(ff_vid['rate_by_booking_status'])}"
+        f"({ff_vid['total']}) "
         f"ff_tgid={_pct(ff_tgid['rate'])}({ff_tgid['total']}) "
         f"attention={ff_tgid['needs_attention']} "
         f"redemption={'yes' if redemption else 'no'}"
