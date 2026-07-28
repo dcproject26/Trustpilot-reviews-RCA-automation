@@ -800,30 +800,35 @@ async def vs_search(query: str, limit: int = 50,
     would mean registering an OAuth client purely for this. This app already
     holds an auto-refreshing Zendesk connector, so VS calls here instead.
 
-    Deliberately a thin proxy: it returns the raw tickets and does NOT filter
-    them. The matching rules live in the VectorShift pipeline, and this app is
-    only lending the credential. Moving the filter here would quietly move the
-    logic back off VectorShift, which is the opposite of the migration.
+    `query` may hold SEVERAL queries, one per line. All of them run and the
+    tickets are returned as one deduplicated set. This matters because no single
+    Zendesk query is reliable on its own: `requester:"Fredrik Olsen"` needs an
+    exact name and misses "Fredrik Martin Olsen", while a free-text venue query
+    misses a ticket whose experience is worded differently from the review. Each
+    query recalls a different slice, and a guest whose name does not match
+    exactly must still be findable.
+
+    Running them here rather than in the pipeline is a transport detail: the
+    VectorShift API node makes one call per execution. It is NOT a filter - the
+    tickets come back raw and the matching rules stay in the pipeline, where
+    ticket_signals() reads each ticket's own booking id, guest name, experience,
+    city and party size. Zendesk only has to surface candidates; deciding which
+    one the review is about happens downstream.
 
     Tickets are shaped the way the Zendesk REST API returns them - custom_fields
-    as a list of {"id": int, "value": any} - because that is what the pipeline's
-    ticket_signals() reads.
+    as a list of {"id": int, "value": any} - because that is what the pipeline
+    reads.
     """
     _vs_auth(x_vs_key)
     from server.services import zendesk as zd
 
+    queries = [q.strip() for q in str(query or "").splitlines() if q.strip()]
+    if not queries:
+        raise HTTPException(400, "query is empty")
+
     z = zd._get_client()
     if z is None:
         raise HTTPException(503, "Zendesk is not configured on this deployment")
-
-    loop = asyncio.get_running_loop()
-    try:
-        tickets = await loop.run_in_executor(None, zd._search_with_retry, z, query)
-    except Exception as e:
-        # Surface the reason rather than an empty result set: zero tickets and a
-        # failed search are indistinguishable downstream, and a silent empty
-        # would route every review to untraceable.
-        raise HTTPException(502, f"Zendesk search failed: {e}")
 
     def _fields(t):
         out = []
@@ -834,17 +839,42 @@ async def vs_search(query: str, limit: int = 50,
                 out.append({"id": fid, "value": val})
         return out
 
-    results = []
-    for t in tickets[:max(1, min(limit, 200))]:
-        created = getattr(t, "created_at", None)
-        results.append({
-            "id":            getattr(t, "id", None),
-            "created_at":    str(created) if created else "",
-            "subject":       getattr(t, "subject", "") or "",
-            "custom_fields": _fields(t),
-        })
+    loop = asyncio.get_running_loop()
+    cap = max(1, min(limit, 200))
+    by_id, ran, failed = {}, [], []
 
-    return {"count": len(results), "results": results}
+    for q in queries:
+        try:
+            tickets = await loop.run_in_executor(None, zd._search_with_retry, z, q)
+        except Exception as e:
+            # One query failing must not lose the others. A too-broad query
+            # trips Zendesk's result cap, and that is a reason to drop that
+            # query, not to report the review as having no tickets.
+            failed.append({"query": q, "error": str(e)[:200]})
+            continue
+        ran.append({"query": q, "count": len(tickets)})
+        for t in tickets:
+            tid = getattr(t, "id", None)
+            if tid is None or tid in by_id:
+                continue
+            created = getattr(t, "created_at", None)
+            by_id[tid] = {
+                "id":            tid,
+                "created_at":    str(created) if created else "",
+                "subject":       getattr(t, "subject", "") or "",
+                "custom_fields": _fields(t),
+            }
+            if len(by_id) >= cap:
+                break
+
+    # Every query failing is an outage, not an empty result set. Say so, or the
+    # pipeline routes the review to untraceable and the cause is invisible.
+    if failed and not ran:
+        raise HTTPException(502, f"all Zendesk searches failed: {failed[0]['error']}")
+
+    results = sorted(by_id.values(), key=lambda r: r["created_at"], reverse=True)
+    return {"count": len(results), "results": results,
+            "queries_run": ran, "queries_failed": failed}
 
 
 class VsIntake(BaseModel):
