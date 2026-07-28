@@ -2,14 +2,20 @@
 Print Experience Insights for a booking across every window, side by side.
 
     python3 tools/insights_probe.py 32885787
-    python3 tools/insights_probe.py 32885787 "Service Issues" "Guide Issues"
+    python3 tools/insights_probe.py 32885787 "Operations Issue" "Meeting Point Issues"
 
 Looks the booking up in BigQuery first, so tid/vid/tgid and the visit date come
 from the same place the dashboard gets them - a mismatch there is worth seeing
 before you start comparing numbers against Looker.
 """
 import asyncio
+import os
 import sys
+
+# sys.path[0] is tools/ when this is run as a script, so the repo root has to
+# be added explicitly. It happened to work on Replit through the environment;
+# it is not something to rely on.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 WINDOWS = ["7d", "30d", "90d"]
 
@@ -46,6 +52,30 @@ async def main():
     bid = sys.argv[1]
     l1 = sys.argv[2] if len(sys.argv) > 2 else ""
     l2 = sys.argv[3] if len(sys.argv) > 3 else ""
+
+    # Reject an L1/L2 the framework does not contain, rather than running and
+    # returning zeros. A stray character - a bracketed-paste tilde, a trailing
+    # space - produces a full table of plausible zeros that reads exactly like
+    # "this experience has no history". That is the failure this whole system
+    # is meant to avoid, so the probe must not commit it.
+    from server.taxonomy import L2_OPTIONS
+    if l1 or l2:
+        if l1 not in L2_OPTIONS:
+            print(f"\nUnknown L1: {l1!r}\n\nValid L1 values:")
+            for k in L2_OPTIONS:
+                print(f"    {k}")
+            return 1
+        if l2 and l2 not in L2_OPTIONS[l1]:
+            print(f"\nUnknown L2 for {l1!r}: {l2!r}")
+            near = [x for x in L2_OPTIONS[l1]
+                    if x.strip().lower() == l2.strip().lower()]
+            if near:
+                print(f"    did you mean {near[0]!r}? "
+                      "(differs only by case or spacing)")
+            print(f"\nValid L2 values for {l1!r}:")
+            for v in L2_OPTIONS[l1]:
+                print(f"    {v}")
+            return 1
 
     from server.services.bigquery_patch import verify_bid
     from server.services.insights import get_insights
