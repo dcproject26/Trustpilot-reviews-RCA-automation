@@ -109,13 +109,27 @@ def t_exact_does_not_substring_match():
 def t_nar_regex_over_match():
     from server.services import insights as I
     pat = I._NAR_PATTERN
-    should_drop = ["Chat Abandoned", "Out Call", "Vendor Query", "NAR",
-                   "Auto resolved", "Missed Chat", "Outbound Call"]
+    # Every value confirmed live in the warehouse over 180 days.
+    should_drop = ["Chat Abandoned", "Nar", "Vendor Query", "Out Call",
+                   "Missed Chat Messaging", "Blank Call/no Response",
+                   "Vendor Ticket Email"]
     for v in should_drop:
         assert re.search(pat, v, re.I), f"{v!r} should be excluded"
-    # The substring risk that made this worth checking.
-    assert re.search(pat, "Narrative Issue", re.I), \
-        "'Narrative Issue' matches NAR as a substring - documented over-match"
+
+    # "Auto resolved" is deliberately NOT in the pattern. Zero rows carry it as
+    # a query_tag while 34,241 have is_auto_resolved = TRUE, so it is excluded
+    # on the column instead. If it creeps back into the regex, the column
+    # predicate is what is doing the work and the regex term is dead weight.
+    assert not re.search(pat, "Auto resolved", re.I), \
+        "Auto resolved is handled by is_auto_resolved, not by the pattern"
+
+
+def t_auto_resolved_excluded_on_the_column():
+    from server.services import insights as I
+    import inspect
+    src = inspect.getsource(I.get_insights)
+    assert "NOT sq.is_auto_resolved" in src, \
+        "the support filter must exclude auto-resolved contacts on the column"
 
 
 def main():

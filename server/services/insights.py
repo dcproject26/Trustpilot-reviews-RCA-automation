@@ -168,9 +168,22 @@ _QUERY_CATEGORY_SQL = (
 # the data rather than one. (?i) is ours: the column is not case-consistent, and
 # the old list's "Nar" would not have matched a stored "NAR".
 _NAR_PATTERN = (
-    r"(?i)Auto resolved|Blank Call/no Response|Chat Abandoned|Missed Chat|"
+    r"(?i)Blank Call/no Response|Chat Abandoned|Missed Chat|"
     r"Out Call|Vendor Query|Vendor Ticket Email|Outbound Call|NAR"
 )
+
+# "Auto resolved" is dropped from the pattern above and handled as a column.
+# Measured over 180 days: 34,241 rows have is_auto_resolved = TRUE and ZERO
+# have a query_tag matching "Auto resolved", so the regex term was dead and
+# every one of those contacts stayed in the denominator. Same failure as
+# Chat Abandoned - a Looker bucket name is not always a stored value.
+#
+# The rest of the pattern is confirmed live against the same 180 days:
+#   Chat Abandoned 10,122 | Nar 7,995 | Vendor Query 2,979 | Out Call 1,888
+#   Missed Chat Messaging 1,842 | Blank Call/no Response 1,181
+#   Vendor Ticket Email 32
+# and nothing it catches is a guest contact - the "Narrative Issue" substring
+# over-match that was worried about does not exist in the data.
 
 # Fulfilment rate, straight off the Looker fulfilments view:
 #
@@ -416,6 +429,7 @@ LEFT JOIN `{_BOOKINGS_TABLE}` b ON CAST(b.booking_id AS STRING) = sq.booking_id
 """
     _support_where = f"""
 WHERE b.tour_id = @tid AND b.vendor_id = @vid
+  AND NOT sq.is_auto_resolved
   AND NOT REGEXP_CONTAINS(IFNULL({_QUERY_CATEGORY_SQL}, ''), @nar)
   AND {_win}
 """

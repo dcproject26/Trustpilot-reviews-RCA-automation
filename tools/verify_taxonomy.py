@@ -200,6 +200,28 @@ WHERE DATE(query_created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL {DAYS} DAY)
     # The detail above already lists every dead value under its group. Repeat
     # only the groups that matched NOTHING - those are the ones where a tile
     # silently reads zero. A group with some live values still works.
+    # --- what is in the warehouse that nothing maps to ----------------------
+    # The report above answers "is what I configured real?". This answers the
+    # question that actually repairs a broken mapping: "what is real that I did
+    # not configure?" Without it you know a bucket is dead but not what to put
+    # in it.
+    def unmapped(title, live, configured_values, limit=40):
+        want = {norm(v) for vals in configured_values for v in vals
+                if "%" not in str(v)}
+        rest = sorted(((n, v) for v, n in live.items() if norm(v) not in want),
+                      reverse=True)
+        print("\n" + "=" * 74)
+        print(f"{title} - live values nothing maps to ({len(rest)})")
+        print("=" * 74)
+        for n, v in rest[:limit]:
+            print(f"  {n:>8,}  {v}")
+        if len(rest) > limit:
+            print(f"  ... and {len(rest) - limit} more")
+
+    unmapped("fct_reviews.l2_issues", l2_live, I._L2_BUCKETS.values())
+    unmapped("fct_support_queries.query_tag", tags_live,
+             [v if isinstance(v, list) else [] for v in SUPPORT_TAG_MAP.values()])
+
     print("\n" + "=" * 74)
     by_label = defaultdict(list)
     for label, v in dead:
