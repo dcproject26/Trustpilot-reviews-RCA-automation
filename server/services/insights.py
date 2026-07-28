@@ -21,11 +21,15 @@ does it differently:
      Looker compares the 30 days before that booking's own experience date, so
      an old review is measured against its own period rather than this week's.
   3. Fulfilment rate is Looker's booking_completion_rate: bookings whose
-     fulfilment_STATUS is Completed or Dirty, over EVERY booking. The old code
-     read fulfilment_type, which matched no column at all. completion_type is a
-     different field and is only used to identify Unfulfilled, as Looker's
-     unfulfilled_rate does. Computed at VID scope and at TGID scope, because
-     ops judges an experience on its TGID over four weeks.
+     fulfilment_STATUS is Completed or Dirty, over every booking the dashboard
+     counts. The old code read fulfilment_type, which matched no column at all.
+     The denominator is bounded by the tile's own two filters - status is not
+     Uncaptured/Dummy, completion type is not Cancelled Fraudulent/Dummy - so
+     Amended and Cancelled By Customer DO count in it. completion_type is
+     otherwise only used to identify Unfulfilled, as unfulfilled_rate does.
+     Computed at VID and TGID scope, because ops judges an experience on its
+     TGID. Note the Looker tile compares 28 complete days; the picker here is
+     7/30/90, so a number will not tie out against that tile by default.
   4. vendor_id comes from fct_fulfilments on the review queries and from
      fct_bookings on the booking and support queries - mirroring Looker, which
      mixes the two.
@@ -179,6 +183,24 @@ _NAR_PATTERN = (
 #
 #   filters [fulfilment_status: "-Completed, -Dirty", completion_type: "Unfulfilled"]
 _FF_COMPLETED_STATUSES = ["Completed", "Dirty"]
+
+# What the Looker tile actually filters out, read off the dashboard itself:
+#
+#   Fulfilment Status  is not   Uncaptured, Dummy
+#   Completion Type    is not   Cancelled Fraudulent, Dummy
+#
+# These bound the DENOMINATOR and settle two questions that were open for a
+# while: Amended and Cancelled By Customer are NOT in either list, so both stay
+# in the total. A guest cancelling is still a booking the rate is measured over.
+# Uncaptured and Dummy are not real bookings, and Cancelled Fraudulent is not a
+# fulfilment failure - counting any of them would drag the rate down for
+# something the vendor did not do.
+_FF_EXCLUDED_STATUSES         = ["Uncaptured", "Dummy"]
+_FF_EXCLUDED_COMPLETION_TYPES = ["Cancelled Fraudulent", "Dummy"]
+
+# The tile compares "the last 28 COMPLETE days" - today is excluded because it
+# is still running. The window predicate is already strictly less than the
+# anchor date, so complete-day semantics hold without a special case.
 
 # Two Looker views define a measure called booking_completion_rate, over
 # different columns:
@@ -501,14 +523,29 @@ SELECT
 FROM `{_BOOKINGS_TABLE}` b
 LEFT JOIN `{_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
 """
-    sql_h  = f"{_ff_select}WHERE b.vendor_id = @vid AND {_win}"
+    # The dashboard's own filters, off the Looker tile:
+    #   Fulfilment Status is not  Uncaptured, Dummy
+    #   Completion Type  is not   Cancelled Fraudulent, Dummy
+    # These bound the DENOMINATOR, so they settle two questions that were open:
+    # Amended and Cancelled By Customer are NOT excluded and stay in the total.
+    #
+    # IFNULL because the join is LEFT: a booking with no fulfilment row has a
+    # NULL status, and NULL NOT IN (...) is NULL, which would drop the row.
+    # Looker's "is not" keeps nulls, and so does this.
+    _ff_excl = """
+  AND IFNULL(f.fulfilment_status, '') NOT IN UNNEST(@ff_skip_status)
+  AND IFNULL(f.completion_type,   '') NOT IN UNNEST(@ff_skip_ctype)"""
+    sql_h  = f"{_ff_select}WHERE b.vendor_id = @vid AND {_win}{_ff_excl}"
     # Ops checks fulfilment for the same TGID over the last four weeks, because
     # that is the population that says whether this is a one-off or a pattern.
-    sql_h2 = f"{_ff_select}WHERE b.experience_id = @tgid AND {_win}"
-    sql_i  = f"{_ff_select}WHERE b.vendor_id = @vid AND DATE(b.experience_date) = {anchor_sql}"
+    sql_h2 = f"{_ff_select}WHERE b.experience_id = @tgid AND {_win}{_ff_excl}"
+    sql_i  = (f"{_ff_select}WHERE b.vendor_id = @vid "
+              f"AND DATE(b.experience_date) = {anchor_sql}{_ff_excl}")
 
     nar_par  = {"nar": _NAR_PATTERN}
-    ff_par   = {"ff_done": ("STRING", _FF_COMPLETED_STATUSES)}
+    ff_par   = {"ff_done":        ("STRING", _FF_COMPLETED_STATUSES),
+                "ff_skip_status": ("STRING", _FF_EXCLUDED_STATUSES),
+                "ff_skip_ctype":  ("STRING", _FF_EXCLUDED_COMPLETION_TYPES)}
 
     # A and C need a tag/L2 mapping. Without one they are skipped and the rest
     # still run - a missing framework should cost you two numbers, not all of
