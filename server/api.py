@@ -789,6 +789,64 @@ async def vs_zendesk(bid: str, x_vs_key: str | None = Header(default=None)):
     }
 
 
+@router.get("/api/vs/search")
+async def vs_search(query: str, limit: int = 50,
+                    x_vs_key: str | None = Header(default=None)):
+    """
+    Zendesk ticket search for VectorShift.
+
+    VectorShift's Zendesk integration has no ticket-search action, and Zendesk
+    is retiring API tokens (rollout began 2026-07-28), so a VS-side credential
+    would mean registering an OAuth client purely for this. This app already
+    holds an auto-refreshing Zendesk connector, so VS calls here instead.
+
+    Deliberately a thin proxy: it returns the raw tickets and does NOT filter
+    them. The matching rules live in the VectorShift pipeline, and this app is
+    only lending the credential. Moving the filter here would quietly move the
+    logic back off VectorShift, which is the opposite of the migration.
+
+    Tickets are shaped the way the Zendesk REST API returns them - custom_fields
+    as a list of {"id": int, "value": any} - because that is what the pipeline's
+    ticket_signals() reads.
+    """
+    _vs_auth(x_vs_key)
+    from server.services import zendesk as zd
+
+    z = zd._get_client()
+    if z is None:
+        raise HTTPException(503, "Zendesk is not configured on this deployment")
+
+    loop = asyncio.get_running_loop()
+    try:
+        tickets = await loop.run_in_executor(None, zd._search_with_retry, z, query)
+    except Exception as e:
+        # Surface the reason rather than an empty result set: zero tickets and a
+        # failed search are indistinguishable downstream, and a silent empty
+        # would route every review to untraceable.
+        raise HTTPException(502, f"Zendesk search failed: {e}")
+
+    def _fields(t):
+        out = []
+        for f in (getattr(t, "custom_fields", None) or []):
+            fid = f.get("id") if isinstance(f, dict) else getattr(f, "id", None)
+            val = f.get("value") if isinstance(f, dict) else getattr(f, "value", None)
+            if fid is not None:
+                out.append({"id": fid, "value": val})
+        return out
+
+    results = []
+    for t in tickets[:max(1, min(limit, 200))]:
+        created = getattr(t, "created_at", None)
+        results.append({
+            "id":            getattr(t, "id", None),
+            "created_at":    str(created) if created else "",
+            "subject":       getattr(t, "subject", "") or "",
+            "custom_fields": _fields(t),
+        })
+
+    return {"count": len(results), "results": results}
+
+
 class VsIntake(BaseModel):
     """The assembled RCA record produced by the VectorShift pipeline."""
     review: dict
