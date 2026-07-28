@@ -60,6 +60,20 @@ _NEGATIVE_RATING_MAX = 3
 # Support tags that are not guest contacts and would inflate the denominator.
 _EXCLUDED_SUPPORT_TAGS = ["Chat Abandoned", "Nar", "Out Call", "Vendor Query"]
 
+# fct_fulfilments.completion_type, by observed frequency: Super (1.23M),
+# Cancelled By Customer (39k), Cancelled By Vendor (8.2k), Unfulfilled (6.8k),
+# NULL (4.4k), Cancelled Fraudulent (1.6k), Amended (1.5k), Dummy (1.4k).
+#
+# Completion % flags a vendor to Biz below 85%, so it has to measure what the
+# VENDOR did. A guest cancelling, a fraud block or a test row says nothing
+# about the vendor and would drag the rate down for something outside their
+# control - those are excluded from the denominator rather than counted as
+# failures. NULL is Pending: not yet determined, so not yet evidence.
+_COMPLETION_SUCCESS = {"super", "amended"}
+_COMPLETION_FAILURE = {"cancelled by vendor", "unfulfilled"}
+_COMPLETION_IGNORED = {"cancelled by customer", "cancelled fraudulent",
+                       "dummy", "pending", "unknown", ""}
+
 # Looker compares review_ratio against 0.15 and support_ratio against 15. Both
 # come out of safe_divide as fractions, so the support test can never fire and
 # escalation is review-ratio-only there. Treated as a typo and both are 0.15
@@ -133,19 +147,18 @@ def _fld(row, key):
 
 def _completed_ratio(breakdown: dict):
     """
-    Share of bookings whose completion_type is neither Pending nor blank.
+    Vendor completion rate: fulfilled / (fulfilled + vendor failures).
 
-    A placeholder until the completion_type value domain is confirmed: anything
-    that is not Pending is treated as resolved, which is the only reading that
-    does not require guessing at failure labels. Returns None when there is
-    nothing to divide, so the tile can show a dash rather than 0%.
+    Guest cancellations, fraud blocks, test rows and Pending are left out of the
+    denominator entirely - a vendor should not be flagged to Biz because guests
+    changed their minds. Returns None when nothing is attributable, so the tile
+    shows a dash rather than a confident 0%.
     """
-    total = sum(breakdown.values())
-    if not total:
-        return None
-    done = sum(v for k, v in breakdown.items()
-               if str(k).strip().lower() not in ("pending", "", "unknown"))
-    return round(done / total, 4)
+    ok   = sum(v for k, v in breakdown.items()
+               if str(k).strip().lower() in _COMPLETION_SUCCESS)
+    bad  = sum(v for k, v in breakdown.items()
+               if str(k).strip().lower() in _COMPLETION_FAILURE)
+    return round(ok / (ok + bad), 4) if (ok + bad) else None
 
 
 def _pct_completed(breakdown: dict) -> str:
@@ -161,18 +174,25 @@ def _pct_completed(breakdown: dict) -> str:
 
 
 def _issue_counts(breakdown: dict):
-    """{"issues": n, "total": n} - or None when the day has no bookings."""
+    """
+    Vendor failures on the day, against every booking that day.
+
+    issues counts only what the vendor is answerable for - cancelled by vendor
+    and unfulfilled. total stays as every booking, because the question the tile
+    answers is "how much of that day went wrong", not "of the ones we can
+    attribute". Returns None when the day has no bookings at all.
+    """
     total = sum(breakdown.values())
     if not total:
         return None
-    pending = sum(v for k, v in breakdown.items()
-                  if str(k).strip().lower() in ("pending", "unknown"))
-    return {"issues": pending, "total": total}
+    issues = sum(v for k, v in breakdown.items()
+                 if str(k).strip().lower() in _COMPLETION_FAILURE)
+    return {"issues": issues, "total": total}
 
 
 def _issue_summary(breakdown: dict) -> str:
     c = _issue_counts(breakdown)
-    return "N/A" if c is None else f"{c['issues']} of {c['total']} pending"
+    return "N/A" if c is None else f"{c['issues']} of {c['total']}"
 
 
 def _count(res) -> int:
