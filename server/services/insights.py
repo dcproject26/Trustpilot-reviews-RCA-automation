@@ -85,7 +85,9 @@ def _zero_result(l2: str | None) -> dict:
         "redemption":                  None,
         "completion_breakdown":        {},
         "same_day_breakdown":          {},
+        "vid_completion_rate":         None,
         "vidCompletionRate":           "N/A",
+        "same_day_same_vid":           None,
         "sameDaySameVidIssues":        "N/A",
         "_computed_for_l2": l2,
         "_computed_at":     datetime.now(timezone.utc).isoformat(),
@@ -129,6 +131,23 @@ def _fld(row, key):
     return row.get(key) if isinstance(row, dict) else getattr(row, key, None)
 
 
+def _completed_ratio(breakdown: dict):
+    """
+    Share of bookings whose completion_type is neither Pending nor blank.
+
+    A placeholder until the completion_type value domain is confirmed: anything
+    that is not Pending is treated as resolved, which is the only reading that
+    does not require guessing at failure labels. Returns None when there is
+    nothing to divide, so the tile can show a dash rather than 0%.
+    """
+    total = sum(breakdown.values())
+    if not total:
+        return None
+    done = sum(v for k, v in breakdown.items()
+               if str(k).strip().lower() not in ("pending", "", "unknown"))
+    return round(done / total, 4)
+
+
 def _pct_completed(breakdown: dict) -> str:
     """
     Share of bookings whose completion_type is neither Pending nor blank.
@@ -137,21 +156,23 @@ def _pct_completed(breakdown: dict) -> str:
     that is not Pending is treated as resolved, which is the only reading that
     does not require guessing at failure labels.
     """
+    r = _completed_ratio(breakdown)
+    return "N/A" if r is None else f"{r * 100:.1f}%"
+
+
+def _issue_counts(breakdown: dict):
+    """{"issues": n, "total": n} - or None when the day has no bookings."""
     total = sum(breakdown.values())
     if not total:
-        return "N/A"
-    done = sum(v for k, v in breakdown.items()
-               if str(k).strip().lower() not in ("pending", "", "unknown"))
-    return f"{done / total * 100:.1f}%"
+        return None
+    pending = sum(v for k, v in breakdown.items()
+                  if str(k).strip().lower() in ("pending", "unknown"))
+    return {"issues": pending, "total": total}
 
 
 def _issue_summary(breakdown: dict) -> str:
-    total = sum(breakdown.values())
-    if not total:
-        return "N/A"
-    pending = sum(v for k, v in breakdown.items()
-                  if str(k).strip().lower() in ("pending", "unknown"))
-    return f"{pending} of {total} pending"
+    c = _issue_counts(breakdown)
+    return "N/A" if c is None else f"{c['issues']} of {c['total']} pending"
 
 
 def _count(res) -> int:
@@ -459,8 +480,10 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         # respect whichever window the associate picked.
         "rating_15d": rating_tgid,
         "rating_30d": rating_tidvid,
-        "vidCompletionRate":    _pct_completed(completion),
-        "sameDaySameVidIssues": _issue_summary(same_day),
+        "vid_completion_rate":  _completed_ratio(completion),
+        "vidCompletionRate":     _pct_completed(completion),
+        "same_day_same_vid":     _issue_counts(same_day),
+        "sameDaySameVidIssues":  _issue_summary(same_day),
         "_window_days":     wd,
         "_anchored_on":     visit_date or "today",
         "_computed_for_l2": l2,

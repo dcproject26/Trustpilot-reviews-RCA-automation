@@ -2558,10 +2558,8 @@ function renderReviewCol() {
           <div class="insights-title">Window:</div>
           <div class="window-picker">
             <button class="window-btn ${state.insightsWindow === '7d' ? 'active' : ''}" data-window="7d">7d</button>
-            <button class="window-btn ${state.insightsWindow === '4w' ? 'active' : ''}" data-window="4w">4w</button>
             <button class="window-btn ${state.insightsWindow === '30d' ? 'active' : ''}" data-window="30d">30d</button>
             <button class="window-btn ${state.insightsWindow === '90d' ? 'active' : ''}" data-window="90d">90d</button>
-            <button class="window-btn ${state.insightsWindow === '180d' ? 'active' : ''}" data-window="180d">180d</button>
           </div>
         </div>
         <div class="insights-grid">
@@ -2589,7 +2587,7 @@ function renderReviewCol() {
           <div class="insight-tile ${_crTone}">
             <div class="insight-tile-label">Completion %</div>
             <div class="insight-tile-value">${_crStr}</div>
-            <div class="insight-tile-sub">${_li ? (_cr != null ? 'VID · 28d' : 'no visit date') : ins.completion.sub} · ${state.insightsWindow}</div>
+            <div class="insight-tile-sub">${_li ? (_cr != null ? 'VID' : 'no data') : ins.completion.sub} · ${state.insightsWindow}</div>
             ${_crFlagToBiz
               ? '<button class="flag-biz-btn' + (_crFlagged ? ' flagged' : '') + '" data-flag-biz' + (_crFlagged ? ' disabled' : '') + '>' + (_crFlagged ? '✓ Flagged · sent to Slack' : '⚑ Flag to Biz · draft message') + '</button>'
               : ''}
