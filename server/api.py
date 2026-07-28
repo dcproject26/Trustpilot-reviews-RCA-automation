@@ -698,7 +698,12 @@ async def reprocess_review(
             # Re-running a review whose booking was already confirmed means the
             # associate wants the choice back, so matching must not auto-promote
             # its way straight into another confirmed state.
-            asyncio.run(_pipeline(rid, force_candidates=_was_confirmed))
+            # An explicit Re-run always presents the options. Gating this on
+            # "was a confirmation just cleared" was wrong: once the first re-run
+            # cleared it, every later one saw nothing to clear, auto-promoted the
+            # best match straight to Tier 1, and the associate never got the
+            # picker back. Clicking Re-run IS the request to choose again.
+            asyncio.run(_pipeline(rid, force_candidates=True))
         except Exception:
             log.exception(f"[reprocess] pipeline crashed for {rid}")
 
