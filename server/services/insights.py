@@ -299,12 +299,20 @@ _QUERY_CATEGORY_SQL = (
 _NAR_PATTERN = (
     r"(?i)Blank Call/no Response|Chat Abandoned|Missed Chat|"
     r"Out Call|Vendor Query|Vendor Ticket Email|Outbound Call|NAR|"
-    # Below are ours, not Looker's. The full 180-day tag dump showed that
-    # Looker's NAR list leaves 21.8% of rows in the denominator that are not a
-    # guest raising an issue - "No Customer Interaction" alone is 93,187 rows,
-    # a fifth of everything. Counting them makes every support ratio smaller
-    # than the truth, uniformly, which is the kind of error that never looks
-    # like one.
+    # Below are ours, not Looker's: families that are not a guest raising an
+    # issue and that Looker's NAR list does not cover.
+    #
+    # On row counts these look enormous - "No Customer Interaction" alone is
+    # 93,187 rows over 180 days, a fifth of the table. They are not, for this
+    # metric. 91,928 of those 93,187 carry no booking_id (98.6%), so they never
+    # survive the join to fct_bookings and were never in the denominator, which
+    # counts DISTINCT booking_id. Measured on a real vendor the exclusion moved
+    # the total by zero.
+    #
+    # Excluded anyway, because correct is correct and the ones that DO carry a
+    # booking id would otherwise count as support contacts. But do not read the
+    # row counts below as the size of the correction - they are the size of the
+    # family, and most of it never reached this query.
     r"No Customer Interaction|"          # 93,187 - by its own name, no contact
     r"Bulk Resolve Email Temp|"          #  3,351 - a bulk close, not a contact
     r"Issue Not Specified/dropped Midway|"  # 1,176 - same shape as Chat Abandoned
