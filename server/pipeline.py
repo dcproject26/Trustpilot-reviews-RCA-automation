@@ -65,6 +65,17 @@ def _sig_tokens(s: str) -> set:
     return {t for t in toks if t not in _VENUE_STOPWORDS}
 
 
+def _is_hashed_name(s: str) -> bool:
+    """
+    True for a base64/hex PII hash rather than a human name. BigQuery returns
+    primary_guest_name hashed, so any name comparison against it is noise.
+    """
+    s = (s or "").strip()
+    if not s or " " in s:
+        return False
+    return len(s) >= 16 and bool(re.fullmatch(r"[A-Za-z0-9+/=_\-]+", s))
+
+
 def _venue_token_overlap(review_text: str, exp_name: str) -> bool:
     """
     Robust venue signal: True only when the review and the experience name
@@ -698,8 +709,12 @@ async def process_review(review_id: str, force_candidates: bool = False):
                             # right booking, and the other indicators say so.
                             from server.services.zendesk import _name_score
                             zd = bid_name_score.get(str(bid), 0.0) if bid else 0.0
-                            bq = _name_score(row.get("primary_guest_name") or "",
-                                             author_first, author_last)
+                            # BigQuery stores primary_guest_name as a PII hash
+                            # ('qS+BQFdVbq3NdZgQ/2tJj+...'), not a name, so
+                            # scoring a reviewer against it is meaningless.
+                            _pg = row.get("primary_guest_name") or ""
+                            bq = 0.0 if _is_hashed_name(_pg) else _name_score(
+                                _pg, author_first, author_last)
                             # The ticket's own guest-name field is the cleanest
                             # source of all — "Fredrik Martin Olsen" verbatim.
                             sig = bid_signals.get(str(bid), {}) if bid else {}

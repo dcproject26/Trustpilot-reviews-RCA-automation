@@ -758,8 +758,12 @@ async def find_bids_by_requester_name(
         # timeline, where their content is actually used.
         sc_list, sc_bids = [], []
 
-        t_bids = list(dict.fromkeys(
-            ([field_bid] if field_bid else []) + scraped + sc_bids))
+        # The booking-id field is definitive. When a ticket has it, scraping the
+        # same ticket only adds noise -- phone numbers and payment refs are also
+        # 7-12 digits, and each one costs a BigQuery verify round trip. Scraping
+        # is the fallback for tickets where the field is empty, not an addition.
+        t_bids = ([field_bid] if field_bid
+                  else list(dict.fromkeys(scraped + sc_bids)))
         if t_bids:
             log.info(f"[zendesk] ZD-{own_id}: bids={t_bids} "
                      f"(field={field_bid or '-'}, scraped={scraped or '-'}, "
@@ -868,8 +872,8 @@ async def find_bids_by_text(
             scraped = [n for n in found
                        if n not in _batch_ids and n not in seen_tickets]
             sc_bids = []   # see note above — not fetched during search
-            t_bids = list(dict.fromkeys(
-                ([field_bid] if field_bid else []) + scraped + sc_bids))
+            t_bids = ([field_bid] if field_bid
+                      else list(dict.fromkeys(scraped + sc_bids)))
             all_bids += t_bids
             all_records.append({
                 "ticket_id": own_id,

@@ -3730,8 +3730,21 @@ document.addEventListener('click', async (ev) => {
         }
       }
     } catch (_) {}
-    if (polls > 60) {  // give up after 3 min
+    // A full run is matching + Zendesk + insights + RCA generation + response
+    // draft, which is a dozen sequential Claude calls. Three minutes was often
+    // shorter than the run, so the poll gave up while the pipeline was still
+    // working -- the result landed in the database and the dashboard never
+    // showed it, which reads exactly like "re-run did nothing".
+    if (polls > 200) {  // ~10 min
       clearInterval(poll);
+      // Refresh anyway. Giving up used to just re-enable the button, so a run
+      // that finished slightly after the deadline left the old result on screen
+      // with nothing to say the data underneath had changed.
+      try {
+        await fetchInbox();
+        await loadDraftOverlays();
+        renderInbox(); renderReviewCol(); renderRcaCol();
+      } catch (_) {}
       btn.disabled = false; btn.textContent = orig;
     }
   }, 3000);
