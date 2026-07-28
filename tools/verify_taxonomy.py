@@ -137,7 +137,7 @@ def main():
     tags_live = live_query_tags()
     l2_live = live_l2_values(date_col)
     print(f"Warehouse, last {DAYS} days "
-          f"(fct_reviews windowed on {date_col or 'NOTHING - no date column found'}): "
+          f"(fct_reviews windowed on {date_col or 'NO DATE COLUMN FOUND'}): "
           f"{len(tags_live)} distinct query_tag, {len(l2_live)} distinct l2_issue")
 
     exact = {f"{l1} / {l2}": v for (l1, l2), v in SUPPORT_TAG_MAP.items()
