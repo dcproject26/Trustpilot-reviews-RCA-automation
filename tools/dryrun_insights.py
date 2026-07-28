@@ -53,12 +53,18 @@ CASES = [
 # "No matching signature for operator IN".
 ASSUMED = {
     I._REVIEWS_TABLE: ["source", "rating", "booking_id", "issues"],
-    I._SUPPORT_TABLE: ["tags", "query_tag", "query_category", "booking_id"],
+    I._SUPPORT_TABLE: ["tags", "query_tag", "booking_id", "is_auto_resolved",
+                       "contact_type", "query_type", "query_created_at"],
     I._BOOKINGS_TABLE: ["tour_id", "vendor_id", "experience_id",
                         "experience_date", "booking_status", "booking_id"],
     I._FULFILMENTS_TABLE: ["fulfilment_status", "completion_type",
                            "vendor_id", "booking_id"],
 }
+
+# Columns Looker defines but the warehouse does not materialise. insights.py
+# rebuilds these in SQL, so absent is the expected answer and reporting them as
+# missing buries a real failure in noise.
+DERIVED = {"query_category"}
 
 
 def capture(l1, l2):
@@ -93,10 +99,14 @@ def main():
         print(f"\n{table.split('.')[-1]}")
         for c in cols:
             t = got.get(c)
-            mark = "  " if t else "!!"
-            print(f"  {mark} {c:<20} {t or 'MISSING'}")
-            if not t:
+            if t:
+                mark, note = "  ", t
+            elif c in DERIVED:
+                mark, note = "  ", "derived in SQL - not a column, as expected"
+            else:
+                mark, note = "!!", "MISSING"
                 missing.append(f"{table.split('.')[-1]}.{c}")
+            print(f"  {mark} {c:<20} {note}")
 
     print("\n" + "=" * 72)
     print("Dry run - every query insights.py builds")

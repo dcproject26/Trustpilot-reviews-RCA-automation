@@ -29,8 +29,10 @@ does it differently:
   4. vendor_id comes from fct_fulfilments on the review queries and from
      fct_bookings on the booking and support queries - mirroring Looker, which
      mixes the two.
-  5. Support queries exclude Chat Abandoned, Nar, Out Call and Vendor Query,
-     which inflated the support denominator.
+  5. Support queries are filtered on Looker's derived query_category, not on
+     the raw query_tag column, and the NAR bucket is excluded from both the
+     numerator and the denominator. Chat Abandoned is computed from `tags` and
+     is not a query_tag value at all, so the old exclusion matched nothing.
   6. dim_vendor_tours is read for redemption details - meeting point, cancel
      policy, instructions. Not surfaced on the dashboard yet, but it is the
      table that says what the experience was SUPPOSED to do, which is what a
@@ -57,8 +59,114 @@ _VENDOR_TOURS      = "headout-analytics.analytics_reporting.dim_vendor_tours"
 # A review counts as negative at 3 stars or below - the threshold Looker uses.
 _NEGATIVE_RATING_MAX = 3
 
-# Support tags that are not guest contacts and would inflate the denominator.
-_EXCLUDED_SUPPORT_TAGS = ["Chat Abandoned", "Nar", "Out Call", "Vendor Query"]
+# L2 issue synonyms, ported verbatim from the parent_l2_bucket mapping in the
+# fct_reviews LookML. The same issue is written several ways in the data -
+# "Meeting Point Issue" and "Meeting Point Issues" are the same thing, and the
+# RCA query works around it with an explicit IN list. Matching on the exact
+# string the classifier produced therefore misses most of the population.
+# Resolving to a bucket and matching every variant in it is what makes the
+# similar-reviews count mean anything.
+_L2_BUCKETS = {
+    "App and website issues": [
+        "App", "App Issue", "App and website issues", "Website Issue"],
+    "Audio Guide Issues": [
+        "Audio Guide device/headset Issues", "Audio Guide Issues",
+        "Audio Guide did not work", "Audio Guide not provided",
+        "Audio Guide was not informative"],
+    "Wrong Booking by customer": ["Booking mistake done by the guest"],
+    "Facility Issue - venue related complaints": [
+        "Broken Equipment", "Facility Issue", "Inadequate Facilities", "Strikes",
+        "Theft", "Unhappy with the sight", "Venue closure"],
+    "Pricing and Value offering issue": [
+        "Expensive", "Found Expensive", "Found It Expensive", "Found Inconvenient",
+        "Found Online Purchase Unnecessary", "Not Value for Money", "Overcharged",
+        "Overpriced Ticket", "Pricing Issues", "Issue with price"],
+    "SP Cancelled/Venue Closure": [
+        "Venue Cancelled", "tickets were canceled without notice by the venue"],
+    "Content - Instructions not clear/misleading info": [
+        "Content - Instructions not clear/misleading info",
+        "Content - Instructions not clear/missleading info",
+        "Incorrect Information", "misleading information present on ticket"],
+    "Not a negative review": [
+        "Pleasant Experience", "Positive Experience", "Positive Comments"],
+    "Customer Error": ["Customer Error", "Customer Late Issue"],
+    "Overcrowding/long wait": [
+        "Crowded", "Long Queues", "Long Wait Time", "Long waiting time",
+        "Overcrowding"],
+    "Customer Support Issue": [
+        "Customer Support Issue", "Customer Support Issues",
+        "Dissatisfactory Customer Service", "Dissatisfactory Customer Support"],
+    "General discontent with exp.": [
+        "Did not like the experience", "General Discontent",
+        "Unpleasant Experience", "Unhappy with the service"],
+    "Ticket Delivery Issues(FF issues)": [
+        "Ticket Issues", "Tickets", "Duplicate Tickets", "Invalid Tickets",
+        "Lost Tickets", "Tickets Issue", "Tickets Canceled", "Tickets Not Used",
+        "Unavailability of Tickets"],
+    "Difficult redemption process": [
+        "Inconvenient Redemption", "Online ticket purchase was unnecessary",
+        "Requires you to download the APP to access tickets"],
+    "Guide Behaviour Issues": [
+        "Guide Behaviour Issues", "Guide disappeared in between tour",
+        "Guide no show", "Guide Service Issues",
+        "Guide Service Issues/ guide rushing the tour",
+        "Guide providing irrelevant/inexperienced/not clear"],
+    "Inclusions not met": ["Inclusions"],
+    "Meeting Point Issues": [
+        "Incorrect Meeting Point", "Meeting Point Issues", "Meeting Point Issue",
+        "Unable to locate meeting point"],
+    "Invalid Tickets": ["Incorrect Tickets", "Invalid Tickets"],
+    "Inventory Listing Issue": ["Inventory Listing Issue"],
+    "Partial closure of venue/ activity closure at venue": [
+        "Ride or activity closure",
+        "Partial closure of venue/ activity closure at venue"],
+    "Services did not start on time": ["Service Timing"],
+}
+_L2_TO_BUCKET = {v.strip().lower(): b for b, vs in _L2_BUCKETS.items() for v in vs}
+
+
+def l2_variants(l2: str | None) -> list:
+    """
+    Every spelling of the issue the classifier named.
+
+    Falls back to the value itself when it is not in the mapping, so an L2 we
+    have not seen still matches its own name rather than nothing.
+    """
+    key = str(l2 or "").strip().lower()
+    if not key:
+        return []
+    bucket = _L2_TO_BUCKET.get(key)
+    if not bucket:
+        return [key]
+    return sorted({v.strip().lower() for v in _L2_BUCKETS[bucket]})
+
+
+# query_category, verbatim from the fct_support_queries LookML:
+#
+#   CASE WHEN tags IN ("CHATBOT, CHATBOT-TRANSFER", "CHATBOT-TRANSFER, CHATBOT")
+#        THEN "Chat Abandoned" ELSE query_tag END
+#
+# "Chat Abandoned" is DERIVED from the tags column - it is not a value query_tag
+# ever holds. The old code excluded it by matching query_tag = "Chat Abandoned",
+# which matched no row at all, so every abandoned chatbot session stayed in the
+# support denominator and pushed the support ratio down.
+_QUERY_CATEGORY_SQL = (
+    'CASE WHEN sq.tags IN ("CHATBOT, CHATBOT-TRANSFER", "CHATBOT-TRANSFER, CHATBOT") '
+    'THEN "Chat Abandoned" ELSE sq.query_tag END'
+)
+
+# Contacts that are not a guest reaching out. This is the NAR bucket from the
+# fcr_dashboard LookML, which is broader than the four values this file used to
+# list - auto-resolved sessions, missed chats, outbound calls and vendor email
+# are all counted as support contacts otherwise.
+#
+# Matched as a regex, as Looker does, so "NAR" catches the several spellings in
+# the data rather than one. (?i) is ours: the column is not case-consistent, and
+# the old list's "Nar" would not have matched a stored "NAR".
+_NAR_PATTERN = (
+    r"(?i)Auto resolved|Blank Call/no Response|Chat Abandoned|Missed Chat|"
+    r"Out Call|Vendor Query|Vendor Ticket Email|Outbound Call|NAR"
+)
 
 # Fulfilment rate, straight off the Looker fulfilments view:
 #
@@ -268,7 +376,7 @@ LEFT JOIN UNNEST(r.issues) AS iss
 LEFT JOIN UNNEST(iss.l2_issues) AS l2v
 WHERE b.tour_id = @tid AND f.vendor_id = @vid
   AND r.rating <= {_NEGATIVE_RATING_MAX}
-  AND LOWER(l2v) = LOWER(@l2)
+  AND LOWER(l2v) IN UNNEST(@l2v)
   AND {_win}
 """
 
@@ -281,7 +389,7 @@ LEFT JOIN `{_BOOKINGS_TABLE}` b ON CAST(b.booking_id AS STRING) = sq.booking_id
 """
     _support_where = f"""
 WHERE b.tour_id = @tid AND b.vendor_id = @vid
-  AND sq.query_tag NOT IN UNNEST(@excluded)
+  AND NOT REGEXP_CONTAINS(IFNULL({_QUERY_CATEGORY_SQL}, ''), @nar)
   AND {_win}
 """
     sql_d = f"""
@@ -299,22 +407,32 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
     # Over ALL reviews, not just negative ones: an average taken over reviews
     # already filtered to <= 3 stars could never exceed 3 and would say nothing
     # about how the experience is doing.
-    sql_e_tidvid = f"""
-SELECT ROUND(AVG(r.rating), 2) AS avg_rating, COUNT(r.rating) AS n_ratings
-{_reviews_from}
+    # Looker's avg_rating is average_distinct over booking_id, filtered to
+    # review_source CUSTOMER - so vendor- and system-sourced rows are excluded
+    # and a booking with several review rows counts once.
+    _avg_select = """
+SELECT ROUND(AVG(rating), 2) AS avg_rating, COUNT(*) AS n_ratings
+FROM (
+  SELECT r.booking_id, ANY_VALUE(r.rating) AS rating
+"""
+    _avg_tail = """
+  GROUP BY r.booking_id
+)
+"""
+    sql_e_tidvid = f"""{_avg_select}{_reviews_from}
 WHERE b.tour_id = @tid AND f.vendor_id = @vid
   AND r.rating IS NOT NULL
+  AND r.source = 'CUSTOMER'
   AND {_win}
-"""
+{_avg_tail}"""
     # TGID is the experience, so this deliberately spans every tour and vendor
     # selling it - that breadth is the point of the comparison.
-    sql_e_tgid = f"""
-SELECT ROUND(AVG(r.rating), 2) AS avg_rating, COUNT(r.rating) AS n_ratings
-{_reviews_from}
+    sql_e_tgid = f"""{_avg_select}{_reviews_from}
 WHERE b.experience_id = @tgid
   AND r.rating IS NOT NULL
+  AND r.source = 'CUSTOMER'
   AND {_win}
-"""
+{_avg_tail}"""
 
     # --- F: total bookings --------------------------------------------------
     sql_f = f"""
@@ -384,14 +502,16 @@ LEFT JOIN `{_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
     sql_h2 = f"{_ff_select}WHERE b.experience_id = @tgid AND {_win}"
     sql_i  = f"{_ff_select}WHERE b.vendor_id = @vid AND DATE(b.experience_date) = {anchor_sql}"
 
-    excluded = {"excluded": ("STRING", _EXCLUDED_SUPPORT_TAGS)}
+    nar_par  = {"nar": _NAR_PATTERN}
     ff_par   = {"ff_done": ("STRING", _FF_COMPLETED_STATUSES)}
 
     # A and C need a tag/L2 mapping. Without one they are skipped and the rest
     # still run - a missing framework should cost you two numbers, not all of
     # the insights.
     skip_ac = tags_spec is None
-    coro_a = _run(sql_a, {**base, "l2": l2}) if not skip_ac else asyncio.sleep(0)
+    variants = l2_variants(l2)
+    coro_a = (_run(sql_a, {**base, "l2v": ("STRING", variants)})
+              if not skip_ac and variants else asyncio.sleep(0))
 
     if skip_ac:
         coro_c = asyncio.sleep(0)
@@ -399,19 +519,20 @@ LEFT JOIN `{_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
         sql_c = f"""
 SELECT COUNT(DISTINCT sq.booking_id) AS c
 {_support_from}{_support_where}
-  AND sq.query_tag IN UNNEST(@tags)
+  AND {_QUERY_CATEGORY_SQL} IN UNNEST(@tags)
 """
-        coro_c = _run(sql_c, {**base, **excluded, "tags": ("STRING", tags_spec)})
+        coro_c = _run(sql_c, {**base, **nar_par, "tags": ("STRING", tags_spec)})
     else:
         pats = tags_spec.get("like_any", [])
         if pats:
-            ors = " OR ".join(f"LOWER(sq.query_tag) LIKE @pat{i}" for i in range(len(pats)))
+            ors = " OR ".join(f"LOWER({_QUERY_CATEGORY_SQL}) LIKE @pat{i}"
+                              for i in range(len(pats)))
             sql_c = f"""
 SELECT COUNT(DISTINCT sq.booking_id) AS c
 {_support_from}{_support_where}
   AND ({ors})
 """
-            coro_c = _run(sql_c, {**base, **excluded,
+            coro_c = _run(sql_c, {**base, **nar_par,
                                   **{f"pat{i}": p for i, p in enumerate(pats)}})
         else:
             coro_c, skip_ac = asyncio.sleep(0), True
@@ -420,7 +541,7 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         coro_a,
         _run(sql_b, base),
         coro_c,
-        _run(sql_d, {**base, **excluded}),
+        _run(sql_d, {**base, **nar_par}),
         _run(sql_e_tidvid, base),
         _run(sql_e_tgid, {**anchor_par, "tgid": tgid}) if tgid else asyncio.sleep(0),
         _run(sql_f, base),
@@ -432,6 +553,7 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
     )
 
     sim_rev = 0 if skip_ac else _count(results[0])
+    _l2_variant_count = len(variants)
     tot_rev = _count(results[1])
     sim_sup = 0 if skip_ac else _count(results[2])
     tot_sup = _count(results[3])
@@ -506,6 +628,7 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         "_window_days":     wd,
         "_anchored_on":     visit_date or "today",
         "_computed_for_l2": l2,
+        "_l2_variants":     _l2_variant_count,
         "_computed_at":     datetime.now(timezone.utc).isoformat(),
     }
 
