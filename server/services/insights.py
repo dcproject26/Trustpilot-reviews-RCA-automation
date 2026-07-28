@@ -7,9 +7,10 @@ Seven queries run in parallel via asyncio.gather():
   B. Total negative reviews        (same TID+VID)
   C. Issue-specific support queries (same TID+VID, matching tags)
   D. Total support queries          (same TID+VID)
-  E. Average rating                 (same TID+VID)
-  F. Total bookings                 (same TID+VID) - the ratio denominator
-  G. Redemption details             (dim_vendor_tours, English)
+  E1. Average rating                (same TID+VID)
+  E2. Average rating                (same TGID - every tour and vendor)
+  F.  Total bookings                (same TID+VID) - the ratio denominator
+  G.  Redemption details            (dim_vendor_tours, English)
 
 Six things changed from the previous version, each because the Looker query
 does it differently:
@@ -77,8 +78,10 @@ def _zero_result(l2: str | None) -> dict:
         "review_ratio":                0.0,
         "support_ratio":               0.0,
         "escalation":                  False,
-        "rating": {"avg": None, "n": 0},
-        "rating_30d": {"avg": None, "n": 0},
+        "rating_tgid":   {"avg": None, "n": 0},
+        "rating_tidvid": {"avg": None, "n": 0},
+        "rating_15d":    {"avg": None, "n": 0},
+        "rating_30d":    {"avg": None, "n": 0},
         "redemption":                  None,
         "completion_breakdown":        {},
         "same_day_breakdown":          {},
@@ -172,6 +175,7 @@ async def get_insights(booking: dict, l1: str | None, l2: str | None,
     wd         = window_days(window)
     tid        = str(booking.get("tid") or "").strip()
     vid        = str(booking.get("vid") or "").strip()
+    tgid       = str(booking.get("tgid") or "").strip()
     visit_date = str(booking.get("visitDate") or booking.get("date_of_visit") or "").strip()
 
     if not tid or not vid:
@@ -240,14 +244,29 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
 {_support_from}{_support_where}
 """
 
-    # --- E: average rating --------------------------------------------------
+    # --- E1 / E2: average rating at two scopes ------------------------------
+    # The dashboard shows "TGID Rating" and "TID . VID Rating" side by side:
+    # how the experience is rated overall, against how this particular tour and
+    # vendor combination is rated. They are different populations, and computing
+    # both from the same TID+VID query - as this file used to - made the TGID
+    # tile display TID+VID data under a TGID label.
+    #
     # Over ALL reviews, not just negative ones: an average taken over reviews
     # already filtered to <= 3 stars could never exceed 3 and would say nothing
     # about how the experience is doing.
-    sql_e = f"""
+    sql_e_tidvid = f"""
 SELECT ROUND(AVG(r.rating), 2) AS avg_rating, COUNT(r.rating) AS n_ratings
 {_reviews_from}
 WHERE b.tour_id = @tid AND f.vendor_id = @vid
+  AND r.rating IS NOT NULL
+  AND {_win}
+"""
+    # TGID is the experience, so this deliberately spans every tour and vendor
+    # selling it - that breadth is the point of the comparison.
+    sql_e_tgid = f"""
+SELECT ROUND(AVG(r.rating), 2) AS avg_rating, COUNT(r.rating) AS n_ratings
+{_reviews_from}
+WHERE b.experience_id = @tgid
   AND r.rating IS NOT NULL
   AND {_win}
 """
@@ -361,7 +380,8 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         _run(sql_b, base),
         coro_c,
         _run(sql_d, {**base, **excluded}),
-        _run(sql_e, base),
+        _run(sql_e_tidvid, base),
+        _run(sql_e_tgid, {**anchor_par, "tgid": tgid}) if tgid else asyncio.sleep(0),
         _run(sql_f, base),
         _run(sql_g, {"tid": tid, "vid": vid}),
         _run(sql_h, base),
@@ -373,7 +393,7 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
     tot_rev = _count(results[1])
     sim_sup = 0 if skip_ac else _count(results[2])
     tot_sup = _count(results[3])
-    tot_bkg = _count(results[5])
+    tot_bkg = _count(results[6])
 
     def _safe_div(n, d) -> float:
         return round(n / d, 4) if d else 0.0
@@ -383,14 +403,17 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
     escalation    = (review_ratio > _REVIEW_ESCALATION
                      or support_ratio > _SUPPORT_ESCALATION)
 
-    e_rows = results[4] if isinstance(results[4], list) else []
-    avg_rating, n_ratings = None, 0
-    if e_rows:
-        avg_rating = _fld(e_rows[0], "avg_rating")
-        avg_rating = float(avg_rating) if avg_rating is not None else None
-        n_ratings  = int(_fld(e_rows[0], "n_ratings") or 0)
+    def _rating(res):
+        if not isinstance(res, list) or not res:
+            return {"avg": None, "n": 0}
+        avg = _fld(res[0], "avg_rating")
+        return {"avg": float(avg) if avg is not None else None,
+                "n": int(_fld(res[0], "n_ratings") or 0)}
 
-    g_rows = results[6] if isinstance(results[6], list) else []
+    rating_tidvid = _rating(results[4])
+    rating_tgid   = _rating(results[5])
+
+    g_rows = results[7] if isinstance(results[7], list) else []
     redemption = None
     if g_rows:
         row = g_rows[0]
@@ -413,8 +436,8 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         return {str(_fld(r, "completion_type") or "Unknown"): int(_fld(r, "c") or 0)
                 for r in res}
 
-    completion = _breakdown(results[7])
-    same_day   = _breakdown(results[8])
+    completion = _breakdown(results[8])
+    same_day   = _breakdown(results[9])
 
     out = {
         "similar_reviews_30d":         sim_rev,
@@ -425,14 +448,17 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         "review_ratio":                review_ratio,
         "support_ratio":               support_ratio,
         "escalation":                  escalation,
-        "rating": {"avg": avg_rating, "n": n_ratings},
+        "rating_tgid":                 rating_tgid,
+        "rating_tidvid":               rating_tidvid,
         "redemption":                  redemption,
         "completion_breakdown":        completion,
         "same_day_breakdown":          same_day,
-        # Kept so the existing dashboard tiles keep rendering. rating_15d is
-        # gone: it and rating_30d were computed over the same interval and
-        # always showed the same number.
-        "rating_30d": {"avg": avg_rating, "n": n_ratings},
+        # The dashboard still reads these names. They were never windows - the
+        # TGID tile reads rating_15d and the TID.VID tile reads rating_30d -
+        # so they are aliased to the right scope rather than renamed, and both
+        # respect whichever window the associate picked.
+        "rating_15d": rating_tgid,
+        "rating_30d": rating_tidvid,
         "vidCompletionRate":    _pct_completed(completion),
         "sameDaySameVidIssues": _issue_summary(same_day),
         "_window_days":     wd,
@@ -445,7 +471,8 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         f"[insights] tid={tid} vid={vid} l2={l2!r} anchor={out['_anchored_on']} "
         f"window={wd}d neg_reviews={sim_rev}/{tot_rev} queries={sim_sup}/{tot_sup} "
         f"bookings={tot_bkg} ratio_r={review_ratio} ratio_s={support_ratio} "
-        f"rating={avg_rating} escalation={escalation} "
+        f"rating_tgid={rating_tgid['avg']} rating_tidvid={rating_tidvid['avg']} "
+        f"escalation={escalation} "
         f"redemption={'yes' if redemption else 'no'}"
     )
     return out
