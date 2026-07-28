@@ -681,22 +681,31 @@ def matches_indicators(sig: dict, ind: dict, first, last) -> tuple[bool, list]:
             return False, used
         used.append("venue")
 
+    # City only filters when there is NO venue. The extractor returns whatever
+    # the review gives it -- sometimes a city ("Krakow"), sometimes a country
+    # ("Poland") -- and a country never token-matches the city on the ticket
+    # ("Warsaw"), even though they agree. With a venue already matched, city can
+    # only reject correct bookings, so it is recorded and not enforced.
     city = (ind.get("city_or_country") or "").split(",")[0].strip()
     if city:
         want = {t for t in re.findall(r"[a-z]{3,}", _fold(city))}
         got  = {t for t in re.findall(r"[a-z]{3,}", _fold(sig.get("city") or ""))}
-        # City is only allowed to reject when the ticket states one.
-        if got and not (want & got):
-            return False, used
-        if got:
+        if want & got:
             used.append("city")
+        elif got and not venue:
+            return False, used
 
+    # Pax NARROWS, it does not reject. It was decisive for a review naming
+    # "9 combo tickets" -- 9 == 9 cut thirteen name+venue+city matches to one.
+    # But a review saying "two tickets" against a ticket recording pax 1 is a
+    # counting difference, not a different booking, and rejecting on it loses
+    # the right one. Agreement is recorded here; shortlist() uses it to choose
+    # between candidates when there is more than one.
     pax = ind.get("pax")
     if pax and sig.get("pax"):
         try:
-            if int(pax) != int(sig["pax"]):
-                return False, used
-            used.append("pax")
+            if int(pax) == int(sig["pax"]):
+                used.append("pax")
         except (TypeError, ValueError):
             pass
 
@@ -765,6 +774,15 @@ async def shortlist(indicators: dict, author_first, author_last,
 
     out = list(by_bid.values())
     out.sort(key=lambda s: s.get("created_at") or "", reverse=True)
+
+    # Pax as a narrowing step: only when it actually separates the candidates.
+    # If some agree on pax and others do not, keep the agreeing ones. If none
+    # agree, pax tells us nothing here and everything stays.
+    if len(out) > 1 and indicators.get("pax"):
+        exact = [s for s in out if "pax" in (s.get("matched_on") or [])]
+        if exact and len(exact) < len(out):
+            log.info(f"[shortlist] pax={indicators['pax']}: {len(out)} -> {len(exact)}")
+            out = exact
 
     name_only = bool(name) and not venue and not city
     if name_only and len(out) > limit_name_only:

@@ -81,6 +81,23 @@ check("BMS url", _bids_from_text("check https://aries.headout.com/bms/booking/32
 check("zd url excluded", _bids_from_text("https://x.zendesk.com/agent/tickets/33979875"), [])
 check("inline ticket ref", _bids_from_text("ticket 33979875 vs booking 32885787"), ["32885787"])
 
+print("\n9. pax narrows a multi-candidate set, and never rejects a lone one")
+_cip_pool = [
+    {"booking_id": "32900044", "matched_on": ["name", "venue", "city", "pax"]},
+    {"booking_id": "32342285", "matched_on": ["name", "venue", "city"]},
+    {"booking_id": "32550006", "matched_on": ["name", "venue", "city"]},
+]
+_exact = [s for s in _cip_pool if "pax" in s["matched_on"]]
+_kept = _exact if (_exact and len(_exact) < len(_cip_pool)) else _cip_pool
+check("pax narrows Ciprian to one", [s["booking_id"] for s in _kept], ["32900044"])
+
+# David: pax disagrees (review says 2, ticket says 1) but it is the only
+# candidate, so narrowing must not remove it.
+_david_pool = [{"booking_id": "32908218", "matched_on": ["name", "venue"]}]
+_ex = [s for s in _david_pool if "pax" in s["matched_on"]]
+_kept2 = _ex if (_ex and len(_ex) < len(_david_pool)) else _david_pool
+check("pax keeps David's lone candidate", [s["booking_id"] for s in _kept2], ["32908218"])
+
 print("\n" + "=" * 62)
 if FAILURES:
     print(f"{len(FAILURES)} FAILURE(S): " + ", ".join(FAILURES))
@@ -195,8 +212,11 @@ CIP = {"guest_name": "Ciprian", "experience_or_venue": "combo tickets for Oceano
        "city_or_country": "Valencia, Spain", "pax": 9}
 cip_tickets = [
     ("32900044", "Ciprian Rosu", "Oceanogràfic Tickets with Optional 4D Cinema", "Valencia", 9, True),
-    ("32342285", "Ciprian Toma", "Combo: Oceanogràfic + Hemisfèric Tickets", "Valencia", 8, False),
-    ("32550006", "Dumitru Ciprian Iscu", "Oceanogràfic & Science Museum Valencia", "Valencia", 3, False),
+    # pax no longer rejects here -- these pass the filter and are then narrowed
+    # out by shortlist(), which keeps only the pax-agreeing candidate when some
+    # agree and others do not. See the pax narrowing check below.
+    ("32342285", "Ciprian Toma", "Combo: Oceanogràfic + Hemisfèric Tickets", "Valencia", 8, True),
+    ("32550006", "Dumitru Ciprian Iscu", "Oceanogràfic & Science Museum Valencia", "Valencia", 3, True),
     ("32978225", "Stefan Ciprian Neagu", "Acropolis & Parthenon Entrance Tickets", "Athens", None, False),
 ]
 for bid, guest, exp, city, pax, want in cip_tickets:
