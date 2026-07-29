@@ -106,12 +106,21 @@ findable; one you quietly corrected is not.
    "Booking created", "Tickets sent", "Guest reached out", "Guest reply",
    "CE response", "SP response", "Refund issued", "Booking cancelled",
    "Escalated to SP", "Review posted".
-   The guest's FIRST contact is "Guest reached out"; a later guest message is
-   "Guest reply"; our reply is "CE response"; a supply-partner reply is "SP
-   response". No ticket IDs, no "[ZD-xxxxx]", no "(xN)".
-   For an event with is_internal true, use the plain machine action instead
-   ("Credentials generated", "Fulfilment run attempted") - do not dress it up
-   as guest-facing.
+   THE LABEL MUST MATCH THE ACTOR. This is not a style preference - a label
+   naming someone who did not act is a false statement about a person, and it
+   is the one error here that can end up quoted back to a customer.
+     actor "guest"   -> and ONLY then: "Guest reached out" (first contact) or
+                        "Guest reply" (any later message). Never write that the
+                        guest contacted, asked, replied or complained unless
+                        this event IS the guest's own words.
+     actor "co"      -> "CE response"
+     actor "sp"      -> "SP response"
+     actor "system" / "ai" -> the machine action, plainly: "Booking-in-progress
+                        email sent", "Fulfilment run attempted", "Credentials
+                        generated", "Chat transcript logged", "Tickets sent".
+                        An automated email ABOUT the guest is a system event,
+                        not the guest speaking.
+   No ticket IDs, no "[ZD-xxxxx]", no "(xN)".
 
 5. SUMMARIES - ONE short sentence. Aim for 12-20 words, hard limit 120
    characters. A CX analyst scans this column; anything longer stops being
