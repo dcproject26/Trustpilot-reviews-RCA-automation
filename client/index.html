@@ -2567,9 +2567,9 @@ function renderReviewCol() {
           b.escalationEmail
             ? `<a href="mailto:${b.escalationEmail}" style="color:var(--accent)">${b.escalationEmail}</a>`
               + (b.escalationType ? `<span class="tile-n"> · ${b.escalationType}</span>` : '')
-            : b.contactCount
-              ? `<span class="pill-sm pill-grey">None on file</span><span class="tile-n" title="contact types this vendor does have"> · has ${b.contactCount} contact${b.contactCount === 1 ? '' : 's'}${b.contactTypes ? ': ' + b.contactTypes : ''}</span>`
-              : '<span class="placeholder">—</span>'}</span></div>
+            : `<span class="pill-sm pill-grey">No</span>${b.contactTypes
+                  ? `<span class="tile-n" title="the contact types this vendor does have - none of them is ESCALATIONS"> · has ${b.contactTypes}</span>`
+                  : ''}`}</span></div>
         <div class="detail-row"><span class="k">Booking status</span><span class="v">${b.status ? `<span class="booking-status-pill status-${b.status}">${b.status}</span>` : '—'}</span></div>
         <div class="detail-row"><span class="k">Lead time</span><span class="v mono">${b.leadTime || '—'}</span></div>
       </div>
