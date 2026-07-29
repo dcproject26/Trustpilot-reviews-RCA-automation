@@ -23,10 +23,11 @@ does it differently:
   3. Fulfilment rate is Looker's booking_completion_rate: bookings whose
      fulfilment_STATUS is Completed or Dirty, over every booking the dashboard
      counts. The old code read fulfilment_type, which matched no column at all.
-     The denominator is bounded by the tile's own two filters - status is not
-     Uncaptured/Dummy, completion type is not Cancelled Fraudulent/Dummy - so
-     Amended and Cancelled By Customer DO count in it. completion_type is
-     otherwise only used to identify Unfulfilled, as unfulfilled_rate does.
+     The denominator is bounded by the tile's own filters - status is not
+     Uncaptured/Dummy, completion type is not Cancelled Fraudulent/Dummy - and
+     by _GUEST_CANCEL_TYPES, because a guest cancelling says nothing about
+     whether the vendor can fulfil. Amended DOES count in it. completion_type
+     is otherwise only used to identify Unfulfilled, as unfulfilled_rate does.
      Computed at VID and TGID scope, because ops judges an experience on its
      TGID. Note the Looker tile compares 28 complete days; the picker here is
      7/30/90, so a number will not tie out against that tile by default.
@@ -379,6 +380,22 @@ _FF_COMPLETED_STATUSES = ["Completed", "Dirty"]
 # numerator is what would make the number meaningless.
 _FF_EXCLUDED_STATUSES         = ["Uncaptured", "Dummy"]
 _FF_EXCLUDED_COMPLETION_TYPES = ["Cancelled Fraudulent", "Dummy"]
+
+# A guest cancelling is a guest issue. It is not a fulfilment the vendor failed
+# to deliver, so it is out of the completion rate entirely - numerator and
+# DENOMINATOR - not merely hidden from the list of reasons.
+#
+# Hiding it from the reasons alone is what produced the bug this fixes: on TGID
+# 22238 the tile read "57.1% of 7" with an empty breakdown, because the three
+# non-completions were all Cancelled By Customer and were filtered out of the
+# explanation while still counting against the rate. A shortfall that cannot be
+# explained is a shortfall that should not have been counted.
+#
+# Normalised, and compared through _norm_sql on the warehouse side, so a
+# difference of case or spacing in the stored value cannot quietly reinstate
+# one of these. One list, both sides.
+_GUEST_CANCEL_TYPES = ["Cancelled By Customer", "Cancelled By Guest",
+                       "Customer Error", "Change Of Plans"]
 
 # The tile compares "the last 28 COMPLETE days" - today is excluded because it
 # is still running. The window predicate is already strictly less than the
@@ -802,15 +819,18 @@ LEFT JOIN `{_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
     # The dashboard's own filters, off the Looker tile:
     #   Fulfilment Status is not  Uncaptured, Dummy
     #   Completion Type  is not   Cancelled Fraudulent, Dummy
-    # These bound the DENOMINATOR, so they settle two questions that were open:
-    # Amended and Cancelled By Customer are NOT excluded and stay in the total.
+    # These bound the DENOMINATOR. Amended stays in the total; guest
+    # cancellations do not - see _GUEST_CANCEL_TYPES. A guest cancelling says
+    # nothing about whether the vendor can fulfil, so counting it against the
+    # vendor's completion rate measures the guest.
     #
     # IFNULL because the join is LEFT: a booking with no fulfilment row has a
     # NULL status, and NULL NOT IN (...) is NULL, which would drop the row.
     # Looker's "is not" keeps nulls, and so does this.
-    _ff_excl = """
+    _ff_excl = f"""
   AND IFNULL(f.fulfilment_status, '') NOT IN UNNEST(@ff_skip_status)
-  AND IFNULL(f.completion_type,   '') NOT IN UNNEST(@ff_skip_ctype)"""
+  AND IFNULL(f.completion_type,   '') NOT IN UNNEST(@ff_skip_ctype)
+  AND {_norm_sql("IFNULL(f.completion_type, '')")} NOT IN UNNEST(@ff_guest)"""
     sql_h  = f"{_ff_select}WHERE b.vendor_id = @vid AND {_win}{_ff_excl}"
     # Ops checks fulfilment for the same TGID over the last four weeks, because
     # that is the population that says whether this is a one-off or a pattern.
@@ -874,7 +894,9 @@ WHERE b.vendor_id = @vid AND DATE(b.experience_date) = {anchor_sql}
     nar_par  = {"nar": _NAR_PATTERN}
     ff_par   = {"ff_done":        ("STRING", _FF_COMPLETED_STATUSES),
                 "ff_skip_status": ("STRING", _FF_EXCLUDED_STATUSES),
-                "ff_skip_ctype":  ("STRING", _FF_EXCLUDED_COMPLETION_TYPES)}
+                "ff_skip_ctype":  ("STRING", _FF_EXCLUDED_COMPLETION_TYPES),
+                "ff_guest":       ("STRING", [_norm(t)
+                                              for t in _GUEST_CANCEL_TYPES])}
 
     # A and C need a tag/L2 mapping. Without one they are skipped and the rest
     # still run - a missing framework should cost you two numbers, not all of
@@ -1020,9 +1042,13 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
     # first drowns the reasons that are. "98 Cancelled By Customer · 51
     # Cancelled By Vendor" reads as though the vendor is fine; the 51 is the
     # story. Guest-driven cancellations are counted separately, not in the list.
-    _GUEST_CANCELS = ("cancelled by customer", "cancelled by guest",
-                      "cancelledguest", "cancelledcustomer", "customer error",
-                      "change of plans")
+    # The warehouse already drops these - _ff_excl excludes them from every
+    # fulfilment query, so they cannot reach the denominator or this list.
+    # Kept as a second pass because it matches on the combined status/type
+    # label too, and because a stored spelling outside _GUEST_CANCEL_TYPES
+    # would otherwise reappear here as a reason the vendor failed.
+    _GUEST_CANCELS = tuple(_norm(t) for t in _GUEST_CANCEL_TYPES) + (
+        "cancelledguest", "cancelledcustomer")
 
     def _why_rows(res):
         """Non-completions grouped by status and completion type, largest first."""

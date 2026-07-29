@@ -153,6 +153,55 @@ def main():
         check("_partial_because does not blame the reviews half",
               "reviews not compared" not in why, f"{why!r}")
 
+    # --- 3. guest cancellations are out of the completion rate --------------
+    # From BigQuery on TGID 22238, 30 days to 2026-07-22: completed 4, total 7,
+    # and the only non-completed rows were Cancelled / Cancelled By Customer
+    # = 3. The tile read "57.1% of 7" with an empty breakdown, because those 3
+    # were filtered out of the reasons while still counting against the rate.
+    # A guest cancelling is a guest issue, so it is out of the rate entirely.
+    print("\nguest cancellations are excluded from the rate, not just hidden\n")
+    from server.services.insights import _GUEST_CANCEL_TYPES, _norm
+    sqls = []
+
+    def _capture(l1, l2):
+        from server.services import insights as I
+        from server.services import bq_connector as BQ
+
+        async def _rec(sql, params=None, *a, **kw):
+            sqls.append((sql, params or {}))
+            return []
+        orig = (BQ.run_query_async, I.is_live, I.MOCK_MODE)
+        BQ.run_query_async, I.is_live, I.MOCK_MODE = _rec, (lambda _: True), False
+        try:
+            asyncio.run(I.get_insights(
+                {"id": "1", "tid": "T1", "vid": "V1", "tgid": "22238",
+                 "date_of_visit": "2026-07-22"}, l1=l1, l2=l2, window="30d"))
+        finally:
+            BQ.run_query_async, I.is_live, I.MOCK_MODE = orig
+
+    _capture("Experience Issues", "Ticket Issues")
+    # Every fulfilment query - the two rates AND the two breakdowns - has to
+    # carry the same exclusion, or the rate and its explanation disagree again.
+    ff = [(q, p) for q, p in sqls if "fct_fulfilments" in q and "b.booking_id" in q
+          and ("completed" in q or "ctype" in q)]
+    check("fulfilment queries were built", len(ff) >= 2, f"{len(ff)} found")
+    guarded = [q for q, p in ff if "@ff_guest" in q]
+    check("every fulfilment query excludes guest cancels",
+          len(guarded) == len(ff), f"{len(guarded)} of {len(ff)}",
+          hint="a rate that counts guest cancels cannot be explained by a "
+               "breakdown that hides them")
+    bound = [p for q, p in ff if p.get("ff_guest")]
+    check("the exclusion list is bound", len(bound) == len(ff),
+          f"{len(bound)} of {len(ff)}")
+    if bound:
+        vals = bound[0]["ff_guest"][1]
+        check("Cancelled By Customer is in it",
+              _norm("Cancelled By Customer") in vals, f"{vals}")
+        check("the list is normalised",
+              all(v == _norm(v) for v in vals), f"{vals}",
+              hint="compared through _norm_sql, so an unnormalised entry "
+                   "silently never matches")
+
     print("-" * 62)
     if _failures:
         print(f"{len(_failures)} FAILED: {', '.join(_failures)}")
