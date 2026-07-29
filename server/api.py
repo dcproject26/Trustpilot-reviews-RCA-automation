@@ -395,7 +395,17 @@ async def get_review_insights(review_id: str, window: str = "",
 
     cached = d.insights or {}
     cache_valid = False
-    if cached.get("_computed_for_l2") == l2 and cached.get("_window_days") == wd:
+    # Never serve a cached zero. A zero means "could not compute" - no booking
+    # resolved, BigQuery down, ids missing - and caching that for 24h means the
+    # moment any of it is fixed, the fix cannot be seen. It has already
+    # outlived two of them: rows written before tid/vid were resolvable are
+    # still being served with the reason string from that build.
+    #
+    # Recomputing a zero is cheap: the paths that produce one return before
+    # running a single query.
+    if cached.get("_zeroed_because"):
+        cached, cache_valid = {}, False
+    elif cached.get("_computed_for_l2") == l2 and cached.get("_window_days") == wd:
         try:
             age = (datetime.utcnow().replace(tzinfo=timezone.utc)
                    - datetime.fromisoformat(cached["_computed_at"])).total_seconds()

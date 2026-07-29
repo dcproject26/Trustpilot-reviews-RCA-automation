@@ -579,6 +579,17 @@
     min-width: 0;
     overflow: hidden;
   }
+  .insight-note {
+    grid-column: 1 / -1;
+    font-size: 11px;
+    color: var(--amber);
+    background: rgba(255,176,32,.07);
+    border: 1px solid rgba(255,176,32,.18);
+    border-radius: 6px;
+    padding: 7px 10px;
+    margin-bottom: 2px;
+    line-height: 1.45;
+  }
   .insight-tile-label {
     font-size: 10px;
     color: var(--text-mute);
@@ -2537,51 +2548,53 @@ function renderReviewCol() {
                                         && li.vid_completion_rate < 0.95);
           const _rr = li.review_ratio || 0;
           const _sr = li.support_ratio || 0;
-          const _rr0 = li.similar_reviews_30d === 0 && li.total_reviews_30d === 0;
-          const _sr0 = li.similar_support_queries_30d === 0 && li.total_support_queries_30d === 0;
+
+          // Why a tile has no number. The server says so - _zeroed_because when
+          // nothing could be computed, _partial_because when only the
+          // vendor-level half ran. The subtitles used to read "no visit date"
+          // no matter what the actual reason was, which is worse than silence:
+          // it sends you looking for a missing date that was never the problem.
+          const _why = li._zeroed_because || li._partial_because || '';
+          const _n = (v) => (v == null ? '—' : v);
+          const _pair = (a, b) =>
+            (a == null || b == null) ? '—' : `${a} / ${b}`;
+
           return `<div class="insights-grid">
+            ${_why ? `<div class="insight-note">${_why}</div>` : ''}
             <div class="insight-tile ${_rTgidN === 0 ? 'grey' : ''}">
               <div class="insight-tile-label">Rating · TGID</div>
               <div class="insight-tile-value">${_ratTgid.avg != null ? `${_ratTgid.avg} ★` : '—'}</div>
-              <div class="insight-tile-sub">every tour &amp; vendor (${_rTgidN} ratings)</div>
             </div>
             <div class="insight-tile ${_rTvN === 0 ? 'grey' : ''}">
               <div class="insight-tile-label">Rating · TID &middot; VID</div>
               <div class="insight-tile-value">${_ratTv.avg != null ? `${_ratTv.avg} ★` : '—'}</div>
-              <div class="insight-tile-sub">this tour &amp; vendor (${_rTvN} ratings)</div>
             </div>
             <div class="insight-tile ${_rr > 0.15 ? 'red' : ''}">
-              <div class="insight-tile-label">Review ratio (30d)</div>
-              <div class="insight-tile-value" style="${_rr > 0.15 ? 'color:var(--red)' : ''}">${_rr0 ? '—' : `${(_rr * 100).toFixed(1)}%`}</div>
-              <div class="insight-tile-sub">similar / total</div>
+              <div class="insight-tile-label">Review ratio</div>
+              <div class="insight-tile-value" style="${_rr > 0.15 ? 'color:var(--red)' : ''}">${li.total_reviews_30d ? `${(_rr * 100).toFixed(1)}%` : '—'}</div>
             </div>
             <div class="insight-tile ${_sr > 0.15 ? 'red' : ''}">
-              <div class="insight-tile-label">Support ratio (30d)</div>
-              <div class="insight-tile-value" style="${_sr > 0.15 ? 'color:var(--red)' : ''}">${_sr0 ? '—' : `${(_sr * 100).toFixed(1)}%`}</div>
-              <div class="insight-tile-sub">similar / total</div>
+              <div class="insight-tile-label">Support ratio</div>
+              <div class="insight-tile-value" style="${_sr > 0.15 ? 'color:var(--red)' : ''}">${li.total_support_queries_30d ? `${(_sr * 100).toFixed(1)}%` : '—'}</div>
             </div>
             <div class="insight-tile">
-              <div class="insight-tile-label">Similar reviews (30d)</div>
-              <div class="insight-tile-value">${_rr0 ? '—' : `${li.similar_reviews_30d} / ${li.total_reviews_30d}`}</div>
-              <div class="insight-tile-sub">same TID · VID · L2</div>
+              <div class="insight-tile-label">Similar reviews</div>
+              <div class="insight-tile-value">${_pair(li.similar_reviews_30d, li.total_reviews_30d)}</div>
             </div>
             <div class="insight-tile">
-              <div class="insight-tile-label">Similar support queries (30d)</div>
-              <div class="insight-tile-value">${_sr0 ? '—' : `${li.similar_support_queries_30d} / ${li.total_support_queries_30d}`}</div>
-              <div class="insight-tile-sub">matching tag / total</div>
+              <div class="insight-tile-label">Similar support queries</div>
+              <div class="insight-tile-value">${_pair(li.similar_support_queries_30d, li.total_support_queries_30d)}</div>
             </div>
             <div class="insight-tile ${_ffAttn ? 'red' : li.vid_completion_rate == null ? 'grey' : ''}">
               <div class="insight-tile-label">Completion %</div>
-              <div class="insight-tile-value">${li.vidCompletionRate || 'N/A'}</div>
-              <div class="insight-tile-sub">VID ${li.vid_completion_rate != null ? `${(li.vid_completion_rate * 100).toFixed(1)}% of ${(li.ff_vid && li.ff_vid.total || 0).toLocaleString()} bookings` : 'no visit date'}</div>
+              <div class="insight-tile-value">${li.vid_completion_rate != null ? `${(li.vid_completion_rate * 100).toFixed(1)}%` : '—'}</div>
               ${_ffAttn
                 ? '<button class="flag-biz-btn" data-flag-biz>⚑ Flag to Biz · draft message</button>'
                 : ''}
             </div>
             <div class="insight-tile ${li.same_day_same_vid && li.same_day_same_vid.issues > 0 ? 'red' : li.same_day_same_vid == null ? 'grey' : ''}">
               <div class="insight-tile-label">Same-Day Issues</div>
-              <div class="insight-tile-value">${li.sameDaySameVidIssues || 'N/A'}</div>
-              <div class="insight-tile-sub">${li.same_day_same_vid ? 'same-day VID bookings' : 'no visit date'}</div>
+              <div class="insight-tile-value">${li.same_day_same_vid ? `${_n(li.same_day_same_vid.issues)} / ${_n(li.same_day_same_vid.total)}` : '—'}</div>
             </div>
           </div>`;
         })() : `
