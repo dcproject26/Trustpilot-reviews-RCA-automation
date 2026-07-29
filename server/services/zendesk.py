@@ -467,6 +467,18 @@ def _detect_actor(comment_author_id, ticket, author_role: str,
         return "guest"
     if is_sp_ticket:
         return "sp"
+    # via "api" means an integration posted this, not a person typing in
+    # Zendesk. On booking 32908218 four consecutive comments came from the same
+    # admin account - the booking-in-progress mail, the confirmation mail, the
+    # cancellation and the refund - all via api, and every one was rendered as
+    # "CE response" as though an agent had written it. The one comment a human
+    # actually typed that day arrived via "web". So the channel separates the
+    # template from the person, which nothing in the body reliably does.
+    #
+    # Restricted to staff accounts: a guest posting through the app also
+    # arrives via api, and that IS the guest.
+    if via_channel == "api" and author_role in ("agent", "admin"):
+        return "system"
     if author_role in ("agent", "admin"):
         return "co"
     # An end-user in Zendesk IS a customer - that is what the role means. The
