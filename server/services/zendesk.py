@@ -404,7 +404,24 @@ def _brand_matches(ticket, brand_env: str) -> bool:
 # accident (a guest writing "I forgot my password") stays in the timeline with
 # a reason attached, which can be found and argued with, instead of vanishing.
 _MACHINE_BODY = [
-    (re.compile(r"selenium|webdriver|headless\s+chrome|automation\s+(?:run|script|bot)"
+    # The structured booking dump Zendesk auto-posts onto the ticket: pax,
+    # price, vendor, instructions, escalation contacts. Machine-posted, so it
+    # is not the guest's story - but it is also not a fulfilment attempt, and
+    # it has to be matched BEFORE the selenium pattern. It mentions Selenium
+    # twice, as fulfillmentType and in the instruction text, which was enough
+    # to have it classified as a run that never happened and labelled
+    # "Fulfilment run attempted" off a metadata dump.
+    (re.compile(r"--\s*Booking\s+Info\b|\*\*Product\s+Details\*\*"
+                r"|\bBooking_Id\s*:|\bItinerary\s+Id\s*:", re.I), "booking-info"),
+    # Run language, not the bare word. "fulfillmentType: SELENIUM" describes
+    # how this booking is fulfilled; it is not a record of anything running.
+    (re.compile(r"selenium\s+(?:run|attempt|fulfil|script|job)"
+                # An action verb near the word, in either order. "Fulfilment
+                # ATTEMPTED via Selenium" is a run; "fulfilled BY Selenium" is
+                # a description of how this product works and must not match,
+                # which is why the verb has to be one of doing, not of being.
+                r"|(?:attempt\w*|ran\b|retr\w+|triggered|failed)[^.\n]{0,30}selenium"
+                r"|webdriver|headless\s+chrome|automation\s+(?:run|script|bot)"
                 r"|\bbot\s+run\b", re.I), "selenium-run"),
     (re.compile(r"pseudo[\s.\-]?e?mail|vendor\s+login|login\s+credential"
                 r"|credentials?\s*[:\-]|password\s*[:\-]", re.I), "credentials"),

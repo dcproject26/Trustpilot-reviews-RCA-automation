@@ -120,6 +120,13 @@ findable; one you quietly corrected is not.
                         sent", "Credentials generated". Name the specific
                         machine that ran: a fulfilment attempt is "Fulfilment
                         run ...", never the name of the email beside it.
+                        internal_reason "booking-info" is NOT a run. It is the
+                        booking dump Zendesk posts onto the ticket - pax,
+                        price, vendor, instructions. Label it "Booking details
+                        posted" and summarise the facts in it. Do not write
+                        that anything ran or was attempted: naming a
+                        fulfilment attempt that never happened invents the
+                        event an RCA then goes looking for.
                         Say what happened, not what was tried -
                         "Fulfilment run attempted" leaves the reader to find
                         out whether it worked, and whether it worked is the
