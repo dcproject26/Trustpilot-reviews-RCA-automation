@@ -124,6 +124,17 @@ findable; one you quietly corrected is not.
                         whole reason the row is here.
                         An automated email ABOUT the guest is a system event,
                         not the guest speaking.
+     actor "system" on thread "chat" -> a chat TRANSCRIPT: ONE comment holding
+                        the whole conversation, posted by Zendesk rather than
+                        by either party, which is why its actor is system.
+                        Label it "Guest chat". Do NOT label it as a transcript
+                        or a log - the log is the container, the conversation
+                        is the event, and calling it bookkeeping buries the
+                        only record of what the guest said.
+                        The summary carries what the guest raised and what they
+                        were told, in that order. Attribute inside the summary
+                        ("Guest asked ... ; agent said ...") - that is accurate
+                        about a transcript in a way the actor field cannot be.
    No ticket IDs, no "[ZD-xxxxx]", no "(xN)".
 
 5. SUMMARIES - ONE short sentence. Aim for 12-20 words, hard limit 120
