@@ -27,6 +27,19 @@ from server.services.mock_data import MOCK_BOOKINGS, MOCK_INSIGHTS
 
 log = logging.getLogger(__name__)
 
+# Which contact_details.type counts as the booking escalation contact.
+#
+# PROVISIONAL. A vendor carries several contact types and this has not been
+# confirmed against the real vocabulary, so the match is deliberately wide and
+# the panel displays the type it matched. A wrong pick is then visible on
+# screen rather than presented as the booking escalation address - which is the
+# failure worth avoiding, because somebody will email whatever is shown.
+#
+# Confirm with:
+#   SELECT c.type, COUNT(*) n FROM dim_vendors, UNNEST(contact_details) c
+#   GROUP BY 1 ORDER BY n DESC
+_ESCALATION_TYPE_RE = "escalat"
+
 if is_live("bigquery"):
     if GCP_SERVICE_ACCOUNT_JSON:
         from google.cloud import bigquery as _bqlib
@@ -260,11 +273,19 @@ def _get_booking_extra(bid: str) -> dict:
             b.booking_status,
             b.tour_name,
             f.is_partnered,
-            (SELECT c.email
+            (SELECT AS STRUCT c.email, c.type, c.name
                FROM UNNEST(v.contact_details) c
-              WHERE REGEXP_CONTAINS(LOWER(IFNULL(c.type, '')), r'escalat')
+              WHERE REGEXP_CONTAINS(LOWER(IFNULL(c.type, '')),
+                                    r'{_ESCALATION_TYPE_RE}')
                 AND IFNULL(c.email, '') != ''
-              LIMIT 1)                                   AS escalation_email,
+              ORDER BY
+                -- A vendor can carry several escalation contacts - finance,
+                -- ops, booking. Prefer one that says booking; otherwise take
+                -- the first and let the panel show which type it was, so a
+                -- wrong pick is visible rather than presented as the answer.
+                CASE WHEN REGEXP_CONTAINS(LOWER(IFNULL(c.type, '')), r'book')
+                     THEN 0 ELSE 1 END
+              LIMIT 1)                                   AS escalation,
             (SELECT STRING_AGG(DISTINCT IFNULL(c.type, '(untyped)'), ', ')
                FROM UNNEST(v.contact_details) c)         AS contact_types,
             ARRAY_LENGTH(v.contact_details)              AS contact_count
@@ -292,11 +313,14 @@ def _get_booking_extra(bid: str) -> dict:
             # has no contacts on file", which is a claim about the vendor
             # rather than an admission that we did not find the vendor.
             _n_contacts = getattr(rows[0], "contact_count", None)
+            _esc = getattr(rows[0], "escalation", None)
             return {
                 "booking_status":   getattr(rows[0], "booking_status", None) or "",
                 "tid_name":         getattr(rows[0], "tour_name",      None) or "",
                 "isPartnered":      None if _partnered is None else bool(_partnered),
-                "escalationEmail":  getattr(rows[0], "escalation_email", None) or "",
+                "escalationEmail":  (_esc or {}).get("email") or "",
+                "escalationType":   (_esc or {}).get("type") or "",
+                "escalationName":   (_esc or {}).get("name") or "",
                 "contactTypes":     getattr(rows[0], "contact_types", None) or "",
                 "contactCount":     None if _n_contacts is None else int(_n_contacts),
             }
