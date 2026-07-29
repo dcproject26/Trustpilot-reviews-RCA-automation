@@ -645,6 +645,21 @@ async def flag_to_biz(review_id: str, body: FlagToBiz,
     vid      = booking.get("vid", "?")
     completion = insights.get("vidCompletionRate", "?")
 
+    # Where this will actually go. The draft step used to answer
+    # "#biz-supply-ops" while the send step posted into the review's own Slack
+    # thread - so the confirmation named a channel the message would never
+    # reach, and anyone trusting it would assume the Biz team had been told.
+    # One resolver, called by both steps, so the promise and the delivery
+    # cannot drift apart.
+    thread_ch = (getattr(r, "slack_channel", "") or "")
+    thread_ts = (getattr(r, "slack_ts", "") or "")
+    if thread_ch and thread_ts:
+        dest_channel, dest_parent = thread_ch, thread_ts
+        dest_label = f"the review's Slack thread in #{thread_ch.lstrip('#')}"
+    else:
+        dest_channel, dest_parent = (body.channel or "#biz-supply-ops"), None
+        dest_label = dest_channel
+
     # Step 1: draft the message if not supplied
     if not body.message:
         drafted = await flag_to_biz_message(
@@ -659,26 +674,23 @@ async def flag_to_biz(review_id: str, body: FlagToBiz,
         return {
             "ok": True, "state": "drafted",
             "message": drafted,
-            "channel": body.channel or "#biz-supply-ops",
+            # The real destination, not a default that the send step overrides.
+            "channel": dest_channel,
+            "destination": dest_label,
+            "in_thread": bool(dest_parent),
             "tag": body.tag or "[Biz handle placeholder]",
         }
 
     # Step 2: send
     if body.send:
-        channel = body.channel or "#biz-supply-ops"
-        tag = body.tag or ""
-        full_msg = f"{tag}\n{body.message}".strip()
         # Into the review's own Slack thread, where the review was posted and
         # where whoever is watching it will see it. Posting a bare message to
         # a channel loses that context - it arrives as an orphan mentioning a
         # booking id, with the review it came from nowhere in sight.
-        r_row = db.query(Review).filter(Review.id == review_id).first()
-        thread_ch = (getattr(r_row, "slack_channel", "") or "") if r_row else ""
-        thread_ts = (getattr(r_row, "slack_ts", "") or "") if r_row else ""
-        if thread_ch and thread_ts:
-            channel, parent = thread_ch, thread_ts
-        else:
-            parent = None
+        channel, parent = dest_channel, dest_parent
+        tag = body.tag or ""
+        full_msg = f"{tag}\n{body.message}".strip()
+        if not parent:
             log.warning(f"[flag-to-biz] {review_id} has no slack thread - "
                         f"posting to {channel} instead")
         try:
@@ -701,7 +713,11 @@ async def flag_to_biz(review_id: str, body: FlagToBiz,
             if m:
                 m.flagged_to_biz = True
             db.commit()
-            return {"ok": True, "state": "sent", "ts": ts}
+            # Say where it landed. "sent" alone left the caller to assume
+            # the channel the draft step had named.
+            return {"ok": True, "state": "sent", "ts": ts,
+                    "channel": channel, "destination": dest_label,
+                    "in_thread": bool(parent)}
         except Exception as e:
             raise HTTPException(500, str(e))
 

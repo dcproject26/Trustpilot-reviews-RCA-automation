@@ -790,6 +790,12 @@
     margin-bottom: 5px;
     font-family: 'JetBrains Mono', monospace;
   }
+  .flag-dest {
+    font-size: 13px; color: var(--text); padding: 7px 0;
+  }
+  .flag-hint {
+    grid-column: 2; font-size: 11px; color: var(--text-mute); margin-top: 4px;
+  }
   .flag-input {
     width: 100%;
     background: var(--bg-elev-3);
@@ -2625,8 +2631,18 @@ function renderReviewCol() {
           // ops rule says the rate is noise and the count is the honest
           // caveat. Zero is not a dash - "no bookings in this window" is a
           // fact about the vendor, and a dash reads as a broken query.
-          const _rate = (r, n) =>
-            n === 0 ? 'no bookings'
+          // Which queries BROKE. A tile backed by one of these has no
+          // number, and the affirmative wording below - "no bookings", "no
+          // negative reviews" - would state a warehouse failure as a fact
+          // about the vendor. _broken() marks those tiles instead.
+          const _failed = new Set(li._failed_queries || []);
+          const _broken = (...names) => names.some(n => _failed.has(n));
+          const _err = '<span class="tile-empty" title="the query for this '
+            + 'tile failed - this is not a zero">could not load</span>';
+
+          const _rate = (r, n, ...q) =>
+            _broken(...q) ? _err
+            : n === 0 ? 'no bookings'
             : r == null ? '—'
             : `${(r * 100).toFixed(1)}%` +
               (n < 100 ? ` <span class="tile-n">of ${n} booking${n === 1 ? '' : 's'}</span>` : '');
@@ -2678,15 +2694,17 @@ function renderReviewCol() {
           // Average rating over the picked window, with the count that decides
           // how much weight to put on it - a mean over one review reads the
           // same as a mean over a thousand without it.
-          const _avgRating = (r) => {
+          const _avgRating = (r, ...q) => {
+            if (_broken(...q)) return _err;
             if (r.avg == null) return '<span class="tile-empty">no ratings</span>';
             const n = r.n || 0;
             return `${r.avg} ★ ` +
               `<span class="tile-n">from ${n.toLocaleString()} ` +
               `rating${n === 1 ? '' : 's'}</span>`;
           };
-          const _share = (hit, tot, none) =>
-            !tot ? `<span class="tile-empty">${none}</span>`
+          const _share = (hit, tot, none, ...q) =>
+            _broken(...q) ? _err
+            : !tot ? `<span class="tile-empty">${none}</span>`
                  : `${hit} <span class="tile-n">of ${tot}</span>` +
                    ` <span class="tile-pct">${((hit / tot) * 100).toFixed(1)}%</span>`;
           const sd = li.same_day || {};
@@ -2696,32 +2714,38 @@ function renderReviewCol() {
 
             ${_grp('Is this issue recurring here?')}
             ${_tile('Reviews', _share(li.similar_reviews_30d, li.total_reviews_30d,
-                                      'no negative reviews'),
+                                      'no negative reviews',
+                                      'reviews', 'reviews_total'),
                     _rr > 0.15 ? 'red' : '')}
             ${_tile('Support contacts', _share(li.similar_support_queries_30d,
                                                li.total_support_queries_30d,
-                                               'no contacts'),
+                                               'no contacts',
+                                               'support', 'support_total'),
                     _sr > 0.15 ? 'red' : '')}
 
             ${_grp('Same visit date, same issue')}
-            ${_tile('Reviews', (li.same_day ? _n(sd.reviews) : '—')
-                                + _ids(sd.review_ids),
+            ${_tile('Reviews', _broken('same_day_reviews') ? _err
+                                : (li.same_day ? _n(sd.reviews) : '—')
+                                  + _ids(sd.review_ids),
                     (sd.reviews > 0) ? 'red' : '')}
-            ${_tile('Support contacts', (li.same_day ? _n(sd.support) : '—')
-                                        + _ids(sd.support_ids),
+            ${_tile('Support contacts', _broken('same_day_support') ? _err
+                                        : (li.same_day ? _n(sd.support) : '—')
+                                          + _ids(sd.support_ids),
                     (sd.support > 0) ? 'red' : '')}
 
             ${_grp('Experience &amp; vendor')}
-            ${_tile('Average rating · TGID', _avgRating(_ratTgid),
+            ${_tile('Average rating · TGID', _avgRating(_ratTgid, 'rating_tgid'),
                     _ratTgid.avg == null ? 'grey' : '')}
-            ${_tile('Average rating · TID · VID', _avgRating(_ratTv),
+            ${_tile('Average rating · TID · VID', _avgRating(_ratTv, 'rating_tidvid'),
                     _ratTv.avg == null ? 'grey' : '')}
             ${_tile('Completion · TGID',
-                    _rate(li.tgid_completion_rate, (li.ff_tgid || {}).total ?? null)
+                    _rate(li.tgid_completion_rate, (li.ff_tgid || {}).total ?? null,
+                          'completion_tgid')
                     + _why_not(li.tgid_incomplete_why),
                     _ffAttnT ? 'red' : '')}
             ${_tile('Completion · VID',
-                    _rate(li.vid_completion_rate, (li.ff_vid || {}).total ?? null)
+                    _rate(li.vid_completion_rate, (li.ff_vid || {}).total ?? null,
+                          'completion_vid')
                     + _why_not(li.vid_incomplete_why),
                     _ffAttn ? 'red' : '')}
             ${_ffAttnT || _ffAttn
@@ -3627,9 +3651,19 @@ function openFlagDraftModal(r) {
         <button class="flag-modal-close" data-close-modal>×</button>
       </div>
       <div class="flag-modal-body">
+        <!-- The message goes into the review's own Slack thread. This field
+             used to read "#biz-supply-ops" as though that were the
+             destination, while the server posted to the thread and ignored
+             it - so the modal promised the Biz channel and the Biz channel
+             never got anything. It is a fallback, and it says so. -->
         <div class="flag-modal-row">
-          <label>Channel</label>
+          <label>Goes to</label>
+          <div class="flag-dest">This review's Slack thread</div>
+        </div>
+        <div class="flag-modal-row">
+          <label>Fallback</label>
           <input type="text" class="flag-input" id="flag-channel" value="#biz-supply-ops" />
+          <div class="flag-hint">Used only if this review has no Slack thread.</div>
         </div>
         <div class="flag-modal-row">
           <label>Tag</label>

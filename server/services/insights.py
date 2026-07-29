@@ -462,8 +462,31 @@ def _zero_result(l2: str | None, wd: int = 30, why: str = "",
                              else f"last {wd} days"),
         "_anchored_on":     visit_date or "today",
         "_zeroed_because":  why,
+        "_failed_queries":  [],
+        "_failed_detail":   {},
         "_computed_at":     datetime.now(timezone.utc).isoformat(),
     }
+
+
+class _Failed(list):
+    """
+    An empty result that remembers it is empty because the query BROKE.
+
+    Swallowing a BigQuery error into a plain [] made a failure indistinguishable
+    from an honest zero, and the dashboard states honest zeros as facts: "no
+    negative reviews", "no bookings", "no contacts". So a syntax error, a
+    permissions problem or a warehouse outage rendered as an affirmative claim
+    about the vendor - the worst possible reading, and one an associate would
+    act on.
+
+    It subclasses list so every `isinstance(res, list)` check downstream keeps
+    working and nothing has to be rewritten to be safe; it only adds the reason
+    for anything that cares to look.
+    """
+
+    def __init__(self, error):
+        super().__init__()
+        self.error = str(error)[:300]
 
 
 async def _run(sql: str, params: dict) -> list:
@@ -472,7 +495,7 @@ async def _run(sql: str, params: dict) -> list:
         return await run_query_async(sql, params)
     except Exception as e:
         log.warning(f"[insights] query failed: {e}")
-        return []
+        return _Failed(e)
 
 
 _WINDOWS = {"7d": 7, "4w": 28, "14d": 14, "15d": 15, "30d": 30, "90d": 90, "180d": 180}
@@ -860,12 +883,24 @@ WHERE b.vendor_id = @vid AND DATE(b.experience_date) = {anchor_sql}
     # without it there is no issue comparison to make. Decided here rather than
     # at the gather, because building a coroutine and then discarding it leaves
     # it un-awaited and Python warns about it.
-    skip_ac = tags_spec is None or not pair
+    # Two gates, not one. They used to share `skip_ac = tags_spec is None or
+    # not pair`, so an L1/L2 pair with no SUPPORT-tag mapping also suppressed
+    # the REVIEWS query - and 11 of 32 pairs are deliberately unmapped on the
+    # support side. Those reviews tiles read "0 of 47 - 0.0%" as a fact while
+    # l2_variants held live aliases matching thousands of rows, and the
+    # same-day review tile (gated on variants alone) contradicted it on the
+    # same screen.
+    #
+    # The reviews query needs the tid/vid pair and L2 variants. The support
+    # query needs the tid/vid pair and the tag map. Neither needs the other's
+    # input.
     variants = l2_variants(l2)
-    coro_a = (_run(sql_a, {**base, "l2v": ("STRING", variants)})
-              if not skip_ac and variants else asyncio.sleep(0))
+    skip_a = not pair or not variants
+    skip_c = not pair or tags_spec is None
+    coro_a = (asyncio.sleep(0) if skip_a
+              else _run(sql_a, {**base, "l2v": ("STRING", variants)}))
 
-    if skip_ac:
+    if skip_c:
         coro_c = asyncio.sleep(0)
     elif isinstance(tags_spec, list):
         sql_c = f"""
@@ -888,7 +923,7 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
             coro_c = _run(sql_c, {**base, **nar_par,
                                   **{f"pat{i}": _norm(p) for i, p in enumerate(pats)}})
         else:
-            coro_c, skip_ac = asyncio.sleep(0), True
+            coro_c, skip_c = asyncio.sleep(0), True
 
     results = await asyncio.gather(
         coro_a,
@@ -914,10 +949,35 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         return_exceptions=True,
     )
 
-    sim_rev = 0 if skip_ac else _count(results[0])
+    # Which queries BROKE, as opposed to returning nothing. _run hands back a
+    # _Failed for a query that raised, and gather itself can hand back an
+    # Exception. Both look like "no rows" to every _count below, and the
+    # dashboard renders no rows as an affirmative "no negative reviews" / "no
+    # bookings". Naming them lets the tiles that depend on a broken query say
+    # nothing instead of saying something false.
+    _RESULT_NAMES = (
+        "reviews", "reviews_total", "support", "support_total",
+        "rating_tidvid", "rating_tgid", "bookings", "redemption",
+        "completion_vid", "completion_tgid", "incomplete_tgid",
+        "incomplete_vid", "same_day_reviews", "same_day_support",
+        "same_day_total",
+    )
+    failed, failed_detail = [], {}
+    for _i, _res in enumerate(results):
+        _name = _RESULT_NAMES[_i] if _i < len(_RESULT_NAMES) else f"q{_i}"
+        if isinstance(_res, BaseException):
+            failed.append(_name)
+            failed_detail[_name] = f"{type(_res).__name__}: {_res}"[:300]
+        elif isinstance(_res, _Failed):
+            failed.append(_name)
+            failed_detail[_name] = _res.error
+    if failed:
+        log.error(f"[insights] {len(failed)} queries failed: {failed_detail}")
+
+    sim_rev = 0 if skip_a else _count(results[0])
     _l2_variant_count = len(variants)
     tot_rev = _count(results[1])
-    sim_sup = 0 if skip_ac else _count(results[2])
+    sim_sup = 0 if skip_c else _count(results[2])
     tot_sup = _count(results[3])
     tot_bkg = _count(results[6])
 
@@ -1044,12 +1104,24 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         # in the recurrence group covers this range.
         "_window_label":    (f"{wd} days before {visit_date}" if visit_date
                              else f"last {wd} days"),
-        # Empty when everything was computed. Set when tid or vid was missing
-        # and only the vendor-level half ran, so a zero in the issue-comparison
-        # tiles can be explained rather than read as "no history".
-        "_partial_because": ("" if pair else
-                             "tid or vid missing - issue comparison skipped, "
+        # Empty when everything was computed. Set when part of it could not be,
+        # so a zero can be explained rather than read as "no history". The
+        # halves are listed separately now that they are gated separately -
+        # "no support-tag mapping" says nothing about the reviews count.
+        "_partial_because": " · ".join(filter(None, [
+            ("" if pair else "tid or vid missing - issue comparison skipped, "
                              "vendor-level metrics computed"),
+            ("" if not (pair and skip_c) else
+             f"no support-tag mapping for {l1 or '?'} / {l2 or '?'} - "
+             "support contacts not compared"),
+            ("" if not (pair and skip_a) else
+             f"no L2 variants for {l2 or '?'} - reviews not compared"),
+        ])),
+        # Which queries broke. A tile whose query is in here has no number, and
+        # must not be rendered as a zero: "no negative reviews" is a claim
+        # about the vendor, and a failed query is not evidence for it.
+        "_failed_queries":  failed,
+        "_failed_detail":   failed_detail,
         "_computed_for_l2": l2,
         "_l2_variants":     _l2_variant_count,
         "_computed_at":     datetime.now(timezone.utc).isoformat(),
