@@ -207,9 +207,14 @@ def side_conversations(ticket_id) -> list[dict]:
     for sc in (data.get("side_conversations") or []):
         sc_id = sc.get("id")
         subject = sc.get("subject") or ""
-        parts = ", ".join(
-            (p.get("name") or p.get("email") or "")
-            for p in (sc.get("participants") or []) if isinstance(p, dict))
+        # name OR email discarded the address whenever a participant had a
+        # name, which is most of them - and the address is the supply
+        # partner's escalation contact, the thing that says who was actually
+        # reached about this booking. Keep both: the names read better on the
+        # timeline, the addresses are the evidence.
+        _parts = [p for p in (sc.get("participants") or []) if isinstance(p, dict)]
+        parts = ", ".join((p.get("name") or p.get("email") or "") for p in _parts)
+        emails = [e for e in ((p.get("email") or "").strip() for p in _parts) if e]
         msgs = []
         ev = _zd_get(f"/api/v2/tickets/{ticket_id}/side_conversations/{sc_id}/events.json")
         for e in ((ev or {}).get("events") or []):
@@ -224,6 +229,7 @@ def side_conversations(ticket_id) -> list[dict]:
                          "actor": actor, "body": body[:2000]})
         blob = "\n".join([subject] + [m["body"] for m in msgs]).strip()
         out.append({"id": sc_id, "subject": subject, "participants": parts,
+                    "participant_emails": emails,
                     "text": blob, "messages": msgs})
     if out:
         log.info(f"[zendesk] ZD-{ticket_id}: {len(out)} side conversation(s), "
