@@ -405,6 +405,15 @@ async def get_review_insights(review_id: str, window: str = "",
     # running a single query.
     if cached.get("_zeroed_because"):
         cached, cache_valid = {}, False
+    elif cached.get("_build") != _BUILD_SHA:
+        # Computed by a different build. The cache key covered l2 and window
+        # but had no notion of the code that produced the row, so every field
+        # added to the payload was invisible on any review that had been
+        # viewed before - a current server serving a shape it no longer
+        # produces, which is indistinguishable from the field never having
+        # been added. Recomputing after a deploy costs one query set per
+        # review actually opened.
+        cached, cache_valid = {}, False
     elif cached.get("_computed_for_l2") == l2 and cached.get("_window_days") == wd:
         try:
             age = (datetime.utcnow().replace(tzinfo=timezone.utc)
@@ -423,6 +432,7 @@ async def get_review_insights(review_id: str, window: str = "",
         log.warning(f"[insights] compute failed for {review_id}: {e}")
         raise HTTPException(502, "Insights query failed")
 
+    result["_build"] = _BUILD_SHA
     d.insights = result
     flag_modified(d, "insights")
     db.commit()
