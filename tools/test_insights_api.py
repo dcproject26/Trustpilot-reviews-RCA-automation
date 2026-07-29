@@ -180,8 +180,6 @@ def main():
     print("\nredesign fields")
     check("_window_label", bool(ins.get("_window_label")),
           f"got {ins.get('_window_label')!r}")
-    check("_rating_label", bool(ins.get("_rating_label")),
-          f"got {ins.get('_rating_label')!r}")
     sd = ins.get("same_day")
     check("same_day present", isinstance(sd, dict) or sd is None)
     if isinstance(sd, dict):
@@ -284,14 +282,17 @@ def main():
                   "window failed)")
         # Bookings over 7d cannot exceed bookings over 90d for the same booking.
         b7, b90 = seen["7d"]["bookings"], seen["90d"]["bookings"]
-        # Average rating deliberately does NOT follow the picker - it runs over
-        # a fixed 12 months, because a mean over a 7 day window is one review
-        # with a denominator. If it starts moving with the window, the fixed
-        # lookback has been lost and the tile is back to saying "5 stars from
-        # 1 rating" under a heading that promises 12 months.
-        rns = [seen[w]["rating_n"] for w in ("7d", "30d", "90d")]
-        if any(isinstance(x, int) and x > 0 for x in rns):
-            check("rating ignores the window", len(set(rns)) == 1, f"{rns}")
+        # Average rating follows the picker like everything else in the panel,
+        # so its sample size can only grow as the window widens. If 7d and 90d
+        # report the same count, the rating queries are not being windowed -
+        # which is exactly the bug the window picker had, one query over.
+        r7, r30, r90 = (seen[w]["rating_n"] for w in ("7d", "30d", "90d"))
+        if all(isinstance(x, int) for x in (r7, r30, r90)):
+            check("rating count grows with the window",
+                  r7 <= r30 <= r90, f"7d={r7} 30d={r30} 90d={r90}")
+            if r90 > 0:
+                check("rating is windowed", not (r7 == r30 == r90),
+                      f"all three windows gave {r7} ratings")
         if isinstance(b7, int) and isinstance(b90, int):
             check("7d bookings <= 90d bookings", b7 <= b90, f"{b7} vs {b90}")
             same = b7 == b90 == seen["30d"]["bookings"]

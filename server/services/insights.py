@@ -63,17 +63,6 @@ _VENDOR_TOURS      = "headout-analytics.analytics_reporting.dim_vendor_tours"
 # A review counts as negative at 3 stars or below - the threshold Looker uses.
 _NEGATIVE_RATING_MAX = 3
 
-# Average rating does NOT follow the window picker.
-#
-# Every other metric here answers "is this happening right now", so the 7/30/90
-# day picker is the right control for them. Average rating answers something
-# else - how this experience and this vendor are rated - and a 7 day window
-# gave "5 stars from 1 rating", which is not a rating, it is one review with a
-# denominator. Twelve months is long enough for the number to mean something
-# and short enough to still describe the experience as it is today rather than
-# as it was three years ago.
-_RATING_LOOKBACK_DAYS = 365
-
 # L2 issue synonyms, ported verbatim from the parent_l2_bucket mapping in the
 # fct_reviews LookML. The same issue is written several ways in the data -
 # "Meeting Point Issue" and "Meeting Point Issues" are the same thing, and the
@@ -462,8 +451,6 @@ def _zero_result(l2: str | None, wd: int = 30, why: str = "") -> dict:
         "sameDaySameVidIssues":        "N/A",
         "_computed_for_l2": l2,
         "_window_days":     wd,
-        "_rating_window_days": _RATING_LOOKBACK_DAYS,
-        "_rating_label":    "last 12 months",
         "_zeroed_because":  why,
         "_computed_at":     datetime.now(timezone.utc).isoformat(),
     }
@@ -690,14 +677,7 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
     # review_source CUSTOMER - so vendor- and system-sourced rows are excluded
     # and a booking with several review rows counts once.
     #
-    # These two run over _RATING_LOOKBACK_DAYS, not the picked window. Still
-    # anchored on the visit date and still stopping short of it, so the tile
-    # reads "how was this rated going into this visit" and this booking's own
-    # review cannot appear in its own baseline.
-    _rating_win = (
-        f"DATE(b.experience_date) < {anchor_sql} "
-        f"AND DATE(b.experience_date) > "
-        f"DATE_SUB({anchor_sql}, INTERVAL {_RATING_LOOKBACK_DAYS} DAY)")
+    # Both follow the window picker, like every other metric in the panel.
     _avg_select = """
 SELECT ROUND(AVG(rating), 2) AS avg_rating, COUNT(*) AS n_ratings
 FROM (
@@ -711,7 +691,7 @@ FROM (
 WHERE b.tour_id = @tid AND f.vendor_id = @vid
   AND r.rating IS NOT NULL
   AND r.source = 'CUSTOMER'
-  AND {_rating_win}
+  AND {_win}
 {_avg_tail}"""
     # TGID is the experience, so this deliberately spans every tour and vendor
     # selling it - that breadth is the point of the comparison.
@@ -719,7 +699,7 @@ WHERE b.tour_id = @tid AND f.vendor_id = @vid
 WHERE b.experience_id = @tgid
   AND r.rating IS NOT NULL
   AND r.source = 'CUSTOMER'
-  AND {_rating_win}
+  AND {_win}
 {_avg_tail}"""
 
     # --- F: total bookings --------------------------------------------------
@@ -1052,13 +1032,6 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         # in the recurrence group covers this range.
         "_window_label":    (f"{wd} days before {visit_date}" if visit_date
                              else f"last {wd} days"),
-        # The rating tiles cover a different period from everything else in
-        # the panel, so they carry their own range. Two ranges under one
-        # heading is confusing; two ranges where only one is labelled is
-        # wrong.
-        "_rating_window_days": _RATING_LOOKBACK_DAYS,
-        "_rating_label":    (f"12 months before {visit_date}" if visit_date
-                             else "last 12 months"),
         # Empty when everything was computed. Set when tid or vid was missing
         # and only the vendor-level half ran, so a zero in the issue-comparison
         # tiles can be explained rather than read as "no history".
