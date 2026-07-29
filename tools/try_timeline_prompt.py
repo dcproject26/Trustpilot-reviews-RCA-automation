@@ -185,8 +185,8 @@ async def run(args):
     if args.review:
         # Read the draft for the real booking metadata and review text, so the
         # prompt sees exactly what the pipeline would have shown it.
-        from server.db import SessionLocal
-        from server.models import Review
+        # Review lives in server.db, not a models module - there isn't one.
+        from server.db import SessionLocal, Review
         db = SessionLocal()
         try:
             r = db.query(Review).filter(Review.id == args.review).first()
