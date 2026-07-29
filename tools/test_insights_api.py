@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+"""
+Test the Experience Insights endpoint against the running server.
+
+    python3 tools/test_insights_api.py                 # localhost:5000
+    python3 tools/test_insights_api.py --review rev_1  # a specific review
+    python3 tools/test_insights_api.py --base http://host:port
+
+Start the server first. Standard library only, so it runs anywhere.
+
+This tests the live route rather than the functions behind it, because the bug
+it exists to catch was never in the functions. Two handlers were registered at
+the same path; FastAPI dispatched to the first; that one ignored `window` and
+returned a shape the caller did not read. Every piece worked on its own and the
+feature did not, so only an end-to-end call finds it - and it fails silently, so
+the window picker looked fine while showing one window's numbers under another
+window's label.
+
+Exit code is 0 only when every check passes.
+"""
+import argparse
+import json
+import sys
+import urllib.error
+import urllib.request
+
+PASS, FAIL = "ok  ", "FAIL"
+_failures = []
+
+
+def check(name, ok, detail=""):
+    print(f"  {PASS if ok else FAIL}  {name}" + (f"   {detail}" if detail else ""))
+    if not ok:
+        _failures.append(name)
+    return ok
+
+
+def get(base, path, timeout=180):
+    req = urllib.request.Request(base.rstrip("/") + path,
+                                 headers={"Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.status, json.loads(r.read().decode() or "{}")
+
+
+def pick_review(base, explicit):
+    if explicit:
+        return explicit
+    _, rows = get(base, "/api/reviews")
+    rows = rows if isinstance(rows, list) else (rows.get("reviews") or [])
+    # A review with a confirmed booking - insights need tid and vid, and a
+    # review without them legitimately returns zeros, which would make every
+    # check below pass for the wrong reason.
+    for r in rows:
+        b = r.get("booking") or {}
+        if b.get("bid") or b.get("bookingId") or b.get("tid"):
+            return r.get("id")
+    return rows[0].get("id") if rows else None
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--base", default="http://localhost:5000")
+    ap.add_argument("--review", default="")
+    args = ap.parse_args()
+
+    try:
+        status, _ = get(args.base, "/api/reviews", timeout=15)
+    except (urllib.error.URLError, OSError) as e:
+        print(f"Cannot reach {args.base}: {e}\nStart the server first.")
+        return 2
+
+    rid = pick_review(args.base, args.review)
+    if not rid:
+        print("No reviews on this server - nothing to test against.")
+        return 2
+    print(f"server {args.base}   review {rid}\n")
+
+    # --- shape --------------------------------------------------------------
+    print("response shape")
+    try:
+        status, body = get(args.base, f"/api/reviews/{rid}/insights")
+    except urllib.error.HTTPError as e:
+        print(f"  {FAIL}  GET returned {e.code}: {e.read()[:200].decode(errors='replace')}")
+        return 1
+
+    check("200", status == 200, f"got {status}")
+    check("has 'insights'", isinstance(body, dict) and "insights" in body,
+          f"keys={sorted(body)[:6]}")
+    check("has 'window'", "window" in body)
+    ins = body.get("insights") or {}
+    check("insights is a dict", isinstance(ins, dict))
+    # The exact bug: a bare dict would have these at the top level instead.
+    check("not the old bare shape", "similar_reviews_30d" not in body,
+          "top level looks like a raw insights dict")
+
+    # --- the fields the dashboard renders ------------------------------------
+    print("\nfields the dashboard reads")
+    for key in ("similar_reviews_30d", "total_reviews_30d", "review_ratio",
+                "similar_support_queries_30d", "total_support_queries_30d",
+                "support_ratio", "total_bookings_30d", "rating_tgid",
+                "rating_tidvid", "ff_vid", "vid_completion_rate"):
+        check(key, key in ins)
+
+    # --- the window actually changes the answer ------------------------------
+    # This is the check that would have caught the shipped bug. The picker sent
+    # a window, the server ignored it, and every window returned the same
+    # numbers under a different label.
+    print("\nwindow changes the result")
+    seen = {}
+    for w in ("7d", "30d", "90d"):
+        try:
+            _, b = get(args.base, f"/api/reviews/{rid}/insights?window={w}")
+        except urllib.error.HTTPError as e:
+            check(f"window={w}", False, f"HTTP {e.code}")
+            continue
+        i = b.get("insights") or {}
+        seen[w] = {
+            "echo":     b.get("window"),
+            "days":     i.get("_window_days"),
+            "bookings": i.get("total_bookings_30d"),
+            "support":  i.get("total_support_queries_30d"),
+        }
+        check(f"window={w} echoed", b.get("window") == w, f"got {b.get('window')!r}")
+        check(f"window={w} computed for {w}",
+              i.get("_window_days") == int(w.rstrip("d")),
+              f"_window_days={i.get('_window_days')}")
+
+    if len(seen) == 3:
+        days = [seen[w]["days"] for w in ("7d", "30d", "90d")]
+        check("three distinct windows computed", len(set(days)) == 3, f"{days}")
+        # Bookings over 7d cannot exceed bookings over 90d for the same booking.
+        b7, b90 = seen["7d"]["bookings"], seen["90d"]["bookings"]
+        if isinstance(b7, int) and isinstance(b90, int):
+            check("7d bookings <= 90d bookings", b7 <= b90, f"{b7} vs {b90}")
+            same = b7 == b90 == seen["30d"]["bookings"]
+            check("windows give different totals", not same or b7 == 0,
+                  "all three windows returned the same total - the window is "
+                  "being ignored" if same and b7 else "")
+
+    print("\n" + "-" * 62)
+    for w in ("7d", "30d", "90d"):
+        if w in seen:
+            s = seen[w]
+            print(f"  {w:>4}  days={s['days']!s:>4}  bookings={s['bookings']!s:>6}  "
+                  f"support={s['support']!s:>5}")
+
+    print("-" * 62)
+    if _failures:
+        print(f"{len(_failures)} FAILED: {', '.join(_failures)}")
+        return 1
+    print("all checks passed")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
