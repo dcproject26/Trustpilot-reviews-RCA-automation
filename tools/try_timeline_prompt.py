@@ -204,10 +204,18 @@ async def run(args):
 
     print(f"booking {args.bid}   review {args.review or '(none)'}")
     print(f"fetching raw events from Zendesk ...")
-    raw_events, _extracted, meta = await ZD.get_timeline(
-        args.bid, review_id=args.review or None, booking=booking,
-        review_body=review_body, review_pub_date=review_pub_date)
-    print(f"{len(raw_events)} events, tickets {meta.get('ticket_ids')}")
+    # _get_timeline_sync, not get_timeline. get_timeline returns the SHAPED
+    # timeline - it runs Claude itself - so calling it here would feed already
+    # shaped events into the prompt and pay for an extra model call to do it.
+    # The raw events are what a prompt is built from.
+    _z = ZD._get_client()
+    raw_events, _extracted, meta = await asyncio.get_running_loop().run_in_executor(
+        None, ZD._get_timeline_sync, _z, args.bid)
+    print(f"{len(raw_events)} raw events, tickets {meta.get('ticket_ids')}")
+    if not raw_events:
+        print("No Zendesk events for this booking - there is nothing for either "
+              "prompt to shape, so any comparison would be of two empty lists.")
+        return 1
 
     if args.dump_raw:
         print(json.dumps(raw_events, indent=2, default=str)[:6000])
