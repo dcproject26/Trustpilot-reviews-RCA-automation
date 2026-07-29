@@ -35,6 +35,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="http://localhost:5000")
     ap.add_argument("--limit", type=int, default=25)
+    # Probing insights means one BigQuery round trip per review, tens of
+    # seconds each. That made the default run look hung and it got killed
+    # before it printed the row anyone cared about. The draft alone answers
+    # "does this review have a booking id", which is the question, and it
+    # answers it in milliseconds.
+    ap.add_argument("--insights", action="store_true",
+                    help="also call the insights endpoint per review (slow: "
+                         "one BigQuery round trip each)")
     args = ap.parse_args()
 
     try:
@@ -63,9 +71,15 @@ def main():
         print("No reviews on this server.")
         return 2
 
-    print(f"{len(rows)} reviews; inspecting the first {min(args.limit, len(rows))}\n")
-    print(f"{'review':<28}{'inbox':<14}{'bid':<12}{'tid':<8}{'vid':<8}{'L2':<28}insights")
-    print("-" * 108)
+    n = min(args.limit, len(rows))
+    print(f"{len(rows)} reviews; inspecting the first {n}"
+          + ("" if args.insights else
+             "   (drafts only - add --insights to probe the endpoint too)")
+          + "\n")
+    head = (f"{'review':<28}{'inbox':<8}{'bid':<12}{'tid':<8}{'vid':<8}"
+            f"{'tgid':<8}{'L2':<28}")
+    print(head + ("insights" if args.insights else "can compute?"))
+    print("-" * (len(head) + 20))
 
     usable, reasons = [], {}
     for r in rows[:args.limit]:
@@ -74,7 +88,7 @@ def main():
         try:
             d = get(args.base, f"/api/reviews/{rid}")
         except Exception as e:
-            print(f"{rid:<28}{inbox:<14}(draft fetch failed: {str(e)[:30]})")
+            print(f"{rid:<28}{inbox:<8}(draft fetch failed: {str(e)[:30]})")
             continue
         draft = (d or {}).get("draft") or {}
         b = draft.get("booking") or {}
@@ -84,32 +98,54 @@ def main():
         bid = str(b.get("id") or b.get("bid") or b.get("bookingId") or "")[:10]
         tid = str(b.get("tid") or "")[:6]
         vid = str(b.get("vid") or "")[:6]
+        # tgid alone still answers the vendor-level half - the TGID rating and
+        # both completion rates key on it - so it is not "cannot compute".
+        tgid = str(b.get("tgid") or "")
         l2  = str(draft.get("l2") or "")[:26]
 
-        try:
-            ins = (get(args.base, f"/api/reviews/{rid}/insights") or {}).get("insights") or {}
-            why = ins.get("_zeroed_because") or ""
-            state = "zeros: " + why[:34] if why else "COMPUTES"
-        except Exception as e:
-            state = f"error {str(e)[:22]}"
-            why = "endpoint error"
+        if args.insights:
+            try:
+                ins = (get(args.base, f"/api/reviews/{rid}/insights",
+                           timeout=180) or {}).get("insights") or {}
+                why = ins.get("_zeroed_because") or ""
+                state = "zeros: " + why[:34] if why else "COMPUTES"
+            except Exception as e:
+                state = f"error {str(e)[:22]}"
+                why = "endpoint error"
+        else:
+            # What get_insights itself needs: a booking id is enough, because
+            # it resolves tid/vid/tgid from one through verify_bid. Saying
+            # "no booking id on the draft" here without calling anything is
+            # the same answer the endpoint gives, minutes sooner.
+            if bid:
+                why, state = "", "yes - has a booking id"
+            elif tid and vid:
+                why, state = "", "yes - has tid and vid"
+            elif tgid:
+                why, state = "", "partly - tgid only"
+            else:
+                why = "no booking id on the draft"
+                state = "no  - " + why
 
         if not why:
             usable.append(rid)
         else:
             reasons[why] = reasons.get(why, 0) + 1
 
-        print(f"{rid:<28}{inbox:<14}{bid or '-':<12}{tid or '-':<8}{vid or '-':<8}"
-              f"{l2 or '-':<28}{state}")
+        print(f"{rid:<28}{inbox:<8}{bid or '-':<12}{tid or '-':<8}{vid or '-':<8}"
+              f"{tgid[:6] or '-':<8}{l2 or '-':<28}{state}")
 
-    print("-" * 108)
-    print(f"\n{len(usable)} of {min(args.limit, len(rows))} can compute insights")
+    print("-" * (len(head) + 20))
+    print(f"\n{len(usable)} of {n} can compute insights")
     for why, n in sorted(reasons.items(), key=lambda x: -x[1]):
         print(f"  {n:>3}  {why}")
 
     if usable:
-        print(f"\nTest the window against one of these:\n"
-              f"  python3 tools/test_insights_api.py --review {usable[0]}")
+        print("\nTest the window against one of these:\n"
+              f"  python3 tools/test_insights_api.py --base {args.base} "
+              f"--review {usable[0]}")
+        if len(usable) > 1:
+            print("  others: " + " ".join(usable[1:6]))
     else:
         print("\nNo review has a tid and vid on its draft, so every insights tile "
               "is\nlegitimately zero. That is upstream of insights - the booking "

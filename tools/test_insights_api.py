@@ -28,8 +28,18 @@ PASS, FAIL = "ok  ", "FAIL"
 _failures = []
 
 
-def check(name, ok, detail=""):
-    print(f"  {PASS if ok else FAIL}  {name}" + (f"   {detail}" if detail else ""))
+def check(name, ok, detail="", hint=""):
+    """detail prints either way; hint only on failure.
+
+    A failure explanation printed next to a passing check reads as a
+    contradiction, and this file is read when something is already wrong.
+    """
+    line = f"  {PASS if ok else FAIL}  {name}"
+    if detail:
+        line += f"   {detail}"
+    if hint and not ok:
+        line += f"   {hint}"
+    print(line)
     if not ok:
         _failures.append(name)
     return ok
@@ -254,6 +264,14 @@ def main():
               "" if _sends else
               "initial fetch omits the window - server applies its own default "
               "and the picker will show a window the numbers are not from")
+        # The click handler must not gate the refetch on a booking id. It once
+        # checked r.booking.bid, which is not the key the pipeline writes, so
+        # every click returned early: the label moved to the new window, the
+        # numbers stayed on the old one, and the tiles stayed dimmed. The
+        # server resolves the booking itself, so there is nothing to gate on.
+        _guard = "if (!r || !(r.booking && r.booking.bid)) return;" in cli
+        check("window click is not gated on a booking id", not _guard,
+              hint="the picker will change the label without refetching")
         if default_w:
             _, b = get(base_of(args), f"/api/reviews/{rid}/insights?window={default_w}")
             i = b.get("insights") or {}
