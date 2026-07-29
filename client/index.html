@@ -2543,7 +2543,6 @@ function renderReviewCol() {
         </div>
         ${r.liveInsights ? (() => {
           const li = r.liveInsights;
-          const _pct = (v) => (v == null || (v === 0 && li.total_reviews_30d === 0)) ? '—' : `${(v * 100).toFixed(1)}%`;
           // rating_15d / rating_30d are back-compat aliases: the server sends
           // TGID in the first and TID.VID in the second. They are SCOPES, not
           // windows - the window is whatever the picker above is set to.

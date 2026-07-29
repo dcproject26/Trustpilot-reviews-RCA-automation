@@ -364,6 +364,19 @@ _FF_COMPLETED_STATUSES = ["Completed", "Dirty"]
 # Uncaptured and Dummy are not real bookings, and Cancelled Fraudulent is not a
 # fulfilment failure - counting any of them would drag the rate down for
 # something the vendor did not do.
+# Measured 2026-07-29, all of fct_fulfilments:
+#   Completed 20,170,864 | Cancelled 850,594 | Pending 79,277
+#   Dummy 43,483 | Dirty 39,479
+#
+# "Uncaptured" is not among them. That half of the Looker filter matches
+# nothing and is kept only so this list still reads as the tile does.
+#
+# The values also settle how the rate is defined. Excluding Dummy and counting
+# Completed+Dirty gives 95.60% across the table. Treating the filter itself as
+# the numerator - everything that is "not Dummy" - gives 99.79%, which is the
+# same answer for every vendor and therefore no signal at all. Cancelled
+# (850,594) and Pending (79,277) are not completions, and leaving them in the
+# numerator is what would make the number meaningless.
 _FF_EXCLUDED_STATUSES         = ["Uncaptured", "Dummy"]
 _FF_EXCLUDED_COMPLETION_TYPES = ["Cancelled Fraudulent", "Dummy"]
 
