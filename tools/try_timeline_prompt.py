@@ -113,16 +113,22 @@ findable; one you quietly corrected is not.
    ("Credentials generated", "Fulfilment run attempted") - do not dress it up
    as guest-facing.
 
-5. SUMMARIES - one sentence, max ~160 chars, written for a CX analyst:
-   - Guest contact -> WHY they reached out / what they asked.
+5. SUMMARIES - ONE short sentence. Aim for 12-20 words, hard limit 120
+   characters. A CX analyst scans this column; anything longer stops being
+   scannable and becomes something to read.
+   - Guest contact -> WHY they reached out.
    - Our response -> WHAT WE DID or OFFERED.
    - Fulfilment -> WHAT was delivered and WHEN.
    - Refund / outcome -> the amount and terms.
+   - Machinery -> what it attempted and what it returned.
+   Do not restate the label. "Guest reply / Guest replied asking about their
+   tickets" wastes the whole line - the label already said it.
+   Keep the specifics that let someone verify it: amounts, pax, reference
+   numbers, validity dates, URLs in full. Drop everything else.
    Say only what the event evidences. If the body does not say why the guest
    contacted us, write what it does say - do not supply a motive.
    Strip HTML and signatures. Never quote raw JSON. Never adopt the guest's
-   emotional wording. Preserve any URL in full - it is often the only way to
-   check what was actually sent.
+   emotional wording.
 
 6. ORDER - Booking created first, events as given, Review posted last. The
    input is already in order; do not re-sort it.
