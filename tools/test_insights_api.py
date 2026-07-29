@@ -180,6 +180,8 @@ def main():
     print("\nredesign fields")
     check("_window_label", bool(ins.get("_window_label")),
           f"got {ins.get('_window_label')!r}")
+    check("_rating_label", bool(ins.get("_rating_label")),
+          f"got {ins.get('_rating_label')!r}")
     sd = ins.get("same_day")
     check("same_day present", isinstance(sd, dict) or sd is None)
     if isinstance(sd, dict):
@@ -267,6 +269,7 @@ def main():
             "days":     i.get("_window_days"),
             "bookings": i.get("total_bookings_30d"),
             "support":  i.get("total_support_queries_30d"),
+            "rating_n": (i.get("rating_tgid") or {}).get("n"),
         }
         check(f"window={w} echoed", b.get("window") == w, f"got {b.get('window')!r}")
         check(f"window={w} computed for {w}",
@@ -281,6 +284,14 @@ def main():
                   "window failed)")
         # Bookings over 7d cannot exceed bookings over 90d for the same booking.
         b7, b90 = seen["7d"]["bookings"], seen["90d"]["bookings"]
+        # Average rating deliberately does NOT follow the picker - it runs over
+        # a fixed 12 months, because a mean over a 7 day window is one review
+        # with a denominator. If it starts moving with the window, the fixed
+        # lookback has been lost and the tile is back to saying "5 stars from
+        # 1 rating" under a heading that promises 12 months.
+        rns = [seen[w]["rating_n"] for w in ("7d", "30d", "90d")]
+        if any(isinstance(x, int) and x > 0 for x in rns):
+            check("rating ignores the window", len(set(rns)) == 1, f"{rns}")
         if isinstance(b7, int) and isinstance(b90, int):
             check("7d bookings <= 90d bookings", b7 <= b90, f"{b7} vs {b90}")
             same = b7 == b90 == seen["30d"]["bookings"]

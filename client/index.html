@@ -2603,8 +2603,6 @@ function renderReviewCol() {
           // windows - the window is whatever the picker above is set to.
           const _ratTgid = li.rating_tgid || li.rating_15d || {};
           const _ratTv   = li.rating_tidvid || li.rating_30d || {};
-          const _rTgidN  = _ratTgid.n || 0;
-          const _rTvN    = _ratTv.n || 0;
           // Ops thumb rule: under 95%, and only over ~100 bookings, because the
           // rate is noise below that - one unfulfilled booking out of two is
           // 50%. The server applies both halves; needs_attention is the answer.
@@ -2671,6 +2669,18 @@ function renderReviewCol() {
                <div class="insight-tile-label">${label}</div>
                <div class="insight-tile-value">${value}</div>
              </div>`;
+          // Average rating, with the thing that decides whether to believe it.
+          // A mean over one review is not a rating, so the count is part of
+          // the number rather than a footnote, and under 10 ratings it says so
+          // outright instead of leaving the reader to work it out.
+          const _avgRating = (r) => {
+            if (r.avg == null) return '<span class="tile-empty">no ratings</span>';
+            const n = r.n || 0;
+            return `${r.avg.toFixed(1)} ★ ` +
+              `<span class="tile-n">from ${n.toLocaleString()} ` +
+              `rating${n === 1 ? '' : 's'}</span>` +
+              (n < 10 ? '<div class="tile-why">too few to read as a rating</div>' : '');
+          };
           const _share = (hit, tot, none) =>
             !tot ? `<span class="tile-empty">${none}</span>`
                  : `${hit} <span class="tile-n">of ${tot}</span>` +
@@ -2698,18 +2708,15 @@ function renderReviewCol() {
                                         + _ids(sd.support_ids),
                     (sd.support > 0) ? 'red' : '')}
 
-            ${_grp('Experience &amp; vendor',
-                    li._window_label || '')}
-            ${_tile('Rating · TGID',
-                    _ratTgid.avg != null
-                      ? `${_ratTgid.avg} ★ <span class="tile-n">from ${_rTgidN} rating${_rTgidN === 1 ? '' : 's'}</span>`
-                      : '<span class="tile-empty">no ratings</span>',
-                    _ratTgid.avg == null ? 'grey' : '')}
-            ${_tile('Rating · TID · VID',
-                    _ratTv.avg != null
-                      ? `${_ratTv.avg} ★ <span class="tile-n">from ${_rTvN} rating${_rTvN === 1 ? '' : 's'}</span>`
-                      : '<span class="tile-empty">no ratings</span>',
-                    _ratTv.avg == null ? 'grey' : '')}
+            ${_grp('Average rating', li._rating_label || 'last 12 months')}
+            ${_tile('TGID · the experience', _avgRating(_ratTgid),
+                    _ratTgid.avg == null ? 'grey'
+                      : _ratTgid.avg < 4 ? 'red' : '')}
+            ${_tile('TID · VID · this tour and vendor', _avgRating(_ratTv),
+                    _ratTv.avg == null ? 'grey'
+                      : _ratTv.avg < 4 ? 'red' : '')}
+
+            ${_grp('Fulfilment', li._window_label || '')}
             ${_tile('Completion · TGID',
                     _rate(li.tgid_completion_rate, (li.ff_tgid || {}).total ?? null)
                     + _why_not(li.tgid_incomplete_why),
