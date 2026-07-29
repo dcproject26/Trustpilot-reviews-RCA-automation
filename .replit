@@ -54,7 +54,11 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "PORT=5000 python -m server.main"
+# This is what the Run button executes - NOT the top-level `run`, which is why
+# setting UVICORN_RELOAD there had no effect and /api/version reported
+# "reload": false after a restart. With reload on, a git pull is picked up
+# within a couple of seconds and no restart is needed at all.
+args = "UVICORN_RELOAD=1 PORT=5000 python -m server.main"
 waitForPort = 5000
 
 [postMerge]
