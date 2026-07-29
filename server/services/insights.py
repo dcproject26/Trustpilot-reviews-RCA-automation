@@ -543,7 +543,7 @@ def _fld(row, key):
     return row.get(key) if isinstance(row, dict) else getattr(row, key, None)
 
 
-def _ff(res) -> dict:
+def _ff(res) -> dict | None:
     """
     One fulfilment row -> completed / unfulfilled / total / rate.
 
@@ -556,7 +556,18 @@ def _ff(res) -> dict:
     needs_attention follows the ops thumb rule - over 100 bookings and under
     95%. Low volume is excluded because the rate is noise there: one unfulfilled
     booking out of two reads as 50%.
+
+    None for a metric that was never queried. The gather drops an
+    asyncio.sleep(0) into that slot when there is no vid or no tgid to key on,
+    and it hands back None - which used to fall through to a zeroed dict, so a
+    TGID fulfilment rate nobody could compute rendered as "no bookings" and a
+    0-of-0 rate. _zero_result already sends null for exactly that situation and
+    the dashboard draws it as a dash; the two paths disagreeing about the same
+    state is what made the tile unreadable. A number that was not computed must
+    not come back looking like a fact.
     """
+    if res is None:
+        return None
     row    = res[0] if isinstance(res, list) and res else None
     done   = int(_fld(row, "completed") or 0)
     done_b = int(_fld(row, "completed_by_booking_status") or 0)
@@ -665,6 +676,29 @@ async def get_insights(booking: dict, l1: str | None, l2: str | None,
                     "which will not match Looker for an older review")
 
     tags_spec = support_tags_for(l1 or "", l2 or "") if (l1 and l2) else None
+
+    # The tag filter, built once because two queries need it: the windowed
+    # support count and the same-day one. They used to build it separately, and
+    # the same-day one understood only a plain list. Operations Issue /
+    # Content - Instructions not clear maps to a LIKE spec instead, so its
+    # same-day support query was never built and the tile stated a confident 0
+    # next to a windowed tile that was counting those same contacts.
+    #
+    # None means there is nothing to match on - an unmapped L1/L2, or a
+    # like_any that came back empty. That is a skip, not an empty IN list,
+    # which matches no row and reads as an honest zero.
+    tag_pred, tag_par = None, {}
+    if isinstance(tags_spec, dict):
+        pats = tags_spec.get("like_any") or []
+        if pats:
+            tag_pred = "(" + " OR ".join(
+                f"{_norm_sql(_QUERY_CATEGORY_SQL)} LIKE @pat{i}"
+                for i in range(len(pats))) + ")"
+            tag_par  = {f"pat{i}": _norm(p) for i, p in enumerate(pats)}
+    elif tags_spec:
+        tag_pred = f"{_norm_sql(_QUERY_CATEGORY_SQL)} IN UNNEST(@tags)"
+        tag_par  = {"tags": ("STRING", [_norm(t) for t in tags_spec])}
+
     base = {"tid": tid, "vid": vid, **anchor_par}
 
     # The rolling window: the wd days before the anchor, excluding the anchor
@@ -704,9 +738,15 @@ WHERE b.tour_id = @tid AND f.vendor_id = @vid
 FROM `{_SUPPORT_TABLE}` sq
 LEFT JOIN `{_BOOKINGS_TABLE}` b ON CAST(b.booking_id AS STRING) = sq.booking_id
 """
+    # IFNULL around is_auto_resolved for the same reason _ff_excl carries one:
+    # NOT NULL is NULL in SQL, not TRUE, so a row whose flag was never set was
+    # dropped from the support counts entirely rather than kept. A NULL flag
+    # means nobody recorded the session as auto-resolved, which is a guest
+    # contact, and it belongs in both the numerator and the denominator.
+    _auto_resolved_ok = "NOT IFNULL(sq.is_auto_resolved, FALSE)"
     _support_where = f"""
 WHERE b.tour_id = @tid AND b.vendor_id = @vid
-  AND NOT sq.is_auto_resolved
+  AND {_auto_resolved_ok}
   AND NOT REGEXP_CONTAINS(IFNULL({_QUERY_CATEGORY_SQL}, ''), @nar)
   AND {_win}
 """
@@ -879,10 +919,10 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c,
 {_support_from}
 WHERE b.vendor_id = @vid
   AND DATE(b.experience_date) = {anchor_sql}
-  AND NOT sq.is_auto_resolved
+  AND {_auto_resolved_ok}
   AND NOT REGEXP_CONTAINS(IFNULL({_QUERY_CATEGORY_SQL}, ''), @nar)
-  AND {_norm_sql(_QUERY_CATEGORY_SQL)} IN UNNEST(@tags)
-"""
+  AND {tag_pred}
+""" if tag_pred else ""
     # Every booking on that date for the same vendor - the denominator both
     # counts are read against.
     sql_i_tot = f"""
@@ -918,34 +958,23 @@ WHERE b.vendor_id = @vid AND DATE(b.experience_date) = {anchor_sql}
     # input.
     variants = l2_variants(l2)
     skip_a = not pair or not variants
-    skip_c = not pair or tags_spec is None
+    # tag_pred is already None for an empty like_any, so the skip is settled
+    # before anything is built. The branch this replaces built the query first
+    # and then decided against it, which either warned about an un-awaited
+    # coroutine or paid for a full scan whose result was thrown away.
+    skip_c = not pair or tag_pred is None
     coro_a = (asyncio.sleep(0) if skip_a
               else _run(sql_a, {**base, "l2v": ("STRING", variants)}))
 
     if skip_c:
         coro_c = asyncio.sleep(0)
-    elif isinstance(tags_spec, list):
+    else:
         sql_c = f"""
 SELECT COUNT(DISTINCT sq.booking_id) AS c
 {_support_from}{_support_where}
-  AND {_norm_sql(_QUERY_CATEGORY_SQL)} IN UNNEST(@tags)
+  AND {tag_pred}
 """
-        coro_c = _run(sql_c, {**base, **nar_par,
-                              "tags": ("STRING", [_norm(t) for t in tags_spec])})
-    else:
-        pats = tags_spec.get("like_any", [])
-        if pats:
-            ors = " OR ".join(f"{_norm_sql(_QUERY_CATEGORY_SQL)} LIKE @pat{i}"
-                              for i in range(len(pats)))
-            sql_c = f"""
-SELECT COUNT(DISTINCT sq.booking_id) AS c
-{_support_from}{_support_where}
-  AND ({ors})
-"""
-            coro_c = _run(sql_c, {**base, **nar_par,
-                                  **{f"pat{i}": _norm(p) for i, p in enumerate(pats)}})
-        else:
-            coro_c, skip_c = asyncio.sleep(0), True
+        coro_c = _run(sql_c, {**base, **nar_par, **tag_par})
 
     results = await asyncio.gather(
         coro_a,
@@ -963,9 +992,8 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         (_run(sql_why_vid, {**base, **ff_par}) if vid else asyncio.sleep(0)),
         (_run(sql_i_rev, {**anchor_par, "vid": vid, "l2v": ("STRING", variants)})
          if (visit_date and vid and variants) else asyncio.sleep(0)),
-        (_run(sql_i_sup, {**anchor_par, "vid": vid, **nar_par,
-                          "tags": ("STRING", [_norm(t) for t in tags_spec])})
-         if (visit_date and vid and isinstance(tags_spec, list)) else asyncio.sleep(0)),
+        (_run(sql_i_sup, {**anchor_par, "vid": vid, **nar_par, **tag_par})
+         if (visit_date and vid and tag_pred) else asyncio.sleep(0)),
         (_run(sql_i_tot, {**anchor_par, "vid": vid})
          if (visit_date and vid) else asyncio.sleep(0)),
         return_exceptions=True,
@@ -1038,6 +1066,11 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
 
     ff_vid  = _ff(results[8])
     ff_tgid = _ff(results[9])
+    # Either can be None now - _ff says so when the query never ran. Everything
+    # below reads through these instead of indexing, because a missing tgid
+    # would otherwise raise a KeyError on the way to the log line and take the
+    # whole panel down over a metric that was simply not asked for.
+    _fv, _ft = ff_vid or {}, ff_tgid or {}
     # A guest changing their mind is not a fulfilment failure, and listing it
     # first drowns the reasons that are. "98 Cancelled By Customer · 51
     # Cancelled By Vendor" reads as though the vendor is fine; the 51 is the
@@ -1116,11 +1149,11 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         # fulfilled, which is the population Looker's filters describe. VID is
         # kept alongside it, because a vendor failing across every experience
         # is a different finding from one experience going wrong.
-        "tgid_completion_rate":  ff_tgid["rate"],
+        "tgid_completion_rate":  _ft.get("rate"),
         "tgid_incomplete_why":   why_tgid,
         "vid_incomplete_why":    why_vid,
-        "vid_completion_rate":   ff_vid["rate"],
-        "vidCompletionRate":     _pct(ff_vid["rate"]),
+        "vid_completion_rate":   _fv.get("rate"),
+        "vidCompletionRate":     _pct(_fv.get("rate")),
         # Same visit date, same vendor, same issue - split by evidence type.
         # "total" is every booking that vendor served that day, so a count can
         # be read as a share of the day rather than as a bare number.
@@ -1160,9 +1193,9 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
             # query. Six unexplained zeros next to a working completion rate is
             # a bug report waiting to happen; it took a warehouse round trip to
             # rule out, and the answer was in the numbers already on screen.
-            ("" if not (pair and not tot_bkg and (ff_tgid or {}).get("total"))
+            ("" if not (pair and not tot_bkg and _ft.get("total"))
              else f"this tour and vendor had no bookings in this window - the "
-                  f"experience had {ff_tgid['total']} through others, which is "
+                  f"experience had {_ft['total']} through others, which is "
                   f"what the TGID tiles count"),
         ])),
         # Which queries broke. A tile whose query is in here has no number, and
@@ -1180,10 +1213,10 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         f"window={wd}d neg_reviews={sim_rev}/{tot_rev} queries={sim_sup}/{tot_sup} "
         f"bookings={tot_bkg} ratio_r={review_ratio} ratio_s={support_ratio} "
         f"rating_tgid={rating_tgid['avg']} rating_tidvid={rating_tidvid['avg']} "
-        f"ff_vid={_pct(ff_vid['rate'])}/bs={_pct(ff_vid['rate_by_booking_status'])}"
-        f"({ff_vid['total']}) "
-        f"ff_tgid={_pct(ff_tgid['rate'])}({ff_tgid['total']}) "
-        f"attention={ff_tgid['needs_attention']} "
+        f"ff_vid={_pct(_fv.get('rate'))}/bs={_pct(_fv.get('rate_by_booking_status'))}"
+        f"({_fv.get('total')}) "
+        f"ff_tgid={_pct(_ft.get('rate'))}({_ft.get('total')}) "
+        f"attention={_ft.get('needs_attention')} "
         f"redemption={'yes' if redemption else 'no'}"
     )
     return out
