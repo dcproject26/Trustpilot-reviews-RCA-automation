@@ -2657,13 +2657,11 @@ function renderReviewCol() {
               `<span class="why-n">${r.count}</span> ${r.reason}`).join(' · ')
               + '</div>';
           };
-          // Every group carries the range it covers. "1 of 8" is meaningless
-          // without knowing which 8, and the recurrence counts and the
-          // same-day counts cover deliberately different periods - reading one
-          // as the other is the obvious mistake to make.
-          const _grp = (t, range) =>
-            `<div class="insight-group">${t}${range
-               ? `<span class="group-range">${range}</span>` : ''}</div>`;
+          // Headings carry the title only. Repeating the range on every
+          // group put a date next to numbers that had not been recomputed for
+          // it yet, so a stale label read as fact - and the picker at the top
+          // already states the window for the whole panel.
+          const _grp = (t) => `<div class="insight-group">${t}</div>`;
           const _tile = (label, value, cls) =>
             `<div class="insight-tile ${cls || ''}">
                <div class="insight-tile-label">${label}</div>
@@ -2688,8 +2686,7 @@ function renderReviewCol() {
           return `<div class="insights-grid">
             ${_why ? `<div class="insight-note">${_why}</div>` : ''}
 
-            ${_grp('Is this issue recurring here?',
-                    li._window_label || `${li._window_days || 30} days`)}
+            ${_grp('Is this issue recurring here?')}
             ${_tile('Reviews', _share(li.similar_reviews_30d, li.total_reviews_30d,
                                       'no negative reviews'),
                     _rr > 0.15 ? 'red' : '')}
@@ -2698,7 +2695,7 @@ function renderReviewCol() {
                                                'no contacts'),
                     _sr > 0.15 ? 'red' : '')}
 
-            ${_grp('Same visit date, same issue', li._anchored_on || '')}
+            ${_grp('Same visit date, same issue')}
             ${_tile('Reviews', (li.same_day ? _n(sd.reviews) : '—')
                                 + _ids(sd.review_ids),
                     (sd.reviews > 0) ? 'red' : '')}
@@ -2706,7 +2703,7 @@ function renderReviewCol() {
                                         + _ids(sd.support_ids),
                     (sd.support > 0) ? 'red' : '')}
 
-            ${_grp('Experience &amp; vendor', li._window_label || '')}
+            ${_grp('Experience &amp; vendor')}
             ${_tile('Average rating · TGID', _avgRating(_ratTgid),
                     _ratTgid.avg == null ? 'grey' : '')}
             ${_tile('Average rating · TID · VID', _avgRating(_ratTv),
@@ -2783,15 +2780,26 @@ function renderReviewCol() {
         el.style.opacity = '0.45';
       });
       const r = REVIEWS.find(x => x.id === state.selected);
-      if (!r || !(r.booking && r.booking.bid)) return;
+      // No booking-id guard. It used to check r.booking.bid, which is not the
+      // key the pipeline writes - it writes id - so for every review the guard
+      // returned early: state moved to the new window, the panel re-rendered
+      // with the OLD numbers, the tiles stayed dimmed, and no request was ever
+      // sent. The picker looked stuck on one window's data forever.
+      //
+      // There is nothing to guard anyway. The server resolves the booking
+      // itself and answers with _zeroed_because when it cannot, which is a
+      // result worth rendering rather than a reason not to ask.
+      if (!r) return;
       try {
         const resp = await fetch(`/api/reviews/${r.id}/insights?window=${encodeURIComponent(w)}`);
-        if (!resp.ok) return;
-        const data = await resp.json();
-        const ins = unwrapInsights(data);
-        if (ins) r.liveInsights = ins;
-        renderReviewCol();   // clears the dimming either way
+        if (resp.ok) {
+          const ins = unwrapInsights(await resp.json());
+          if (ins) r.liveInsights = ins;
+        }
       } catch (e) { /* keep what is on screen */ }
+      // Always, on every path. Leaving the dimming on is what made a failed
+      // fetch look like a loaded one.
+      renderReviewCol();
     });
   });
 
