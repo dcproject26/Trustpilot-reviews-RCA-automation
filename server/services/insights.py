@@ -444,6 +444,8 @@ def _zero_result(l2: str | None, wd: int = 30, why: str = "") -> dict:
         "ff_same_day":                 None,
         "vid_completion_rate":         None,
         "tgid_completion_rate":        None,
+        "tgid_incomplete_why":         [],
+        "vid_incomplete_why":          [],
         "vidCompletionRate":           "N/A",
         "same_day_same_vid":           None,
         "sameDaySameVidIssues":        "N/A",
@@ -783,6 +785,27 @@ LEFT JOIN `{_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
     # vendor that is steadily poor. Reviews and support contacts are counted
     # separately because they are different evidence: a review is written
     # afterwards, a support contact happened during.
+    # Why the rest did not complete. A rate of 57% says three of seven failed
+    # and stops there, which is the least useful place to stop on an RCA: the
+    # next question is always whether those failures look like the one in this
+    # review. Cancelled by the vendor is a supply problem, Pending is a
+    # fulfilment backlog, and they lead somewhere different.
+    _ff_why = f"""
+SELECT
+  IFNULL(f.fulfilment_status, '(none)') AS status,
+  IFNULL(f.completion_type,  '(none)')  AS ctype,
+  COUNT(DISTINCT b.booking_id)          AS c
+FROM `{_BOOKINGS_TABLE}` b
+LEFT JOIN `{_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
+WHERE {{scope}} AND {_win}{_ff_excl}
+  AND IFNULL(f.fulfilment_status, '') NOT IN UNNEST(@ff_done)
+GROUP BY status, ctype
+ORDER BY c DESC
+LIMIT 6
+"""
+    sql_why_tgid = _ff_why.format(scope="b.experience_id = @tgid")
+    sql_why_vid  = _ff_why.format(scope="b.vendor_id = @vid")
+
     sql_i_rev = f"""
 SELECT COUNT(DISTINCT r.booking_id) AS c
 {_reviews_from}
@@ -862,6 +885,9 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         _run(sql_g, {"tid": tid, "vid": vid})        if pair else asyncio.sleep(0),
         _run(sql_h, {**base, **ff_par})              if vid else asyncio.sleep(0),
         _run(sql_h2, {**anchor_par, **ff_par, "tgid": tgid}) if tgid else asyncio.sleep(0),
+        (_run(sql_why_tgid, {**anchor_par, **ff_par, "tgid": tgid})
+         if tgid else asyncio.sleep(0)),
+        (_run(sql_why_vid, {**base, **ff_par}) if vid else asyncio.sleep(0)),
         (_run(sql_i_rev, {**anchor_par, "vid": vid, "l2v": ("STRING", variants)})
          if (visit_date and vid and variants) else asyncio.sleep(0)),
         (_run(sql_i_sup, {**anchor_par, "vid": vid, **nar_par,
@@ -914,9 +940,29 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
 
     ff_vid  = _ff(results[8])
     ff_tgid = _ff(results[9])
-    day_rev = _count(results[10])
-    day_sup = _count(results[11])
-    day_tot = _count(results[12])
+    def _why_rows(res):
+        """Non-completions grouped by status and completion type, largest first."""
+        if not isinstance(res, list):
+            return []
+        out = []
+        for r in res:
+            n = int(_fld(r, "c") or 0)
+            if not n:
+                continue
+            st = str(_fld(r, "status") or "").strip()
+            ct = str(_fld(r, "ctype") or "").strip()
+            # completion_type is the specific reason where it has one;
+            # fulfilment_status is the coarse bucket. Show the specific one
+            # unless it says nothing the status has not already said.
+            label = ct if ct and ct not in ("(none)", st) else st
+            out.append({"reason": label, "status": st, "type": ct, "count": n})
+        return out
+
+    why_tgid = _why_rows(results[10])
+    why_vid  = _why_rows(results[11])
+    day_rev = _count(results[12])
+    day_sup = _count(results[13])
+    day_tot = _count(results[14])
 
     out = {
         "similar_reviews_30d":         sim_rev,
@@ -943,6 +989,8 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         # kept alongside it, because a vendor failing across every experience
         # is a different finding from one experience going wrong.
         "tgid_completion_rate":  ff_tgid["rate"],
+        "tgid_incomplete_why":   why_tgid,
+        "vid_incomplete_why":    why_vid,
         "vid_completion_rate":   ff_vid["rate"],
         "vidCompletionRate":     _pct(ff_vid["rate"]),
         # Same visit date, same vendor, same issue - split by evidence type.
