@@ -1,4 +1,9 @@
-run = "python -m server.main"
+# UVICORN_RELOAD makes the dev server pick up a git pull without a restart.
+# Without it, a pull updates the files while the process keeps serving what it
+# imported at startup - which cost most of an afternoon of reading correct code
+# against output from a build that no longer existed. Deployment below stays
+# without reload, which is correct for production.
+run = "UVICORN_RELOAD=1 PORT=5000 python -m server.main"
 entrypoint = "server/main.py"
 modules = ["python-3.11", "nodejs-20", "postgresql-16"]
 
