@@ -9,10 +9,14 @@ Data path per the 2026-07 wiring brief:
 5. Brand split: guest-brand tickets -> guest timeline, SP-brand -> sp thread
    (draft.sp_interaction_frames). If brands unset, everything is guest.
 6. Merge multi-ticket comments chronologically; _get_timeline_sync produces raw
-   events {idx, time, thread, actor, ticket_id, raw_body}.
+   events {idx, time, time_sort, thread, actor, ticket_id, is_internal,
+   internal_reason, raw_body}.
 7. get_timeline passes raw events to Claude (_shape_via_claude) which returns
-   clean {time, thread, actor, label, summary} events with bookend injection,
-   noise-drop, and macro-flood collapsing. On failure, _fallback_shape is used.
+   clean {time, time_sort, thread, actor, label, summary, ticket_id,
+   is_internal, internal_reason} events with bookend injection, noise-drop, and
+   macro-flood collapsing. On failure, _fallback_shape is used. Claude writes
+   the prose; provenance (ticket id, timestamps, machinery classification) is
+   restored from the raw events afterwards rather than trusted to the model.
 8. >40 raw comments -> keep first 20 + last 20 with one "[N comments elided]" placeholder.
 """
 import asyncio
@@ -262,6 +266,55 @@ def _to_ist(dt) -> str:
     return dt.astimezone(IST).strftime("%d %b %H:%M IST")
 
 
+def _to_iso(dt) -> str:
+    """created_at -> '2026-05-02T19:08:00+00:00' (UTC, lexicographically sortable)."""
+    if dt is None:
+        return ""
+    dt = _sort_key(dt)
+    if dt == datetime.max.replace(tzinfo=timezone.utc):
+        return ""
+    return dt.astimezone(timezone.utc).isoformat()
+
+
+_ISO_TS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
+
+
+def _normalize_time(value) -> tuple[str, str]:
+    """
+    A time string from anywhere -> (display, sortable).
+
+    Two formats used to coexist in the stored timeline: real comments carried
+    _to_ist output ('22 Jul 14:03 IST') while the injected bookends carried
+    whatever date they were handed - the review publication date arrives as a
+    bare ISO '2026-07-22'. Mixed formats meant the renderer had to reformat
+    dates itself, and nothing could sort the list because neither string sorts.
+
+    So one representation each, for two different jobs:
+      display  - what a human reads. 'DD Mon HH:MM IST', or 'DD Mon' when the
+                 source only gave a date and inventing a clock time would lie.
+                 NOT sortable: it carries no year.
+      sortable - ISO 8601 in UTC. Never displayed; sorts correctly as a plain
+                 string. '' when the source time cannot be parsed at all, in
+                 which case the display string is passed through untouched
+                 rather than dropped.
+    """
+    s = str(value or "").strip()
+    if not s or not _ISO_TS_RE.match(s):
+        return s, ""
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return s, ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    iso = dt.astimezone(timezone.utc).isoformat()
+    # A bare 'YYYY-MM-DD' has no clock in it. Rendering it as '22 Jul 05:30 IST'
+    # would be the timezone conversion of a midnight nobody recorded.
+    if len(s) <= 10:
+        return dt.astimezone(IST).strftime("%d %b"), iso
+    return _to_ist(dt), iso
+
+
 def _sort_key(dt):
     if dt is None:
         return datetime.max.replace(tzinfo=timezone.utc)
@@ -286,13 +339,49 @@ def _clean_summary(body: str) -> str:
     return text
 
 
+# The whole vocabulary the renderer knows, for both stored enums. "booking" /
+# "review" and "creation" / "review" only ever appear on the injected bookends.
+_THREADS = {"email", "chat", "call", "sp", "booking", "review"}
+_ACTORS  = {"guest", "co", "sp", "ai", "system", "creation", "review"}
+
+# Zendesk's via.channel vocabulary for a conversation is far wider than the
+# three names this function used to know. Messaging tickets arrive as
+# "native_messaging", "messaging", "sunshine_conversations", "web_messaging",
+# or as the social channel itself - "whatsapp", "facebook_messenger", "sms",
+# "instagram_dm", "line". Every name outside the old three-item list fell
+# through to the closing `return "email"`, so chat and WhatsApp turns were
+# stored with thread "email" and could not group into the conversation they
+# belonged to. That is why the renderer was re-guessing the channel from the
+# words "chat"/"whatsapp"/"message" in the label: it was working around this
+# default, not around a missing signal.
+#
+# Matched as families rather than an exact list, because Zendesk keeps adding
+# channel names and an unrecognised one silently becomes "email" again.
+_CHAT_CHANNELS  = ("chat", "messaging", "sunshine", "whatsapp", "widget",
+                   "sms", "facebook", "instagram", "twitter", "wechat",
+                   "telegram", "viber", "kakao", "social")
+_CALL_CHANNELS  = ("voice", "phone", "call")
+_EMAIL_CHANNELS = ("email", "mail")
+
+
 def _map_channel(via_channel: str) -> str:
-    if via_channel == "email":
+    """Zendesk via.channel -> the timeline's thread vocabulary."""
+    ch = str(via_channel or "").strip().lower()
+    if not ch:
         return "email"
-    if via_channel in ("chat", "native_messaging", "web_widget"):
+    # LINE is compared whole: those three letters turn up inside unrelated
+    # words, so it is the one channel a substring test cannot be trusted with.
+    if ch == "line" or any(k in ch for k in _CHAT_CHANNELS):
         return "chat"
-    if via_channel == "voice":
+    if any(k in ch for k in _CALL_CHANNELS):
         return "call"
+    if any(k in ch for k in _EMAIL_CHANNELS):
+        return "email"
+    # Anything still unrecognised stays "email" because that is the pill
+    # vocabulary the renderer knows, but it is logged: a channel showing up
+    # here is the next chat family to add, and silence is how the old default
+    # hid the problem for so long.
+    log.info(f"[zendesk] unmapped via.channel {ch!r} -> email")
     return "email"
 
 
@@ -303,8 +392,75 @@ def _brand_matches(ticket, brand_env: str) -> bool:
     return str(bid) == str(brand_env).strip()
 
 
+# Bodies that are Headout machinery talking to itself, not anything the guest
+# or an agent said. On one real review 8 of 14 timeline events were rows of
+# this kind - a Selenium fulfilment run, an interaction tag written by the bot,
+# a generated vendor pseudo-email and its password, a chat transcript dump -
+# every one of them rendered as if it were part of the guest's story.
+#
+# They are matched here, on the RAW body, because by the time a label exists
+# the evidence has been summarised away and only the wording is left to guess
+# from. Machinery is MARKED, never dropped: a body that trips one of these by
+# accident (a guest writing "I forgot my password") stays in the timeline with
+# a reason attached, which can be found and argued with, instead of vanishing.
+_MACHINE_BODY = [
+    (re.compile(r"selenium|webdriver|headless\s+chrome|automation\s+(?:run|script|bot)"
+                r"|\bbot\s+run\b", re.I), "selenium-run"),
+    (re.compile(r"pseudo[\s.\-]?e?mail|vendor\s+login|login\s+credential"
+                r"|credentials?\s*[:\-]|password\s*[:\-]", re.I), "credentials"),
+    (re.compile(r"chat\s+(?:transcript|session)|transcript\s+log(?:ged)?"
+                r"|conversation\s+(?:opened|closed|started|ended)"
+                r"|session\s+(?:id|started|ended)", re.I), "chat-bookkeeping"),
+    (re.compile(r"interaction\s+tags?|auto[\s\-]?tagged|ai[\s\-]?resolved"
+                r"|bot\s+(?:tag|tagged|classification)"
+                r"|tags?\s+(?:added|updated|applied)\s*[:\-]", re.I), "bot-tagging"),
+]
+
+# via.channel values only a trigger, an automation or a background job can
+# produce. Nothing a person typed ever arrives on these.
+_MACHINE_CHANNELS = {"rule", "system", "automation", "trigger", "batch"}
+
+
+def _machine_body_reason(body: str) -> str:
+    """Which machine pattern this body matches, or '' if it reads as human."""
+    text = _html.unescape(_TAG_RE.sub(" ", body or ""))[:4000]
+    for rx, reason in _MACHINE_BODY:
+        if rx.search(text):
+            return reason
+    return ""
+
+
+def _internal_reason(body: str, via_channel: str = "", author_role: str = "") -> str:
+    """
+    Why this comment is internal machinery rather than part of the guest's
+    story, or '' if it is guest-facing.
+
+    Decided from the Zendesk signals on the comment itself - the channel it
+    arrived on and what its body actually is - so the classification is made
+    once, at the point where the evidence still exists, and stored. The
+    renderer used to do this with a regex over the finished label, which is
+    both too late (the body is gone) and too blunt (a real guest sentence
+    containing the word "credential" was dropped with no trace).
+    """
+    ch = str(via_channel or "").strip().lower()
+    if ch in _MACHINE_CHANNELS:
+        return f"via:{ch}"
+    return _machine_body_reason(body)
+
+
 def _detect_actor(comment_author_id, ticket, author_role: str,
-                  is_sp_ticket: bool, ticket_tags: list) -> str:
+                  is_sp_ticket: bool, ticket_tags: list,
+                  body: str = "", via_channel: str = "") -> str:
+    # A machine-written body is not the guest speaking, whatever account it was
+    # posted under. Zendesk attributes automation - booking confirmations,
+    # pseudo-email logins, Selenium fulfilment runs, transcript dumps - to the
+    # SAME user id as the ticket's requester, and the requester test below only
+    # asks "is this the requester's account", not "did the guest write this".
+    # So system mail was coming out as actor "guest", and a timeline that says
+    # the guest said something they never said can end up quoted back to them.
+    # Body evidence therefore settles it before account identity gets a vote.
+    if _internal_reason(body, via_channel):
+        return "system"
     if any(t in ticket_tags for t in ZENDESK_BOT_TAGS):
         return "ai"
     if comment_author_id == getattr(ticket, "requester_id", None):
@@ -327,7 +483,11 @@ async def get_timeline(
     Returns (timeline, extracted_booking_fields, meta).
 
     timeline: chronological events shaped for the demo-v15 renderer:
-        {time, thread, actor, label, summary}
+        {time, time_sort, thread, actor, label, summary, ticket_id,
+         is_internal, internal_reason}
+    time is for display and does not sort; time_sort is ISO-8601 UTC and does.
+    is_internal marks Headout machinery (Selenium, bot tagging, credentials,
+    transcript logs) so the renderer can hide it without the event being lost.
     extracted_booking_fields: {tgid, tid, ticket_mail_seen} from custom fields/tags.
     meta: {"ticket_ids": [str, ...], "timeline_raw": [str, ...],
            "zendesk_requester_name": str}
@@ -345,22 +505,34 @@ async def get_timeline(
                 return tl, {}, {"ticket_ids": [], "timeline_raw": [""] * len(tl), "timeline_raw_ticket_ids": [""] * len(tl)}
         # Mock synthesis: activates in MOCK_MODE for review IDs not in fixtures.
         # Enables manual testing without real service calls.
+        # Mock events go through the same time helpers as real ones. They used
+        # to be written as "2026-07-29 09:00", a third time format on top of the
+        # two the renderer already had to cope with, which made mock mode a bad
+        # place to develop the renderer against.
         from datetime import date
         today = date.today().isoformat()
         synth_tl = [
             {
-                "time":   f"{today} 09:00",
+                "time":   _to_ist(f"{today}T09:00:00+00:00"),
+                "time_sort": _to_iso(f"{today}T09:00:00+00:00"),
                 "thread": "email",
                 "actor":  "guest",
                 "label":  "Guest contacted support",
                 "summary": "[Mock] Guest emailed support about their experience.",
+                "ticket_id": "",
+                "is_internal": False,
+                "internal_reason": "",
             },
             {
-                "time":   f"{today} 10:30",
+                "time":   _to_ist(f"{today}T10:30:00+00:00"),
+                "time_sort": _to_iso(f"{today}T10:30:00+00:00"),
                 "thread": "email",
                 "actor":  "co",
                 "label":  "CE responded",
                 "summary": "[Mock] CE acknowledged the guest's concern and reviewed the booking.",
+                "ticket_id": "",
+                "is_internal": False,
+                "internal_reason": "",
             },
         ]
         return synth_tl, {"ticket_mail_seen": False}, {"ticket_ids": [], "timeline_raw": ["", ""], "timeline_raw_ticket_ids": ["", ""]}
@@ -482,16 +654,21 @@ def _get_timeline_sync(_z, booking_id: str):
             body = getattr(c, "body", "") or getattr(c, "html_body", "") or ""
             via_ch = getattr(getattr(c, "via", None), "channel", "") or ""
             author_id = getattr(c, "author_id", None)
-            actor = _detect_actor(author_id, ticket, _role(author_id), is_sp, tags)
+            actor = _detect_actor(author_id, ticket, _role(author_id), is_sp, tags,
+                                  body=body, via_channel=via_ch)
             thread = "sp" if is_sp else _map_channel(via_ch)
+            reason = _internal_reason(body, via_ch, _role(author_id))
             created = getattr(c, "created_at", None)
             events.append((
                 _sort_key(created),
                 {
                     "time":      _to_ist(created),
+                    "time_sort": _to_iso(created),
                     "thread":    thread,
                     "actor":     actor,
                     "ticket_id": str(ticket.id),
+                    "is_internal":     bool(reason),
+                    "internal_reason": reason,
                     "raw_body":  body,
                 },
                 body,
@@ -505,13 +682,22 @@ def _get_timeline_sync(_z, booking_id: str):
     for ticket in tickets:
         for sc in side_conversations(getattr(ticket, "id", "")):
             for m in sc.get("messages", []):
+                # Machinery reaches the SP thread too - the vendor-portal login
+                # and password that fulfilment generates is a side-conversation
+                # message like any other. It is marked, not dropped, and only on
+                # the message body: the side conversation itself is the SP's half
+                # of the story and stays in the timeline either way.
+                sc_reason = _internal_reason(m.get("body", ""))
                 events.append((
                     _sort_key(m.get("_raw_ts")),
                     {
                         "time":      m.get("time", ""),
+                        "time_sort": _to_iso(m.get("_raw_ts")),
                         "thread":    "sp",
                         "actor":     "sp",
                         "ticket_id": str(getattr(ticket, "id", "")),
+                        "is_internal":     bool(sc_reason),
+                        "internal_reason": sc_reason,
                         "raw_body":  (f"[Side conversation: {sc.get('subject', '')}"
                                       f"{' · ' + sc['participants'] if sc.get('participants') else ''}]\n"
                                       f"{m.get('actor', '')}: {m.get('body', '')}"),
@@ -528,9 +714,15 @@ def _get_timeline_sync(_z, booking_id: str):
             events[19][0],
             {
                 "time":      "",
+                "time_sort": "",
                 "thread":    "email",
                 "actor":     "system",
                 "ticket_id": "",
+                # The placeholder is the timeline telling the reader that
+                # something was left out. Marking it internal would hide the
+                # very fact it exists to report, so it is never machinery.
+                "is_internal":     False,
+                "internal_reason": "",
                 "raw_body":  f"[{elided} comments elided]",
             },
             "",
@@ -1139,8 +1331,10 @@ async def find_bids_by_text(
 def _fallback_shape(raw_events: list) -> list:
     """
     Mechanical fallback when Claude shaping fails.
-    Produces {time, thread, actor, label, summary} without [ZD-###] prefixes,
-    with HTML-stripped one-line summaries.
+    Produces {time, time_sort, thread, actor, label, summary, ticket_id,
+    is_internal, internal_reason} without [ZD-###] prefixes, with HTML-stripped
+    one-line summaries. Every field except label/summary is copied from the raw
+    event, so provenance survives a Claude outage unchanged.
     """
     actor_labels = {
         "guest":  "Guest contacted support",
@@ -1161,12 +1355,62 @@ def _fallback_shape(raw_events: list) -> list:
             summary = _clean_summary(raw_body)
         shaped.append({
             "time":    ev.get("time", ""),
+            "time_sort": ev.get("time_sort", ""),
             "thread":  ev.get("thread", "email"),
             "actor":   actor,
             "label":   label,
             "summary": summary,
+            # Carried from the raw event. Without the ticket id a timeline entry
+            # cannot be traced back to the Zendesk ticket it came from, so an
+            # associate reading the RCA has no way to check any of it.
+            "ticket_id":       ev.get("ticket_id", ""),
+            "is_internal":     bool(ev.get("is_internal")),
+            "internal_reason": ev.get("internal_reason", ""),
         })
     return shaped
+
+
+def _strip_json_line_comments(text: str) -> str:
+    """
+    Remove // comments from Claude's JSON without touching string contents.
+
+    This was a regex - `(?<!["\\w])//[^\\n]*` - and the character before the //
+    in a URL is a colon, which that lookbehind does not exclude. So a summary
+    quoting "https://vendor.example.com/orders/551" had everything from the //
+    to the end of the line deleted, which took the closing quote and brace with
+    it: the JSON then failed to parse, _safe_parse_events returned [], and the
+    whole Claude-shaped timeline was silently replaced by the mechanical
+    fallback. An agent reply or an SP side conversation quoting a booking or
+    vendor URL is exactly the event an RCA turns on.
+
+    No regex can do this, because whether // starts a comment depends on
+    whether it is inside a string, which is not a local property of the text.
+    So the string state is tracked instead: inside a JSON string everything is
+    kept verbatim, outside one a // runs to the end of the line.
+    """
+    out, i, n = [], 0, len(text)
+    in_str = esc = False
+    while i < n:
+        ch = text[i]
+        if in_str:
+            out.append(ch)
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+            out.append(ch)
+        elif ch == "/" and i + 1 < n and text[i + 1] == "/":
+            nl = text.find("\n", i)
+            i = n if nl == -1 else nl
+            continue
+        else:
+            out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def _safe_parse_events(text: str) -> list:
@@ -1177,8 +1421,7 @@ def _safe_parse_events(text: str) -> list:
     """
     import json as _json
     cleaned = text.replace("```json", "").replace("```", "").strip()
-    # Remove // comments outside strings
-    cleaned = re.sub(r'(?<!["\w])//[^\n]*', '', cleaned)
+    cleaned = _strip_json_line_comments(cleaned)
     try:
         parsed = _json.loads(cleaned)
         if isinstance(parsed, list):
@@ -1205,7 +1448,8 @@ async def _shape_via_claude(
 ) -> list:
     """
     One Claude call that batch-shapes raw events into clean timeline entries.
-    Filters keep=false events. Returns list of {time, thread, actor, label, summary}.
+    Filters keep=false events. Returns list of {time, time_sort, thread, actor,
+    label, summary, ticket_id, is_internal, internal_reason}.
     """
     from server import prompts as _prompts
     from server.services import claude as _claude
@@ -1219,15 +1463,76 @@ async def _shape_via_claude(
         log.warning("[zendesk] Claude returned unparseable shaping response — using fallback")
         return _fallback_shape(raw_events)
 
+    # Claude returns prose, not provenance: it is asked to echo each raw event's
+    # timestamp and to name the raw indices it collapsed, and everything else
+    # about where an entry came from is lost unless it is put back here. The raw
+    # event is the authority for time, ticket id and machinery classification -
+    # idx_range is what maps a shaped entry back to it.
+    by_idx = {e.get("idx"): e for e in raw_events if isinstance(e, dict)}
+    # Bookends carry no idx_range, and Claude occasionally omits one. Their time
+    # string is still one Claude copied from a raw event, so the display string
+    # is used to recover that event's sortable value rather than giving up on it.
+    by_display = {e.get("time"): e.get("time_sort", "")
+                  for e in by_idx.values() if e.get("time")}
+
     kept = []
     for ev in shaped:
         if not ev.get("keep", True):
             continue
+        srcs = sorted((by_idx[i] for i in (ev.get("idx_range") or []) if i in by_idx),
+                      key=lambda s: s.get("idx", 0))
+        if srcs:
+            time_disp = srcs[0].get("time", "")
+            time_sort = srcs[0].get("time_sort", "")
+        else:
+            # The review-posted bookend is handed the publication date, which
+            # arrives as a bare ISO "2026-07-22" and used to be stored verbatim
+            # alongside "22 Jul 14:03 IST" comments - two formats in one list.
+            time_disp, time_sort = _normalize_time(ev.get("time", ""))
+            time_sort = time_sort or by_display.get(time_disp, "")
+
+        thread = ev.get("thread", "email")
+        # Zendesk's own channel beats Claude's reading of the body, but only
+        # where Claude fell back to "email" - that is the value it emits when it
+        # had nothing to go on, and it is how chat turns lost their thread.
+        # "booking" and "review" are Claude's editorial calls on the bookends
+        # and are left alone.
+        if thread == "email" and srcs and srcs[0].get("thread"):
+            thread = srcs[0]["thread"]
+        # Nothing between here and the renderer checks these two values, and the
+        # renderer turns both into CSS class names. A model-invented "whatsapp"
+        # or "customer" is not a pill, it is an unstyled word, so anything
+        # outside the agreed vocabulary falls back to what Zendesk said.
+        if thread not in _THREADS:
+            log.info(f"[zendesk] unknown shaped thread {thread!r} -> raw channel")
+            thread = (srcs[0].get("thread") if srcs else "email") or "email"
+        # The booking-created bookend is handed an already-formatted 'DD Mon
+        # HH:MM IST' string, which carries no year and so cannot yield a
+        # sortable value on its own. The booking metadata that string was made
+        # from does, and it is right here.
+        if not time_sort and thread == "booking":
+            time_sort = _to_iso((booking or {}).get("date_of_booking")
+                                or (booking or {}).get("creationDate") or "")
+        actor = ev.get("actor", "system")
+        if actor not in _ACTORS:
+            log.info(f"[zendesk] unknown shaped actor {actor!r} -> raw actor")
+            actor = (srcs[0].get("actor") if srcs else "system") or "system"
+
+        # Machinery only when EVERY raw event behind this entry was machinery:
+        # a collapsed entry that mixes a real guest message with a system row is
+        # still the guest's story.
+        internal = [s for s in srcs if s.get("is_internal")]
+        is_internal = bool(srcs) and len(internal) == len(srcs)
+
         kept.append({
-            "time":    ev.get("time", ""),
-            "thread":  ev.get("thread", "email"),
-            "actor":   ev.get("actor", "system"),
+            "time":    time_disp,
+            "time_sort": time_sort,
+            "thread":  thread,
+            "actor":   actor,
             "label":   ev.get("label", ""),
             "summary": ev.get("summary", ""),
+            "ticket_id": next((s.get("ticket_id") for s in srcs if s.get("ticket_id")), ""),
+            "is_internal":     is_internal,
+            "internal_reason": internal[0].get("internal_reason", "") if is_internal else "",
         })
     return kept
