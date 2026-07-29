@@ -31,9 +31,12 @@ git pull "$REMOTE" main || { echo "pull failed - resolve and re-run"; exit 1; }
 WANT=$(git rev-parse HEAD)
 echo "    working tree is ${WANT:0:7}"
 
+# The server's own view of the code it LOADED. Asking it for "commit" and
+# comparing to git rev-parse here is what hid the problem for hours: the
+# endpoint was reading the same .git the shell was, so it always agreed.
 running_commit() {
   curl -s --max-time 3 "$BASE/api/version" 2>/dev/null \
-    | python3 -c "import sys,json;print(json.load(sys.stdin).get('commit',''))" 2>/dev/null
+    | python3 -c "import sys,json;d=json.load(sys.stdin);print('' if d.get('stale') else d.get('commit',''))" 2>/dev/null
 }
 
 echo "==> waiting for the server to pick it up (reload is automatic)"

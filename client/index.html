@@ -579,6 +579,9 @@
     min-width: 0;
     overflow: hidden;
   }
+  #build-stamp.is-stale {
+    color: var(--red, #ff5c5c); opacity: 1; font-weight: 700;
+  }
   #build-stamp.is-deploy {
     color: var(--amber); opacity: .95; font-weight: 600;
   }
@@ -3838,7 +3841,12 @@ renderRcaCol();
     // deployment is a frozen snapshot that a git pull does not touch, so
     // reading one while pulling into the repl looks like every fix failing.
     const env = v.environment || '?';
-    el.textContent = 'build ' + (v.short || '?') + ' · ' + env;
+    // v.stale is the server comparing the code it LOADED against the files on
+    // disk. Do not recompute it here from anything this page knows - the page
+    // is as old as the server that sent it.
+    el.textContent = 'build ' + (v.short || '?') + ' · ' + env
+                   + (v.stale ? ' · STALE' : '');
+    if (v.stale) el.classList.add('is-stale');
     el.title = 'server ' + (v.commit || '') + '\nenvironment: ' + env
              + '\nreload: ' + (v.reload ? 'on' : 'off')
              + '\nup ' + (v.uptime_s || 0) + 's'

@@ -91,6 +91,16 @@ def check_version(base):
                                text=True, timeout=10).stdout.strip()
     except Exception:
         local = ""
+    # Trust the server's own answer. It compares the code it loaded against
+    # the files on disk; comparing the endpoint's reply to a local git command
+    # is what hid the problem, because the endpoint was reading the same disk.
+    if v.get("stale"):
+        print(f"\n  !!    The server is running OLD code.")
+        print(f"        running:  {str(v.get('commit'))[:7]}   "
+              f"(up {v.get('uptime_s')}s)")
+        print(f"        on disk:  {str(v.get('on_disk'))[:7]}")
+        print("        RESTART THE SERVER, then run this again.\n")
+        return False
     running = v.get("commit", "")
     if not local:
         print(f"  ..    server on {v.get('short')}, "

@@ -50,7 +50,7 @@ def main():
         v = get(args.base, "/api/version", timeout=15)
         local = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True,
                                text=True, timeout=10).stdout.strip()
-        if local and v.get("commit") and v["commit"] != local:
+        if v.get("stale") or (local and v.get("commit") and v["commit"] != local):
             print(f"The server is running OLD code: {v['commit'][:7]} "
                   f"(up {v.get('uptime_s')}s), working tree is {local[:7]}.\n"
                   "RESTART THE SERVER - anything below would be from the old build.")

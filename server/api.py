@@ -431,6 +431,35 @@ async def get_review_insights(review_id: str, window: str = "",
 
 # ── NEW: taxonomy endpoint (dashboard fetches this to render dropdowns) ─────
 
+def _read_head_sha() -> str:
+    """
+    The commit at the moment this module was imported.
+
+    Read at import, NEVER per request. Reading .git/HEAD when the request
+    arrives reports what is on DISK, which is the working tree - so a stale
+    process happily reported the commit that had just been pulled into it and
+    every staleness check built on this endpoint returned "matches" while
+    serving code from hours earlier. The detector could not detect the thing it
+    existed for.
+
+    Read from .git directly rather than shelling out: the git binary is not
+    always on PATH in the run context.
+    """
+    import os
+    try:
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        head = open(os.path.join(root, ".git", "HEAD")).read().strip()
+        if head.startswith("ref:"):
+            return open(os.path.join(root, ".git",
+                                     head.split(None, 1)[1])).read().strip()
+        return head
+    except OSError:
+        return "unknown"
+
+
+_BUILD_SHA = _read_head_sha()   # frozen at import, like the code itself
+
+
 @router.get("/api/version")
 def get_version():
     """
@@ -448,17 +477,8 @@ def get_version():
     import os
     from datetime import timezone
 
-    sha = "unknown"
-    try:
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        head = open(os.path.join(root, ".git", "HEAD")).read().strip()
-        if head.startswith("ref:"):
-            ref = head.split(None, 1)[1]
-            sha = open(os.path.join(root, ".git", ref)).read().strip()
-        else:
-            sha = head
-    except OSError:
-        pass
+    sha = _BUILD_SHA
+    on_disk = _read_head_sha()
 
     # Dev repl or published deployment? A deployment is a frozen snapshot that
     # only changes when Deploy is pressed - a git pull in the repl does not
@@ -471,6 +491,12 @@ def get_version():
     return {
         "commit":     sha,
         "short":      sha[:7],
+        # What is checked out right now. If it differs from commit, the files
+        # have moved on and this process has not - which is the entire failure
+        # mode this endpoint exists to catch, and which it previously hid by
+        # reporting on_disk as though it were the running build.
+        "on_disk":    on_disk,
+        "stale":      on_disk != sha and sha != "unknown",
         "environment": "deployment" if is_deploy else "dev",
         "reload":     os.environ.get("UVICORN_RELOAD", "") .lower() in ("1", "true", "yes"),
         "started_at": _STARTED_AT,
