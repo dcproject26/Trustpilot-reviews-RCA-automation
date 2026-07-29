@@ -233,10 +233,13 @@ async def run(args):
     from server.services import claude as CL
     from server import prompts as P
 
-    for name in ("zendesk", "anthropic"):
+    # A fixture run needs the model only - the events are constructed here, so
+    # requiring Zendesk would refuse a run that has nothing to fetch.
+    needed = ("anthropic",) if args.fixture else ("zendesk", "anthropic")
+    for name in needed:
         if not is_live(name):
             print(f"{name} is not connected on this machine - this tool needs "
-                  f"both. Run it where the server runs.")
+                  f"{' and '.join(needed)}. Run it where the server runs.")
             return 2
 
     booking, review_body, review_pub_date = {}, "", ""
@@ -260,16 +263,45 @@ async def run(args):
         from server.services.bigquery_patch import verify_bid
         booking = verify_bid(args.bid) or {"id": args.bid}
 
-    print(f"booking {args.bid}   review {args.review or '(none)'}")
-    print(f"fetching raw events from Zendesk ...")
+    if args.fixture == "retries":
+        print("FIXTURE: three fulfilment failures then a success - constructed, "
+              "not from Zendesk.\n"
+              "Correct output is FOUR separate rows. Three of them may share a "
+              "label; what must differ is\nthe summary, carrying attempt number "
+              "and what each returned.")
+        raw_events = [
+            {"idx": i, "time": t, "time_sort": ts, "thread": "email",
+             "actor": "system", "ticket_id": "34011333", "is_internal": True,
+             "internal_reason": "selenium-run", "author_id": 19012011103,
+             "author_role": "admin", "via_channel": "api",
+             "requester_id": 60315278707, "raw_body": b}
+            for i, (t, ts, b) in enumerate([
+                ("22 Jul 15:25 IST", "2026-07-22T09:55:00+00:00",
+                 "Selenium run attempted ticket retrieval from the vendor site. "
+                 "Attempt 1 of 3. Returned no ticket URLs - vendor page timed out."),
+                ("22 Jul 15:32 IST", "2026-07-22T10:02:00+00:00",
+                 "Selenium run attempted ticket retrieval from the vendor site. "
+                 "Attempt 2 of 3. Returned no ticket URLs - session expired."),
+                ("22 Jul 15:44 IST", "2026-07-22T10:14:00+00:00",
+                 "Selenium run attempted ticket retrieval from the vendor site. "
+                 "Attempt 3 of 3. Returned no ticket URLs - vendor page timed out."),
+                ("22 Jul 15:50 IST", "2026-07-22T10:20:00+00:00",
+                 "Selenium run attempted ticket retrieval from the vendor site. "
+                 "Attempt 4. Returned 2 ticket URLs, partner ref 1022394558263."),
+            ])]
+        meta = {"ticket_ids": ["34011333"]}
+        booking = booking or {"id": args.bid}
+    else:
+        print(f"booking {args.bid}   review {args.review or '(none)'}")
+        print(f"fetching raw events from Zendesk ...")
     # _get_timeline_sync, not get_timeline. get_timeline returns the SHAPED
     # timeline - it runs Claude itself - so calling it here would feed already
     # shaped events into the prompt and pay for an extra model call to do it.
     # The raw events are what a prompt is built from.
-    _z = ZD._get_client()
-    raw_events, _extracted, meta = await asyncio.get_running_loop().run_in_executor(
-        None, ZD._get_timeline_sync, _z, args.bid)
-    print(f"{len(raw_events)} raw events, tickets {meta.get('ticket_ids')}")
+        _z = ZD._get_client()
+        raw_events, _extracted, meta = await asyncio.get_running_loop().run_in_executor(
+            None, ZD._get_timeline_sync, _z, args.bid)
+        print(f"{len(raw_events)} raw events, tickets {meta.get('ticket_ids')}")
     if not raw_events:
         print("No Zendesk events for this booking - there is nothing for either "
               "prompt to shape, so any comparison would be of two empty lists.")
@@ -345,6 +377,16 @@ def main():
     ap.add_argument("--bid", required=True, help="booking id, e.g. 32908218")
     ap.add_argument("--review", default="", help="review id, for the review text")
     ap.add_argument("--only", default="", choices=["", "current", "proposed"])
+    # A booking with a real retry sequence is the only way to check that
+    # repeats survive as repeats. Most bookings do not have one, so this feeds
+    # a constructed sequence through the same prompt: three fulfilment
+    # failures minutes apart, then a success. If they come back as one row, or
+    # as three rows with invented differences between them, the rule is wrong -
+    # and a retry sequence collapsed into one line is the exact thing an RCA
+    # most needs to see.
+    ap.add_argument("--fixture", default="", choices=["", "retries"],
+                    help="run the prompt against a constructed event sequence "
+                         "instead of Zendesk (retries: 3 failures + a success)")
     ap.add_argument("--dump-raw", action="store_true",
                     help="print the raw events the prompt is built from")
     args = ap.parse_args()
