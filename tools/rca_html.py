@@ -188,11 +188,37 @@ def resolve(base, wanted):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="http://localhost:5000")
-    ap.add_argument("--review", required=True,
+    ap.add_argument("--review", default="",
                     help="review id, or part of the author's name")
     ap.add_argument("--window", default="")
+    # Render from a saved payload instead of a live server. The tool needs the
+    # database to say anything, and the database is only reachable from the
+    # box the server runs on - so on any other machine the only way to produce
+    # this document is to carry the JSON across.
+    #
+    #   curl -s localhost:5001/api/reviews/<id>          > draft.json
+    #   curl -s localhost:5001/api/reviews/<id>/insights > ins.json
+    #   python3 tools/rca_html.py --from-json draft.json --insights-json ins.json
+    ap.add_argument("--from-json", default="",
+                    help="a saved /api/reviews/<id> response; skips the server")
+    ap.add_argument("--insights-json", default="",
+                    help="a saved /api/reviews/<id>/insights response")
     ap.add_argument("-o", "--out", default="")
     args = ap.parse_args()
+
+    if args.from_json:
+        with open(args.from_json) as fh:
+            payload = json.load(fh)
+        review = (payload or {}).get("review") or {}
+        draft = (payload or {}).get("draft")
+        rid = review.get("id") or args.review or "unknown"
+        ins = {}
+        if args.insights_json:
+            with open(args.insights_json) as fh:
+                blob = json.load(fh)
+            ins = blob.get("insights") if isinstance(blob, dict) else {}
+            ins = ins if isinstance(ins, dict) else {}
+        return write(args, rid, review, draft, ins)
 
     try:
         rid, rows = resolve(args.base, args.review)
@@ -214,6 +240,10 @@ def main():
     except Exception as e:
         ins = {"_fetch_error": str(e)[:300]}
 
+    return write(args, rid, review, draft, ins)
+
+
+def write(args, rid, review, draft, ins):
     if draft is None:
         body = ('<div class="bad">This review has NO DRAFT. The pipeline has '
                 'not run for it, so there is no RCA to audit.</div>')
