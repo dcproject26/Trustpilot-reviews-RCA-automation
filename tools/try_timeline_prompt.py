@@ -115,9 +115,13 @@ findable; one you quietly corrected is not.
                         this event IS the guest's own words.
      actor "co"      -> "CE response"
      actor "sp"      -> "SP response"
-     actor "system" / "ai" -> the machine action, plainly: "Booking-in-progress
-                        email sent", "Fulfilment run attempted", "Credentials
-                        generated", "Chat transcript logged", "Tickets sent".
+     actor "system" / "ai" -> the machine action AND ITS OUTCOME: "Fulfilment
+                        run failed", "Tickets sent", "Booking-in-progress email
+                        sent", "Credentials generated", "Chat transcript
+                        logged". Say what happened, not what was tried -
+                        "Fulfilment run attempted" leaves the reader to find
+                        out whether it worked, and whether it worked is the
+                        whole reason the row is here.
                         An automated email ABOUT the guest is a system event,
                         not the guest speaking.
    No ticket IDs, no "[ZD-xxxxx]", no "(xN)".
@@ -129,7 +133,10 @@ findable; one you quietly corrected is not.
    - Our response -> WHAT WE DID or OFFERED.
    - Fulfilment -> WHAT was delivered and WHEN.
    - Refund / outcome -> the amount and terms.
-   - Machinery -> what it attempted and what it returned.
+   - Machinery -> the outcome in as few words as possible. The label already
+     says what ran, so the summary carries only what came back:
+     "No ticket URLs returned." not "The Selenium run attempted ticket
+     retrieval from the vendor site but returned no ticket URLs."
    Do not restate the label. "Guest reply / Guest replied asking about their
    tickets" wastes the whole line - the label already said it.
    Keep the specifics that let someone verify it: amounts, pax, reference
