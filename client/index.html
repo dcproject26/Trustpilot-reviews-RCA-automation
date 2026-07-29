@@ -2545,7 +2545,6 @@ function renderReviewCol() {
         <div class="detail-row"><span class="k">Visit date</span><span class="v mono">${b.experienceDate || '—'}</span></div>
         <div class="detail-row"><span class="k">Booking date</span><span class="v mono">${b.bookingDate || b.creationDate || '—'}</span></div>
         <div class="detail-row"><span class="k">Review date</span><span class="v mono">${b.reviewDate || '—'}</span></div>
-        <div class="detail-row"><span class="k">Ticket mail seen</span><span class="v">${b.ticketMailSeen != null ? `<span class="pill-sm ${b.ticketMailSeen ? 'pill-green' : 'pill-grey'}">${b.ticketMailSeen ? 'Yes' : 'No'}</span>` : '—'}</span></div>
         <div class="detail-row"><span class="k">Booking status</span><span class="v">${b.status ? `<span class="booking-status-pill status-${b.status}">${b.status}</span>` : '—'}</span></div>
         <div class="detail-row"><span class="k">Lead time</span><span class="v mono">${b.leadTime || '—'}</span></div>
       </div>
