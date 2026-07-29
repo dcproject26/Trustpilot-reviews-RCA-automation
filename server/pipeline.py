@@ -1084,7 +1084,15 @@ async def process_review(review_id: str, force_candidates: bool = False):
         if bid_for_zd:
             try:
                 slack_mentions = await slk.search_mentions(str(bid_for_zd))
-                log.info(f"[pipeline] slack mentions for {bid_for_zd}: {len(slack_mentions)}")
+                # The unavailable sentinel is one row, so a bare len() logs "1"
+                # for a search that never ran - the same conflation the
+                # dashboard used to make.
+                if slk.is_search_unavailable(slack_mentions):
+                    log.warning(f"[pipeline] slack NOT searched for {bid_for_zd}: "
+                                f"{slack_mentions[0].get('reason')}")
+                else:
+                    log.info(f"[pipeline] slack mentions for {bid_for_zd}: "
+                             f"{len(slack_mentions)}")
             except Exception as e:
                 log.warning(f"Slack mention search failed — continuing: {e}")
 

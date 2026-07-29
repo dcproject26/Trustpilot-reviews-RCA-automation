@@ -249,6 +249,52 @@ def _bids_from_text(body: str) -> list[str]:
             if n not in ticket_refs]
 
 
+# Marks a row that is NOT a Slack message but a report that the search could
+# not run. Rows carrying this key must never be counted as mentions.
+SEARCH_UNAVAILABLE = "search_unavailable"
+
+
+def _unavailable(reason: str, text: str) -> list[dict]:
+    """
+    One sentinel row, shaped like a mention so no caller has to special-case it.
+
+    The dashboard renders whatever list it is handed, so the sentinel carries
+    the same keys a real match does - channel/user/ts/text/permalink - and puts
+    the explanation in `text`. A caller that wants to branch reads
+    SEARCH_UNAVAILABLE; a caller that just renders shows the explanation
+    instead of silently asserting there were no mentions.
+    """
+    return [{
+        SEARCH_UNAVAILABLE: True,
+        "reason":    reason,
+        "channel":   "",
+        "user":      "",
+        "ts":        "",
+        "text":      text,
+        "permalink": "",
+    }]
+
+
+def is_search_unavailable(mentions: list[dict] | None) -> bool:
+    """True when the list is a sentinel, i.e. Slack was never actually searched."""
+    return bool(mentions) and bool((mentions[0] or {}).get(SEARCH_UNAVAILABLE))
+
+
+def _api_error_code(e: Exception) -> str:
+    """
+    The Slack error string ("missing_scope", "not_allowed_token_type", ...).
+
+    SlackApiError hides the useful part inside .response; str(e) is a paragraph
+    of SDK prose. The code is what tells an operator which scope to add, so it
+    is what gets surfaced.
+    """
+    resp = getattr(e, "response", None)
+    try:
+        return (resp.get("error") if resp is not None else None) or type(e).__name__
+    except Exception:
+        return type(e).__name__
+
+
 async def search_mentions(bid: str, limit: int = 20) -> list[dict]:
     """
     Find every Slack message mentioning a booking id, workspace-wide.
@@ -259,24 +305,39 @@ async def search_mentions(bid: str, limit: int = 20) -> list[dict]:
     needs, so they are surfaced on the dashboard rather than left buried.
 
     Not restricted to ORM channels — any channel the user token can see.
-    Requires a USER token with search:read. Returns [] when unavailable.
+    Requires a USER token with search:read.
+
+    Three outcomes, and the caller can tell them apart:
+      []                          - searched, matched nothing (an earned claim)
+      [{search_unavailable: ...}] - never searched: no user token, or the API
+                                    refused (see is_search_unavailable)
+      [{channel: ...}, ...]       - real matches
     """
     # A sentinel row distinguishes "searched, found nothing" from "could not
     # search". Reporting an unavailable search as "no mentions" is a claim we
     # have not earned — search.messages needs a USER token with search:read and
-    # bot tokens cannot call it at all.
+    # bot tokens cannot call it at all. This used to return a bare [] for all
+    # three cases, so a workspace nobody had ever queried showed the dashboard's
+    # "No Slack messages found for this booking" with nothing behind it.
     if not bid:
         return []
-    # Scope/auth problems are an operator concern, not something to render into
-    # the dashboard. They go to the log; the panel just says nothing was found.
     if not _user:
         log.info("[slack] search_mentions: no user token (search:read) — cannot search")
-        return []
+        return _unavailable(
+            "no_user_token",
+            "Slack was not searched: no SLACK_USER_TOKEN is set. search.messages "
+            "requires a user token (xoxp-/xoxe-) with the search:read scope - a "
+            "bot token cannot call it. Run tools/test_slack_search.py to confirm.")
     try:
         res = _user.search_messages(query=str(bid), count=limit)
     except Exception as e:
-        log.warning(f"[slack] search_mentions {bid} failed: {e}")
-        return []
+        code = _api_error_code(e)
+        log.warning(f"[slack] search_mentions {bid} failed: {code}: {e}")
+        return _unavailable(
+            code,
+            f"Slack was not searched: search.messages returned '{code}'. "
+            "Nothing here says whether this booking was discussed in Slack. "
+            "Run tools/test_slack_search.py for the specific fix.")
     out = []
     for m in (res.get("messages") or {}).get("matches") or []:
         ch = m.get("channel", {}) or {}
