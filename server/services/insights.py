@@ -762,8 +762,38 @@ LEFT JOIN `{_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
     # Ops checks fulfilment for the same TGID over the last four weeks, because
     # that is the population that says whether this is a one-off or a pattern.
     sql_h2 = f"{_ff_select}WHERE b.experience_id = @tgid AND {_win}{_ff_excl}"
-    sql_i  = (f"{_ff_select}WHERE b.vendor_id = @vid "
-              f"AND DATE(b.experience_date) = {anchor_sql}{_ff_excl}")
+    # --- I: same-day, same issue -------------------------------------------
+    # Not a fulfilment rate. The question is how many OTHER guests visiting
+    # this vendor on this same date raised the SAME issue - a cluster on one
+    # date is a bad day at the venue, which is a different finding from a
+    # vendor that is steadily poor. Reviews and support contacts are counted
+    # separately because they are different evidence: a review is written
+    # afterwards, a support contact happened during.
+    sql_i_rev = f"""
+SELECT COUNT(DISTINCT r.booking_id) AS c
+{_reviews_from}
+LEFT JOIN UNNEST(r.issues) AS iss
+LEFT JOIN UNNEST(iss.l2_issues) AS l2v
+WHERE f.vendor_id = @vid
+  AND DATE(b.experience_date) = {anchor_sql}
+  AND {_norm_sql('l2v')} IN UNNEST(@l2v)
+"""
+    sql_i_sup = f"""
+SELECT COUNT(DISTINCT sq.booking_id) AS c
+{_support_from}
+WHERE b.vendor_id = @vid
+  AND DATE(b.experience_date) = {anchor_sql}
+  AND NOT sq.is_auto_resolved
+  AND NOT REGEXP_CONTAINS(IFNULL({_QUERY_CATEGORY_SQL}, ''), @nar)
+  AND {_norm_sql(_QUERY_CATEGORY_SQL)} IN UNNEST(@tags)
+"""
+    # Every booking on that date for the same vendor - the denominator both
+    # counts are read against.
+    sql_i_tot = f"""
+SELECT COUNT(DISTINCT b.booking_id) AS c
+FROM `{_BOOKINGS_TABLE}` b
+WHERE b.vendor_id = @vid AND DATE(b.experience_date) = {anchor_sql}
+"""
 
     nar_par  = {"nar": _NAR_PATTERN}
     ff_par   = {"ff_done":        ("STRING", _FF_COMPLETED_STATUSES),
@@ -818,7 +848,13 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         _run(sql_g, {"tid": tid, "vid": vid})        if pair else asyncio.sleep(0),
         _run(sql_h, {**base, **ff_par})              if vid else asyncio.sleep(0),
         _run(sql_h2, {**anchor_par, **ff_par, "tgid": tgid}) if tgid else asyncio.sleep(0),
-        _run(sql_i, {**base, **ff_par}) if (visit_date and vid) else asyncio.sleep(0),
+        (_run(sql_i_rev, {**anchor_par, "vid": vid, "l2v": ("STRING", variants)})
+         if (visit_date and vid and variants) else asyncio.sleep(0)),
+        (_run(sql_i_sup, {**anchor_par, "vid": vid, **nar_par,
+                          "tags": ("STRING", [_norm(t) for t in tags_spec])})
+         if (visit_date and vid and isinstance(tags_spec, list)) else asyncio.sleep(0)),
+        (_run(sql_i_tot, {**anchor_par, "vid": vid})
+         if (visit_date and vid) else asyncio.sleep(0)),
         return_exceptions=True,
     )
 
@@ -864,7 +900,9 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
 
     ff_vid  = _ff(results[8])
     ff_tgid = _ff(results[9])
-    ff_day  = _ff(results[10])
+    day_rev = _count(results[10])
+    day_sup = _count(results[11])
+    day_tot = _count(results[12])
 
     out = {
         "similar_reviews_30d":         sim_rev,
@@ -879,7 +917,7 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         "redemption":                  redemption,
         "ff_vid":                      ff_vid,
         "ff_tgid":                     ff_tgid,
-        "ff_same_day":                 ff_day,
+        "ff_same_day":                 None,
         # The dashboard still reads these names. They were never windows - the
         # TGID tile reads rating_15d and the TID.VID tile reads rating_30d -
         # so they are aliased to the right scope rather than renamed, and both
@@ -888,10 +926,14 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         "rating_30d": rating_tidvid,
         "vid_completion_rate":   ff_vid["rate"],
         "vidCompletionRate":     _pct(ff_vid["rate"]),
-        "same_day_same_vid":     ({"issues": ff_day["unfulfilled"], "total": ff_day["total"]}
-                                  if ff_day["total"] else None),
-        "sameDaySameVidIssues":  (f"{ff_day['unfulfilled']} of {ff_day['total']}"
-                                  if ff_day["total"] else "N/A"),
+        # Same visit date, same vendor, same issue - split by evidence type.
+        # "total" is every booking that vendor served that day, so a count can
+        # be read as a share of the day rather than as a bare number.
+        "same_day": {"reviews": day_rev, "support": day_sup, "total": day_tot},
+        "same_day_same_vid":     ({"issues": day_rev + day_sup, "total": day_tot}
+                                  if day_tot else None),
+        "sameDaySameVidIssues":  (f"{day_rev} reviews / {day_sup} support of "
+                                  f"{day_tot} bookings" if day_tot else "N/A"),
         "_window_days":     wd,
         "_anchored_on":     visit_date or "today",
         # Empty when everything was computed. Set when tid or vid was missing
