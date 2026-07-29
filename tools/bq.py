@@ -14,8 +14,13 @@ shell - backticks run commands, parentheses are syntax errors, and the useful
 half of the error message is about bash rather than the query. Wrapping it in
 one argument avoids all of that.
 
+    --whoami which GCP project runs these jobs, and as whom
     --dry    validate and report bytes scanned without running
     --limit  rows to print (default 50; the query is not modified)
+
+Quote SQL with SINGLE quotes. Backticks around a table name are command
+substitution inside double quotes, so the shell eats the table name before
+Python sees it.
 """
 import os
 import sys
@@ -34,8 +39,15 @@ def read_sql(argv):
                   and (i == 0 or argv[i - 1] not in ("-f", "--limit"))]
     if positional:
         return " ".join(positional)
-    if not sys.stdin.isatty():
-        return sys.stdin.read()
+    # Only read stdin when it is actually a pipe. isatty() alone is false in
+    # any non-interactive context - a CI step, a subprocess - and read() then
+    # blocks forever with no output to explain why.
+    import stat
+    try:
+        if stat.S_ISFIFO(os.fstat(sys.stdin.fileno()).st_mode):
+            return sys.stdin.read()
+    except (OSError, ValueError):
+        pass
     return ""
 
 
@@ -57,6 +69,19 @@ def render(rows, limit):
 
 def main():
     argv = sys.argv[1:]
+
+    if "--whoami" in argv:
+        if not BQ.available():
+            print("No BigQuery connection on this machine.\n"
+                  "Run this on Replit, where the connector is bound.")
+            return 2
+        # Which project runs and pays for these jobs. It comes from the Replit
+        # connector at runtime, not from anything in this repo, so the only
+        # honest way to answer "which project" is to ask the session.
+        render(BQ.run_query("SELECT @@project_id AS runs_in_project, "
+                            "SESSION_USER() AS acting_as"), 10)
+        return 0
+
     sql = read_sql(argv).strip().rstrip(";")
     if not sql:
         print(__doc__)
