@@ -210,4 +210,12 @@ if __name__ == "__main__":
                 # use" instead of quietly shadowing the first.
                 port=int(os.getenv("PORT", "5000")),
                 reload=_reload,
-                reload_excludes=["*.db", "*.log", "__pycache__/*", ".git/*"] if _reload else None)
+                # "*.db" alone is not enough. SQLite writes a rollback
+                # journal beside the database and, in WAL mode, a -wal and a
+                # -shm, and none of those match *.db. So every write during a
+                # pipeline run tripped the reloader, the restart killed the
+                # BackgroundTask mid-flight, and a re-run could never finish -
+                # which reads as "the re-run is slow" rather than as a crash.
+                reload_excludes=["*.db", "*.db-*", "*.sqlite", "*.sqlite-*",
+                                 "*.log", "__pycache__/*", "*.pyc",
+                                 ".git/*"] if _reload else None)
