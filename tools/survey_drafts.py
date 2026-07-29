@@ -42,6 +42,22 @@ def main():
     except (urllib.error.URLError, OSError) as e:
         print(f"Cannot reach {args.base}: {e}")
         return 2
+
+    # Same check the API test does. A stale process reports zeros for reasons
+    # that were fixed hours ago, and every conclusion drawn from that is wrong.
+    import subprocess
+    try:
+        v = get(args.base, "/api/version", timeout=15)
+        local = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True,
+                               text=True, timeout=10).stdout.strip()
+        if local and v.get("commit") and v["commit"] != local:
+            print(f"The server is running OLD code: {v['commit'][:7]} "
+                  f"(up {v.get('uptime_s')}s), working tree is {local[:7]}.\n"
+                  "RESTART THE SERVER - anything below would be from the old build.")
+            return 1
+    except Exception:
+        print("(could not confirm the server version - if results look stale, "
+              "restart it)\n")
     rows = rows if isinstance(rows, list) else (rows.get("reviews") or [])
     if not rows:
         print("No reviews on this server.")
@@ -62,7 +78,10 @@ def main():
             continue
         draft = (d or {}).get("draft") or {}
         b = draft.get("booking") or {}
-        bid = str(b.get("bid") or b.get("bookingId") or "")[:10]
+        # "id" is the key verify_bid and the pipeline actually write. Reading
+        # only bid/bookingId showed "-" for every row including ones that had a
+        # booking, which pointed the investigation at the wrong thing.
+        bid = str(b.get("id") or b.get("bid") or b.get("bookingId") or "")[:10]
         tid = str(b.get("tid") or "")[:6]
         vid = str(b.get("vid") or "")[:6]
         l2  = str(draft.get("l2") or "")[:26]

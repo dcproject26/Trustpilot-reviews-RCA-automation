@@ -2309,15 +2309,32 @@ function renderReviewCol() {
              </div>`).join('')}
          </div>
        </div>`
-    : `<div class="section">
+    : (() => {
+        // When the booking was found by its id, no indicators were ever needed
+        // and their absence is not a problem. Rendering an amber "Matching has
+        // no indicators to search on" next to a green "Direct match · BID
+        // confirmed" reads as a contradiction and makes a healthy match look
+        // broken.
+        //
+        // Derived here rather than trusting the server to have set
+        // matching_skipped: the client already knows the match tier, and a
+        // draft written before that field existed would still show the alarm.
+        const _bidMatched = !!(r.booking && (r.booking.bid || r.booking.id))
+                            && (r.matchTier === 1 || r.match_tier === 1
+                                || _sig.matching_skipped);
+        const _msg = _sig.matching_skipped
+          || (_bidMatched
+              ? `Not needed — the review carried its booking id, so the booking was
+                 found directly rather than by searching on indicators.`
+              : `Nothing extracted — no venue, city, date or name found in the review
+                 text. Matching has no indicators to search on.`);
+        return `<div class="section">
          <div class="section-label"><span class="marker"></span>Extracted from review<span class="ai-tag-inline">AI</span></div>
-         <div class="chk-none" style="font-size:12px;color:${_sig.matching_skipped ? 'var(--text-mute)' : 'var(--amber)'}">
-           ${_sig.matching_skipped
-             ? _sig.matching_skipped
-             : `Nothing extracted — no venue, city, date or name found in the review text.
-                Matching has no indicators to search on.`}
+         <div class="chk-none" style="font-size:12px;color:${_bidMatched ? 'var(--text-mute)' : 'var(--amber)'}">
+           ${_msg}
          </div>
        </div>`;
+      })();
 
   // Slack pings referencing this BID — ops/escalation/SP chatter that never
   // reaches Zendesk but is part of what actually happened to the booking.
