@@ -585,6 +585,10 @@
   #build-stamp.is-deploy {
     color: var(--amber); opacity: .95; font-weight: 600;
   }
+  .tile-n {
+    font-size: 11px; font-weight: 400; color: var(--text-mute);
+    letter-spacing: 0; margin-left: 2px;
+  }
   #build-stamp {
     position: fixed; right: 8px; bottom: 6px; z-index: 40;
     font-size: 10px; font-family: var(--mono, monospace);
@@ -2571,6 +2575,15 @@ function renderReviewCol() {
           const _ffAttnT = li.ff_tgid ? !!li.ff_tgid.needs_attention
                                       : (li.tgid_completion_rate != null
                                          && li.tgid_completion_rate < 0.95);
+          // Sample size, shown only when it changes how the number should be
+          // read. Over 100 bookings the rate stands on its own; under it, the
+          // ops rule says the rate is noise and the count is the honest
+          // caveat. Zero is not a dash - "no bookings in this window" is a
+          // fact about the vendor, and a dash reads as a broken query.
+          const _rate = (r, n) =>
+            n === 0 ? 'no bookings'
+            : r == null ? '—'
+            : `${(r * 100).toFixed(1)}%` + (n < 100 ? ` <span class="tile-n">of ${n}</span>` : '');
           const _rr = li.review_ratio || 0;
           const _sr = li.support_ratio || 0;
 
@@ -2588,19 +2601,19 @@ function renderReviewCol() {
             ${_why ? `<div class="insight-note">${_why}</div>` : ''}
             <div class="insight-tile ${_ratTgid.avg == null ? 'grey' : ''}">
               <div class="insight-tile-label">Rating · TGID</div>
-              <div class="insight-tile-value">${_ratTgid.avg != null ? `${_ratTgid.avg} ★` : '—'}</div>
+              <div class="insight-tile-value">${_ratTgid.avg != null ? `${_ratTgid.avg} ★ <span class="tile-n">of ${_rTgidN}</span>` : '—'}</div>
             </div>
             <div class="insight-tile ${_ratTv.avg == null ? 'grey' : ''}">
               <div class="insight-tile-label">Rating · TID &middot; VID</div>
-              <div class="insight-tile-value">${_ratTv.avg != null ? `${_ratTv.avg} ★` : '—'}</div>
+              <div class="insight-tile-value">${_ratTv.avg != null ? `${_ratTv.avg} ★ <span class="tile-n">of ${_rTvN}</span>` : '—'}</div>
             </div>
             <div class="insight-tile ${_rr > 0.15 ? 'red' : ''}">
               <div class="insight-tile-label">Review ratio</div>
-              <div class="insight-tile-value" style="${_rr > 0.15 ? 'color:var(--red)' : ''}">${li.total_reviews_30d ? `${(_rr * 100).toFixed(1)}%` : '—'}</div>
+              <div class="insight-tile-value" style="${_rr > 0.15 ? 'color:var(--red)' : ''}">${li.total_reviews_30d ? `${(_rr * 100).toFixed(1)}% <span class="tile-n">of ${li.total_reviews_30d}</span>` : 'no reviews'}</div>
             </div>
             <div class="insight-tile ${_sr > 0.15 ? 'red' : ''}">
               <div class="insight-tile-label">Support ratio</div>
-              <div class="insight-tile-value" style="${_sr > 0.15 ? 'color:var(--red)' : ''}">${li.total_support_queries_30d ? `${(_sr * 100).toFixed(1)}%` : '—'}</div>
+              <div class="insight-tile-value" style="${_sr > 0.15 ? 'color:var(--red)' : ''}">${li.total_support_queries_30d ? `${(_sr * 100).toFixed(1)}% <span class="tile-n">of ${li.total_support_queries_30d}</span>` : 'no contacts'}</div>
             </div>
             <div class="insight-tile">
               <div class="insight-tile-label">Similar reviews</div>
@@ -2612,14 +2625,14 @@ function renderReviewCol() {
             </div>
             <div class="insight-tile ${_ffAttnT ? 'red' : li.tgid_completion_rate == null ? 'grey' : ''}">
               <div class="insight-tile-label">Completion · TGID</div>
-              <div class="insight-tile-value">${li.tgid_completion_rate != null ? `${(li.tgid_completion_rate * 100).toFixed(1)}%` : '—'}</div>
+              <div class="insight-tile-value">${_rate(li.tgid_completion_rate, (li.ff_tgid || {}).total ?? null)}</div>
               ${_ffAttnT
                 ? '<button class="flag-biz-btn" data-flag-biz>⚑ Flag to Biz · draft message</button>'
                 : ''}
             </div>
             <div class="insight-tile ${_ffAttn ? 'red' : li.vid_completion_rate == null ? 'grey' : ''}">
               <div class="insight-tile-label">Completion · VID</div>
-              <div class="insight-tile-value">${li.vid_completion_rate != null ? `${(li.vid_completion_rate * 100).toFixed(1)}%` : '—'}</div>
+              <div class="insight-tile-value">${_rate(li.vid_completion_rate, (li.ff_vid || {}).total ?? null)}</div>
             </div>
             ${(() => {
               // Reviews and support kept apart, not summed. They are different
