@@ -2586,11 +2586,11 @@ function renderReviewCol() {
 
           return `<div class="insights-grid">
             ${_why ? `<div class="insight-note">${_why}</div>` : ''}
-            <div class="insight-tile ${_rTgidN === 0 ? 'grey' : ''}">
+            <div class="insight-tile ${_ratTgid.avg == null ? 'grey' : ''}">
               <div class="insight-tile-label">Rating · TGID</div>
               <div class="insight-tile-value">${_ratTgid.avg != null ? `${_ratTgid.avg} ★` : '—'}</div>
             </div>
-            <div class="insight-tile ${_rTvN === 0 ? 'grey' : ''}">
+            <div class="insight-tile ${_ratTv.avg == null ? 'grey' : ''}">
               <div class="insight-tile-label">Rating · TID &middot; VID</div>
               <div class="insight-tile-value">${_ratTv.avg != null ? `${_ratTv.avg} ★` : '—'}</div>
             </div>
@@ -2621,10 +2621,26 @@ function renderReviewCol() {
               <div class="insight-tile-label">Completion · VID</div>
               <div class="insight-tile-value">${li.vid_completion_rate != null ? `${(li.vid_completion_rate * 100).toFixed(1)}%` : '—'}</div>
             </div>
-            <div class="insight-tile ${li.same_day_same_vid && li.same_day_same_vid.issues > 0 ? 'red' : li.same_day_same_vid == null ? 'grey' : ''}">
-              <div class="insight-tile-label">Same-Day Issues</div>
-              <div class="insight-tile-value">${li.same_day_same_vid ? `${_n(li.same_day_same_vid.issues)} / ${_n(li.same_day_same_vid.total)}` : '—'}</div>
-            </div>
+            ${(() => {
+              // Reviews and support kept apart, not summed. They are different
+              // evidence - a review is written afterwards by someone who chose
+              // to, a support contact happened during and needed answering -
+              // and one number hides which is driving it.
+              const sd = li.same_day;
+              if (!sd) return `<div class="insight-tile grey">
+                  <div class="insight-tile-label">Same-Day · Same Issue</div>
+                  <div class="insight-tile-value">—</div>
+                </div>`;
+              const hot = (sd.reviews + sd.support) > 0;
+              return `<div class="insight-tile ${hot ? 'red' : ''}">
+                  <div class="insight-tile-label">Same-Day · Reviews</div>
+                  <div class="insight-tile-value">${_n(sd.reviews)}</div>
+                </div>
+                <div class="insight-tile ${hot ? 'red' : ''}">
+                  <div class="insight-tile-label">Same-Day · Support</div>
+                  <div class="insight-tile-value">${_n(sd.support)}</div>
+                </div>`;
+            })()}
           </div>`;
         })() : `
         <div class="insights-grid">
