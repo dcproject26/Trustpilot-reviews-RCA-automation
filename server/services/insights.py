@@ -1068,6 +1068,14 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
             if _norm(label) in _GUEST_CANCELS:
                 guest[0] += n
                 continue
+            # A row with neither a status nor a completion type has no reason
+            # to give. It rendered as a bare count against an empty chip -
+            # "3 " - which reads as a label that failed to load rather than as
+            # a booking the warehouse cannot classify.
+            if not label or label == "(none)":
+                out.append({"reason": "no fulfilment record", "status": st,
+                            "type": ct, "count": n})
+                continue
             out.append({"reason": label, "status": st, "type": ct, "count": n})
         return out
 
@@ -1142,6 +1150,20 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
              "support contacts not compared"),
             ("" if not (pair and skip_a) else
              f"no L2 variants for {l2 or '?'} - reviews not compared"),
+            # An honest empty population, said out loud.
+            #
+            # Booking 32908218 is tour 43605 / vendor 4040 on experience 22238.
+            # In the 30 days before its visit that experience sold 7 bookings -
+            # every one of them through tour 46590 / vendor 3753. So every
+            # TID+VID tile was correctly zero and the TGID tiles correctly were
+            # not, and the panel gave no way to tell that apart from a broken
+            # query. Six unexplained zeros next to a working completion rate is
+            # a bug report waiting to happen; it took a warehouse round trip to
+            # rule out, and the answer was in the numbers already on screen.
+            ("" if not (pair and not tot_bkg and (ff_tgid or {}).get("total"))
+             else f"this tour and vendor had no bookings in this window - the "
+                  f"experience had {ff_tgid['total']} through others, which is "
+                  f"what the TGID tiles count"),
         ])),
         # Which queries broke. A tile whose query is in here has no number, and
         # must not be rendered as a zero: "no negative reviews" is a claim
