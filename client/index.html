@@ -2530,6 +2530,17 @@ function renderReviewCol() {
     <div class="section">
       <div class="section-label"><span class="marker"></span>Experience Insights</div>
       <div class="insights-wrap">
+        <!-- Outside the branch on purpose. This used to live only in the
+             fallback arm, so the moment real insights arrived the picker
+             vanished and the window could not be changed at all. -->
+        <div class="insights-header">
+          <div class="insights-title">Window:</div>
+          <div class="window-picker">
+            <button class="window-btn ${state.insightsWindow === '7d' ? 'active' : ''}" data-window="7d">7d</button>
+            <button class="window-btn ${state.insightsWindow === '30d' ? 'active' : ''}" data-window="30d">30d</button>
+            <button class="window-btn ${state.insightsWindow === '90d' ? 'active' : ''}" data-window="90d">90d</button>
+          </div>
+        </div>
         ${r.liveInsights ? (() => {
           const li = r.liveInsights;
           const _pct = (v) => (v == null || (v === 0 && li.total_reviews_30d === 0)) ? '—' : `${(v * 100).toFixed(1)}%`;
@@ -2598,14 +2609,6 @@ function renderReviewCol() {
             </div>
           </div>`;
         })() : `
-        <div class="insights-header">
-          <div class="insights-title">Window:</div>
-          <div class="window-picker">
-            <button class="window-btn ${state.insightsWindow === '7d' ? 'active' : ''}" data-window="7d">7d</button>
-            <button class="window-btn ${state.insightsWindow === '30d' ? 'active' : ''}" data-window="30d">30d</button>
-            <button class="window-btn ${state.insightsWindow === '90d' ? 'active' : ''}" data-window="90d">90d</button>
-          </div>
-        </div>
         <div class="insights-grid">
           <div class="insight-tile ${ins.tgidRating.tone}">
             <div class="insight-tile-label">TGID Rating</div>
