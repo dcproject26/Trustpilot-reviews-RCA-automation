@@ -84,6 +84,23 @@ def main():
         return 1
 
     check("200", status == 200, f"got {status}")
+
+    # A response carrying keys this build no longer emits means the process is
+    # running code from before the pull. Say so once, here, instead of letting
+    # it surface as twenty downstream failures that all have one cause.
+    stale_markers = [k for k in ("escalation",) if k in body]
+    if stale_markers or ("insights" not in body and "review_ratio" in body):
+        print(f"\n  !! The server is running OLD code.")
+        if stale_markers:
+            print(f"     Response still contains {stale_markers} - removed from "
+                  "this build,\n     so the running process predates it.")
+        else:
+            print("     Response is the pre-merge bare shape, with no "
+                  "'insights' wrapper.")
+        print("     git pull updates files; uvicorn loaded server/api.py at "
+              "startup.\n     RESTART THE SERVER, then run this again.\n")
+        return 1
+
     check("has 'insights'", isinstance(body, dict) and "insights" in body,
           f"keys={sorted(body)[:6]}")
     check("has 'window'", "window" in body)
