@@ -368,6 +368,31 @@ async def get_review_insights(review_id: str, window: str = "",
     l2 = d.l2 or ""
     wd = window_days(window or None)
 
+    # A draft carrying a booking id but no tid/vid is a BigQuery lookup that
+    # never happened. get_insights resolves it anyway, but only for itself -
+    # persisting it here means the booking card fills in too, and the next
+    # request does not repeat the query.
+    bid = str(booking.get("bid") or booking.get("bookingId")
+              or booking.get("id") or "").strip()
+    if bid.isdigit() and not (booking.get("tid") and booking.get("vid")):
+        from server.services.bigquery_patch import verify_bid
+        import asyncio as _aio
+        try:
+            resolved = await _aio.get_running_loop().run_in_executor(
+                None, verify_bid, bid)
+        except Exception as e:
+            log.warning(f"[insights] verify_bid({bid}) failed: {e}")
+            resolved = None
+        if resolved:
+            for k in ("tid", "vid", "tgid", "date_of_visit", "experienceName",
+                      "vendorName", "booking_status", "tid_name"):
+                if resolved.get(k) and not booking.get(k):
+                    booking[k] = resolved[k]
+            d.booking = booking
+            flag_modified(d, "booking")
+            db.commit()
+            log.info(f"[insights] backfilled booking {bid} onto draft {review_id}")
+
     cached = d.insights or {}
     cache_valid = False
     if cached.get("_computed_for_l2") == l2 and cached.get("_window_days") == wd:

@@ -539,6 +539,28 @@ async def get_insights(booking: dict, l1: str | None, l2: str | None,
     tgid       = str(booking.get("tgid") or "").strip()
     visit_date = str(booking.get("visitDate") or booking.get("date_of_visit") or "").strip()
 
+    # A booking id is enough. tid, vid and tgid are one lookup away in
+    # fct_bookings, and verify_bid already does exactly that - it is what
+    # resolves a booking everywhere else in this system. Returning zeros
+    # because the draft happened not to carry them was answering a question
+    # nobody asked: the ids are derivable, so derive them.
+    bid = str(booking.get("bid") or booking.get("bookingId")
+              or booking.get("id") or "").strip()
+    if not (tid and vid and tgid) and bid.isdigit():
+        try:
+            from server.services.bigquery_patch import verify_bid
+            loop = asyncio.get_running_loop()
+            resolved = await loop.run_in_executor(None, verify_bid, bid)
+        except Exception as e:
+            log.warning(f"[insights] verify_bid({bid}) failed: {e}")
+            resolved = None
+        if resolved:
+            tid  = tid  or str(resolved.get("tid") or "").strip()
+            vid  = vid  or str(resolved.get("vid") or "").strip()
+            tgid = tgid or str(resolved.get("tgid") or "").strip()
+            visit_date = visit_date or str(resolved.get("date_of_visit") or "").strip()
+            log.info(f"[insights] resolved {bid} -> tid={tid} vid={vid} tgid={tgid}")
+
     # Only give up when there is nothing at all to key on.
     #
     # This used to bail whenever tid or vid was missing, which threw away three
@@ -550,7 +572,9 @@ async def get_insights(booking: dict, l1: str | None, l2: str | None,
     # them as zero says something false about a vendor rather than nothing.
     if not tid and not vid and not tgid:
         log.warning("[insights] no tid, vid or tgid - returning zeros")
-        return _zero_result(l2, wd, "no confirmed booking - no tid, vid or tgid")
+        return _zero_result(l2, wd,
+                            f"booking {bid} did not resolve in fct_bookings"
+                            if bid else "no booking id on the draft")
 
     # The issue-comparison half needs BOTH tid and vid: every one of those
     # queries filters on the pair, and running them with half of it would
