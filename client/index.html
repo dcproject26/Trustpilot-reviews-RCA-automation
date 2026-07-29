@@ -520,6 +520,22 @@
   .tl-actor.review { color: var(--red); }
   .tl-actor.ai { color: #FA8BFF; }
   .tl-summary { color: var(--text); line-height: 1.5; }
+  .tl-internal { opacity: .55; }
+  .tl-flag {
+    font-size: 10px; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--amber); border: 1px solid var(--amber); border-radius: 3px;
+    padding: 0 4px; margin-left: 6px; white-space: nowrap;
+  }
+  .tl-tid {
+    font-size: 10px; color: var(--text-mute); margin-left: 6px;
+    text-decoration: none; border-bottom: 1px dotted var(--text-mute);
+  }
+  .tl-tid:hover { color: var(--accent); border-bottom-color: var(--accent); }
+  .tl-hidden-note {
+    font-size: 11px; color: var(--text-mute); cursor: pointer;
+    padding: 7px 0 2px; user-select: none;
+  }
+  .tl-hidden-note:hover { color: var(--accent); }
   .timeline-summary {
     margin-top: 10px;
     padding-top: 10px;
@@ -2065,11 +2081,19 @@ async function loadDraftOverlays() {
       // ── Timeline → events ─────────────────────────────────────────────────
       if (Array.isArray(draft.timeline) && draft.timeline.length) {
         r.events = draft.timeline.map(t => ({
-          time:    t.time    || '',
-          thread:  t.thread  || 'email',
-          actor:   t.actor   || '',
-          label:   t.label   || '',
-          summary: t.summary || '',
+          time:      t.time    || '',
+          // Sortable ISO alongside the display string. Never shown; it is
+          // what makes the order checkable rather than assumed.
+          time_sort: t.time_sort || '',
+          thread:    t.thread  || 'email',
+          actor:     t.actor   || '',
+          label:     t.label   || '',
+          summary:   t.summary || '',
+          // Which ticket this came from, so an entry can be opened and
+          // verified instead of believed.
+          ticket_id: t.ticket_id || '',
+          is_internal:     !!t.is_internal,
+          internal_reason: t.internal_reason || '',
         }));
       }
 
@@ -2185,6 +2209,10 @@ const state = {
   filter: 'identified',
   actionTab: 'sp',
   insightsWindow: '90d',
+  // Machinery is hidden by default - it was ~8 of 14 events on a real
+  // review, and an associate writing an RCA should not be scrolling past
+  // Selenium runs to find the two events that matter.
+  tlShowInternal: false,
 };
 
 // fire once REVIEWS + state exist; fetchInbox merges API rows then loads drafts
@@ -2287,56 +2315,56 @@ function renderReviewCol() {
 
   const b = r.booking;
 
+  // The pipeline now settles thread, actor, timestamp, machinery and ticket
+  // id where the event is built. This used to redo all of it here: filtering
+  // machinery by regex over rendered text, converting a second timestamp
+  // format, and INFERRING the thread pill from whether a Claude-written
+  // summary happened to contain the word "chat". Every one of those was a
+  // repair applied after the wrong data had been stored, in the one place it
+  // could not be tested - and each one hid the upstream bug it was covering.
+  //
+  // What is left is a display decision: machinery is hidden by default and
+  // counted, so an associate reads the guest's story and can still get at the
+  // rest. Nothing is dropped silently.
   function _normTlEvent(e) {
-    // 1. Filter internal noise rows
-    const raw = ((e.label || '') + ' ' + (e.summary || '')).toLowerCase();
-    if (/pseudo.?email|credential|passwo|interaction.?tag|transcript.?log|ai.?resolved|bot.?tag|chat session|conversation opened/.test(raw)) return null;
-
-    // 2. Normalize ISO date-only times → "DD Mon"
-    let time = e.time || '';
-    if (/^\d{4}-\d{2}-\d{2}$/.test(time.trim())) {
-      try {
-        const d = new Date(time.trim() + 'T00:00:00Z');
-        time = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', timeZone: 'UTC' });
-      } catch (_) { /* keep as-is */ }
-    }
-
-    // 3. Strip "(×N)" artifacts from labels
-    const label = (e.label || '').replace(/\s*\(×\d+\)\s*$/, '').trim();
-
-    // 4. Infer correct thread pill from label + summary; suppress pill on bookends
-    let thread = e.thread || '';
-    // Bookends are identified by ACTOR, not by thread. They carry
-    // thread "booking" / "review" (prompts.py) and this checked for
-    // "system", so it never once fired: every bookend rendered with a
-    // conversation pill saying it belonged to a thread it is not part of.
+    // Bookends carry actor creation/review and thread booking/review. They
+    // frame the timeline and belong to no conversation, so no channel pill.
     const isBookend = e.actor === 'creation' || e.actor === 'review';
-    if (!isBookend && (!thread || thread === 'email')) {
-      const lsLow = (label + ' ' + (e.summary || '')).toLowerCase();
-      if (/\bchat\b|\bwhatsapp\b|\bmessage\b/.test(lsLow)) thread = 'chat';
-      else if (/\bcall\b|\bphone\b|\bvoice\b/.test(lsLow))  thread = 'call';
-      else if (/\bsp\b|\bsupply.?partner\b|\boperator\b/.test(lsLow)) thread = 'sp';
-      else thread = e.thread || 'email';
-    }
-
-    return { ...e, time, label, thread, _isBookend: isBookend };
+    const isElided  = /comments elided/.test(e.label || '');
+    return { ...e, _isBookend: isBookend, _isElided: isElided,
+             time: e.time || '', label: (e.label || '').trim() };
   }
 
-  const events = (r.events || [])
-    .map(_normTlEvent)
-    .filter(Boolean)
-    .map(e => `
-    <div class="tl-event">
-      <div class="tl-time">${e.time}</div>
+  const _allEvents = (r.events || []).map(_normTlEvent);
+  const _internal  = _allEvents.filter(e => e.is_internal);
+  const _shown     = state.tlShowInternal ? _allEvents
+                                          : _allEvents.filter(e => !e.is_internal);
+
+  const _zdBase = (r.zendeskSubdomain || 'headout');
+  const events = _shown.map(e => `
+    <div class="tl-event${e.is_internal ? ' tl-internal' : ''}">
+      <div class="tl-time" title="${e.time_sort || ''}">${e.time}</div>
       <div class="tl-content">
         <div class="tl-header">
-          ${(!e._isBookend && e.thread) ? `<span class="tl-thread ${e.thread}">${e.thread}</span>` : ''}
+          ${(!e._isBookend && !e._isElided && e.thread)
+              ? `<span class="tl-thread ${e.thread}">${e.thread}</span>` : ''}
           <div class="tl-actor ${e.actor}">${e.label}</div>
+          ${e.is_internal
+              ? `<span class="tl-flag" title="Headout machinery, not part of the guest&#39;s story">${e.internal_reason || 'internal'}</span>`
+              : ''}
+          ${e.ticket_id
+              ? `<a class="tl-tid" href="https://${_zdBase}.zendesk.com/agent/tickets/${e.ticket_id}" target="_blank" rel="noopener" title="open ZD-${e.ticket_id}">ZD-${e.ticket_id}</a>`
+              : ''}
         </div>
-        <div class="tl-summary">${e.summary}</div>
+        <div class="tl-summary">${e.summary || ''}</div>
       </div>
     </div>
-  `).join('');
+  `).join('')
+  + (_internal.length && !state.tlShowInternal
+      ? `<div class="tl-hidden-note" data-tl-toggle>${_internal.length} internal event${_internal.length === 1 ? '' : 's'} hidden · show</div>`
+      : _internal.length
+        ? `<div class="tl-hidden-note" data-tl-toggle>showing ${_internal.length} internal event${_internal.length === 1 ? '' : 's'} · hide</div>`
+        : '');
 
   const ins = r.insights;
   const similarSupport = ins.similarSupport || [];
@@ -2823,6 +2851,17 @@ function renderReviewCol() {
       </div>
     </div>
   `;
+
+  // Machinery toggle. Hiding is a display choice, so it is reversible and it
+  // says how many it hid - a filter that silently removes rows is how the
+  // regex in the old renderer went unnoticed for so long.
+  const tlToggle = col.querySelector('[data-tl-toggle]');
+  if (tlToggle) {
+    tlToggle.addEventListener('click', () => {
+      state.tlShowInternal = !state.tlShowInternal;
+      renderReviewCol();
+    });
+  }
 
   // Window picker — recompute against the chosen range. This used to only set
   // state and re-render, so the caption changed ("· 90d") while the number
