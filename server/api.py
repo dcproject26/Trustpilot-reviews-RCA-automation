@@ -460,9 +460,19 @@ def get_version():
     except OSError:
         pass
 
+    # Dev repl or published deployment? A deployment is a frozen snapshot that
+    # only changes when Deploy is pressed - a git pull in the repl does not
+    # touch it. Reading a deployment URL while pulling into the repl looks
+    # exactly like a fix that did not work, for every fix, indefinitely.
+    # Replit names this var differently across runtimes, so check the lot.
+    is_deploy = any(os.environ.get(k) for k in
+                    ("REPLIT_DEPLOYMENT", "REPL_DEPLOYMENT",
+                     "REPLIT_DEPLOYMENT_ID", "REPLIT_CLUSTER_DEPLOYMENT"))
     return {
         "commit":     sha,
         "short":      sha[:7],
+        "environment": "deployment" if is_deploy else "dev",
+        "reload":     os.environ.get("UVICORN_RELOAD", "") .lower() in ("1", "true", "yes"),
         "started_at": _STARTED_AT,
         "uptime_s":   int((datetime.now(timezone.utc)
                            - datetime.fromisoformat(_STARTED_AT)).total_seconds()),

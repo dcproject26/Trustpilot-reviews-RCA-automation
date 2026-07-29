@@ -579,6 +579,9 @@
     min-width: 0;
     overflow: hidden;
   }
+  #build-stamp.is-deploy {
+    color: var(--amber); opacity: .95; font-weight: 600;
+  }
   #build-stamp {
     position: fixed; right: 8px; bottom: 6px; z-index: 40;
     font-size: 10px; font-family: var(--mono, monospace);
@@ -3830,10 +3833,20 @@ renderRcaCol();
     if (!r.ok) return;
     const v = await r.json();
     const el = document.getElementById('build-stamp');
-    if (el) {
-      el.textContent = 'build ' + (v.short || '?');
-      el.title = 'server ' + (v.commit || '') + ' - up ' + (v.uptime_s || 0) + 's';
-    }
+    if (!el) return;
+    // Say which server this page is talking to, not just which commit. A
+    // deployment is a frozen snapshot that a git pull does not touch, so
+    // reading one while pulling into the repl looks like every fix failing.
+    const env = v.environment || '?';
+    el.textContent = 'build ' + (v.short || '?') + ' · ' + env;
+    el.title = 'server ' + (v.commit || '') + '\nenvironment: ' + env
+             + '\nreload: ' + (v.reload ? 'on' : 'off')
+             + '\nup ' + (v.uptime_s || 0) + 's'
+             + (env === 'deployment'
+                ? '\n\nThis is a PUBLISHED DEPLOYMENT. It only changes when you '
+                  + 'press Deploy - a git pull in the repl does not affect it.'
+                : '');
+    if (env === 'deployment') el.classList.add('is-deploy');
   } catch (e) { /* not worth surfacing */ }
 })();
 </script>
