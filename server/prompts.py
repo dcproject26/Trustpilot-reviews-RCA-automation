@@ -1041,6 +1041,29 @@ def _fmt_date_ist(dt_str: str) -> str:
         return str(dt_str)[:16]
 
 
+def _fmt_bookend_time(dt_str: str) -> str:
+    """Bookend timestamp in the same shape zendesk._to_ist gives real events."""
+    # The review's publish date reaches this prompt as a bare '%Y-%m-%d' (built by
+    # pipeline.py) and the booking date as 'DD Mon YYYY'. Interpolating either one
+    # straight into the bookend example handed the model timestamps no real event
+    # ever carries, so the bookends rendered and sorted as a special case - the
+    # client ended up hand-patching ISO strings back into 'DD Mon' to cope.
+    ist = _fmt_date_ist(dt_str)
+    if ist.endswith(" IST"):
+        return ist
+    # Real events carry no year, so a date-only source degrades to 'DD Mon'.
+    # Matched on shape rather than on word count: a three-word string is not
+    # necessarily 'DD Mon YYYY', and blindly keeping the first two words turned
+    # an unparseable value into a plausible-looking date fragment - 'not a
+    # date' became 'not a', which would have sat in the timeline as if it were
+    # a timestamp.
+    parts = ist.split()
+    if (len(parts) == 3 and parts[0].isdigit() and len(parts[0]) <= 2
+            and parts[2].isdigit() and len(parts[2]) == 4):
+        return " ".join(parts[:2])
+    return ist
+
+
 def zendesk_timeline_shape_prompt(
     booking: dict,
     review_body: str,
@@ -1059,7 +1082,8 @@ def zendesk_timeline_shape_prompt(
       the specific action taken.
     """
     bk = booking or {}
-    booking_date_fmt = _fmt_date_ist(bk.get("date_of_booking") or bk.get("creationDate") or "")
+    booking_date_fmt = _fmt_bookend_time(bk.get("date_of_booking") or bk.get("creationDate") or "")
+    review_date_fmt  = _fmt_bookend_time(review_pub_date) if review_pub_date else "unknown"
     visit_date_raw   = bk.get("visitDate") or bk.get("date_of_visit") or ""
     visit_date_fmt   = _fmt_date_ist(visit_date_raw) if visit_date_raw else "the visit date"
 
@@ -1089,14 +1113,18 @@ analyst should read it top-to-bottom and instantly understand: did the guest
 reach out, HOW (channel), WHY (what they asked), WHAT we did or offered, and
 whether the booking was fulfilled / resolved.
 === INSTRUCTIONS ===
-1. INJECT two bookend events (not present in raw_events):
+1. INJECT two bookend events (not present in raw_events). They frame the timeline
+   and are system-generated markers, NOT guest or agent speech: copy their
+   idx_range, time, thread, actor and label EXACTLY as written below. Never swap in
+   a person actor ("guest", "co", "sp", "ai"), never move them onto a conversation
+   thread ("email", "chat", "call"), and never name or quote a person in them.
    - FIRST — Booking created:
      {{"idx_range": [], "time": "{booking_date_fmt}",
        "thread": "booking", "actor": "creation",
        "label": "Booking created",
        "summary": "<WHAT the guest actually booked — variant / pax / options selected, and notably any upsell or add-on NOT selected at checkout (e.g. '2nd Floor only — Summit upsell not selected at checkout'). Draw this from the booking metadata. Do NOT write the full experience name.>", "keep": true}}
    - LAST — Review posted:
-     {{"idx_range": [], "time": "{review_pub_date or 'unknown'}",
+     {{"idx_range": [], "time": "{review_date_fmt}",
        "thread": "review", "actor": "review",
        "label": "Review posted", "summary": "Negative Trustpilot review posted, BID referenced.", "keep": true}}
 2. KEEP only events that are part of the guest's story:
@@ -1140,10 +1168,11 @@ whether the booking was fulfilled / resolved.
    → "SP response". No ticket IDs, no "[ZD-xxxxx]", no "(×N)" suffixes.
 7. COLLAPSE consecutive events about ONE action (same moment) into a single event;
    list every collapsed idx in idx_range. Do NOT emit "(×N)" in the label.
-8. TIME — copy each raw event's timestamp exactly as given (already 'DD Mon HH:MM').
-   The bookends use the booking / review date-time as 'DD Mon HH:MM' when a clock
-   time is available, else 'DD Mon'. Keep the format consistent across every event —
-   never emit a raw ISO date like "2026-07-22".
+8. TIME — copy each raw event's timestamp exactly as given (already 'DD Mon HH:MM IST').
+   Both bookends above already carry their time in that same format ('DD Mon HH:MM IST',
+   or 'DD Mon' when the source has no clock time) — copy those strings verbatim.
+   Never reformat, re-derive or re-timezone a timestamp, and never emit a raw ISO
+   date like "2026-07-22" (including the Published: value in the REVIEW block).
 9. ORDER — Booking created first, kept events in chronological order, Review posted last.
 Return ONLY valid JSON — a list of shaped event objects, nothing else:
 [

@@ -2306,7 +2306,11 @@ function renderReviewCol() {
 
     // 4. Infer correct thread pill from label + summary; suppress pill on bookends
     let thread = e.thread || '';
-    const isBookend = thread === 'system';
+    // Bookends are identified by ACTOR, not by thread. They carry
+    // thread "booking" / "review" (prompts.py) and this checked for
+    // "system", so it never once fired: every bookend rendered with a
+    // conversation pill saying it belonged to a thread it is not part of.
+    const isBookend = e.actor === 'creation' || e.actor === 'review';
     if (!isBookend && (!thread || thread === 'email')) {
       const lsLow = (label + ' ' + (e.summary || '')).toLowerCase();
       if (/\bchat\b|\bwhatsapp\b|\bmessage\b/.test(lsLow)) thread = 'chat';

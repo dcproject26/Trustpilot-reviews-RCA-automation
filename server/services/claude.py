@@ -460,11 +460,19 @@ async def generate_rca_v3(
 # ─── 6b. Support event summarisation (Zendesk → frames) ─────────────────────
 _EMPTY_FRAME = {"guestSaid": "", "weDid": "", "guestReply": "", "gap": ""}
 
+# The Booking-created / Review-posted bookends are injected frame markers, not
+# messages from anyone. pipeline.py frames every timeline row, so these two were
+# being fed to a prompt that asks "what did the guest say / what did we do",
+# which is an invitation to attribute a bookend to a person and to invent a gap.
+_BOOKEND_ACTORS = {"creation", "review"}
+
 
 async def summarise_support_event(event: dict, prev: dict | None,
                                    next_: dict | None) -> dict:
     """guestSaid / weDid / guestReply / gap for one timeline event."""
     if not is_live("anthropic"):
+        return dict(_EMPTY_FRAME)
+    if str((event or {}).get("actor", "")).strip().lower() in _BOOKEND_ACTORS:
         return dict(_EMPTY_FRAME)
     raw = await _call(prompts.support_event_prompt(event, prev, next_),
                       max_tokens=500)
