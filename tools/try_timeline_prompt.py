@@ -117,8 +117,10 @@ findable; one you quietly corrected is not.
      actor "sp"      -> "SP response"
      actor "system" / "ai" -> the machine action AND ITS OUTCOME: "Fulfilment
                         run failed", "Tickets sent", "Booking-in-progress email
-                        sent", "Credentials generated", "Chat transcript
-                        logged". Say what happened, not what was tried -
+                        sent", "Credentials generated". Name the specific
+                        machine that ran: a fulfilment attempt is "Fulfilment
+                        run ...", never the name of the email beside it.
+                        Say what happened, not what was tried -
                         "Fulfilment run attempted" leaves the reader to find
                         out whether it worked, and whether it worked is the
                         whole reason the row is here.
@@ -135,6 +137,15 @@ findable; one you quietly corrected is not.
                         were told, in that order. Attribute inside the summary
                         ("Guest asked ... ; agent said ...") - that is accurate
                         about a transcript in a way the actor field cannot be.
+   ONE LABEL PER EVENT, TAKEN FROM THAT EVENT'S OWN BODY. Two consecutive
+   rows carrying the same label means at least one was labelled from its
+   neighbour rather than from itself. On booking 32908218 the Selenium
+   fulfilment blob and the booking-in-progress email - two different events
+   one second apart - both came back "Booking-in-progress email sent", and
+   the fulfilment attempt disappeared behind the mail it sat next to. That
+   attempt is often the whole root cause, so losing it loses the RCA.
+   If two adjacent events really are one action, COLLAPSE them under rule 3.
+   If they are not, each gets the label its own body earns.
    No ticket IDs, no "[ZD-xxxxx]", no "(xN)".
 
 5. SUMMARIES - ONE short sentence. Aim for 12-20 words, hard limit 120
