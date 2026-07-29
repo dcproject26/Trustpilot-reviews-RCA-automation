@@ -402,7 +402,17 @@ _FF_MIN_BOOKINGS = 100
 # next should set it from the distribution, not from the LookML.
 
 
-def _zero_result(l2: str | None) -> dict:
+def _zero_result(l2: str | None, wd: int = 30, why: str = "") -> dict:
+    """
+    The shape returned when there is nothing to compute - no confirmed booking,
+    or BigQuery not live. A normal state, not a failure.
+
+    It carries _window_days like the real result does. Without it the response
+    contract differs between the two paths: the cache key never matches so
+    every request recomputes nothing, and a caller cannot tell which window a
+    zero belongs to. _zeroed_because says why, so a zero on the dashboard can
+    be explained rather than guessed at.
+    """
     return {
         "similar_reviews_30d":         0,
         "total_reviews_30d":           0,
@@ -424,6 +434,8 @@ def _zero_result(l2: str | None) -> dict:
         "same_day_same_vid":           None,
         "sameDaySameVidIssues":        "N/A",
         "_computed_for_l2": l2,
+        "_window_days":     wd,
+        "_zeroed_because":  why,
         "_computed_at":     datetime.now(timezone.utc).isoformat(),
     }
 
@@ -529,10 +541,11 @@ async def get_insights(booking: dict, l1: str | None, l2: str | None,
 
     if not tid or not vid:
         log.warning("[insights] tid or vid missing - returning zeros")
-        return _zero_result(l2)
+        return _zero_result(l2, wd, "no confirmed booking - tid or vid missing")
 
     if not is_live("bigquery") or MOCK_MODE:
-        return _zero_result(l2)
+        return _zero_result(l2, wd,
+                            "MOCK_MODE" if MOCK_MODE else "BigQuery not connected")
 
     # Without a visit date there is nothing to anchor the window to. Falling
     # back to today would silently measure a different period from Looker, so

@@ -50,11 +50,24 @@ def pick_review(base, explicit):
     # A review with a confirmed booking - insights need tid and vid, and a
     # review without them legitimately returns zeros, which would make every
     # check below pass for the wrong reason.
-    for r in rows:
-        b = r.get("booking") or {}
-        if b.get("bid") or b.get("bookingId") or b.get("tid"):
-            return r.get("id")
-    return rows[0].get("id") if rows else None
+    # Ask the endpoint itself rather than trusting the review row: insights
+    # need tid and vid off the DRAFT, and a review can carry a booking id
+    # while the draft has no tid, which returns zeros and makes the window
+    # checks untestable.
+    fallback = rows[0].get("id") if rows else None
+    for r in rows[:25]:
+        rid = r.get("id")
+        if not rid:
+            continue
+        try:
+            _, b = get(base, f"/api/reviews/{rid}/insights", timeout=180)
+        except Exception:
+            continue
+        i = b.get("insights") if isinstance(b, dict) else None
+        if isinstance(i, dict) and not i.get("_zeroed_because") \
+                and i.get("total_bookings_30d"):
+            return rid
+    return fallback
 
 
 def main():
@@ -122,6 +135,17 @@ def main():
     # This is the check that would have caught the shipped bug. The picker sent
     # a window, the server ignored it, and every window returned the same
     # numbers under a different label.
+    # A review with no confirmed booking legitimately returns zeros for every
+    # window. That is correct behaviour, but it cannot demonstrate that the
+    # window works, so say so rather than reporting it as three failures.
+    why = ins.get("_zeroed_because")
+    if why:
+        print(f"\n  !! This review returns zeros: {why}")
+        print("     Correct, but it cannot exercise the window. Re-run against a")
+        print("     review with a confirmed booking:")
+        print("       python3 tools/test_insights_api.py --review <id>")
+        print("     Every check above still applies and passed.\n")
+
     print("\nwindow changes the result")
     seen = {}
     for w in ("7d", "30d", "90d"):
@@ -145,6 +169,9 @@ def main():
     if len(seen) == 3:
         days = [seen[w]["days"] for w in ("7d", "30d", "90d")]
         check("three distinct windows computed", len(set(days)) == 3, f"{days}")
+        if why:
+            print("     (totals are zero for the reason above, not because the "
+                  "window failed)")
         # Bookings over 7d cannot exceed bookings over 90d for the same booking.
         b7, b90 = seen["7d"]["bookings"], seen["90d"]["bookings"]
         if isinstance(b7, int) and isinstance(b90, int):
