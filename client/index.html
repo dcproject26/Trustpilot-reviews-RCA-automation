@@ -1950,7 +1950,12 @@ async function loadDraftOverlays() {
     try {
       const [draftResp, insightsResp] = await Promise.all([
         fetch(`/api/reviews/${r.id}`),
-        fetch(`/api/reviews/${r.id}/insights`),
+        // Send the window the picker is displaying. Without it the server
+        // applied its own default (30d) while the picker highlighted 90d, so
+        // every first load showed one window's numbers under another window's
+        // button - and clicking around masked it, because clicking does send
+        // the window.
+        fetch(`/api/reviews/${r.id}/insights?window=${encodeURIComponent(state.insightsWindow)}`),
       ]);
       if (!draftResp.ok) return;
       const payload = await draftResp.json();
@@ -2617,7 +2622,8 @@ function renderReviewCol() {
           const _rate = (r, n) =>
             n === 0 ? 'no bookings'
             : r == null ? '—'
-            : `${(r * 100).toFixed(1)}%` + (n < 100 ? ` <span class="tile-n">of ${n}</span>` : '');
+            : `${(r * 100).toFixed(1)}%` +
+              (n < 100 ? ` <span class="tile-n">of ${n} booking${n === 1 ? '' : 's'}</span>` : '');
           const _rr = li.review_ratio || 0;
           const _sr = li.support_ratio || 0;
 
@@ -2692,16 +2698,16 @@ function renderReviewCol() {
                                         + _ids(sd.support_ids),
                     (sd.support > 0) ? 'red' : '')}
 
-            ${_grp('How the experience and vendor are doing',
+            ${_grp('Experience &amp; vendor',
                     li._window_label || '')}
             ${_tile('Rating · TGID',
                     _ratTgid.avg != null
-                      ? `${_ratTgid.avg} ★ <span class="tile-n">of ${_rTgidN}</span>`
+                      ? `${_ratTgid.avg} ★ <span class="tile-n">from ${_rTgidN} rating${_rTgidN === 1 ? '' : 's'}</span>`
                       : '<span class="tile-empty">no ratings</span>',
                     _ratTgid.avg == null ? 'grey' : '')}
             ${_tile('Rating · TID · VID',
                     _ratTv.avg != null
-                      ? `${_ratTv.avg} ★ <span class="tile-n">of ${_rTvN}</span>`
+                      ? `${_ratTv.avg} ★ <span class="tile-n">from ${_rTvN} rating${_rTvN === 1 ? '' : 's'}</span>`
                       : '<span class="tile-empty">no ratings</span>',
                     _ratTv.avg == null ? 'grey' : '')}
             ${_tile('Completion · TGID',

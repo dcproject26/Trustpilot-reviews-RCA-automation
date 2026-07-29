@@ -119,6 +119,10 @@ def check_version(base):
     return True
 
 
+def base_of(args):
+    return args.base
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="http://localhost:5000")
@@ -223,6 +227,31 @@ def main():
         print("     review with a confirmed booking:")
         print("       python3 tools/test_insights_api.py --review <id>")
         print("     Every check above still applies and passed.\n")
+
+    # The default the CLIENT shows must be the default the SERVER computes.
+    # state.insightsWindow is 90d, and the initial fetch sent no window at all,
+    # so the server applied 30d and the page displayed 30d numbers under a
+    # highlighted 90d button - on every first load, invisibly.
+    print("\nclient default matches server default")
+    import re as _re
+    try:
+        with open("client/index.html") as fh:
+            cli = fh.read()
+        m = _re.search(r"insightsWindow:\s*'(\w+)'", cli)
+        default_w = m.group(1) if m else ""
+        _sends = "insights?window=${encodeURIComponent(state.insightsWindow)}" in cli
+        check("client sends its window on first load", _sends,
+              "" if _sends else
+              "initial fetch omits the window - server applies its own default "
+              "and the picker will show a window the numbers are not from")
+        if default_w:
+            _, b = get(base_of(args), f"/api/reviews/{rid}/insights?window={default_w}")
+            i = b.get("insights") or {}
+            check(f"default window {default_w} computes",
+                  i.get("_window_days") == int(default_w.rstrip("d")),
+                  f"_window_days={i.get('_window_days')}")
+    except FileNotFoundError:
+        print("  ..    client/index.html not readable from here - skipped")
 
     print("\nwindow changes the result")
     seen = {}
