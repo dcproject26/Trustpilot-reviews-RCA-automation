@@ -55,12 +55,12 @@ def pick_review(base, explicit):
     # while the draft has no tid, which returns zeros and makes the window
     # checks untestable.
     fallback = rows[0].get("id") if rows else None
-    for r in rows[:25]:
+    for r in rows[:10]:
         rid = r.get("id")
         if not rid:
             continue
         try:
-            _, b = get(base, f"/api/reviews/{rid}/insights", timeout=180)
+            _, b = get(base, f"/api/reviews/{rid}/insights", timeout=60)
         except Exception:
             continue
         i = b.get("insights") if isinstance(b, dict) else None
@@ -121,6 +121,12 @@ def main():
         print(f"Cannot reach {args.base}: {e}\nStart the server first.")
         return 2
 
+    # Before anything expensive. pick_review can make up to 25 insights calls,
+    # each of which can take a minute against a cold warehouse - a bad way to
+    # find out the process is stale.
+    if not check_version(args.base):
+        return 1
+
     rid = pick_review(args.base, args.review)
     if not rid:
         print("No reviews on this server - nothing to test against.")
@@ -136,10 +142,6 @@ def main():
         return 1
 
     check("200", status == 200, f"got {status}")
-
-    if not check_version(args.base):
-        return 1
-
     check("has 'insights'", isinstance(body, dict) and "insights" in body,
           f"keys={sorted(body)[:6]}")
     check("has 'window'", "window" in body)
