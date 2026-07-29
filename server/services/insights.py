@@ -443,6 +443,7 @@ def _zero_result(l2: str | None, wd: int = 30, why: str = "") -> dict:
         "ff_tgid":                     None,
         "ff_same_day":                 None,
         "vid_completion_rate":         None,
+        "tgid_completion_rate":        None,
         "vidCompletionRate":           "N/A",
         "same_day_same_vid":           None,
         "sameDaySameVidIssues":        "N/A",
@@ -937,6 +938,11 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         # respect whichever window the associate picked.
         "rating_15d": rating_tgid,
         "rating_30d": rating_tidvid,
+        # TGID is the headline: the tile asks how this EXPERIENCE is being
+        # fulfilled, which is the population Looker's filters describe. VID is
+        # kept alongside it, because a vendor failing across every experience
+        # is a different finding from one experience going wrong.
+        "tgid_completion_rate":  ff_tgid["rate"],
         "vid_completion_rate":   ff_vid["rate"],
         "vidCompletionRate":     _pct(ff_vid["rate"]),
         # Same visit date, same vendor, same issue - split by evidence type.

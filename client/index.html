@@ -579,6 +579,12 @@
     min-width: 0;
     overflow: hidden;
   }
+  #build-stamp {
+    position: fixed; right: 8px; bottom: 6px; z-index: 40;
+    font-size: 10px; font-family: var(--mono, monospace);
+    color: var(--text-mute); opacity: .5; pointer-events: none;
+    letter-spacing: .3px;
+  }
   .insight-note {
     grid-column: 1 / -1;
     font-size: 11px;
@@ -2556,6 +2562,9 @@ function renderReviewCol() {
           const _ffAttn  = li.ff_vid ? !!li.ff_vid.needs_attention
                                      : (li.vid_completion_rate != null
                                         && li.vid_completion_rate < 0.95);
+          const _ffAttnT = li.ff_tgid ? !!li.ff_tgid.needs_attention
+                                      : (li.tgid_completion_rate != null
+                                         && li.tgid_completion_rate < 0.95);
           const _rr = li.review_ratio || 0;
           const _sr = li.support_ratio || 0;
 
@@ -2595,12 +2604,16 @@ function renderReviewCol() {
               <div class="insight-tile-label">Similar support queries</div>
               <div class="insight-tile-value">${_pair(li.similar_support_queries_30d, li.total_support_queries_30d)}</div>
             </div>
-            <div class="insight-tile ${_ffAttn ? 'red' : li.vid_completion_rate == null ? 'grey' : ''}">
-              <div class="insight-tile-label">Completion %</div>
-              <div class="insight-tile-value">${li.vid_completion_rate != null ? `${(li.vid_completion_rate * 100).toFixed(1)}%` : '—'}</div>
-              ${_ffAttn
+            <div class="insight-tile ${_ffAttnT ? 'red' : li.tgid_completion_rate == null ? 'grey' : ''}">
+              <div class="insight-tile-label">Completion · TGID</div>
+              <div class="insight-tile-value">${li.tgid_completion_rate != null ? `${(li.tgid_completion_rate * 100).toFixed(1)}%` : '—'}</div>
+              ${_ffAttnT
                 ? '<button class="flag-biz-btn" data-flag-biz>⚑ Flag to Biz · draft message</button>'
                 : ''}
+            </div>
+            <div class="insight-tile ${_ffAttn ? 'red' : li.vid_completion_rate == null ? 'grey' : ''}">
+              <div class="insight-tile-label">Completion · VID</div>
+              <div class="insight-tile-value">${li.vid_completion_rate != null ? `${(li.vid_completion_rate * 100).toFixed(1)}%` : '—'}</div>
             </div>
             <div class="insight-tile ${li.same_day_same_vid && li.same_day_same_vid.issues > 0 ? 'red' : li.same_day_same_vid == null ? 'grey' : ''}">
               <div class="insight-tile-label">Same-Day Issues</div>
@@ -3804,6 +3817,25 @@ document.addEventListener('click', async (ev) => {
 renderInbox();
 renderReviewCol();
 renderRcaCol();
+</script>
+<div id="build-stamp" title="build the page and server are running"></div>
+<script>
+// Which build is on screen. Several hours were lost to a cached page talking
+// to a new server and to a new page talking to an old server, both of which
+// look exactly like a broken feature. If these two disagree, or either is
+// stale, that is the answer and nothing else needs debugging.
+(async () => {
+  try {
+    const r = await fetch('/api/version', {cache: 'no-store'});
+    if (!r.ok) return;
+    const v = await r.json();
+    const el = document.getElementById('build-stamp');
+    if (el) {
+      el.textContent = 'build ' + (v.short || '?');
+      el.title = 'server ' + (v.commit || '') + ' - up ' + (v.uptime_s || 0) + 's';
+    }
+  } catch (e) { /* not worth surfacing */ }
+})();
 </script>
 </body>
 </html>
