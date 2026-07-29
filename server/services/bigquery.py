@@ -241,13 +241,37 @@ def _get_booking_extra(bid: str) -> dict:
         # 32908218 fct_bookings.vendor_id is 4040 while every booking on that
         # experience fulfilled through vendor 3753, so reading the booking row
         # would answer about a different vendor than the one that delivered.
+        #
+        # The escalation contact comes off dim_vendors.contact_details, a
+        # repeated STRUCT<name, type, email, phone>. Being nested is why two
+        # INFORMATION_SCHEMA.COLUMNS sweeps could not find it - that view lists
+        # top-level columns only.
+        #
+        # Joined on f.vendor_id, the vendor that FULFILLED, for the same reason
+        # is_partnered is: the two vendor columns disagree on real bookings.
+        #
+        # contact_types comes back alongside so the panel can show what kinds
+        # of contact a vendor actually has. The exact spelling of the
+        # escalation type is not documented anywhere, so the match is a
+        # substring on 'escalat' and the type list is the evidence for whether
+        # that match is finding the right rows or missing them silently.
         sql = f"""
         SELECT
             b.booking_status,
             b.tour_name,
-            f.is_partnered
+            f.is_partnered,
+            (SELECT c.email
+               FROM UNNEST(v.contact_details) c
+              WHERE REGEXP_CONTAINS(LOWER(IFNULL(c.type, '')), r'escalat')
+                AND IFNULL(c.email, '') != ''
+              LIMIT 1)                                   AS escalation_email,
+            (SELECT STRING_AGG(DISTINCT IFNULL(c.type, '(untyped)'), ', ')
+               FROM UNNEST(v.contact_details) c)         AS contact_types,
+            ARRAY_LENGTH(v.contact_details)              AS contact_count
         FROM `{BIGQUERY_BOOKINGS_TABLE}` b
         LEFT JOIN `{BIGQUERY_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
+        LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
+               ON v.vendor_id = f.vendor_id
         WHERE b.booking_id = @bid
         LIMIT 1
         """
@@ -258,10 +282,23 @@ def _get_booking_extra(bid: str) -> dict:
             # rendering an unknown as "Not partnered" would be a claim about
             # the vendor that no row supports.
             _partnered = getattr(rows[0], "is_partnered", None)
+            # Same three states as isPartnered, and the distinction matters
+            # more here: "this vendor has contacts but none of them is an
+            # escalation contact" is a gap somebody can close, while "we know
+            # nothing about this vendor" is not. contact_count tells them
+            # apart, so the panel never renders one as the other.
+            # NULL when the vendor join found nothing - ARRAY_LENGTH of a NULL
+            # array is NULL, not 0. Mapping that to 0 would say "this vendor
+            # has no contacts on file", which is a claim about the vendor
+            # rather than an admission that we did not find the vendor.
+            _n_contacts = getattr(rows[0], "contact_count", None)
             return {
-                "booking_status": getattr(rows[0], "booking_status", None) or "",
-                "tid_name":       getattr(rows[0], "tour_name",      None) or "",
-                "isPartnered":    None if _partnered is None else bool(_partnered),
+                "booking_status":   getattr(rows[0], "booking_status", None) or "",
+                "tid_name":         getattr(rows[0], "tour_name",      None) or "",
+                "isPartnered":      None if _partnered is None else bool(_partnered),
+                "escalationEmail":  getattr(rows[0], "escalation_email", None) or "",
+                "contactTypes":     getattr(rows[0], "contact_types", None) or "",
+                "contactCount":     None if _n_contacts is None else int(_n_contacts),
             }
     except Exception:
         pass

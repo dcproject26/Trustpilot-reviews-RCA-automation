@@ -2117,6 +2117,9 @@ async function loadDraftOverlays() {
         // Tri-state on purpose: true, false, and "no fulfilment row said".
         // ?? rather than || so a genuine false is not read as absent.
         r.booking.isPartnered      = db.isPartnered ?? db.is_partnered ?? null;
+        r.booking.escalationEmail  = db.escalationEmail || '';
+        r.booking.contactCount     = db.contactCount ?? null;
+        r.booking.contactTypes     = db.contactTypes || '';
 
         // booking_status and tid_name from BigQuery enrichment
         r.booking.status  = db.booking_status || db.status || r.booking.status || '';
@@ -2559,6 +2562,12 @@ function renderReviewCol() {
         <div class="detail-row"><span class="k">Booking date</span><span class="v mono">${b.bookingDate || b.creationDate || '—'}</span></div>
         <div class="detail-row"><span class="k">Review date</span><span class="v mono">${b.reviewDate || '—'}</span></div>
         <div class="detail-row"><span class="k">Partnered vendor</span><span class="v">${b.isPartnered == null ? '<span class="placeholder">—</span>' : `<span class="pill-sm ${b.isPartnered ? 'pill-green' : 'pill-grey'}">${b.isPartnered ? 'Yes' : 'No'}</span>`}</span></div>
+        <div class="detail-row"><span class="k">Escalation email</span><span class="v">${
+          b.escalationEmail
+            ? `<a href="mailto:${b.escalationEmail}" style="color:var(--accent)">${b.escalationEmail}</a>`
+            : b.contactCount
+              ? `<span class="pill-sm pill-grey">None on file</span><span class="tile-n" title="contact types this vendor does have"> · has ${b.contactCount} contact${b.contactCount === 1 ? '' : 's'}${b.contactTypes ? ': ' + b.contactTypes : ''}</span>`
+              : '<span class="placeholder">—</span>'}</span></div>
         <div class="detail-row"><span class="k">Booking status</span><span class="v">${b.status ? `<span class="booking-status-pill status-${b.status}">${b.status}</span>` : '—'}</span></div>
         <div class="detail-row"><span class="k">Lead time</span><span class="v mono">${b.leadTime || '—'}</span></div>
       </div>
