@@ -27,18 +27,26 @@ from server.services.mock_data import MOCK_BOOKINGS, MOCK_INSIGHTS
 
 log = logging.getLogger(__name__)
 
-# Which contact_details.type counts as the booking escalation contact.
+# Which contact_details.type is the booking escalation contact.
 #
-# PROVISIONAL. A vendor carries several contact types and this has not been
-# confirmed against the real vocabulary, so the match is deliberately wide and
-# the panel displays the type it matched. A wrong pick is then visible on
-# screen rather than presented as the booking escalation address - which is the
-# failure worth avoiding, because somebody will email whatever is shown.
+# Confirmed against the live vocabulary - eight types, counted over
+# dim_vendors:
 #
-# Confirm with:
-#   SELECT c.type, COUNT(*) n FROM dim_vendors, UNNEST(contact_details) c
-#   GROUP BY 1 ORDER BY n DESC
-_ESCALATION_TYPE_RE = "escalat"
+#   BOOKING_INTIMATION  5712 rows / 4278 vendors
+#   BUSINESS            5373 / 4725
+#   FINANCE             5357 / 5011
+#   ESCALATIONS         5082 / 4525
+#   PARTNER_EXPERIENCE  3141 / 2893
+#   BOOKING_REQUEST     1571 / 1308
+#   GENERIC_SUPPORT      125 / 123
+#   INTEGRATIONS         115 / 91
+#
+# There is no BOOKING_ESCALATION. ESCALATIONS is the escalation contact;
+# BOOKING_INTIMATION and BOOKING_REQUEST are where booking notifications and
+# booking requests go, which is a different conversation. Anchored rather than
+# left as a substring so a future FINANCE_ESCALATION cannot quietly become the
+# address an associate emails about a guest.
+_ESCALATION_TYPE_RE = "^escalations$"
 
 if is_live("bigquery"):
     if GCP_SERVICE_ACCOUNT_JSON:
@@ -278,13 +286,11 @@ def _get_booking_extra(bid: str) -> dict:
               WHERE REGEXP_CONTAINS(LOWER(IFNULL(c.type, '')),
                                     r'{_ESCALATION_TYPE_RE}')
                 AND IFNULL(c.email, '') != ''
-              ORDER BY
-                -- A vendor can carry several escalation contacts - finance,
-                -- ops, booking. Prefer one that says booking; otherwise take
-                -- the first and let the panel show which type it was, so a
-                -- wrong pick is visible rather than presented as the answer.
-                CASE WHEN REGEXP_CONTAINS(LOWER(IFNULL(c.type, '')), r'book')
-                     THEN 0 ELSE 1 END
+              -- A vendor can list more than one ESCALATIONS contact. Order
+              -- by address so the same booking always shows the same one -
+              -- a value that changes between runs with no cause is worse
+              -- than either candidate.
+              ORDER BY c.email
               LIMIT 1)                                   AS escalation,
             (SELECT STRING_AGG(DISTINCT IFNULL(c.type, '(untyped)'), ', ')
                FROM UNNEST(v.contact_details) c)         AS contact_types,
