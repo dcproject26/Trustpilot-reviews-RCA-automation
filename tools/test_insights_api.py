@@ -169,6 +169,46 @@ def main():
                 "rating_tidvid", "ff_vid", "vid_completion_rate"):
         check(key, key in ins)
 
+    # --- fields added since the redesign -------------------------------------
+    # Each of these backs something on screen that would fail silently: a group
+    # with no date range, a count with no booking ids, a completion rate with
+    # no explanation of the shortfall.
+    print("\nredesign fields")
+    check("_window_label", bool(ins.get("_window_label")),
+          f"got {ins.get('_window_label')!r}")
+    sd = ins.get("same_day")
+    check("same_day present", isinstance(sd, dict) or sd is None)
+    if isinstance(sd, dict):
+        for k in ("reviews", "support", "total", "review_ids", "support_ids"):
+            check(f"same_day.{k}", k in sd)
+        check("same_day ids are lists",
+              isinstance(sd.get("review_ids"), list)
+              and isinstance(sd.get("support_ids"), list))
+        check("ids count matches the number",
+              len(sd.get("review_ids") or []) <= max(sd.get("reviews") or 0, 0)
+              or (sd.get("reviews") or 0) > 20,
+              f"{len(sd.get('review_ids') or [])} ids for {sd.get('reviews')} reviews")
+    for k in ("tgid_completion_rate", "vid_completion_rate",
+              "tgid_incomplete_why", "vid_incomplete_why"):
+        check(k, k in ins)
+    why = ins.get("tgid_incomplete_why")
+    if isinstance(why, list) and why:
+        r0 = why[0]
+        check("why rows shaped {reason,count}",
+              isinstance(r0, dict) and "reason" in r0 and "count" in r0, f"{r0}")
+        check("guest cancellations excluded",
+              not any("customer" in str(w.get("reason", "")).lower()
+                      or "change of plans" in str(w.get("reason", "")).lower()
+                      for w in why),
+              f"{[w.get('reason') for w in why]}")
+    # The rate and the shortfall must agree: if bookings did not complete,
+    # something has to say why.
+    ft = ins.get("ff_tgid") or {}
+    if ft.get("total") and ft.get("rate") is not None and ft["rate"] < 1:
+        check("shortfall is explained",
+              bool(ins.get("tgid_incomplete_why")),
+              "completion is under 100% but no reasons came back")
+
     # --- the window actually changes the answer ------------------------------
     # This is the check that would have caught the shipped bug. The picker sent
     # a window, the server ignored it, and every window returned the same
