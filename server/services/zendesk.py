@@ -469,6 +469,16 @@ def _detect_actor(comment_author_id, ticket, author_role: str,
         return "sp"
     if author_role in ("agent", "admin"):
         return "co"
+    # An end-user in Zendesk IS a customer - that is what the role means. The
+    # requester test above only recognises the guest when they are the
+    # requester of THIS ticket, and a booking routinely spans several tickets,
+    # so the guest's own chat message on a second ticket fell past every branch
+    # into "system". On booking 32908218 that put the guest's live-chat
+    # complaint under the label "Chat transcript logged" and left the timeline
+    # with no guest row at all - the one person the RCA is about never appeared
+    # in it.
+    if author_role == "end-user":
+        return "guest"
     return "system"
 
 
