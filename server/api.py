@@ -22,6 +22,8 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
+from datetime import timezone as _tz
+_STARTED_AT = datetime.now(_tz.utc).isoformat()   # when THIS process booted
 
 from server.db import get_session, Review, RcaDraft, ReviewMetric
 from server.taxonomy import L1_CATEGORIES, L2_OPTIONS, DIAGNOSTIC_CHECKS, ACTION_TABS, SUB_THEME_REGISTRY
@@ -393,6 +395,44 @@ async def get_review_insights(review_id: str, window: str = "",
 
 
 # ── NEW: taxonomy endpoint (dashboard fetches this to render dropdowns) ─────
+
+@router.get("/api/version")
+def get_version():
+    """
+    The commit this process is running, and when it started.
+
+    Nothing here reloads on a file change - the run command has no --reload, by
+    design - so a pull updates the files while the server keeps serving the
+    code it imported at startup. That has now cost three debugging rounds, each
+    spent reading correct code and wrong output.
+
+    Read from .git directly rather than by shelling out to git: the binary is
+    not always on PATH in the run context, and a version endpoint that fails is
+    worse than none.
+    """
+    import os
+    from datetime import timezone
+
+    sha = "unknown"
+    try:
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        head = open(os.path.join(root, ".git", "HEAD")).read().strip()
+        if head.startswith("ref:"):
+            ref = head.split(None, 1)[1]
+            sha = open(os.path.join(root, ".git", ref)).read().strip()
+        else:
+            sha = head
+    except OSError:
+        pass
+
+    return {
+        "commit":     sha,
+        "short":      sha[:7],
+        "started_at": _STARTED_AT,
+        "uptime_s":   int((datetime.now(timezone.utc)
+                           - datetime.fromisoformat(_STARTED_AT)).total_seconds()),
+    }
+
 
 @router.get("/api/taxonomy")
 def get_taxonomy():

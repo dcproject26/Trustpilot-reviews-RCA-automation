@@ -70,6 +70,45 @@ def pick_review(base, explicit):
     return fallback
 
 
+def check_version(base):
+    """
+    Is the running process on the commit that is checked out?
+
+    Nothing reloads on a file change, so a pull leaves the server serving what
+    it imported at startup. Guessing at a marker key caught that once and
+    missed it the next time, because the marker had been removed by then. The
+    commit is the only signal that does not go stale itself.
+    """
+    import subprocess
+    try:
+        _, v = get(base, "/api/version", timeout=15)
+    except Exception:
+        print("  --    /api/version not served - the process predates it. "
+              "RESTART THE SERVER.\n")
+        return False
+    try:
+        local = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True,
+                               text=True, timeout=10).stdout.strip()
+    except Exception:
+        local = ""
+    running = v.get("commit", "")
+    if not local:
+        print(f"  ..    server on {v.get('short')}, "
+              f"up {v.get('uptime_s')}s (no local git to compare)\n")
+        return True
+    if running != local:
+        print(f"\n  !!    The server is running OLD code.")
+        print(f"        running:  {running[:7]}   (up {v.get('uptime_s')}s)")
+        print(f"        on disk:  {local[:7]}")
+        print("        A pull updates files; the process keeps what it "
+              "imported at startup.")
+        print("        RESTART THE SERVER, then run this again.\n")
+        return False
+    print(f"  ok    server on {local[:7]}, matching the working tree "
+          f"(up {v.get('uptime_s')}s)\n")
+    return True
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="http://localhost:5000")
@@ -98,20 +137,7 @@ def main():
 
     check("200", status == 200, f"got {status}")
 
-    # A response carrying keys this build no longer emits means the process is
-    # running code from before the pull. Say so once, here, instead of letting
-    # it surface as twenty downstream failures that all have one cause.
-    stale_markers = [k for k in ("escalation",) if k in body]
-    if stale_markers or ("insights" not in body and "review_ratio" in body):
-        print(f"\n  !! The server is running OLD code.")
-        if stale_markers:
-            print(f"     Response still contains {stale_markers} - removed from "
-                  "this build,\n     so the running process predates it.")
-        else:
-            print("     Response is the pre-merge bare shape, with no "
-                  "'insights' wrapper.")
-        print("     git pull updates files; uvicorn loaded server/api.py at "
-              "startup.\n     RESTART THE SERVER, then run this again.\n")
+    if not check_version(args.base):
         return 1
 
     check("has 'insights'", isinstance(body, dict) and "insights" in body,
