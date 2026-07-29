@@ -239,6 +239,24 @@ async def run(args):
               "prompt to shape, so any comparison would be of two empty lists.")
         return 1
 
+    # Why each actor came out the way it did. An actor that looks wrong and an
+    # actor derived from a failed lookup are different problems with the same
+    # symptom, and only the inputs tell them apart.
+    print("\nactor decision inputs")
+    print("-" * 96)
+    print(f"{'time':<18}{'via':<10}{'author':<12}{'role':<12}{'requester':<12}"
+          f"{'-> actor':<10}{'internal':<12}")
+    print("-" * 96)
+    for e in raw_events:
+        print(f"{str(e.get('time',''))[:17]:<18}"
+              f"{str(e.get('via_channel',''))[:9]:<10}"
+              f"{str(e.get('author_id',''))[:11]:<12}"
+              f"{str(e.get('author_role',''))[:11]:<12}"
+              f"{str(e.get('requester_id',''))[:11]:<12}"
+              f"{str(e.get('actor','')):<10}"
+              f"{str(e.get('internal_reason','') or '-'):<12}")
+    print("-" * 96)
+
     if args.dump_raw:
         print(json.dumps(raw_events, indent=2, default=str)[:6000])
 

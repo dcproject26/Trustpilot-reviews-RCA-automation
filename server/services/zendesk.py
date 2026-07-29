@@ -629,8 +629,16 @@ def _get_timeline_sync(_z, booking_id: str):
         try:
             u = _z.users(id=author_id)
             role = getattr(u, "role", "") or ""
-        except Exception:
-            pass
+        except Exception as e:
+            # An empty role is not a neutral default - it means every
+            # actor branch below misses and the comment falls through to
+            # "system", so a failed lookup silently reattributes a person's
+            # message to a machine. It has to be visible.
+            log.warning(f"[zendesk] role lookup failed for author {author_id}: "
+                        f"{type(e).__name__}: {e}")
+        if not role:
+            log.warning(f"[zendesk] no role for author {author_id} - actor "
+                        f"detection will fall through to system")
         _role_cache[author_id] = role
         return role
 
@@ -672,6 +680,14 @@ def _get_timeline_sync(_z, booking_id: str):
             events.append((
                 _sort_key(created),
                 {
+                    # The inputs _detect_actor decided from. Without them an
+                    # actor that looks wrong cannot be told apart from an actor
+                    # that was derived from bad inputs, which is the difference
+                    # between a logic bug and a lookup failure.
+                    "author_id":   author_id,
+                    "author_role": _role(author_id) or "(none)",
+                    "via_channel": via_ch or "(none)",
+                    "requester_id": getattr(ticket, "requester_id", None),
                     "time":      _to_ist(created),
                     "time_sort": _to_iso(created),
                     "thread":    thread,
