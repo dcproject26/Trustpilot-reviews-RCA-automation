@@ -2067,8 +2067,11 @@ async function loadDraftOverlays() {
 
       // ── Live insights from API ────────────────────────────────────────────
       if (insightsResp.ok) {
-        const ins = await insightsResp.json();
-        r.liveInsights = ins;
+        // The endpoint returns {ok, window, insights}. This used to assign the
+        // whole envelope, which happened to work only because the other call
+        // site read a different shape from the same URL.
+        const payload = await insightsResp.json();
+        if (payload && payload.insights) r.liveInsights = payload.insights;
       }
     } catch (e) { /* keep demo data for this review if the API is unreachable */ }
   }));
@@ -2613,6 +2616,13 @@ function renderReviewCol() {
       const w = btn.dataset.window;
       state.insightsWindow = w;
       renderReviewCol();
+      // The server recomputes for this window - it is not a client-side
+      // filter. Until it answers, the tiles show the previous window's
+      // numbers under the new label, so say so rather than letting them read
+      // as the answer.
+      col.querySelectorAll('.insight-tile-value').forEach(el => {
+        el.style.opacity = '0.45';
+      });
       const r = REVIEWS.find(x => x.id === state.selected);
       if (!r || !(r.booking && r.booking.bid)) return;
       try {
@@ -2621,8 +2631,8 @@ function renderReviewCol() {
         const data = await resp.json();
         if (data && data.insights) {
           r.liveInsights = data.insights;
-          renderReviewCol();
         }
+        renderReviewCol();   // clears the dimming either way
       } catch (e) { /* keep what is on screen */ }
     });
   });

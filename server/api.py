@@ -335,14 +335,24 @@ def get_review(review_id: str, db: Session = Depends(get_session)):
 # ── NEW: Experience Insights endpoint ───────────────────────────────────────
 
 @router.get("/api/reviews/{review_id}/insights")
-async def get_review_insights(review_id: str, db: Session = Depends(get_session)):
+async def get_review_insights(review_id: str, window: str = "",
+                              db: Session = Depends(get_session)):
     """
-    Returns insights for a review's booking.
-    Cache: if draft.insights._computed_for_l2 == current l2 AND _computed_at < 24h → serve cached.
-    Otherwise recompute + persist.
+    Experience Insights for a review's booking, over the chosen window.
+
+    There were two handlers registered at this path. FastAPI dispatches to the
+    first, so the second was unreachable - and the first ignored `window` and
+    returned a bare dict while the window picker expected {"insights": ...}.
+    The picker therefore changed the caption, silently failed its own guard,
+    and left the numbers on whatever the default window had produced. One
+    handler now, one response shape.
+
+    Cached per (l2, window) for 24h. The window has to be part of the key: a
+    result computed for 30d is not an answer to a question about 7d, and
+    serving it would put a number under a label it does not belong to.
     """
     from datetime import timezone
-    from server.services.insights import get_insights as _compute_insights
+    from server.services.insights import get_insights as _compute_insights, window_days
 
     r = db.query(Review).filter(Review.id == review_id).first()
     if not r:
@@ -354,27 +364,32 @@ async def get_review_insights(review_id: str, db: Session = Depends(get_session)
     booking = d.booking or {}
     l1 = d.l1 or ""
     l2 = d.l2 or ""
+    wd = window_days(window or None)
 
-    # Check cache
     cached = d.insights or {}
-    computed_for = cached.get("_computed_for_l2")
-    computed_at  = cached.get("_computed_at")
-    cache_valid  = False
-    if computed_for == l2 and computed_at:
+    cache_valid = False
+    if cached.get("_computed_for_l2") == l2 and cached.get("_window_days") == wd:
         try:
             age = (datetime.utcnow().replace(tzinfo=timezone.utc)
-                   - datetime.fromisoformat(computed_at)).total_seconds()
+                   - datetime.fromisoformat(cached["_computed_at"])).total_seconds()
             cache_valid = age < 86400  # 24 h
         except Exception:
             pass
 
     if cache_valid:
-        return cached
+        return {"ok": True, "window": window or "30d", "insights": cached}
 
-    result = await _compute_insights(booking, l1 or None, l2 or None)
+    try:
+        result = await _compute_insights(booking, l1 or None, l2 or None,
+                                         window=window or None)
+    except Exception as e:
+        log.warning(f"[insights] compute failed for {review_id}: {e}")
+        raise HTTPException(502, "Insights query failed")
+
     d.insights = result
+    flag_modified(d, "insights")
     db.commit()
-    return result
+    return {"ok": True, "window": window or "30d", "insights": result}
 
 
 # ── NEW: taxonomy endpoint (dashboard fetches this to render dropdowns) ─────
@@ -979,33 +994,6 @@ def vs_intake(body: VsIntake, x_vs_key: str | None = Header(default=None),
 
 
 # ── Untraceable: one-click "ask for booking reference" reply ────────────────
-@router.get("/api/reviews/{review_id}/insights")
-async def recompute_insights(review_id: str, window: str = "90d",
-                             db: Session = Depends(get_session)):
-    """
-    Recompute Experience Insights over an associate-chosen window.
-
-    The window picker previously only changed the caption; the figures stayed on
-    whatever the pipeline computed. This recomputes against the selected range so
-    the number and the label agree.
-    """
-    d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
-    if not d:
-        raise HTTPException(404, "Draft not found")
-    if not (d.booking or {}).get("tid"):
-        return {"ok": True, "window": window, "insights": d.insights or {}}
-    from server.services.insights import get_insights as _gi
-    try:
-        ins = await _gi(d.booking or {}, d.l1, d.l2, window=window)
-    except Exception as e:
-        log.warning(f"[insights] recompute failed for {review_id}: {e}")
-        raise HTTPException(502, "Insights query failed")
-    d.insights = ins
-    flag_modified(d, "insights")
-    db.commit()
-    return {"ok": True, "window": window, "insights": ins}
-
-
 @router.post("/api/reviews/{review_id}/mark-untraceable")
 def mark_untraceable(review_id: str, db: Session = Depends(get_session)):
     """
