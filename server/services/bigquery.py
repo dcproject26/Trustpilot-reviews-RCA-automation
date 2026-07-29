@@ -235,19 +235,33 @@ def _get_booking_extra(bid: str) -> dict:
     except (TypeError, ValueError):
         return {}
     try:
+        # is_partnered comes off fct_fulfilments, not fct_bookings, because the
+        # question is about the vendor who FULFILLED this booking. Both tables
+        # carry the column and they are not interchangeable - on booking
+        # 32908218 fct_bookings.vendor_id is 4040 while every booking on that
+        # experience fulfilled through vendor 3753, so reading the booking row
+        # would answer about a different vendor than the one that delivered.
         sql = f"""
         SELECT
             b.booking_status,
-            b.tour_name
+            b.tour_name,
+            f.is_partnered
         FROM `{BIGQUERY_BOOKINGS_TABLE}` b
+        LEFT JOIN `{BIGQUERY_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
         WHERE b.booking_id = @bid
         LIMIT 1
         """
         rows = _run_query(sql, [_bqlib.ScalarQueryParameter("bid", "INT64", bid_int)])
         if rows:
+            # Three states, and the join is LEFT: True, False, and "no
+            # fulfilment row so nobody has said". None is not False here -
+            # rendering an unknown as "Not partnered" would be a claim about
+            # the vendor that no row supports.
+            _partnered = getattr(rows[0], "is_partnered", None)
             return {
                 "booking_status": getattr(rows[0], "booking_status", None) or "",
                 "tid_name":       getattr(rows[0], "tour_name",      None) or "",
+                "isPartnered":    None if _partnered is None else bool(_partnered),
             }
     except Exception:
         pass

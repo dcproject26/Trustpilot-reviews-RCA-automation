@@ -2114,6 +2114,9 @@ async function loadDraftOverlays() {
         r.booking.bmsLink          = db.bms_link;
         r.booking.tgidLink         = db.tgid_link;
         r.booking.ticketMailSeen   = !!db.ticket_mail_seen;
+        // Tri-state on purpose: true, false, and "no fulfilment row said".
+        // ?? rather than || so a genuine false is not read as absent.
+        r.booking.isPartnered      = db.isPartnered ?? db.is_partnered ?? null;
 
         // booking_status and tid_name from BigQuery enrichment
         r.booking.status  = db.booking_status || db.status || r.booking.status || '';
@@ -2555,6 +2558,7 @@ function renderReviewCol() {
         <div class="detail-row"><span class="k">Visit date</span><span class="v mono">${b.experienceDate || '—'}</span></div>
         <div class="detail-row"><span class="k">Booking date</span><span class="v mono">${b.bookingDate || b.creationDate || '—'}</span></div>
         <div class="detail-row"><span class="k">Review date</span><span class="v mono">${b.reviewDate || '—'}</span></div>
+        <div class="detail-row"><span class="k">Partnered vendor</span><span class="v">${b.isPartnered == null ? '<span class="placeholder">—</span>' : `<span class="pill-sm ${b.isPartnered ? 'pill-green' : 'pill-grey'}">${b.isPartnered ? 'Yes' : 'No'}</span>`}</span></div>
         <div class="detail-row"><span class="k">Booking status</span><span class="v">${b.status ? `<span class="booking-status-pill status-${b.status}">${b.status}</span>` : '—'}</span></div>
         <div class="detail-row"><span class="k">Lead time</span><span class="v mono">${b.leadTime || '—'}</span></div>
       </div>
