@@ -55,7 +55,8 @@ def pick_review(base, explicit):
     # while the draft has no tid, which returns zeros and makes the window
     # checks untestable.
     fallback = rows[0].get("id") if rows else None
-    for r in rows[:10]:
+    tried = 0
+    for r in rows[:25]:
         rid = r.get("id")
         if not rid:
             continue
@@ -63,10 +64,19 @@ def pick_review(base, explicit):
             _, b = get(base, f"/api/reviews/{rid}/insights", timeout=60)
         except Exception:
             continue
+        tried += 1
         i = b.get("insights") if isinstance(b, dict) else None
         if isinstance(i, dict) and not i.get("_zeroed_because") \
                 and i.get("total_bookings_30d"):
             return rid
+    # Say so. Falling back silently is how a run ends up reporting a row of
+    # passes against a review that returns zeros for every window - true, and
+    # evidence of nothing.
+    if tried:
+        print(f"  --    none of the first {tried} reviews resolved a booking; "
+              f"falling back to {fallback}.\n"
+              "        The window checks below cannot prove anything against "
+              "it. python3 tools/survey_drafts.py lists which reviews can.\n")
     return fallback
 
 
@@ -287,12 +297,19 @@ def main():
         # report the same count, the rating queries are not being windowed -
         # which is exactly the bug the window picker had, one query over.
         r7, r30, r90 = (seen[w]["rating_n"] for w in ("7d", "30d", "90d"))
-        if all(isinstance(x, int) for x in (r7, r30, r90)):
+        if not all(isinstance(x, int) for x in (r7, r30, r90)) or not r90:
+            # 0 <= 0 <= 0 is true, so reporting this as a pass would say the
+            # rating follows the window when nothing was rated at all. It is a
+            # skip, and it has to look like one.
+            print("  --    rating vs window SKIPPED - no ratings came back "
+                  f"(7d={r7} 30d={r30} 90d={r90}).")
+            print("        Run against a review whose booking resolved:")
+            print("          python3 tools/survey_drafts.py")
+        else:
             check("rating count grows with the window",
                   r7 <= r30 <= r90, f"7d={r7} 30d={r30} 90d={r90}")
-            if r90 > 0:
-                check("rating is windowed", not (r7 == r30 == r90),
-                      f"all three windows gave {r7} ratings")
+            check("rating is windowed", not (r7 == r30 == r90),
+                  f"7d={r7} 30d={r30} 90d={r90}")
         if isinstance(b7, int) and isinstance(b90, int):
             check("7d bookings <= 90d bookings", b7 <= b90, f"{b7} vs {b90}")
             same = b7 == b90 == seen["30d"]["bookings"]

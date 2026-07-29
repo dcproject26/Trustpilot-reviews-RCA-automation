@@ -415,7 +415,8 @@ _FF_MIN_BOOKINGS = 100
 # next should set it from the distribution, not from the LookML.
 
 
-def _zero_result(l2: str | None, wd: int = 30, why: str = "") -> dict:
+def _zero_result(l2: str | None, wd: int = 30, why: str = "",
+                 visit_date: str = "") -> dict:
     """
     The shape returned when there is nothing to compute - no confirmed booking,
     or BigQuery not live. A normal state, not a failure.
@@ -451,6 +452,15 @@ def _zero_result(l2: str | None, wd: int = 30, why: str = "") -> dict:
         "sameDaySameVidIssues":        "N/A",
         "_computed_for_l2": l2,
         "_window_days":     wd,
+        # The group headings read these. Leaving them off the zero path meant a
+        # review with no booking rendered "Reviews 0" under a heading with no
+        # date range at all - which looks like the range failed to load rather
+        # than like there was nothing to count. The range is known here; it
+        # comes from the picker and the visit date, neither of which depends on
+        # the booking resolving.
+        "_window_label":    (f"{wd} days before {visit_date}" if visit_date
+                             else f"last {wd} days"),
+        "_anchored_on":     visit_date or "today",
         "_zeroed_because":  why,
         "_computed_at":     datetime.now(timezone.utc).isoformat(),
     }
@@ -590,7 +600,8 @@ async def get_insights(booking: dict, l1: str | None, l2: str | None,
         log.warning("[insights] no tid, vid or tgid - returning zeros")
         return _zero_result(l2, wd,
                             f"booking {bid} did not resolve in fct_bookings"
-                            if bid else "no booking id on the draft")
+                            if bid else "no booking id on the draft",
+                            visit_date)
 
     # The issue-comparison half needs BOTH tid and vid: every one of those
     # queries filters on the pair, and running them with half of it would
@@ -601,7 +612,8 @@ async def get_insights(booking: dict, l1: str | None, l2: str | None,
 
     if not is_live("bigquery") or MOCK_MODE:
         return _zero_result(l2, wd,
-                            "MOCK_MODE" if MOCK_MODE else "BigQuery not connected")
+                            "MOCK_MODE" if MOCK_MODE else "BigQuery not connected",
+                            visit_date)
 
     # Without a visit date there is nothing to anchor the window to. Falling
     # back to today would silently measure a different period from Looker, so
