@@ -1875,6 +1875,15 @@ function mapSupportFrame(f) {
 }
 
 async function loadDraftOverlays() {
+  // {ok, window, insights} or a bare insights dict - take whichever this
+  // server speaks. Recognised by a field every insights payload carries.
+  function unwrapInsights(payload) {
+    if (!payload || typeof payload !== 'object') return null;
+    if (payload.insights && typeof payload.insights === 'object') return payload.insights;
+    if ('similar_reviews_30d' in payload || '_computed_for_l2' in payload) return payload;
+    return null;
+  }
+
   await Promise.all(REVIEWS.map(async (r) => {
     if (!r.rca) return;
     try {
@@ -2067,11 +2076,13 @@ async function loadDraftOverlays() {
 
       // ── Live insights from API ────────────────────────────────────────────
       if (insightsResp.ok) {
-        // The endpoint returns {ok, window, insights}. This used to assign the
-        // whole envelope, which happened to work only because the other call
-        // site read a different shape from the same URL.
+        // Accept either shape. The endpoint returns {ok, window, insights};
+        // older builds returned the insights dict bare. Unwrapping defensively
+        // means a page cached from before a deploy still renders numbers
+        // instead of "undefined / undefined", which is what an envelope read
+        // one level too shallow looks like on every tile.
         const payload = await insightsResp.json();
-        if (payload && payload.insights) r.liveInsights = payload.insights;
+        r.liveInsights = unwrapInsights(payload) || r.liveInsights;
       }
     } catch (e) { /* keep demo data for this review if the API is unreachable */ }
   }));
@@ -2629,9 +2640,8 @@ function renderReviewCol() {
         const resp = await fetch(`/api/reviews/${r.id}/insights?window=${encodeURIComponent(w)}`);
         if (!resp.ok) return;
         const data = await resp.json();
-        if (data && data.insights) {
-          r.liveInsights = data.insights;
-        }
+        const ins = unwrapInsights(data);
+        if (ins) r.liveInsights = ins;
         renderReviewCol();   // clears the dimming either way
       } catch (e) { /* keep what is on screen */ }
     });

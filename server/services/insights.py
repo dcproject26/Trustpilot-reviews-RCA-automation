@@ -539,9 +539,25 @@ async def get_insights(booking: dict, l1: str | None, l2: str | None,
     tgid       = str(booking.get("tgid") or "").strip()
     visit_date = str(booking.get("visitDate") or booking.get("date_of_visit") or "").strip()
 
-    if not tid or not vid:
-        log.warning("[insights] tid or vid missing - returning zeros")
-        return _zero_result(l2, wd, "no confirmed booking - tid or vid missing")
+    # Only give up when there is nothing at all to key on.
+    #
+    # This used to bail whenever tid or vid was missing, which threw away three
+    # metrics that never needed tid: the TGID rating keys on tgid alone, and
+    # both fulfilment rates key on tgid or vid alone. A booking that resolved
+    # far enough to know its experience and vendor can always answer "how is
+    # this experience rated" and "how often does this vendor fulfil" - those
+    # are properties of the vendor, not of this booking's issue, and reporting
+    # them as zero says something false about a vendor rather than nothing.
+    if not tid and not vid and not tgid:
+        log.warning("[insights] no tid, vid or tgid - returning zeros")
+        return _zero_result(l2, wd, "no confirmed booking - no tid, vid or tgid")
+
+    # The issue-comparison half needs BOTH tid and vid: every one of those
+    # queries filters on the pair, and running them with half of it would
+    # compare this booking against the wrong population.
+    pair = bool(tid and vid)
+    if not pair:
+        log.info("[insights] tid/vid incomplete - vendor-level metrics only")
 
     if not is_live("bigquery") or MOCK_MODE:
         return _zero_result(l2, wd,
@@ -733,7 +749,11 @@ LEFT JOIN `{_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
     # A and C need a tag/L2 mapping. Without one they are skipped and the rest
     # still run - a missing framework should cost you two numbers, not all of
     # the insights.
-    skip_ac = tags_spec is None
+    # Also skipped without both ids: A and C filter on the tid/vid pair, so
+    # without it there is no issue comparison to make. Decided here rather than
+    # at the gather, because building a coroutine and then discarding it leaves
+    # it un-awaited and Python warns about it.
+    skip_ac = tags_spec is None or not pair
     variants = l2_variants(l2)
     coro_a = (_run(sql_a, {**base, "l2v": ("STRING", variants)})
               if not skip_ac and variants else asyncio.sleep(0))
@@ -765,16 +785,16 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
 
     results = await asyncio.gather(
         coro_a,
-        _run(sql_b, base),
+        _run(sql_b, base)                            if pair else asyncio.sleep(0),
         coro_c,
-        _run(sql_d, {**base, **nar_par}),
-        _run(sql_e_tidvid, base),
+        _run(sql_d, {**base, **nar_par})             if pair else asyncio.sleep(0),
+        _run(sql_e_tidvid, base)                     if pair else asyncio.sleep(0),
         _run(sql_e_tgid, {**anchor_par, "tgid": tgid}) if tgid else asyncio.sleep(0),
-        _run(sql_f, base),
-        _run(sql_g, {"tid": tid, "vid": vid}),
-        _run(sql_h, {**base, **ff_par}),
+        _run(sql_f, base)                            if pair else asyncio.sleep(0),
+        _run(sql_g, {"tid": tid, "vid": vid})        if pair else asyncio.sleep(0),
+        _run(sql_h, {**base, **ff_par})              if vid else asyncio.sleep(0),
         _run(sql_h2, {**anchor_par, **ff_par, "tgid": tgid}) if tgid else asyncio.sleep(0),
-        _run(sql_i, {**base, **ff_par}) if visit_date else asyncio.sleep(0),
+        _run(sql_i, {**base, **ff_par}) if (visit_date and vid) else asyncio.sleep(0),
         return_exceptions=True,
     )
 
@@ -850,6 +870,12 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
                                   if ff_day["total"] else "N/A"),
         "_window_days":     wd,
         "_anchored_on":     visit_date or "today",
+        # Empty when everything was computed. Set when tid or vid was missing
+        # and only the vendor-level half ran, so a zero in the issue-comparison
+        # tiles can be explained rather than read as "no history".
+        "_partial_because": ("" if pair else
+                             "tid or vid missing - issue comparison skipped, "
+                             "vendor-level metrics computed"),
         "_computed_for_l2": l2,
         "_l2_variants":     _l2_variant_count,
         "_computed_at":     datetime.now(timezone.utc).isoformat(),

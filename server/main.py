@@ -155,17 +155,35 @@ app.include_router(api_router)
 
 CLIENT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "client")
 
+
+def _dashboard():
+    """
+    index.html, explicitly not cached.
+
+    The whole dashboard is one file, and the browser will hold on to it across
+    a deploy unless told otherwise. That produced an afternoon of a new server
+    talking to an old page: the API returned {ok, window, insights} while the
+    cached page still read the old bare shape, so every tile rendered
+    "undefined / undefined" and looked like a server fault. Nothing here is
+    large enough for caching to be worth that.
+    """
+    return FileResponse(
+        os.path.join(CLIENT_DIR, "index.html"),
+        headers={"Cache-Control": "no-store, must-revalidate",
+                 "Pragma": "no-cache", "Expires": "0"})
+
+
 @app.get("/")
 def root():
-    return FileResponse(os.path.join(CLIENT_DIR, "index.html"))
+    return _dashboard()
 
 @app.get("/review/{review_id}")
 def review_page(review_id: str):
-    return FileResponse(os.path.join(CLIENT_DIR, "index.html"))
+    return _dashboard()
 
 @app.get("/reporting")
 def reporting_page():
-    return FileResponse(os.path.join(CLIENT_DIR, "index.html"))
+    return _dashboard()
 
 @app.get("/healthz")
 def healthz():
