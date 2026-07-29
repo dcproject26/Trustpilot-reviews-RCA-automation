@@ -1071,15 +1071,33 @@ def zendesk_timeline_shape_prompt(
     raw_events: list,
 ) -> str:
     """
-    Instructs Claude to batch-shape raw Zendesk events into a clean, structured
-    timeline. Each kept event has: idx_range, time, thread, actor, label, summary, keep.
+    Shape raw Zendesk events into the timeline the dashboard renders.
 
-    Changes vs previous version:
-    - Booking creation date pre-formatted in IST style (consistent with Zendesk times).
-    - "Booking created" summary uses visit date only — no full experience name.
-    - Hard drop list for bot/selenium/chat-session/tag noise events.
-    - Summary rules: guest events must state WHY they contacted; CE events must state
-      the specific action taken.
+    The model writes two things: a short label and one factual sentence. It
+    does not decide facts. time, thread, actor, ticket_id and is_internal are
+    recorded by Zendesk, classified in zendesk.py, and copied through - because
+    a model asked to carry a fact will eventually drop it, and a fact it
+    "corrected" is indistinguishable from one that was right.
+
+    What this replaced, and why, each verified against booking 32908218:
+
+    - It asked the model to infer the channel from the raw body. Zendesk
+      records the channel; guessing it put WhatsApp on the email thread.
+    - It listed patterns of internal noise for the model to drop by judgement.
+      That is deterministic and now happens in zendesk.py, where it is
+      testable, and machinery is MARKED rather than dropped so a
+      misclassification can be found instead of vanishing.
+    - Its bookend example interpolated a raw ISO date while a rule four lines
+      later banned raw ISO dates.
+    - Nothing bound a label to an actor, so system mail was labelled as the
+      guest speaking.
+    - Nothing stopped an event taking its label from the event beside it: the
+      booking dump came back labelled as the email one second away, and the
+      fulfilment attempt disappeared.
+    - On a retry sequence it collapsed three failures and a success into ONE
+      row labelled "Tickets sent". A vendor that failed three times read as a
+      clean delivery. tools/try_timeline_prompt.py --fixture retries is that
+      case; it now returns four rows.
     """
     bk = booking or {}
     booking_date_fmt = _fmt_bookend_time(bk.get("date_of_booking") or bk.get("creationDate") or "")
@@ -1093,88 +1111,147 @@ def zendesk_timeline_shape_prompt(
     booking_json = json.dumps(booking_summary, indent=2)
 
     return f"""You are shaping raw Zendesk support events into a clean, human-readable
-timeline for an internal ORM dashboard. Headout CX analysts will read this — it must
-be factual, concise, and completely free of system noise.
+timeline for an internal ORM dashboard. Headout CX analysts will read this - it must
+be factual and concise.
 
 === BOOKING METADATA ===
 {booking_json}
 
 === REVIEW ===
-Published: {review_pub_date or "unknown"}
-Body: {(review_body or "")[:600]}
+Published: {review_pub_date}
+Body: {review_body}
 
 === RAW EVENTS (idx = sequential order) ===
 {events_json}
 
 === WHAT THIS TIMELINE IS ===
-A clear, human story of the guest's journey — the booking, any contact with
-support, what we did in response, and how it ended. It is NOT a system log. A CX
-analyst should read it top-to-bottom and instantly understand: did the guest
-reach out, HOW (channel), WHY (what they asked), WHAT we did or offered, and
-whether the booking was fulfilled / resolved.
+A clear, human story of the guest's journey - the booking, any contact with
+support, what we did in response, and how it ended. A CX analyst should read it
+top-to-bottom and understand: did the guest reach out, HOW, WHY, WHAT we did,
+and whether the booking was fulfilled or resolved.
+
+=== WHAT YOU DECIDE, AND WHAT YOU MUST NOT TOUCH ===
+You are writing two things and nothing else: a short LABEL and a one-sentence
+SUMMARY for each event, plus which events collapse together.
+
+These fields are facts recorded by Zendesk. Copy each one through EXACTLY as
+given. Never infer, correct, reformat or fill one in:
+    time, thread, actor, ticket_id, is_internal
+If a value looks wrong to you, copy it anyway. A wrong value that survives is
+findable; one you quietly corrected is not.
+
 === INSTRUCTIONS ===
-1. INJECT two bookend events (not present in raw_events). They frame the timeline
-   and are system-generated markers, NOT guest or agent speech: copy their
-   idx_range, time, thread, actor and label EXACTLY as written below. Never swap in
-   a person actor ("guest", "co", "sp", "ai"), never move them onto a conversation
-   thread ("email", "chat", "call"), and never name or quote a person in them.
-   - FIRST — Booking created:
+1. BOOKENDS - inject exactly two, not present in raw_events. They frame the
+   timeline and are system markers, NOT guest or agent speech: copy their
+   idx_range, time, thread, actor and label EXACTLY as written. Never a person
+   actor, never a conversation thread, never a name or a quote.
+   - FIRST - Booking created:
      {{"idx_range": [], "time": "{booking_date_fmt}",
        "thread": "booking", "actor": "creation",
        "label": "Booking created",
-       "summary": "<WHAT the guest actually booked — variant / pax / options selected, and notably any upsell or add-on NOT selected at checkout (e.g. '2nd Floor only — Summit upsell not selected at checkout'). Draw this from the booking metadata. Do NOT write the full experience name.>", "keep": true}}
-   - LAST — Review posted:
+       "summary": "<WHAT the guest booked - variant / pax / options selected, and
+       notably any upsell or add-on NOT selected at checkout. From the booking
+       metadata. Do NOT write the full experience name.>", "keep": true}}
+   - LAST - Review posted:
      {{"idx_range": [], "time": "{review_date_fmt}",
        "thread": "review", "actor": "review",
-       "label": "Review posted", "summary": "Negative Trustpilot review posted, BID referenced.", "keep": true}}
-2. KEEP only events that are part of the guest's story:
-   - The guest contacting us (any channel)
-   - Our substantive response to the guest (what we said / did / offered)
-   - Ticket / voucher delivery or fulfilment (and when)
-   - Any refund, credit, cancellation, reschedule, or escalation outcome
-   Everything else → keep: false.
-3. DROP (keep: false) — internal noise; never show these:
-   - Bot / AI tagging or classification (interaction tags like "delay_fulfilment…")
-   - "AI-resolved", chat-summary, or internal CE-summary log entries
-   - Chat-transcript dumps and "conversation opened / transcript logged" system rows
-   - Pseudo-email / vendor-login / password / credential generation
-   - Macro floods, field / tag updates, assignment logs
-   - Email signatures, logos, legal footers, blank bodies
-4. THREAD (the channel chip) — how the event happened:
-   - "booking" → booking-side events: Booking created, Tickets / voucher sent,
-                 Refund issued, Booking cancelled
-   - "review"  → the Review posted bookend
-   - "email"   → email thread with the guest
-   - "chat"    → live chat / Skyler / web-user conversation
-   - "call"    → phone call
-   - "sp"      → correspondence with the supply partner / operator
-   Infer it from the raw body. Do NOT default everything to "email".
-5. SUMMARIES — write for a human, ONE clear sentence (max ~160 chars):
-   - Guest contact → say WHY they reached out / what they asked.
-     e.g. "Guest asked why their tickets hadn't arrived and needed them immediately for a same-day plan."
-   - Our response → say WHAT WE DID or OFFERED (more time, resent tickets, credits, refund, escalation).
-     e.g. "Explained tickets would arrive within 2 hours and stay valid until Jul 2027; could not expedite."
-   - Fulfilment → WHAT was delivered and WHEN.
-     e.g. "Tickets delivered to the guest, about 28 minutes after booking."
-   - Refund / outcome → the amount and terms.
-     e.g. "Full refund of USD 19.42 issued as an out-of-policy exception."
-   Strip all HTML / signatures. Never quote raw JSON. Never adopt the guest's emotional wording.
-6. LABELS — short and plain, from this vocabulary:
+       "label": "Review posted",
+       "summary": "Negative Trustpilot review posted, BID referenced.", "keep": true}}
+
+2. KEEP EVERY EVENT. keep: false only for an event with no readable content at
+   all - an empty body, a bare signature, a logo. Do NOT drop machinery:
+   is_internal already marks it and the dashboard hides it behind a toggle that
+   says how many it hid. An event you drop cannot be recovered or counted.
+
+3. COLLAPSE consecutive events describing ONE action at one moment; list every
+   collapsed idx in idx_range. Collapse only within the same thread and the
+   same actor - merging a guest message into a system row destroys both. No
+   "(xN)" in the label.
+
+4. LABELS - short and plain, from this vocabulary:
    "Booking created", "Tickets sent", "Guest reached out", "Guest reply",
    "CE response", "SP response", "Refund issued", "Booking cancelled",
    "Escalated to SP", "Review posted".
-   Rules: the guest's FIRST contact → "Guest reached out"; a later guest message
-   → "Guest reply"; our reply to the guest → "CE response"; a supply-partner reply
-   → "SP response". No ticket IDs, no "[ZD-xxxxx]", no "(×N)" suffixes.
-7. COLLAPSE consecutive events about ONE action (same moment) into a single event;
-   list every collapsed idx in idx_range. Do NOT emit "(×N)" in the label.
-8. TIME — copy each raw event's timestamp exactly as given (already 'DD Mon HH:MM IST').
-   Both bookends above already carry their time in that same format ('DD Mon HH:MM IST',
-   or 'DD Mon' when the source has no clock time) — copy those strings verbatim.
-   Never reformat, re-derive or re-timezone a timestamp, and never emit a raw ISO
-   date like "2026-07-22" (including the Published: value in the REVIEW block).
-9. ORDER — Booking created first, kept events in chronological order, Review posted last.
-Return ONLY valid JSON — a list of shaped event objects, nothing else:
+   THE LABEL MUST MATCH THE ACTOR. This is not a style preference - a label
+   naming someone who did not act is a false statement about a person, and it
+   is the one error here that can end up quoted back to a customer.
+     actor "guest"   -> and ONLY then: "Guest reached out" (first contact) or
+                        "Guest reply" (any later message). Never write that the
+                        guest contacted, asked, replied or complained unless
+                        this event IS the guest's own words.
+     actor "co"      -> "CE response"
+     actor "sp"      -> "SP response"
+     actor "system" / "ai" -> the machine action AND ITS OUTCOME: "Fulfilment
+                        run failed", "Tickets sent", "Booking-in-progress email
+                        sent", "Credentials generated". Name the specific
+                        machine that ran: a fulfilment attempt is "Fulfilment
+                        run ...", never the name of the email beside it.
+                        internal_reason "booking-info" is NOT a run. It is the
+                        booking dump Zendesk posts onto the ticket - pax,
+                        price, vendor, instructions. Label it "Booking details
+                        posted" and summarise the facts in it. Do not write
+                        that anything ran or was attempted: naming a
+                        fulfilment attempt that never happened invents the
+                        event an RCA then goes looking for.
+                        Say what happened, not what was tried -
+                        "Fulfilment run attempted" leaves the reader to find
+                        out whether it worked, and whether it worked is the
+                        whole reason the row is here.
+                        An automated email ABOUT the guest is a system event,
+                        not the guest speaking.
+     actor "system" on thread "chat" -> a chat TRANSCRIPT: ONE comment holding
+                        the whole conversation, posted by Zendesk rather than
+                        by either party, which is why its actor is system.
+                        Label it "Guest chat". Do NOT label it as a transcript
+                        or a log - the log is the container, the conversation
+                        is the event, and calling it bookkeeping buries the
+                        only record of what the guest said.
+                        The summary carries what the guest raised and what they
+                        were told, in that order. Attribute inside the summary
+                        ("Guest asked ... ; agent said ...") - that is accurate
+                        about a transcript in a way the actor field cannot be.
+   LABEL EACH EVENT FROM ITS OWN BODY, never from the event beside it. On
+   booking 32908218 the Selenium fulfilment blob and the booking-in-progress
+   email - two different things one second apart - both came back
+   "Booking-in-progress email sent". The fulfilment attempt took the label of
+   the mail it sat next to and disappeared, and that attempt is often the
+   whole root cause.
+   Repeated labels are NOT automatically wrong. Three fulfilment retries are
+   three events that each say "Fulfilment run failed", and forcing them to
+   differ would invent a distinction the data does not have. Before you write
+   a label, ask of the BODIES, not of the labels:
+     - Same action recorded more than once at one moment? -> ONE event.
+       Collapse under rule 3 and list every idx.
+     - Same KIND of action happening again at a different time? -> SEPARATE
+       events, and the same label on both is correct. Let the summary carry
+       what differed - the attempt number, the outcome, what changed.
+     - Different actions? -> different labels, each from its own body.
+   No ticket IDs, no "[ZD-xxxxx]", no "(xN)".
+
+5. SUMMARIES - ONE short sentence. Aim for 12-20 words, hard limit 120
+   characters. A CX analyst scans this column; anything longer stops being
+   scannable and becomes something to read.
+   - Guest contact -> WHY they reached out.
+   - Our response -> WHAT WE DID or OFFERED.
+   - Fulfilment -> WHAT was delivered and WHEN.
+   - Refund / outcome -> the amount and terms.
+   - Machinery -> the outcome in as few words as possible. The label already
+     says what ran, so the summary carries only what came back:
+     "No ticket URLs returned." not "The Selenium run attempted ticket
+     retrieval from the vendor site but returned no ticket URLs."
+   Do not restate the label. "Guest reply / Guest replied asking about their
+   tickets" wastes the whole line - the label already said it.
+   Keep the specifics that let someone verify it: amounts, pax, reference
+   numbers, validity dates, URLs in full. Drop everything else.
+   Say only what the event evidences. If the body does not say why the guest
+   contacted us, write what it does say - do not supply a motive.
+   Strip HTML and signatures. Never quote raw JSON. Never adopt the guest's
+   emotional wording.
+
+6. ORDER - Booking created first, events as given, Review posted last. The
+   input is already in order; do not re-sort it.
+
+Return ONLY valid JSON - a list of shaped event objects, nothing else:
 [
   {{"idx_range": [], "time": "...", "thread": "...", "actor": "...", "label": "...", "summary": "...", "keep": true}},
   ...

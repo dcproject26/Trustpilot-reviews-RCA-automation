@@ -32,6 +32,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # ─── The proposed prompt ────────────────────────────────────────────────────
 #
+# AS OF NOW THIS IS WHAT SHIPPED. server/prompts.py carries the same text, so
+# a --only current / --only proposed comparison shows no difference until this
+# copy is edited. That is the intended state: this file is the bench where the
+# next change gets tried before it goes near the pipeline.
+#
 # One principle: the model writes prose, and never states a fact.
 #
 # The current prompt asks it to infer the channel from the raw body ("Infer it
