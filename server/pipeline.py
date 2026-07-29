@@ -174,8 +174,12 @@ async def process_review(review_id: str, force_candidates: bool = False):
             })
         else:
             _ctr["bid_none"] += 1
+            # Marked "fail", the same mark the untraceable checks use for a
+            # check that came back empty. "pass" rendered a green tick beside a
+            # line saying nothing was found, so a review with no booking id read
+            # as if that were a step which had succeeded.
             confidence_trail.append({
-                "mark": "pass",
+                "mark": "fail",
                 "text": "<strong>BID</strong> — no 7–12 digit number found",
             })
 
@@ -219,11 +223,32 @@ async def process_review(review_id: str, force_candidates: bool = False):
                     pass
                 match_tier = 2
                 narrowing_path = "associate_confirmed"
-                confidence_trail.append({"mark": "pass",
-                    "text": f"<strong>Associate confirmed</strong> BID {confirmed_bid} — "
-                            "matching skipped"})
-                extracted_sigs["matching_skipped"] = (
-                    f"An associate confirmed BID {confirmed_bid}, so no matching was needed.")
+                # Confirming a candidate re-runs the pipeline, and this branch
+                # used to start a fresh trail and write "no matching was needed"
+                # over the extracted indicators. The run that actually found the
+                # booking is the only thing that explains WHY this BID was on
+                # offer, so confirming it erased the evidence an associate would
+                # need to challenge the match later. The confirmation is one more
+                # line on that history, not a replacement for it.
+                _prior_trail = list(_prior.confidence_trail or [])
+                if _prior_trail:
+                    confidence_trail   = _prior_trail
+                    extracted_sigs     = dict(_prior.extracted_signals or {})
+                    candidates         = list(_prior.candidates_list or [])
+                    narrowing_attempts = list(_prior.narrowing_attempts or [])
+                    confidence_trail.append({"mark": "pass",
+                        "text": f"<strong>Associate confirmed</strong> BID {confirmed_bid} — "
+                                "the steps above are from the run that found it"})
+                else:
+                    # Confirmed on the very first run, before any search was
+                    # recorded. There is no earlier matching to preserve, so
+                    # saying so is the honest answer - inventing a trail here
+                    # would be worse than a short one.
+                    confidence_trail.append({"mark": "pass",
+                        "text": f"<strong>Associate confirmed</strong> BID {confirmed_bid} — "
+                                "matching skipped"})
+                    extracted_sigs["matching_skipped"] = (
+                        f"An associate confirmed BID {confirmed_bid}, so no matching was needed.")
                 log.info(f"[pipeline] using associate-confirmed BID {confirmed_bid}")
             else:
                 confidence_trail.append({"mark": "warn",
