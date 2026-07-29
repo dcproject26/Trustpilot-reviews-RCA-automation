@@ -473,14 +473,28 @@ def format_rca_slack(review, draft) -> str:
 
     # 10. Insights tiles
     ins = draft.insights or {}
+    # These numbers are recomputed and overwritten for whichever window the
+    # associate last clicked - 7d, 30d or 90d - so the "(30d)" that used to be
+    # written here labelled 7d counts as 30d ones and leadership read them as
+    # such. The keys keep their _30d spelling because the dashboard reads those
+    # names, so the label has to come from the window the data carries. Rows
+    # cached before the picker existed carry no window at all: an unlabelled
+    # number is honest, a number labelled 30d on a guess is not.
+    wd = ins.get("_window_days")
+    if isinstance(wd, int) and wd > 0:
+        win = f" ({wd}d)"
+    elif ins.get("_window_label"):
+        win = f" ({ins['_window_label']})"
+    else:
+        win = ""
     ins_parts = []
     if ins.get("similar_reviews_30d") is not None:
-        ins_parts.append(f"*Similar reviews (30d):* {ins.get('similar_reviews_30d')}")
+        ins_parts.append(f"*Similar reviews{win}:* {ins.get('similar_reviews_30d')}")
     if ins.get("similar_support_queries_30d") is not None:
-        ins_parts.append(f"*Similar support queries (30d):* {ins.get('similar_support_queries_30d')}")
+        ins_parts.append(f"*Similar support queries{win}:* {ins.get('similar_support_queries_30d')}")
     r30 = ins.get("rating_30d") or {}
     if r30.get("avg") is not None:
-        ins_parts.append(f"*Avg rating (30d):* {r30.get('avg')} ({r30.get('n', 0)} ratings)")
+        ins_parts.append(f"*Avg rating{win}:* {r30.get('avg')} ({r30.get('n', 0)} ratings)")
     if ins.get("vidCompletionRate"):
         ins_parts.append(f"*Completion rate (VID):* {ins.get('vidCompletionRate')}")
     if ins.get("sameDaySameVidIssues"):

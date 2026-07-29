@@ -456,14 +456,28 @@ def _read_head_sha() -> str:
     always on PATH in the run context.
     """
     import os
+    # Every failure has to end in a string. This runs at import and the result
+    # is frozen into _BUILD_SHA, so anything raised here takes the whole app
+    # down at startup - and .git/HEAD raises more than OSError: a truncated
+    # "ref:" with nothing after it splits into one field and the lookup of the
+    # second is an IndexError, which is not worth refusing to boot for when the
+    # only thing lost is a version banner.
+    # The opens are held by a context manager because the handles used to be
+    # left to the garbage collector, and this is called again on every
+    # /api/version request.
     try:
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        head = open(os.path.join(root, ".git", "HEAD")).read().strip()
+        with open(os.path.join(root, ".git", "HEAD")) as fh:
+            head = fh.read().strip()
         if head.startswith("ref:"):
-            return open(os.path.join(root, ".git",
-                                     head.split(None, 1)[1])).read().strip()
-        return head
-    except OSError:
+            with open(os.path.join(root, ".git",
+                                   head.split(None, 1)[1])) as fh:
+                return fh.read().strip() or "unknown"
+        # An empty or blank HEAD is not an exception but is not a commit
+        # either, and "" compares equal to "" - reporting it as a sha would
+        # make the staleness check say "matches" for two unknowns.
+        return head or "unknown"
+    except Exception:
         return "unknown"
 
 
