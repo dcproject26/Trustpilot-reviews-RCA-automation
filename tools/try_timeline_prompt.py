@@ -137,15 +137,22 @@ findable; one you quietly corrected is not.
                         were told, in that order. Attribute inside the summary
                         ("Guest asked ... ; agent said ...") - that is accurate
                         about a transcript in a way the actor field cannot be.
-   ONE LABEL PER EVENT, TAKEN FROM THAT EVENT'S OWN BODY. Two consecutive
-   rows carrying the same label means at least one was labelled from its
-   neighbour rather than from itself. On booking 32908218 the Selenium
-   fulfilment blob and the booking-in-progress email - two different events
-   one second apart - both came back "Booking-in-progress email sent", and
-   the fulfilment attempt disappeared behind the mail it sat next to. That
-   attempt is often the whole root cause, so losing it loses the RCA.
-   If two adjacent events really are one action, COLLAPSE them under rule 3.
-   If they are not, each gets the label its own body earns.
+   LABEL EACH EVENT FROM ITS OWN BODY, never from the event beside it. On
+   booking 32908218 the Selenium fulfilment blob and the booking-in-progress
+   email - two different things one second apart - both came back
+   "Booking-in-progress email sent". The fulfilment attempt took the label of
+   the mail it sat next to and disappeared, and that attempt is often the
+   whole root cause.
+   Repeated labels are NOT automatically wrong. Three fulfilment retries are
+   three events that each say "Fulfilment run failed", and forcing them to
+   differ would invent a distinction the data does not have. Before you write
+   a label, ask of the BODIES, not of the labels:
+     - Same action recorded more than once at one moment? -> ONE event.
+       Collapse under rule 3 and list every idx.
+     - Same KIND of action happening again at a different time? -> SEPARATE
+       events, and the same label on both is correct. Let the summary carry
+       what differed - the attempt number, the outcome, what changed.
+     - Different actions? -> different labels, each from its own body.
    No ticket IDs, no "[ZD-xxxxx]", no "(xN)".
 
 5. SUMMARIES - ONE short sentence. Aim for 12-20 words, hard limit 120
