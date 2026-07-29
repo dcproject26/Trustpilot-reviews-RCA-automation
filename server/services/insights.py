@@ -807,7 +807,8 @@ LIMIT 6
     sql_why_vid  = _ff_why.format(scope="b.vendor_id = @vid")
 
     sql_i_rev = f"""
-SELECT COUNT(DISTINCT r.booking_id) AS c
+SELECT COUNT(DISTINCT r.booking_id) AS c,
+       ARRAY_AGG(DISTINCT CAST(r.booking_id AS STRING) LIMIT 20) AS ids
 {_reviews_from}
 LEFT JOIN UNNEST(r.issues) AS iss
 LEFT JOIN UNNEST(iss.l2_issues) AS l2v
@@ -816,7 +817,8 @@ WHERE f.vendor_id = @vid
   AND {_norm_sql('l2v')} IN UNNEST(@l2v)
 """
     sql_i_sup = f"""
-SELECT COUNT(DISTINCT sq.booking_id) AS c
+SELECT COUNT(DISTINCT sq.booking_id) AS c,
+       ARRAY_AGG(DISTINCT sq.booking_id LIMIT 20) AS ids
 {_support_from}
 WHERE b.vendor_id = @vid
   AND DATE(b.experience_date) = {anchor_sql}
@@ -940,11 +942,19 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
 
     ff_vid  = _ff(results[8])
     ff_tgid = _ff(results[9])
+    # A guest changing their mind is not a fulfilment failure, and listing it
+    # first drowns the reasons that are. "98 Cancelled By Customer · 51
+    # Cancelled By Vendor" reads as though the vendor is fine; the 51 is the
+    # story. Guest-driven cancellations are counted separately, not in the list.
+    _GUEST_CANCELS = ("cancelled by customer", "cancelled by guest",
+                      "cancelledguest", "cancelledcustomer", "customer error",
+                      "change of plans")
+
     def _why_rows(res):
         """Non-completions grouped by status and completion type, largest first."""
         if not isinstance(res, list):
             return []
-        out = []
+        out, guest = [], [0]
         for r in res:
             n = int(_fld(r, "c") or 0)
             if not n:
@@ -955,14 +965,24 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
             # fulfilment_status is the coarse bucket. Show the specific one
             # unless it says nothing the status has not already said.
             label = ct if ct and ct not in ("(none)", st) else st
+            if _norm(label) in _GUEST_CANCELS:
+                guest[0] += n
+                continue
             out.append({"reason": label, "status": st, "type": ct, "count": n})
         return out
 
     why_tgid = _why_rows(results[10])
     why_vid  = _why_rows(results[11])
+    def _ids(res):
+        row = res[0] if isinstance(res, list) and res else None
+        vals = _fld(row, "ids") or []
+        return [str(v) for v in vals if v]
+
     day_rev = _count(results[12])
     day_sup = _count(results[13])
     day_tot = _count(results[14])
+    day_rev_ids = _ids(results[12])
+    day_sup_ids = _ids(results[13])
 
     out = {
         "similar_reviews_30d":         sim_rev,
@@ -996,13 +1016,20 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         # Same visit date, same vendor, same issue - split by evidence type.
         # "total" is every booking that vendor served that day, so a count can
         # be read as a share of the day rather than as a bare number.
-        "same_day": {"reviews": day_rev, "support": day_sup, "total": day_tot},
+        # Booking ids alongside the counts: "2 reviews" is a number, and the
+        # two booking ids are something an associate can open.
+        "same_day": {"reviews": day_rev, "support": day_sup, "total": day_tot,
+                     "review_ids": day_rev_ids, "support_ids": day_sup_ids},
         "same_day_same_vid":     ({"issues": day_rev + day_sup, "total": day_tot}
                                   if day_tot else None),
         "sameDaySameVidIssues":  (f"{day_rev} reviews / {day_sup} support of "
                                   f"{day_tot} bookings" if day_tot else "N/A"),
         "_window_days":     wd,
         "_anchored_on":     visit_date or "today",
+        # Spelled out because "1 of 8" says nothing about which 8. Every count
+        # in the recurrence group covers this range.
+        "_window_label":    (f"{wd} days before {visit_date}" if visit_date
+                             else f"last {wd} days"),
         # Empty when everything was computed. Set when tid or vid was missing
         # and only the vendor-level half ran, so a zero in the issue-comparison
         # tiles can be explained rather than read as "no history".

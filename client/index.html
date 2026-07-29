@@ -597,6 +597,11 @@
     border-bottom: 1px solid var(--border);
   }
   .insight-group:first-of-type { margin-top: 0; }
+  .insight-group { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .group-range {
+    font-weight: 500; letter-spacing: .02em; text-transform: none;
+    color: var(--text-mute); font-size: 10px; white-space: nowrap;
+  }
   .tile-empty {
     font-size: 12px; font-weight: 400; color: var(--text-mute);
     font-family: inherit; letter-spacing: .01em;
@@ -2633,13 +2638,28 @@ function renderReviewCol() {
           // What the shortfall was. "57.1% of 7" leaves the obvious question
           // unanswered - three did not complete, why - and cancelled by the
           // vendor points somewhere different from a fulfilment backlog.
+          // The booking ids behind the count. A number is something to note;
+          // an id is something to open.
+          const _ids = (list) => {
+            if (!Array.isArray(list) || !list.length) return '';
+            const shown = list.slice(0, 6).join(' · ');
+            return `<div class="tile-why">${shown}` +
+                   (list.length > 6 ? ` <span class="why-n">+${list.length - 6}</span>` : '') +
+                   '</div>';
+          };
           const _why_not = (rows) => {
             if (!Array.isArray(rows) || !rows.length) return '';
             return '<div class="tile-why">' + rows.slice(0, 3).map(r =>
               `<span class="why-n">${r.count}</span> ${r.reason}`).join(' · ')
               + '</div>';
           };
-          const _grp = (t) => `<div class="insight-group">${t}</div>`;
+          // Every group carries the range it covers. "1 of 8" is meaningless
+          // without knowing which 8, and the recurrence counts and the
+          // same-day counts cover deliberately different periods - reading one
+          // as the other is the obvious mistake to make.
+          const _grp = (t, range) =>
+            `<div class="insight-group">${t}${range
+               ? `<span class="group-range">${range}</span>` : ''}</div>`;
           const _tile = (label, value, cls) =>
             `<div class="insight-tile ${cls || ''}">
                <div class="insight-tile-label">${label}</div>
@@ -2654,7 +2674,8 @@ function renderReviewCol() {
           return `<div class="insights-grid">
             ${_why ? `<div class="insight-note">${_why}</div>` : ''}
 
-            ${_grp('Is this issue recurring here?')}
+            ${_grp('Is this issue recurring here?',
+                    li._window_label || `${li._window_days || 30} days`)}
             ${_tile('Reviews', _share(li.similar_reviews_30d, li.total_reviews_30d,
                                       'no negative reviews'),
                     _rr > 0.15 ? 'red' : '')}
@@ -2663,13 +2684,16 @@ function renderReviewCol() {
                                                'no contacts'),
                     _sr > 0.15 ? 'red' : '')}
 
-            ${_grp('Same visit date, same issue')}
-            ${_tile('Reviews', li.same_day ? _n(sd.reviews) : '—',
+            ${_grp('Same visit date, same issue', li._anchored_on || '')}
+            ${_tile('Reviews', (li.same_day ? _n(sd.reviews) : '—')
+                                + _ids(sd.review_ids),
                     (sd.reviews > 0) ? 'red' : '')}
-            ${_tile('Support contacts', li.same_day ? _n(sd.support) : '—',
+            ${_tile('Support contacts', (li.same_day ? _n(sd.support) : '—')
+                                        + _ids(sd.support_ids),
                     (sd.support > 0) ? 'red' : '')}
 
-            ${_grp('How the experience and vendor are doing')}
+            ${_grp('How the experience and vendor are doing',
+                    li._window_label || '')}
             ${_tile('Rating · TGID',
                     _ratTgid.avg != null
                       ? `${_ratTgid.avg} ★ <span class="tile-n">of ${_rTgidN}</span>`
