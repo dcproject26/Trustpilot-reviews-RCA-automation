@@ -146,7 +146,9 @@ SUPPORT SUMMARY:
    sanctioned path - HOC after persistence is not a deviation either. Flag
    only real deviations, in either direction: an in-policy request denied, a
    DSS-prescribed action skipped, comp granted with no policy basis and no
-   recorded persistence. If DSS is empty or match_score is 0, set
+   recorded persistence. Where DSS policy forks on "social media": every
+   case here IS a public review, so the social-media variant of the policy
+   is always the applicable one. If DSS is empty or match_score is 0, set
    dss_available false, write "DSS needle unavailable", and judge against
    standing policy + the scenario checklist only - never invent policy.
 7. SUPPORT-FAILURE SUPERSEDES: if an external event occurred but CE or RO
