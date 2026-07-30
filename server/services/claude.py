@@ -519,9 +519,16 @@ async def generate_rca_v3(
     # no visible cause.
     parsed = _extract_json_object(raw)
     if isinstance(parsed, dict) and parsed:
-        if len(raw) > 200 and not raw.rstrip().endswith("}"):
-            log.warning(f"[rca_v3] answer looks truncated ({len(raw)} chars) - "
-                        f"recovered {sorted(parsed.keys())}")
+        # Truncation means the STRICT parse failed and the repair rescued it.
+        # The old check asked whether the raw text ended in "}" - which a
+        # perfectly complete answer wrapped in ```json fences never does, so
+        # every single RCA was reported as truncated and the warning stopped
+        # meaning anything.
+        try:
+            json.loads(_strip_fences(raw))
+        except Exception:
+            log.warning(f"[rca_v3] answer was truncated ({len(raw)} chars) and "
+                        f"repaired - recovered {sorted(parsed.keys())}")
         return parsed
     log.error(f"[rca_v3] could not parse the model answer ({len(raw)} chars). "
               f"First 300: {raw[:300]!r}")

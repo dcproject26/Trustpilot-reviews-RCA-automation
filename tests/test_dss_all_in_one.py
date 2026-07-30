@@ -157,3 +157,27 @@ def test_no_match_returns_fallback():
 def test_mock_mode_untouched(monkeypatch):
     monkeypatch.setattr(dss, "is_live", lambda name: False)
     assert asyncio.run(dss.get_recommendation({}, "rev_unknown")) == {}
+
+
+def test_an_l2_with_no_tab_is_out_of_scope_not_a_failed_lookup():
+    """A content or pricing complaint is not a fulfilment case. The delay
+    pattern matched the guest's prose ("never received clear instructions"),
+    so the lookup went to delay_fulfilment and reported "no match" - which
+    reads as a broken lookup rather than as the sheet's scope."""
+    r = _rec(booking={}, l1="Operations Issue",
+             l2="Content - Instructions not clear / Misleading Info",
+             review_text="we never received clear instructions about the tickets")
+    assert r["match_score"] == 0
+    assert r.get("out_of_scope") is True
+    assert r["dss_type"] == ""
+    assert "no DSS tab" in r["type_reason"]
+
+
+def test_classification_outranks_a_keyword_in_the_prose():
+    """A ticket-delay review still routes to delay_fulfilment - the guard only
+    catches L2s the sheet genuinely does not cover."""
+    r = _rec(booking={"amountUSD": 50.0}, l1="Operations Issue",
+             l2="Ticket Issues",
+             review_text="tickets never received before the visit")
+    assert r["dss_type"] == "delay_fulfilment"
+    assert not r.get("out_of_scope")

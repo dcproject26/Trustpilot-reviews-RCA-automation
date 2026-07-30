@@ -58,6 +58,9 @@ TABS = {
 
 NO_DSS_MESSAGE = "No DSS available, Please check with your lead/escalation team."
 
+# Returned by _route_type when the sheet has no tab for this L2 at all.
+NO_TAB = "__no_tab__"
+
 _STOPWORDS = {"the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
               "of", "with", "by", "from", "is", "was", "are", "were", "be", "been",
               "not", "no", "do", "did", "has", "have", "had", "that", "this",
@@ -211,9 +214,27 @@ _DELAY_RE  = re.compile(r"(ticket|voucher).{0,40}(not|never|delay|late|missing)"
                         r"|(not|never) receiv|fulfil|no ticket", re.I)
 
 
+# L2s the sheet has no tab for. A content or pricing complaint is not a
+# fulfilment case, but the review text says "did not receive what was
+# described" and the delay pattern matched it - so the lookup went to
+# delay_fulfilment and reported "no match" instead of "no tab covers this".
+_NO_TAB_L2_RE = re.compile(
+    r"content|instruction|mislead|pricing|convenience fee|discount|coupon|"
+    r"audio guide|app issue|website", re.I)
+
+
 def _route_type(l1: str, l2: str, review_text: str) -> tuple[str, str]:
     """Pick the DSS tab the app's human user would have picked, and say why."""
     hay = f"{l2 or ''} {review_text or ''}"
+    # Classification first: it is a decision already made deliberately, and it
+    # outranks a keyword that happens to appear in the guest's prose.
+    if _NO_TAB_L2_RE.search(l2 or ""):
+        # A distinct marker, not "": an empty type means "no type matched, so
+        # score across every tab", which is how a content complaint ended up
+        # matching a cancellation row.
+        return NO_TAB, f"L2 {l2!r} has no DSS tab - the sheet covers " \
+                       f"cancellation, meeting point, supply partner and " \
+                       f"delayed fulfilment"
     if _MP_RE.search(hay):
         return "meetingPointIssue", "meeting-point terms in L2/review"
     if (l1 or "").strip() in ("Supply Partner Issue", "Venue Related Issue"):
@@ -248,6 +269,12 @@ async def get_recommendation(
     value_greater = None if amount is None else ("yes" if float(amount) > 125 else "no")
 
     dss_type, type_reason = _route_type(l1, l2, review_text)
+    if dss_type == NO_TAB:
+        log.info(f"[dss] no tab for l2={l2!r} (review_id={review_id}): {type_reason}")
+        return {"match_score": 0, "dss_type": "", "type_reason": type_reason,
+                "out_of_scope": True, "fallback": NO_DSS_MESSAGE,
+                "filters": {"for_social_media": "Yes",
+                            "is_partnered": _yn((booking or {}).get("isPartnered")) or "unknown"}}
     candidates = ([(dss_type, r) for r in tabs.get(dss_type, [])] if dss_type
                   else [(t, r) for t, rs in tabs.items() for r in rs])
 
@@ -287,7 +314,10 @@ async def get_recommendation(
     }
 
     if not best:
-        log.warning(f"[dss] no match: type={dss_type or 'any'!r} l1={l1!r} "
+        # "No tab covers this L2" is a different answer from "the tab was
+        # searched and nothing matched", and only the second is worth a
+        # warning. The first is the sheet's scope, correctly reported.
+        log.warning(f"[dss] no match: type={dss_type!r} l1={l1!r} "
                     f"l2={l2!r} (review_id={review_id})")
         return {"match_score": 0, "dss_type": dss_type,
                 "type_reason": type_reason, "filters": filters_applied,

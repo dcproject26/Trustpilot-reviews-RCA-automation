@@ -28,7 +28,11 @@ from server.aio import LoopLocalSemaphore
 # the first loop that awaits it, and a re-run in a fresh loop then fails every
 # query with "bound to a different event loop" (took out all 15 insights
 # queries on a real draft).
-_BQ_SEM = LoopLocalSemaphore(5)
+# 5 was chosen when one pipeline ran at a time. A bulk re-run puts three
+# pipelines through here at once, each firing ~15 insight queries, and the
+# queue backed up to 433 seconds - the run looked hung. BigQuery is not the
+# bottleneck at this width; the semaphore was.
+_BQ_SEM = LoopLocalSemaphore(12)
 
 _BQ_API = "https://bigquery.googleapis.com/bigquery/v2"
 
@@ -205,7 +209,7 @@ async def run_query_async(sql: str, params: dict | None = None) -> list[dict]:
     t0 = time.time()
     async with _BQ_SEM:
         waited = time.time() - t0
-        if waited > 2.0:
+        if waited > 20.0:
             log.warning(f"[bq_connector] wait time exceeded 2s: {waited:.1f}s")
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, run_query, sql, params)
