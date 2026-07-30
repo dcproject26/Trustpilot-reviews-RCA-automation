@@ -77,11 +77,11 @@ APPS_SCRIPT_URL = os.getenv(
 BMS_URL_PATTERN  = os.getenv("BMS_URL_PATTERN",  "https://aries.headout.com/bms/booking/{bid}")
 TGID_URL_PATTERN = os.getenv("TGID_URL_PATTERN", "https://www.headout.com/tour/{tgid}")
 
-# DSS — Google Sheet (CE/RO path)
+# DSS — the "DSS All in One" sheet the Retool app reads (one tab per type)
 DSS_WEBHOOK_URL         = os.getenv("DSS_WEBHOOK_URL", "")        # legacy, unused
 DSS_SHEET_ID            = os.getenv("DSS_SHEET_ID",
-                                     "1sz8KkxiBaGSxiQy4G-iPN_0gmzGg4wt3V8NI0MaVd88")
-DSS_SHEET_TAB           = os.getenv("DSS_SHEET_TAB", "CE/RO")
+                                     "1aQDO-qsKjW5Yrm7_b_Pwmz5rWOza3II1vIwfJf28z0I")
+DSS_SHEET_TAB           = os.getenv("DSS_SHEET_TAB", "")          # legacy, unused
 
 # Canned responses — Google Sheet
 CANNED_RESPONSES_SHEET_ID = os.getenv("CANNED_RESPONSES_SHEET_ID",

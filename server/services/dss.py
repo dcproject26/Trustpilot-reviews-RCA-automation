@@ -1,204 +1,175 @@
 """
-DSS — Google Sheet lookup (CE/RO path only).
+DSS — the "DSS All in One" decision sheet, replicating the Retool app's logic.
 
-Fetches the Decision Support Sheet as CSV every 15 min (TTL cache).
-Column names are detected heuristically from the header row.
-Escalations rows are skipped; only CE / RO / empty-team rows are kept.
-Scores each row against L1/L2/review_text and returns the best match.
+The DSS agents actually use is a Retool app reading Google Sheet
+1aQDO-qsKjW5Yrm7_b_Pwmz5rWOza3II1vIwfJf28z0I, one tab per DSS type, each
+row's `dss` column holding the recommendation text:
 
-Apps Script: if DSS_APPS_SCRIPT_URL env var is set and returns a 200 with a
-JSON list, that path is used in preference to CSV export.
+    cancelation         Cancelation_Reason x is_Partenered x
+                        For_Social_Media x is_value_greater
+    meetingPointIssue   scenarios x when_did_the_guest_reached_out
+    supplyPartnerIssue  scenarios
+    delay_fulfilment    delay_fulfilment_reason x is_value_greater
 
-Fallback: when MOCK_MODE or the sheet fetch fails, returns MOCK_DSS[review_id].
+This module applies the app's own filters instead of keyword-scoring a flat
+sheet. The inputs the app takes from a human or its booking query, we take
+from the pipeline's booking dict:
+
+    For_Social_Media  = "Yes" always - every case here is a public review.
+    is_Partenered     from booking.isPartnered (fulfilling vendor).
+    is_value_greater  from booking.amountUSD > 125 (the app reads
+                      PRICE_PAYABLE_USD and forks on the same threshold).
+
+An unknown filter input skips that filter rather than guessing a side - the
+matched row then says which variant it is, so the reader can see what was
+assumed. The one genuinely soft step is picking the row's selector (reason /
+scenario) from L1/L2/review keywords - previously that scoring WAS the whole
+lookup; now it only chooses among rows that already passed the app's filters.
+
+Fallback: MOCK_DSS in mock mode; {"match_score": 0} plus the app's own
+"No DSS available" message when nothing matches.
 """
 import csv
 import io
 import logging
-import os
 import re
 import time
+from urllib.parse import quote
 
 import httpx
 
-from server.config import (
-    DSS_SHEET_ID, DSS_SHEET_TAB, GOOGLE_API_KEY, MOCK_MODE, is_live,
-)
+from server.config import DSS_SHEET_ID, is_live
 from server.services.mock_data import MOCK_DSS
 
 log = logging.getLogger(__name__)
 
-DSS_APPS_SCRIPT_URL = os.getenv("DSS_APPS_SCRIPT_URL", "")
-
 _TTL = 15 * 60  # seconds
+
+# Tab -> its selector column (normalised header names)
+TABS = {
+    "cancelation":        "cancelation_reason",
+    "meetingPointIssue":  "scenarios",
+    "supplyPartnerIssue": "scenarios",
+    "delay_fulfilment":   "delay_fulfilment_reason",
+}
+
+NO_DSS_MESSAGE = "No DSS available, Please check with your lead/escalation team."
+
 _STOPWORDS = {"the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
               "of", "with", "by", "from", "is", "was", "are", "were", "be", "been",
               "not", "no", "do", "did", "has", "have", "had", "that", "this",
-              "they", "them", "their", "which", "what", "when", "where", "who"}
+              "they", "them", "their", "which", "what", "when", "where", "who",
+              "guest", "booking", "booked"}
 
-_cache_rows: list[dict] = []
+_cache_tabs: dict[str, list[dict]] = {}
 _cache_at: float = 0.0
 
 
 # ─── helpers ────────────────────────────────────────────────────────────────
 
 def _keywords(text: str) -> set[str]:
-    words = re.findall(r"[a-z]{4,}", text.lower())
+    words = re.findall(r"[a-z]{4,}", (text or "").lower())
     return {w for w in words if w not in _STOPWORDS}
 
 
-def _detect_cols(headers: list[str]) -> dict[str, int]:
-    col: dict[str, int] = {}
-    for i, h in enumerate(headers):
-        hl = h.lower().strip()
-        if any(k in hl for k in ("situation", "scenario", "issue", "case")):
-            col.setdefault("situation", i)
-        if any(k in hl for k in ("action", "co action", "ce action", "response", "resolution")):
-            col.setdefault("action", i)
-        if any(k in hl for k in ("comp", "hoc", "refund", "credit")):
-            col.setdefault("compensation", i)
-        if "policy" in hl:
-            col.setdefault("policy", i)
-        if any(k in hl for k in ("team", "owner", "route")):
-            col.setdefault("team", i)
-    return col
+def _norm_header(h: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", (h or "").strip().lower()).strip("_")
 
 
-def _is_escalation(team_val: str) -> bool:
-    return "escalat" in team_val.lower()
+def _yn(value) -> str | None:
+    """Normalise a yes/no-ish value from either side of the comparison.
+    Returns 'yes' / 'no' / None (unknown). The sheet's is_Partenered and our
+    booking.isPartnered arrive in different spellings of the same fact."""
+    if value is None:
+        return None
+    v = str(value).strip().lower()
+    if v in ("yes", "true", "1", "y"):
+        return "yes"
+    if v in ("no", "false", "0", "n"):
+        return "no"
+    return None
 
 
-def _is_ce_ro(team_val: str) -> bool:
-    v = team_val.lower().strip()
-    return not v or v in {"ce", "ro", "ce/ro"}
+def _row_passes(row: dict, col: str, ours: str | None) -> bool:
+    """App-parity hard filter: keep the row when it matches our value, when
+    the sheet has no such column, or when our own input is unknown."""
+    if ours is None or col not in row:
+        return True
+    theirs = _yn(row.get(col))
+    return theirs is None or theirs == ours
 
 
 # ─── fetch ──────────────────────────────────────────────────────────────────
 
-async def _fetch_via_apps_script() -> list[dict] | None:
-    if not DSS_APPS_SCRIPT_URL:
-        return None
-    try:
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as c:
-            r = await c.get(DSS_APPS_SCRIPT_URL)
-        if r.status_code != 200:
-            return None
-        ct = r.headers.get("content-type", "")
-        if "json" not in ct:
-            return None
-        data = r.json()
-        if not isinstance(data, list) or not data:
-            return None
-        log.info("[dss] using Apps Script URL for fetch")
-        rows = []
-        for item in data:
-            team_val = str(item.get("team", item.get("owner", ""))).strip()
-            if _is_escalation(team_val) or not _is_ce_ro(team_val):
-                continue
-            rows.append({
-                "situation":    str(item.get("situation", item.get("case", ""))).strip(),
-                "action":       str(item.get("action", item.get("resolution", ""))).strip(),
-                "compensation": str(item.get("compensation", item.get("comp", ""))).strip(),
-                "policy":       str(item.get("policy", "")).strip(),
-                "raw_row":      item,
-            })
-        log.info(f"[dss] fetched {len(rows)} CE/RO rows via Apps Script")
-        return rows
-    except Exception as e:
-        log.warning(f"[dss] Apps Script fetch failed: {e}")
-        return None
-
-
-async def _fetch_csv() -> list[dict]:
-    gid = 0
-
-    # Try to resolve the named tab via Sheets metadata if GOOGLE_API_KEY is set
-    if GOOGLE_API_KEY:
-        try:
-            meta_url = (
-                f"https://sheets.googleapis.com/v4/spreadsheets/{DSS_SHEET_ID}"
-                f"?fields=sheets.properties(title,sheetId)&key={GOOGLE_API_KEY}"
-            )
-            async with httpx.AsyncClient(timeout=10.0) as c:
-                r = await c.get(meta_url)
-            if r.status_code == 200:
-                for sh in r.json().get("sheets", []):
-                    props = sh.get("properties", {})
-                    if props.get("title", "").strip().lower() == DSS_SHEET_TAB.strip().lower():
-                        gid = props.get("sheetId", 0)
-                        break
-        except Exception as e:
-            log.warning(f"[dss] sheets metadata lookup failed: {e}")
-
-    csv_url = (
-        f"https://docs.google.com/spreadsheets/d/{DSS_SHEET_ID}"
-        f"/export?format=csv&gid={gid}"
-    )
-    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as c:
-        r = await c.get(csv_url)
-    if r.status_code not in (200,):
-        raise RuntimeError(f"DSS CSV export returned HTTP {r.status_code}")
-
-    reader = csv.reader(io.StringIO(r.text))
-    raw = list(reader)
+async def _fetch_tab(client: httpx.AsyncClient, tab: str) -> list[dict]:
+    # gviz CSV export takes the tab NAME, so no gid resolution is needed.
+    url = (f"https://docs.google.com/spreadsheets/d/{DSS_SHEET_ID}"
+           f"/gviz/tq?tqx=out:csv&sheet={quote(tab)}")
+    r = await client.get(url)
+    if r.status_code != 200 or "csv" not in r.headers.get("content-type", "").lower():
+        raise RuntimeError(f"tab {tab!r}: HTTP {r.status_code}, "
+                           f"content-type {r.headers.get('content-type', '?')}")
+    raw = list(csv.reader(io.StringIO(r.text)))
     if not raw:
         return []
-
-    headers = [h.strip() for h in raw[0]]
-    col = _detect_cols(headers)
-    log.info(
-        f"[dss] mapped columns: situation={col.get('situation', '?')}, "
-        f"action={col.get('action', '?')}, compensation={col.get('compensation', '?')}, "
-        f"tab=gid:{gid}"
-    )
-
-    rows: list[dict] = []
+    headers = [_norm_header(h) for h in raw[0]]
+    rows = []
     for rw in raw[1:]:
         if not any(c.strip() for c in rw):
             continue
-        max_idx = max(col.values(), default=0)
-        if max_idx >= len(rw):
-            continue
-
-        team_val = rw[col["team"]].strip() if "team" in col else ""
-        if _is_escalation(team_val):
-            continue
-        if not _is_ce_ro(team_val):
-            continue
-
-        def _get(key: str) -> str:
-            idx = col.get(key)
-            return rw[idx].strip() if idx is not None and idx < len(rw) else ""
-
-        rows.append({
-            "situation":    _get("situation"),
-            "action":       _get("action"),
-            "compensation": _get("compensation"),
-            "policy":       _get("policy"),
-            "raw_row":      rw,
-        })
-
-    log.info(f"[dss] fetched {len(rows)} CE/RO rows from sheet (gid={gid})")
-    for i, sample in enumerate(raw[1:4], 1):
-        safe = [c[:40] if len(c) > 40 else c for c in sample[:5]]
-        log.debug(f"[dss] sample row {i}: {safe}")
+        row = {headers[i]: rw[i].strip() for i in range(min(len(headers), len(rw)))}
+        # is_Partenered is the sheet's spelling; accept the correct one too
+        if "is_partnered" in row and "is_partenered" not in row:
+            row["is_partenered"] = row["is_partnered"]
+        if row.get("dss"):
+            rows.append(row)
     return rows
 
 
-async def _get_rows() -> list[dict]:
-    global _cache_rows, _cache_at
-    if _cache_rows and (time.time() - _cache_at) < _TTL:
-        return _cache_rows
+async def _get_tabs() -> dict[str, list[dict]]:
+    global _cache_tabs, _cache_at
+    if _cache_tabs and (time.time() - _cache_at) < _TTL:
+        return _cache_tabs
+    tabs: dict[str, list[dict]] = {}
     try:
-        rows = await _fetch_via_apps_script()
-        if rows is None:
-            rows = await _fetch_csv()
-        _cache_rows = rows
-        _cache_at = time.time()
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as c:
+            for tab in TABS:
+                try:
+                    tabs[tab] = await _fetch_tab(c, tab)
+                except Exception as e:
+                    log.warning(f"[dss] fetch failed for {tab!r}: {e}")
+                    tabs[tab] = []
+        if any(tabs.values()):
+            _cache_tabs = tabs
+            _cache_at = time.time()
+            log.info("[dss] fetched " + ", ".join(
+                f"{t}:{len(rs)}" for t, rs in tabs.items()))
     except Exception as e:
         log.warning(f"[dss] sheet fetch failed: {e}; using stale cache or empty")
-        if not _cache_rows:
-            _cache_rows = []
-    return _cache_rows
+    return _cache_tabs or tabs
+
+
+# ─── type routing ───────────────────────────────────────────────────────────
+
+_MP_RE     = re.compile(r"meeting[ -]?point|pickup point|pick-?up location", re.I)
+_CANCEL_RE = re.compile(r"cancel|reschedul|modif|wrong (date|time|pax|name|experience)"
+                        r"|double.?book|book(ed)? (twice|more than once)|refund", re.I)
+_DELAY_RE  = re.compile(r"(ticket|voucher).{0,40}(not|never|delay|late|missing)"
+                        r"|(not|never) receiv|fulfil|no ticket", re.I)
+
+
+def _route_type(l1: str, l2: str, review_text: str) -> tuple[str, str]:
+    """Pick the DSS tab the app's human user would have picked, and say why."""
+    hay = f"{l2 or ''} {review_text or ''}"
+    if _MP_RE.search(hay):
+        return "meetingPointIssue", "meeting-point terms in L2/review"
+    if (l1 or "").strip() in ("Supply Partner Issue", "Venue Related Issue"):
+        return "supplyPartnerIssue", f"L1 = {l1}"
+    if _DELAY_RE.search(hay):
+        return "delay_fulfilment", "ticket-delivery/fulfilment terms in L2/review"
+    if _CANCEL_RE.search(hay):
+        return "cancelation", "cancellation/modification terms in L2/review"
+    return "", "no type matched - scoring across all tabs"
 
 
 # ─── public API ─────────────────────────────────────────────────────────────
@@ -213,38 +184,69 @@ async def get_recommendation(
     if not is_live("dss"):
         return MOCK_DSS.get(review_id or "", {})
 
-    rows = await _get_rows()
-    if not rows:
-        log.warning("[dss] no rows available — returning empty recommendation")
+    tabs = await _get_tabs()
+    if not any(tabs.values()):
+        log.warning("[dss] no rows available - returning empty recommendation")
         return {}
 
-    review_kw = _keywords(review_text or "")
-    best_row: dict | None = None
-    best_score = 0
+    bk = booking or {}
+    is_partnered = _yn(bk.get("isPartnered"))
+    amount = bk.get("amountUSD")
+    value_greater = None if amount is None else ("yes" if float(amount) > 125 else "no")
 
-    for row in rows:
-        sit_lower = row["situation"].lower()
-        score = 0
-        if l2 and l2.lower() in sit_lower:
+    dss_type, type_reason = _route_type(l1, l2, review_text)
+    candidates = ([(dss_type, r) for r in tabs.get(dss_type, [])] if dss_type
+                  else [(t, r) for t, rs in tabs.items() for r in rs])
+
+    # The app's hard filters. For_Social_Media is constant: public review.
+    filtered = []
+    for tab, row in candidates:
+        if not _row_passes(row, "for_social_media", "yes"):
+            continue
+        if tab == "cancelation" and not _row_passes(row, "is_partenered", is_partnered):
+            continue
+        if tab in ("cancelation", "delay_fulfilment") \
+                and not _row_passes(row, "is_value_greater", value_greater):
+            continue
+        filtered.append((tab, row))
+
+    # Selector choice - the one soft step. Score the selector column (plus
+    # before/after-visit wording for MP rows) against L2 + review keywords.
+    review_kw = _keywords(f"{l2 or ''} {review_text or ''}")
+    best, best_score = None, 0
+    for tab, row in filtered:
+        selector = row.get(TABS[tab], "")
+        score = len(review_kw & _keywords(selector))
+        if l2 and l2.lower() in selector.lower():
             score += 3
-        if l1 and l1.lower() in sit_lower:
-            score += 2
-        overlap = len(review_kw & _keywords(row["situation"]))
-        score += overlap
         if score > best_score:
-            best_score = score
-            best_row = row
+            best, best_score = (tab, row), score
 
-    if not best_row or best_score == 0:
-        log.warning(f"[dss] no match for l1={l1!r} l2={l2!r} (review_id={review_id})")
-        return {"match_score": 0}
+    filters_applied = {
+        "for_social_media": "Yes",
+        "is_partnered":     is_partnered or "unknown",
+        "value_greater_125": value_greater or "unknown",
+        "amount_usd":       amount,
+    }
 
+    if not best:
+        log.warning(f"[dss] no match: type={dss_type or 'any'!r} l1={l1!r} "
+                    f"l2={l2!r} (review_id={review_id})")
+        return {"match_score": 0, "dss_type": dss_type,
+                "type_reason": type_reason, "filters": filters_applied,
+                "fallback": NO_DSS_MESSAGE}
+
+    tab, row = best
     return {
-        "policy":       best_row["policy"],
-        "compensation": best_row["compensation"],
-        "action":       best_row["action"],
-        "coverage":     "CE/RO",
-        "escalateTo":   "",
-        "matched_row":  best_row["raw_row"],
-        "match_score":  best_score,
+        "action":           row.get("dss", ""),
+        "policy":           "",
+        "compensation":     "",
+        "coverage":         "DSS All-in-One",
+        "dss_type":         tab,
+        "type_reason":      type_reason,
+        "matched_selector": row.get(TABS[tab], ""),
+        "when":             row.get("when_did_the_guest_reached_out", ""),
+        "filters":          filters_applied,
+        "matched_row":      row,
+        "match_score":      best_score,
     }

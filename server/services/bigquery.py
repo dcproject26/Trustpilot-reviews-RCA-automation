@@ -329,7 +329,31 @@ def _get_booking_extra(bid: str) -> dict:
                 "escalationName":   (_esc or {}).get("name") or "",
                 "contactTypes":     getattr(rows[0], "contact_types", None) or "",
                 "contactCount":     None if _n_contacts is None else int(_n_contacts),
+                **_get_booking_amount(bid_int),
             }
+    except Exception:
+        pass
+    return {}
+
+
+def _get_booking_amount(bid_int: int) -> dict:
+    """USD amount paid, its own query so an unexpected column name costs only
+    this field. The DSS decision sheet forks policy on booking value > $125
+    (the Retool app reads PRICE_PAYABLE_USD), so the pipeline needs the same
+    input the app has. Absent on any failure - a missing amount must read as
+    "unknown", not as $0."""
+    try:
+        sql = f"""
+        SELECT b.price_payable_usd AS amount_usd
+        FROM `{BIGQUERY_BOOKINGS_TABLE}` b
+        WHERE b.booking_id = @bid
+        LIMIT 1
+        """
+        rows = _run_query(sql, [_bqlib.ScalarQueryParameter("bid", "INT64", bid_int)])
+        if rows:
+            v = getattr(rows[0], "amount_usd", None)
+            if v is not None:
+                return {"amountUSD": float(v)}
     except Exception:
         pass
     return {}
