@@ -771,48 +771,141 @@ async def refresh_slack(hours: int = 72, background_tasks: BackgroundTasks = Non
 _BULK_MAX = 60
 
 
-@router.post("/api/reviews/reprocess-all")
-async def reprocess_all(tab: str = "untraceable", limit: int = _BULK_MAX,
-                        background_tasks: BackgroundTasks = None,
-                        db: Session = Depends(get_session)):
-    """tab: untraceable | possible_matches | bid | all"""
-    limit = max(1, min(int(limit), _BULK_MAX))
-    rows = db.query(Review).order_by(Review.received_at.desc()).limit(200).all()
+# Job state lives on the server, not in the browser: a ten-review re-run takes
+# minutes, and a tab close or reload must not lose it or leave work orphaned.
+_BULK: dict = {
+    "running": False, "scope": "", "total": 0, "done": 0, "failed": 0,
+    "current": "", "started_at": None, "finished_at": None,
+    "results": [], "cancel": False,
+}
+_BULK_CONCURRENCY = 3
 
+
+def _bulk_targets(db, scope: str, limit: int) -> list[str]:
+    """Which reviews need re-running.
+
+    "incomplete" is the one worth having: a review is incomplete when it has
+    no draft row, no match and no candidates, or a draft with no RCA - which
+    is what someone means by "refresh the broken ones", and it does not depend
+    on which tab happens to be open.
+    """
+    rows = db.query(Review).order_by(Review.received_at.desc()).limit(300).all()
     ids = []
     for r in rows:
         d = r.draft
         tier = d.match_tier if d else None
         cand = bool(d and d.candidate_state)
-        if tab == "untraceable" and not (tier is None and not cand):
+        if scope == "incomplete":
+            broken = (d is None
+                      or (tier is None and not cand)
+                      or not (d.rca_v3 or {}))
+            if not broken:
+                continue
+        elif scope == "untraceable" and not (tier is None and not cand):
             continue
-        if tab == "possible_matches" and not cand:
+        elif scope == "possible_matches" and not cand:
             continue
-        if tab == "bid" and tier != 1:
+        elif scope == "bid" and tier != 1:
             continue
         ids.append(r.id)
         if len(ids) >= limit:
             break
+    return ids
 
+
+async def _bulk_worker(ids: list[str]):
     from server.pipeline import process_review as _pipeline
+    sem = asyncio.Semaphore(_BULK_CONCURRENCY)
 
-    async def _run_all(review_ids):
-        for rid in review_ids:
+    async def one(rid: str):
+        if _BULK["cancel"]:
+            return
+        async with sem:
+            if _BULK["cancel"]:
+                return
+            _BULK["current"] = rid
             try:
                 await _pipeline(rid)
-                log.info(f"[bulk] reprocessed {rid}")
+                _BULK["results"].append({"id": rid, "ok": True, "error": ""})
+                log.info(f"[bulk] {rid} done ({_BULK['done'] + 1}/{_BULK['total']})")
             except Exception as e:
-                # One bad review must not stop the queue.
+                # One bad review must never stop the queue, and the failure
+                # must survive into the status so it is not just a log line.
+                _BULK["failed"] += 1
+                _BULK["results"].append({"id": rid, "ok": False,
+                                         "error": f"{type(e).__name__}: {e}"[:300]})
                 log.exception(f"[bulk] {rid} failed: {e}")
+            finally:
+                _BULK["done"] += 1
 
-    if ids:
-        if background_tasks is not None:
-            background_tasks.add_task(lambda x: asyncio.run(_run_all(x)), ids)
-        else:
-            await _run_all(ids)
-    log.info(f"[bulk] queued {len(ids)} review(s) from tab={tab}")
-    return {"ok": True, "tab": tab, "queued": len(ids), "review_ids": ids,
-            "note": "runs sequentially; poll the inbox to watch them land"}
+    try:
+        await asyncio.gather(*(one(r) for r in ids))
+    finally:
+        _BULK["running"] = False
+        _BULK["current"] = ""
+        _BULK["finished_at"] = datetime.utcnow().isoformat()
+        log.info(f"[bulk] finished: {_BULK['done']}/{_BULK['total']}, "
+                 f"{_BULK['failed']} failed")
+
+
+@router.post("/api/reviews/reprocess-all")
+async def reprocess_all(tab: str = "incomplete", limit: int = _BULK_MAX,
+                        background_tasks: BackgroundTasks = None,
+                        db: Session = Depends(get_session)):
+    """scope: incomplete (default) | untraceable | possible_matches | bid | all
+
+    Returns immediately. Progress is at GET /api/reviews/bulk-status, so the
+    browser can be closed and reopened without losing the run.
+    """
+    if _BULK["running"]:
+        return {"ok": False, "already_running": True, **_bulk_public()}
+
+    limit = max(1, min(int(limit), _BULK_MAX))
+    ids = _bulk_targets(db, tab, limit)
+    if not ids:
+        return {"ok": True, "queued": 0, "scope": tab,
+                "note": "nothing matched that scope"}
+
+    _BULK.update({"running": True, "scope": tab, "total": len(ids), "done": 0,
+                  "failed": 0, "current": "", "cancel": False, "results": [],
+                  "started_at": datetime.utcnow().isoformat(),
+                  "finished_at": None})
+    if background_tasks is not None:
+        background_tasks.add_task(lambda x: asyncio.run(_bulk_worker(x)), ids)
+    else:
+        await _bulk_worker(ids)
+    log.info(f"[bulk] started: {len(ids)} review(s), scope={tab}, "
+             f"concurrency={_BULK_CONCURRENCY}")
+    return {"ok": True, "queued": len(ids), "scope": tab, "review_ids": ids,
+            **_bulk_public()}
+
+
+def _bulk_public() -> dict:
+    d = {k: v for k, v in _BULK.items() if k != "cancel"}
+    d["remaining"] = max(0, _BULK["total"] - _BULK["done"])
+    if _BULK["running"] and _BULK["started_at"] and _BULK["done"]:
+        started = datetime.fromisoformat(_BULK["started_at"])
+        per = (datetime.utcnow() - started).total_seconds() / _BULK["done"]
+        d["eta_s"] = int(per * d["remaining"])
+    else:
+        d["eta_s"] = None
+    return d
+
+
+@router.get("/api/reviews/bulk-status")
+def bulk_status():
+    return _bulk_public()
+
+
+@router.post("/api/reviews/bulk-cancel")
+def bulk_cancel():
+    """Stops after the in-flight reviews finish - a pipeline killed mid-run
+    would leave a half-written draft."""
+    if not _BULK["running"]:
+        return {"ok": True, "note": "nothing running"}
+    _BULK["cancel"] = True
+    log.info("[bulk] cancel requested")
+    return {"ok": True, "cancelling": True, **_bulk_public()}
 
 
 # ── Scenario change → RCA regeneration ──────────────────────────────────────

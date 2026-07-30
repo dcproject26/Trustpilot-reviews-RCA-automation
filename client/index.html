@@ -42,6 +42,19 @@
     -webkit-font-smoothing: antialiased;
   }
   .app { display: grid; grid-template-rows: 56px 1fr; height: 100vh; }
+  .bulk-bar { padding: 6px 0 2px; }
+  .bulk-track { height: 3px; background: var(--bg-elev-2); border-radius: 2px;
+                overflow: hidden; }
+  .bulk-fill { height: 100%; width: 0; background: var(--accent);
+               transition: width .3s ease; }
+  .bulk-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px;
+               font-size: 10.5px; color: var(--text-mute);
+               font-family: 'JetBrains Mono', monospace; }
+  .bulk-meta .err { color: #e5534b; }
+  .bulk-cancel { margin-left: auto; background: none; border: none; cursor: pointer;
+                 color: var(--text-mute); text-decoration: underline;
+                 font-size: 10.5px; font-family: 'JetBrains Mono', monospace; }
+  .bulk-cancel:hover { color: #e5534b; }
   .refresh-slack-btn { margin-left: 8px; font-size: 10px; padding: 2px 8px;
       border: 1px solid var(--border); border-radius: 10px; cursor: pointer;
       background: transparent; color: var(--text-mute);
@@ -1896,7 +1909,17 @@
                only when a review runs again. Re-running 20+ cards by hand is
                not a workflow. -->
           <button class="refresh-slack-btn" data-rerun-all
-                  title="Re-run the pipeline for every review in this tab">⟳ Re-run tab</button>
+                  title="Re-run every review that is missing a match or an RCA">⟳ Fix incomplete</button>
+        </div>
+        <!-- Job progress. The state lives on the server, so closing the tab or
+             reloading does not lose the run - this bar reattaches to whatever
+             is already going. -->
+        <div class="bulk-bar" id="bulk-bar" hidden>
+          <div class="bulk-track"><div class="bulk-fill" id="bulk-fill"></div></div>
+          <div class="bulk-meta">
+            <span id="bulk-text">…</span>
+            <button class="bulk-cancel" id="bulk-cancel">cancel</button>
+          </div>
         </div>
         <div class="inbox-tabs">
           <button class="inbox-tab active" data-tab="identified">Reviews with BID <span class="num" id="cnt-identified">3</span></button>
@@ -2371,6 +2394,7 @@ const state = {
 // fire once REVIEWS + state exist; fetchInbox merges API rows then loads drafts
 (async () => {
   await loadEnvPill();
+  pollBulk(false);          // reattach to a bulk run already in flight
   await fetchInbox();
   await loadSubThemeOptions();
   await loadDraftOverlays();
@@ -4773,42 +4797,88 @@ document.addEventListener('click', async (ev) => {
   btn.disabled = false;
 });
 
-// ⟳ Re-run tab — reprocess every review in the current tab. Sequential on
-// the server, so this polls until the queue drains rather than assuming.
+
+
+// ⟳ Fix incomplete — re-run every review missing a match or an RCA.
+// The job runs on the server and its progress is polled, so closing this tab
+// or reloading does not lose the run; the bar reattaches to whatever is
+// already in flight.
+let _bulkTimer = null;
+
+function _bulkRender(st) {
+  const bar = document.getElementById('bulk-bar');
+  const fill = document.getElementById('bulk-fill');
+  const text = document.getElementById('bulk-text');
+  if (!bar || !fill || !text) return;
+  const total = st.total || 0;
+  const done = st.done || 0;
+  if (!total || (!st.running && !st.finished_at)) { bar.hidden = true; return; }
+  bar.hidden = false;
+  fill.style.width = total ? `${Math.round((done / total) * 100)}%` : '0%';
+  const eta = (st.eta_s != null && st.running)
+    ? ` · ~${st.eta_s < 60 ? st.eta_s + 's' : Math.ceil(st.eta_s / 60) + 'm'} left` : '';
+  const failed = st.failed ? ` · <span class="err">${st.failed} failed</span>` : '';
+  text.innerHTML = st.running
+    ? `re-running ${done}/${total}${eta} · ${st.current ? st.current.slice(0, 22) : 'starting'}${failed}`
+    : `finished ${done}/${total}${failed}`;
+  const cancel = document.getElementById('bulk-cancel');
+  if (cancel) cancel.style.display = st.running ? '' : 'none';
+}
+
+async function pollBulk(reloadInbox) {
+  try {
+    const st = await (await fetch('/api/reviews/bulk-status')).json();
+    _bulkRender(st);
+    if (st.running) {
+      if (!_bulkTimer) _bulkTimer = setInterval(() => pollBulk(true), 4000);
+      if (reloadInbox) {
+        await fetchInbox(); await loadDraftOverlays(); renderInbox();
+      }
+    } else if (_bulkTimer) {
+      clearInterval(_bulkTimer);
+      _bulkTimer = null;
+      // One last reload so finished work is on screen. The summary stays up
+      // for a while rather than vanishing from under the reader.
+      await fetchInbox(); await loadDraftOverlays();
+      renderInbox(); renderReviewCol(); renderRcaCol();
+      const failed = (st.results || []).filter(x => !x.ok);
+      if (failed.length) console.warn('[bulk] failures:', failed);
+      setTimeout(() => {
+        const b = document.getElementById('bulk-bar');
+        if (b && !_bulkTimer) b.hidden = true;
+      }, 20000);
+    }
+  } catch (e) { /* a failed poll is not a reason to tear the bar down */ }
+}
+
 document.addEventListener('click', async (ev) => {
   const btn = ev.target.closest('[data-rerun-all]');
   if (!btn || btn.disabled) return;
-  const tabMap = {identified: 'bid', candidates: 'possible_matches',
-                  untraceable: 'untraceable', sent: 'all'};
-  const tab = tabMap[state.filter] || 'untraceable';
   const orig = btn.textContent;
   btn.disabled = true;
-  btn.textContent = '⟳ queueing…';
+  btn.textContent = '⟳ starting…';
   try {
-    const resp = await fetch(`/api/reviews/reprocess-all?tab=${tab}`, {method: 'POST'});
+    const resp = await fetch('/api/reviews/reprocess-all?tab=incomplete',
+                             {method: 'POST'});
     const data = await resp.json();
-    if (!resp.ok) throw new Error(data.detail || 'failed');
-    if (!data.queued) {
-      btn.textContent = '⟳ nothing to re-run';
-    } else {
-      // Each run takes seconds; poll so cards move tabs as they land.
-      for (let i = 0; i < 40; i++) {
-        btn.textContent = `⟳ re-running ${data.queued}… (${i * 5}s)`;
-        await new Promise(res => setTimeout(res, 5000));
-        await fetchInbox();
-        await loadDraftOverlays();
-        renderInbox();
-        const still = REVIEWS.filter(x => data.review_ids.includes(x.id)
-                                       && x.type === 'untraceable').length;
-        if (tab === 'untraceable' && still === 0) break;
-      }
-      btn.textContent = `⟳ done (${data.queued})`;
-      renderReviewCol(); renderRcaCol();
-    }
+    btn.textContent = data.already_running ? '⟳ already running'
+                    : !data.queued          ? '⟳ nothing to fix'
+                    : `⟳ ${data.queued} queued`;
+    _bulkRender(data);
+    pollBulk(false);
   } catch (e) {
     btn.textContent = '⟳ failed — retry';
   }
-  setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 5000);
+  setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 4000);
+});
+
+document.addEventListener('click', async (ev) => {
+  if (!ev.target.closest('#bulk-cancel')) return;
+  try {
+    await fetch('/api/reviews/bulk-cancel', {method: 'POST'});
+    const t = document.getElementById('bulk-text');
+    if (t) t.textContent = 'cancelling after the running reviews finish…';
+  } catch (e) { /* the next poll shows the true state */ }
 });
 
 // ↻ Refresh — pull Trustpilot reviews from Slack that never reached the
