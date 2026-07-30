@@ -992,15 +992,22 @@ that turned out fine is silence - never a line in the output.
    they cover. A structural fix without sizing gets rejected.
 9. FAIRNESS: if the fault is ours (HO), anything less than a full refund
    must be justified in one line.
-10. POINTERS, NOT PROSE. Every text field is a pointer a reader scans, not a
-    sentence they parse. One fact per pointer, <= 25 words, no lead-ins
-    ("It appears that", "The guest's claim that"), no clause stacking with
-    "however" / "; although" - a second thought is a second pointer. Where
-    the shape below takes a list, use several short entries instead of one
-    long one. Never restate the review.
-    THIS SCALES DOWN, NOT UP: a simple case yields fewer pointers, not
-    longer ones. A complex case yields MORE pointers, each still <= 25
-    words - that is how a big case stays readable.
+10. POINT FORM, FULL SENTENCES. Every entry is a COMPLETE sentence -
+    subject, verb, full stop - not a fragment. "Selenium FF, no disclosure"
+    is not acceptable; "The experience page did not state the two-hour
+    delivery window before checkout." is.
+    Concise and to the point, no fluff: cut lead-ins ("It appears that",
+    "The guest's claim that", "It is worth noting"), cut adjectives that
+    carry no fact, and never restate the review. One idea per sentence -
+    if you need "however" or "; although", write a second entry instead.
+    Aim for 15-30 words per entry; 40 is the ceiling.
+    These entries are read in TWO places, so they must work for both: the
+    dashboard, where an investigator wants the sentence that explains WHY,
+    and the Slack thread, where the same text is scanned by leadership. Say
+    the whole thing once, plainly, and it serves both.
+    SCALE BY COUNT, NOT LENGTH: a simple case yields fewer entries; a
+    complex case yields MORE entries, each still one sentence. That is how
+    a big case stays readable.
 11. Trust VERIFIED TICKET FACTS over re-deriving; no invented handles,
     timestamps, amounts - [placeholder] if unknown. ZD_REF DISCIPLINE: every
     flag, every support_interaction row, and the sp_interaction and
@@ -1045,10 +1052,12 @@ Sub-points only where relevant.
 
 "booking_logs" - what actually happened, in order: one entry per meaningful
   event, each {"time", "what", "detail"}.
-    "what"   = the event, <= 12 words, no lead-in: "Booking-in-progress email
-               sent", "Selenium fulfilment attempt failed", "Guest opened chat".
-    "detail" = why it matters or what it produced, one pointer, <= 25 words.
-               Leave "" when the event speaks for itself.
+    "what"   = the event as a short label, 3-8 words, no full stop:
+               "Booking-in-progress email sent", "Selenium fulfilment attempt
+               failed", "Guest opened chat". This is the stepper heading, so a
+               label reads better here than a sentence.
+    "detail" = one complete sentence saying what it produced or why it
+               matters. Leave "" when the label says everything.
   Chronological, ending with the review. Include machinery (fulfilment runs,
   automated mails) where it explains the failure; a retry sequence stays as
   separate entries - collapsing three failures into one hides the root cause.

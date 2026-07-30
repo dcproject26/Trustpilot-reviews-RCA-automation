@@ -461,6 +461,14 @@ def format_rca_slack(review, draft) -> str:
               f"BID {b.get('id', '—')} · {getattr(review, 'author', '') or '—'}"
               f" · {stars or '—'}")
 
+    # An RCA in the v3 shape formats from that shape. This function is what
+    # Send posts when the associate has not edited the preview, so if it kept
+    # building the legacy layout the posted RCA would differ from the one on
+    # screen - and checklist_answers is empty by design now, so the flags
+    # section would have silently posted "No flagged checks" on every case.
+    if getattr(draft, "rca_v3", None):
+        return _format_rca_v3_slack(review, draft, header, div, nl)
+
     # 2. Classification + scenarios (all applicable, comma-separated)
     l1, l2 = draft.l1 or "—", draft.l2 or "—"
     sub = draft.sub_theme or ""
@@ -592,3 +600,181 @@ def format_rca_slack(review, draft) -> str:
 *Experience insights*
 
 {insights_text}"""
+
+
+def _points(v) -> list:
+    """Pointer fields are lists in the v3 shape; older values may be a single
+    string. Join-into-a-string anywhere here would print 'a,b,c' as prose."""
+    if isinstance(v, (list, tuple)):
+        return [str(x).strip() for x in v if str(x or "").strip()]
+    return [str(v).strip()] if str(v or "").strip() else []
+
+
+def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
+    """The v3 layout, matching the dashboard preview section for section.
+    Kept deliberately close to _genSlackText in client/index.html: the two
+    must agree, because either can be what lands in the thread."""
+    v3 = draft.rca_v3 or {}
+    sections: list[tuple[str, str]] = []
+
+    l1, l2 = draft.l1 or "—", draft.l2 or "—"
+    sub = draft.sub_theme or ""
+    scen_all = [s for s in ([draft.primary_scenario] +
+                            list(draft.overlay_scenarios or [])) if s]
+    cls_line = f"*Issue:* {l1} / {l2}" + (f" / {sub}" if sub else "")
+    if scen_all:
+        cls_line += f"{nl}*Scenarios:* " + ", ".join(scen_all)
+
+    tldr = v3.get("tldr")
+    if isinstance(tldr, dict):
+        sections.append(("TL;DR",
+                         f"• Our mistake: {tldr.get('our_mistake', '—')}{nl}"
+                         f"• Our fix: {tldr.get('our_fix', '—')}"))
+    elif draft.tldr:
+        sections.append(("TL;DR", draft.tldr))
+
+    w = v3.get("what_went_wrong") or {}
+    if w:
+        def sub_lines(v):
+            return nl.join(f"   - {x}" for x in _points(v))
+        parts = []
+        gi = w.get("guest_issues") or []
+        parts.append("1. Guest issue" + nl +
+                     nl.join(f"• {g.get('issue', '')}" for g in gi))
+        acc = []
+        for g in gi:
+            acc.append(f"• {g.get('issue', '')}: {g.get('claim_accuracy', '—')}")
+            ev = sub_lines(g.get("evidence"))
+            if ev:
+                acc.append(ev)
+        parts.append("2. Is the guest's claim accurate?" + nl + nl.join(acc))
+        wh = w.get("what_happened") or {}
+        wl = [f"• [{c.get('classification', '?')}] "
+              f"{(c.get('issue') + ': ') if c.get('issue') else ''}{c.get('cause', '')}"
+              for c in (wh.get("root_causes") or [])]
+        if _points(wh.get("operational_failure")):
+            wl.append("• Operational failure" + nl + sub_lines(wh.get("operational_failure")))
+        if _points(wh.get("sop_gap")):
+            wl.append("• SOP gap" + nl + sub_lines(wh.get("sop_gap")))
+        if wh.get("pattern"):
+            wl.append(f"• Pattern: {wh['pattern']}")
+        parts.append("3. What actually happened?" + nl + nl.join(wl))
+        sx = w.get("sp_escalation") or {}
+        sp_block = [f"• Escalated: {sx.get('escalated', '—')}"]
+        if sub_lines(sx.get("detail")):
+            sp_block.append(sub_lines(sx.get("detail")))
+        parts.append("4. Supply Partner escalation" + nl + nl.join(sp_block))
+        fx = w.get("fixes") or {}
+        fl = []
+        if fx.get("teams"):
+            fl.append("• Teams: " + ", ".join(fx["teams"]) +
+                      (f" · owner: {fx['owner']}" if fx.get("owner") else ""))
+        fl += [f"• {a}" for a in _points(fx.get("actions"))]
+        if _points(fx.get("prevention")):
+            fl.append("• Prevention" + nl + sub_lines(fx.get("prevention")))
+        parts.append("5. Fixes" + nl + nl.join(fl))
+        sections.append(("What went wrong", (nl + nl).join(parts)))
+
+    logs = v3.get("booking_logs") or []
+    if logs:
+        lines = []
+        for i, l in enumerate(logs, 1):
+            if isinstance(l, str):
+                lines.append(f"{i}. " + l.lstrip("0123456789.) ").strip())
+            else:
+                t = f"{l.get('time')} — " if l.get("time") else ""
+                d = f"; {l.get('detail')}" if l.get("detail") else ""
+                lines.append(f"{i}. {t}{l.get('what', '')}{d}")
+        sections.append(("Booking logs", nl.join(lines)))
+
+    flags = v3.get("flags") or []
+    sections.append(("Flags", nl.join(
+        f"• [{str(f.get('team', 'other')).upper()}] {f.get('flag', '')}"
+        + (f" — {f['evidence']}" if f.get("evidence") else "")
+        + (f" ({f['zd_ref']})" if f.get("zd_ref") else "")
+        for f in flags) if flags else "No flags raised"))
+
+    sop = v3.get("sop_compliance") or {}
+    if sop:
+        sl = [f"• verdict: {sop.get('verdict', 'unknown')}"
+              + (" (DSS needle used)" if sop.get("dss_available") else " (DSS needle unavailable)")
+              + (f" ({sop['zd_ref']})" if sop.get("zd_ref") else "")]
+        for k, label in (("expected", "expected"), ("actual", "actual")):
+            if sop.get(k):
+                sl.append(f"• {label}: {sop[k]}")
+        if sop.get("detail"):
+            sl.append(f"• {sop['detail']}")
+        sections.append(("SOP compliance", nl.join(sl)))
+
+    si = v3.get("support_interaction") or []
+    if si:
+        rows = []
+        for x in si:
+            rows.append(f"• {x.get('time', '?')} · {x.get('channel', '')} — {x.get('summary', '')}"
+                        + (f" ({x['zd_ref']})" if x.get("zd_ref") else ""))
+            if x.get("ce_miss"):
+                rows.append(f"   ⚠ CE miss: {x['ce_miss']}")
+        sections.append(("Customer / CE interactions", nl.join(rows)))
+    else:
+        sections.append(("Customer / CE interactions",
+                         "No guest contact found on this booking"))
+
+    sp = v3.get("sp_interaction") or {}
+    if sp:
+        possible = ("yes" if sp.get("possible") is True
+                    else "no" if sp.get("possible") is False else "—")
+        rows = [f"• escalation possible: {possible} · raised: {sp.get('raised', '—')}"
+                + (f" ({sp['zd_ref']})" if sp.get("zd_ref") else "")]
+        rows += [f"• {d}" for d in _points(sp.get("detail"))]
+        if not _points(sp.get("detail")) and sp.get("reason_if_not"):
+            rows.append(f"• {sp['reason_if_not']}")
+        sections.append(("SP interaction", nl.join(rows)))
+
+    aoi = _points(v3.get("area_of_improving")) or _points(draft.area_of_improving)
+    sections.append(("Area of improvement",
+                     nl.join(f"• {a}" for a in aoi) if aoi else "—"))
+
+    at = draft.actions_taken or {}
+    al = []
+    for team in ("sp", "customer", "business", "ce", "product"):
+        for item in (at.get(team) or []):
+            txt = item if isinstance(item, str) else (
+                item.get("context") or item.get("with") or "")
+            if txt:
+                al.append(f"• {txt} ({team.upper()})")
+    sections.append(("Actions taken", nl.join(al) if al else "—"))
+    sections.append(("Resolution", draft.resolution or "—"))
+
+    td = v3.get("takedown") or {}
+    if td:
+        sections.append(("Review takedown",
+                         "• " + ("Recommended" if td.get("recommended") else "Not recommended")
+                         + (f" — {td['reason']}" if td.get("reason") else "")))
+
+    ins = draft.insights or {}
+    wd = ins.get("_window_days")
+    win = f"{wd}d" if isinstance(wd, int) and wd > 0 else (ins.get("_window_label") or "")
+    rows = []
+    r30 = ins.get("rating_30d") or {}
+    if r30.get("avg") is not None:
+        rows.append(("Avg rating", f"{r30.get('avg')} ({r30.get('n', 0)} ratings)"))
+    if ins.get("vidCompletionRate"):
+        rows.append(("Completion rate", str(ins["vidCompletionRate"])))
+    if ins.get("similar_reviews_30d") is not None:
+        rows.append(("Similar reviews", str(ins["similar_reviews_30d"])))
+    if ins.get("similar_support_queries_30d") is not None:
+        rows.append(("Similar queries", str(ins["similar_support_queries_30d"])))
+    if ins.get("sameDaySameVidIssues"):
+        rows.append(("Same-day issues", str(ins["sameDaySameVidIssues"])))
+    if rows:
+        table = nl.join(f"{k:<17}{v}" for k, v in rows)
+        if win:
+            table += f"{nl}window: {win}"
+        sections.append(("Experience insights", "```" + nl + table + "```"))
+
+    out = [header, cls_line]
+    for label, body in sections:
+        if not body:
+            continue
+        out += [div, f"*{label}*", "", body]
+    return nl.join(out)

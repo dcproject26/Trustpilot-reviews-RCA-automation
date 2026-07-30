@@ -22,7 +22,7 @@ def mock_call(response_text):
     return _call
 
 
-def test(name, condition, note=""):
+def _print_check(name, condition, note=""):
     mark = "✓" if condition else "✗"
     print(f"  {mark} {name}" + (f" — {note}" if note else ""))
     return condition
@@ -34,7 +34,7 @@ async def run_tests():
 
     def check(name, condition, note=""):
         nonlocal passed, failed
-        if test(name, condition, note):
+        if _print_check(name, condition, note):
             passed += 1
         else:
             failed += 1

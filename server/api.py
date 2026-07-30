@@ -707,7 +707,12 @@ async def refresh_slack(hours: int = 72, background_tasks: BackgroundTasks = Non
     # dashboard's own poll fills each card in as its run finishes.
     from server.pipeline import process_review as _pipeline
     for rid in ingested:
-        background_tasks.add_task(lambda x: asyncio.run(_pipeline(x)), rid)
+        if background_tasks is not None:
+            background_tasks.add_task(lambda x: asyncio.run(_pipeline(x)), rid)
+        else:
+            # Called outside a request (a script, a test): run inline rather
+            # than silently ingesting rows whose pipeline never runs.
+            await _pipeline(rid)
 
     log.info(f"[refresh-slack] {hours}h: {found} Trustpilot posts, "
              f"{skipped} already had rows, {queued} queued")
@@ -787,7 +792,8 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
             "primary_scenario": d.primary_scenario,
             "overlay_scenarios": d.overlay_scenarios,
             "tldr": d.tldr, "prevention": d.prevention,
-            "issue_specific_answers": d.issue_specific_answers}
+            "issue_specific_answers": d.issue_specific_answers,
+            "area_of_improving": d.area_of_improving or []}
 
 
 # ── NEW: Flag to Biz (two-step: draft, then send) ───────────────────────────

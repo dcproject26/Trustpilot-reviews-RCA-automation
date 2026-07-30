@@ -3511,24 +3511,37 @@ function renderRcaCol() {
     ${Object.keys(rca.issueSpecificAnswers || {}).length > 0 ? `
     <div class="section" id="rca-issue-answers-section">
       <div class="section-label"><span class="marker"></span>Issue-Specific Answers<span class="ai-tag-inline">AI</span></div>
-      <table class="check-table" style="width:100%;border-collapse:collapse">
-        <thead><tr>
-          <th style="text-align:left;padding:4px 8px;font-size:11px;color:var(--text-mute)">Check</th>
-          <th style="text-align:left;padding:4px 8px;font-size:11px;color:var(--text-mute);width:130px">Answer</th>
-        </tr></thead>
-        <tbody>
-          ${Object.entries(rca.issueSpecificAnswers).map(([key, val]) => `
-            <tr>
-              <td style="padding:4px 8px;font-size:12px;color:var(--text)">${key.replace(/_/g,' ')}</td>
-              <td style="padding:4px 8px">
-                <select class="classify-select" style="font-size:12px;width:110px"
-                        data-isa-key="${key}">
-                  ${['Yes','No','Unknown'].map(opt => `<option${val.startsWith(opt)?' selected':''}>${opt}</option>`).join('')}
-                </select>
-              </td>
-            </tr>`).join('')}
-        </tbody>
-      </table>
+      <!-- Verdict + the evidence behind it. The old version rendered a
+           Yes/No/Unknown select only: it threw the evidence away, and an
+           answer that opens with a fact ("28 minutes (...)") matched no
+           option, so the browser displayed "Yes" for an answer that was not
+           Yes. A wrong verdict shown confidently is worse than none. -->
+      <div class="field-block" style="display:flex;flex-direction:column;gap:8px">
+        ${Object.entries(rca.issueSpecificAnswers).map(([key, val]) => {
+          const raw = String(val == null ? '' : val);
+          const m = raw.match(/^\s*(Yes|No|Unknown|N\/A)\b[:\s—-]*/i);
+          const verdict = m ? m[1] : '';
+          const rest = (m ? raw.slice(m[0].length) : raw).trim();
+          const known = ['yes','no','unknown'].indexOf(verdict.toLowerCase()) !== -1;
+          const cls = verdict.toLowerCase() === 'yes' ? 'pass'
+                    : verdict.toLowerCase() === 'no' ? 'flag' : 'na';
+          return `
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <div style="font-size:12.5px;color:var(--text)">${esc(key)}</div>
+              <div style="display:flex;gap:6px;align-items:flex-start">
+                ${known
+                  ? `<select class="classify-select" style="font-size:11px;width:96px;flex:none"
+                             data-isa-key="${esc(key)}" data-isa-rest="${esc(rest)}">
+                       ${['Yes','No','Unknown'].map(o => `<option${verdict.toLowerCase() === o.toLowerCase() ? ' selected' : ''}>${o}</option>`).join('')}
+                     </select>`
+                  : `<span class="chk-pill ${cls}" style="flex:none">${esc(verdict || 'answer')}</span>`}
+                <span class="chk-ev editable-text" contenteditable="true" spellcheck="false"
+                      data-isa-evidence="${esc(key)}"
+                      style="flex:1;min-width:0">${esc(rest || '—')}</span>
+              </div>
+            </div>`;
+        }).join('')}
+      </div>
     </div>` : ''}
 
     <!-- The legacy checklist wall is gone. Its answers were "No" for "was
@@ -3874,7 +3887,11 @@ function renderRcaCol() {
   // Issue-Specific Answers — select change → PATCH
   col.querySelectorAll('[data-isa-key]').forEach(sel => {
     sel.addEventListener('change', async () => {
-      rca.issueSpecificAnswers[sel.dataset.isaKey] = sel.value;
+      // Preserve the evidence - writing just the verdict would delete the
+      // sourced proof the section exists to show.
+      const _rest = sel.dataset.isaRest || '';
+      rca.issueSpecificAnswers[sel.dataset.isaKey] =
+        _rest ? `${sel.value} ${_rest}` : sel.value;
       try {
         await fetch(`/api/reviews/${r.id}/draft-v2`, {
           method: 'PATCH', headers: {'Content-Type':'application/json'},
@@ -3918,6 +3935,7 @@ function renderRcaCol() {
       rca.tldr = data.tldr || rca.tldr;
       rca.prevention = data.prevention || rca.prevention;
       rca.issueSpecificAnswers = data.issue_specific_answers || {};
+      if (data.area_of_improving) rca.areaOfImproving = data.area_of_improving;
       rca.checklistAnswers = [];
       rca.primaryScenario = data.primary_scenario || rca.primaryScenario;
       rca.overlayScenarios = data.overlay_scenarios || rca.overlayScenarios;
@@ -3955,6 +3973,25 @@ function renderRcaCol() {
       const idx = parseInt(btn.dataset.overlayRemove);
       rca.overlayScenarios = (rca.overlayScenarios || []).filter((_, i) => i !== idx);
       regenRca();
+    });
+  });
+
+  // Issue-answer evidence edits: recombine verdict + evidence and save.
+  col.querySelectorAll('[data-isa-evidence]').forEach(el => {
+    el.addEventListener('blur', async () => {
+      const key = el.dataset.isaEvidence;
+      const rest = el.textContent.trim();
+      const cur = String(rca.issueSpecificAnswers[key] || '');
+      const m = cur.match(/^\s*(Yes|No|Unknown|N\/A)\b[:\s—-]*/i);
+      rca.issueSpecificAnswers[key] = m ? `${m[1]} ${rest}` : rest;
+      const sel = col.querySelector(`[data-isa-key="${key}"]`);
+      if (sel) sel.dataset.isaRest = rest;
+      try {
+        await fetch(`/api/reviews/${r.id}/draft-v2`, {
+          method: 'PATCH', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({issue_specific_answers: rca.issueSpecificAnswers}),
+        });
+      } catch (_) { /* keep local edit */ }
     });
   });
 
