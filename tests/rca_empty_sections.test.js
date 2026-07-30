@@ -69,5 +69,23 @@ if (flags) {
     flags.includes('rca-empty') && flags.includes('data-flag-add'));
 }
 
+// ── collapse state must not be keyed on live text ─────────────────────────
+// Section labels carry counts that change with the data ("What Happened AI
+// 6 events"). Keying collapse state on that text meant the key moved when
+// the data moved - and because the state is shared across reviews, a section
+// collapsed on one review stayed collapsed on all of them, so a populated
+// timeline rendered as a bare heading.
+const collapse = block('col.querySelectorAll(\'.section\').forEach', '// Issue-answer evidence');
+check('collapse block found', collapse !== null);
+if (collapse) {
+  check('collapse key is not raw label text',
+    !/const key = \(label\.textContent/.test(collapse),
+    'the key changes whenever a count in the heading changes');
+  check('collapse key prefers the section id',
+    /sec\.id/.test(collapse));
+  check('fallback key strips live counts and the AI mark',
+    collapse.includes('.sec-count') && collapse.includes('.ai-tag-inline'));
+}
+
 console.log(failed ? `\n=== ${failed} FAILED ===\n` : '\n=== ALL CHECKS PASSED ===\n');
 process.exit(failed ? 1 : 0);

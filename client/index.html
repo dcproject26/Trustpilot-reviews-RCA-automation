@@ -4518,7 +4518,21 @@ function renderRcaCol() {
   col.querySelectorAll('.section').forEach(sec => {
     const label = sec.querySelector('.section-label');
     if (!label || label.querySelector('.section-chev')) return;
-    const key = (label.textContent || '').replace(/\s+/g, ' ').trim();
+    // Key on the section's id, not its label text. The label carries live
+    // counts ("What Happened AI 6 events", "Flags AI 1 CE · 1 CONTENT"), so
+    // a text key changed whenever the data changed - and because this state
+    // is shared across reviews, collapsing a section on one review left it
+    // collapsed on all of them. A populated timeline then rendered as a bare
+    // heading, which is indistinguishable from having no timeline at all.
+    // Only 9 of 32 sections carry an id, so the fallback has to be stable on
+    // its own: drop the live count and the AI mark before reading the text.
+    const stableLabel = () => {
+      const c = label.cloneNode(true);
+      c.querySelectorAll('.sec-count, .ai-tag-inline, .section-chev')
+       .forEach(n => n.remove());
+      return (c.textContent || '').replace(/\s+/g, ' ').trim();
+    };
+    const key = sec.id || stableLabel();
     if (!key) return;
     const chev = document.createElement('span');
     chev.className = 'section-chev';
