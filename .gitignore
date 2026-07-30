@@ -9,3 +9,6 @@ local.db
 local.db-*
 *.sqlite
 *.sqlite-*
+
+# Diagnostic output, regenerated on demand.
+diagnose_report.txt
