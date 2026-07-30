@@ -25,6 +25,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -323,7 +324,10 @@ def build_proposed(d, review_body, review_id, checklist, scenarios_routed):
 
 # ─── Output audit — the four requirements this revision exists for ──────────
 
-_SOURCE_TAGS = ("[experience-page]", "[booking]", "[zendesk]", "[dss]")
+# The model may put the ticket id inside the tag - "[zendesk ZD-34011401]"
+# is a correctly sourced verdict, not an untagged one - so match the tag
+# word, not the exact bracket string.
+_SOURCE_TAG_RE = re.compile(r"\[(experience-page|booking|zendesk|dss)\b[^\]]*\]")
 
 
 def audit(rca: dict, dss_rec: dict) -> list[tuple[str, bool, str]]:
@@ -331,7 +335,7 @@ def audit(rca: dict, dss_rec: dict) -> list[tuple[str, bool, str]]:
 
     issues = (rca.get("what_went_wrong") or {}).get("guest_issues") or []
     untagged = [i.get("issue", "?")[:40] for i in issues
-                if not any(t in str(i.get("evidence", "")) for t in _SOURCE_TAGS)]
+                if not _SOURCE_TAG_RE.search(str(i.get("evidence", "")))]
     checks.append((
         "every claim verdict names its source",
         bool(issues) and not untagged,

@@ -22,7 +22,13 @@ from server.config import MOCK_MODE
 
 log = logging.getLogger(__name__)
 
-_BQ_SEM = asyncio.Semaphore(5)
+from server.aio import LoopLocalSemaphore
+
+# Loop-local, not a bare asyncio.Semaphore: a module-level semaphore binds to
+# the first loop that awaits it, and a re-run in a fresh loop then fails every
+# query with "bound to a different event loop" (took out all 15 insights
+# queries on a real draft).
+_BQ_SEM = LoopLocalSemaphore(5)
 
 _BQ_API = "https://bigquery.googleapis.com/bigquery/v2"
 

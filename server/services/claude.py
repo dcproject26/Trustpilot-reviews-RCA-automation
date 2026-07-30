@@ -24,7 +24,10 @@ from server.services.mock_data import (
 
 log = logging.getLogger(__name__)
 
-_CL_SEM = asyncio.Semaphore(8)
+# Loop-local: a bare module-level Semaphore binds to the first loop that
+# awaits it and raises from any later loop (see server/aio.py).
+from server.aio import LoopLocalSemaphore
+_CL_SEM = LoopLocalSemaphore(8)
 
 # Route 1 (preferred): Replit AI Integrations — AI_INTEGRATIONS_ANTHROPIC_BASE_URL
 # + AI_INTEGRATIONS_ANTHROPIC_API_KEY are injected automatically by the

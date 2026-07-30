@@ -40,7 +40,10 @@ from server.services.mock_data import MOCK_TIMELINES, MOCK_BOOKINGS
 
 log = logging.getLogger(__name__)
 
-_ZD_SEM = asyncio.Semaphore(10)
+# Loop-local: a bare module-level Semaphore binds to the first loop that
+# awaits it and raises from any later loop (see server/aio.py).
+from server.aio import LoopLocalSemaphore
+_ZD_SEM = LoopLocalSemaphore(10)
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
