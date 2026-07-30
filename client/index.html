@@ -1989,6 +1989,31 @@ loadSubThemeOptions();
 // Did the booking id come from the review itself, or did we infer it?
 // attachment / manual / regex all mean the review carried it. Anything else
 // (a Zendesk requester match, a venue search) is inferred, however confident.
+// The server decides the bucket (server/tiers.py) and sends it. These exist
+// only for rows from an older build that predates the field, and they mirror
+// that rule exactly - a second, differently-worded copy of this logic is what
+// put confirmed candidates in the wrong tab for weeks.
+function _bucketFallback(row, tier, candState) {
+  // Mirrors server/tiers.py classify() exactly, on the same three facts the
+  // server sends. Only used for rows from a build that predates the bucket
+  // field; kept in lockstep because a second, differently-worded copy of this
+  // rule is what misfiled confirmed candidates.
+  if (row.status === 'sent') return 'sent';
+  const pickerOpen = !!candState && !row.confirmed;
+  if (pickerOpen) return 'candidates';
+  if (row.has_booking) return 'identified';
+  if (row.has_candidates) return 'candidates';
+  return 'untraceable';
+}
+
+function _matchTitle(row, tier, candState) {
+  const bucket = row.bucket || _bucketFallback(row, tier, candState);
+  if (bucket === 'candidates') return 'Possible matches — associate to confirm';
+  if (bucket === 'untraceable') return 'Untraceable';
+  if (row.unverified) return 'BID from the review — not verified in BigQuery';
+  return _bidFromReview(row) ? 'Direct match' : 'Matched from Zendesk';
+}
+
 function _bidFromReview(row) {
   if (!row) return false;
   // The review carried a booking id: either the pipeline recorded where it came
@@ -2045,12 +2070,10 @@ async function fetchInbox() {
           status:         row.status      || demo.status,
           matchTier:      t,
           candidateState: c,
-          type:           (t === 1 && _bidFromReview(row)) ? 'identified'
-                          : (c ? 'candidates' : (t == null ? 'untraceable' : 'candidates')),
-          tier:           t ? `T${t}` : '—',
-          matchTitle:     (t === 1 && _bidFromReview(row)) ? 'Direct match'
-                          : t === 1 ? 'Matched from Zendesk — confirm to continue'
-                          : c ? 'Possible matches — associate to confirm' : 'Untraceable',
+          type:           row.bucket || _bucketFallback(row, t, c),
+          tier:           row.tier_label || (t ? `T${t}` : '—'),
+          unverified:     !!row.unverified,
+          matchTitle:     _matchTitle(row, t, c),
         };
       }
       // New API-only review (manual / Slack): minimal template
@@ -2067,13 +2090,11 @@ async function fetchInbox() {
         time:           row.received_at ? new Date(row.received_at).toLocaleString('en-GB', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '',
         status:         row.status || 'new',
         matchTier:      tier,
-        matchTitle:     (tier === 1 && _bidFromReview(row)) ? 'Direct match'
-                        : tier === 1 ? 'Matched from Zendesk — confirm to continue'
-                        : tier === 2 ? 'Possible matches — associate to confirm' : 'Untraceable',
+        matchTitle:     _matchTitle(row, tier, row.candidate_state),
         candidateState: row.candidate_state || false,
-        type:           (tier === 1 && _bidFromReview(row)) ? 'identified'
-                        : (row.candidate_state ? 'candidates' : (tier == null ? 'untraceable' : 'candidates')),
-        tier:           tier ? `T${tier}` : '—',
+        type:           row.bucket || _bucketFallback(row, tier, row.candidate_state),
+        tier:           row.tier_label || (tier ? `T${tier}` : '—'),
+        unverified:     !!row.unverified,
         experience:     row.experience || '',
         channel:        'orm',
         original:       row.snippet || '',

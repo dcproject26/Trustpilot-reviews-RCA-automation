@@ -120,6 +120,12 @@ def _looks_like_hash(s: str) -> bool:
     return len(s) >= 16 and all(c in "0123456789abcdefABCDEF-" for c in s)
 
 
+def _bucket_of(d: RcaDraft) -> str:
+    """The bucket for a draft whose Review row we already have loaded."""
+    from server.tiers import classify
+    return classify(getattr(d, "review", None), d)
+
+
 def _draft_dict(d: RcaDraft) -> dict:
     _tf = d.ticket_facts or {}
     _bk = d.booking or {}
@@ -178,6 +184,7 @@ def _draft_dict(d: RcaDraft) -> dict:
         "actions_taken":               d.actions_taken or {"sp":[],"customer":[],"business":[],"product":[],"ce":[]},
         "resolution":                  d.resolution,
 
+        "bucket":             _bucket_of(d),
         "bid_source":         d.bid_source,
         "extracted_signals":  d.extracted_signals or {},
         "narrowing_attempts": d.narrowing_attempts or [],
@@ -255,19 +262,20 @@ def list_reviews(status: str | None = None, tab: str | None = None,
         q = q.filter(Review.status == status)
     rows = q.limit(200).all()
 
+    from server.tiers import classify, tier_label, is_unverified, TAB_TO_BUCKET
+
     result = []
     for r in rows:
         draft   = r.draft
         tier    = draft.match_tier if draft else None
         cand_state = bool(draft and draft.candidate_state)
+        bucket = classify(r, draft)
 
-        if tab == "bid" and not (tier == 1):
-            continue
-        if tab == "possible_matches" and not cand_state:
-            continue
-        if tab == "untraceable" and not (tier is None and not cand_state and r.status != "sent"):
-            continue
-        if tab == "sent" and r.status != "sent":
+        # One rule for every tab. The old per-tab conditions disagreed with the
+        # dashboard's own derivation, so a confirmed candidate could sit in
+        # "possible matches" while the count said otherwise.
+        want = TAB_TO_BUCKET.get(tab)
+        if want and bucket != want:
             continue
 
         result.append({
@@ -280,6 +288,18 @@ def list_reviews(status: str | None = None, tab: str | None = None,
             "received_at": r.received_at.isoformat() if r.received_at else None,
             "match_tier":  tier,
             "candidate_state": cand_state,
+            # The bucket is computed here so the dashboard never has to derive
+            # it a second way. Everything on screen sorts on this.
+            "bucket":      bucket,
+            "tier_label":  tier_label(draft),
+            "unverified":  is_unverified(draft),
+            # The three facts the bucket rule turns on. Sent so a client can
+            # reproduce the decision exactly rather than approximate it from
+            # match_tier - approximating is what put confirmed candidates in
+            # the wrong tab.
+            "has_booking":    bool((draft.booking or {}).get("id")) if draft else False,
+            "has_candidates": bool(draft.candidates_list) if draft else False,
+            "confirmed":      bool(draft.selected_candidate_bid) if draft else False,
             # Chip 1 is "reviews with a BID", so the inbox has to know whether
             # the id came from the review (attachment/manual/regex) or was
             # inferred from Zendesk. Without this the client cannot tell them
