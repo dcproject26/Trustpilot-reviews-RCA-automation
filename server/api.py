@@ -27,6 +27,7 @@ _STARTED_AT = datetime.now(_tz.utc).isoformat()   # when THIS process booted
 
 from server.db import get_session, Review, RcaDraft, ReviewMetric
 from server.taxonomy import L1_CATEGORIES, L2_OPTIONS, DIAGNOSTIC_CHECKS, ACTION_TABS, SUB_THEME_REGISTRY
+from server.checklist import SCENARIO_CHECKS
 from server.config import status_summary, is_live, MOCK_MODE
 from server.services.slack import format_rca_slack, post_to_thread
 from server.services.claude import flag_to_biz_message
@@ -62,6 +63,7 @@ class DraftPatchV2(BaseModel):
     l2:                         str  | None = None
     sub_theme:                  str  | None = None
     l1_reasoning:               str  | None = None
+    primary_scenario:           str  | None = None
     diagnostic_checks:          list | None = None
     what_went_wrong_bullets:    list | None = None
     support_interaction_frames: list | None = None
@@ -537,6 +539,10 @@ def get_taxonomy():
         "diagnostic_checks":   DIAGNOSTIC_CHECKS,
         "action_tabs":         ACTION_TABS,
         "sub_theme_frameworks": {f"{k[0]}::{k[1]}": v for k, v in SUB_THEME_REGISTRY.items()},
+        # The scenario vocabulary, so the dashboard can offer the real options
+        # instead of a read-only chip. SCENARIO_CHECKS keys are the routing
+        # targets; "general" is the routers' explicit fallback.
+        "scenarios": sorted(SCENARIO_CHECKS) + ["general"],
     }
 
 
@@ -552,6 +558,7 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
     edits = 0
     for field in (
         "stated_issue", "l1", "l2", "sub_theme", "l1_reasoning",
+        "primary_scenario",
         "diagnostic_checks", "what_went_wrong_bullets",
         "support_interaction_frames", "support_summary",
         "sp_interaction_frames", "area_of_improving",

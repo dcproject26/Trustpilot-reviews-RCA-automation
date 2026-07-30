@@ -1847,6 +1847,9 @@ const L2_OPTIONS = {
 // Empty is safe: the row still shows the classified sub_theme; the editable
 // options simply fill in once the taxonomy loads.
 const SUB_THEME_OPTIONS = {};
+// The scenario vocabulary from /api/taxonomy. Empty until it loads - the row
+// still shows the routed scenario; the other options fill in after.
+let SCENARIO_OPTIONS = [];
 
 async function loadSubThemeOptions() {
   try {
@@ -1858,6 +1861,7 @@ async function loadSubThemeOptions() {
       if (f.exclusion_label) opts.push(f.exclusion_label);
       SUB_THEME_OPTIONS[key] = opts;
     }
+    SCENARIO_OPTIONS = t.scenarios || [];
   } catch (e) { /* leave empty — row still shows the assigned sub_theme */ }
   // re-render so the sub-theme row appears once options are available
   if (typeof renderRcaCol === 'function' && state.selected) renderRcaCol();
@@ -3327,7 +3331,15 @@ function renderRcaCol() {
         </div>` : ''}
         <div class="classify-row">
           <span class="classify-label">Scenario</span>
-          <span class="scenario-chip">${rca.primaryScenario || '—'}</span>
+          <!-- Editable like L1/L2/sub-theme above it. The routed scenario is a
+               lookup from the classification, and a lookup can be wrong the
+               same way a classification can - a chip made this the one field
+               in the panel an associate could see but not fix. -->
+          <select class="classify-select" data-scenario-select>
+            ${rca.primaryScenario ? `<option>${rca.primaryScenario}</option>` : `<option value="">— none —</option>`}
+            ${SCENARIO_OPTIONS.filter(o => o !== rca.primaryScenario)
+                .map(o => `<option>${o}</option>`).join('')}
+          </select>
         </div>
       </div>
     </div>
@@ -3571,6 +3583,21 @@ function renderRcaCol() {
           body: JSON.stringify({ sub_theme: val }),
         });
         fetchInbox().then(() => { renderInbox(); });
+      } catch (e) { /* keep local edit; server save retried on next change */ }
+    });
+  }
+
+  const scenarioSel = col.querySelector('[data-scenario-select]');
+  if (scenarioSel) {
+    scenarioSel.addEventListener('change', async () => {
+      const val = scenarioSel.value || null;
+      rca.primaryScenario = val || '';
+      try {
+        await fetch(`/api/reviews/${r.id}/draft-v2`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ primary_scenario: val }),
+        });
       } catch (e) { /* keep local edit; server save retried on next change */ }
     });
   }
