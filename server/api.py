@@ -525,6 +525,27 @@ def get_version():
     # then disagree, no amount of cache clearing changes it, and the difference
     # is invisible from the UI. Reported here, credentials stripped.
     db_info = {"dialect": "unknown", "target": "unknown", "shared": False}
+    # A deployment ships without .git, so commit/on_disk come back "unknown"
+    # there and no one can tell which code is serving. Hash the source instead:
+    # both environments compute it the same way, so equal fingerprints mean
+    # identical code and different fingerprints mean the deployment is behind -
+    # answerable without git, and without trusting a build label.
+    fingerprint = "unknown"
+    try:
+        import hashlib
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parent.parent
+        h = hashlib.sha256()
+        files = sorted(list((root / "server").rglob("*.py"))
+                       + [root / "client" / "index.html"])
+        for f in files:
+            if "__pycache__" in str(f) or not f.is_file():
+                continue
+            h.update(f.name.encode())
+            h.update(f.read_bytes())
+        fingerprint = h.hexdigest()[:12]
+    except Exception:
+        pass
     try:
         from server.db import engine, SessionLocal, Review, RcaDraft
         url = engine.url
@@ -537,10 +558,21 @@ def get_version():
             db_info["shared"] = True    # a server both environments can reach
         _s = SessionLocal()
         try:
-            db_info["reviews"] = _s.query(Review).count()
-            db_info["drafts"]  = _s.query(RcaDraft).count()
-            db_info["untraceable"] = _s.query(RcaDraft).filter(
-                RcaDraft.match_tier.is_(None)).count()
+            # Report the parts, not a derived total. "untraceable" alone was
+            # ambiguous: it mixed drafts with a null tier and reviews with no
+            # draft at all, and the two need different fixes.
+            reviews = _s.query(Review).count()
+            drafts = _s.query(RcaDraft).count()
+            matched = _s.query(RcaDraft).filter(RcaDraft.match_tier.isnot(None)).count()
+            cands = _s.query(RcaDraft).filter(RcaDraft.candidate_state.is_(True)).count()
+            db_info.update({
+                "reviews": reviews,
+                "drafts": drafts,
+                "matched": matched,
+                "candidates": cands,
+                "no_draft_row": reviews - drafts,
+                "untraceable": reviews - matched,
+            })
         finally:
             _s.close()
     except Exception as e:
@@ -549,6 +581,7 @@ def get_version():
     return {
         "commit":     sha,
         "short":      sha[:7],
+        "fingerprint": fingerprint,
         "db":         db_info,
         # What is checked out right now. If it differs from commit, the files
         # have moved on and this process has not - which is the entire failure

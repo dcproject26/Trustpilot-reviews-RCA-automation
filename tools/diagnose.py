@@ -346,25 +346,47 @@ def sec_remote(url: str):
     except Exception as e:
         line(BAD, f"cannot reach {base}", brief(e))
         return
-    local = ""
+    lv = {}
     try:
         import server.api as api
-        local = api.get_version().get("short", "")
+        lv = api.get_version()
     except Exception:
         pass
-    same = (not local) or v.get("short") == local
-    line(OK if same else BAD,
-         f"deployed code: {v.get('short')} ({v.get('environment')})",
-         "" if same else
-         f"BEHIND: the workspace is on {local}, the deployment is on "
-         f"{v.get('short')}. Press Deploy / Redeploy - a git pull does not "
-         f"touch a deployment.")
+    # Compare by source fingerprint, not commit: a deployment ships without
+    # .git and reports commit "unknown", so the label proves nothing while the
+    # hash of the actual source proves everything.
+    lfp, rfp = lv.get("fingerprint", ""), v.get("fingerprint", "")
+    if rfp in ("", "unknown"):
+        line(BAD, f"deployed code: cannot be identified (commit "
+                  f"{v.get('short')}, no fingerprint)",
+             "this build predates the fingerprint field, so it is definitely "
+             "older than the workspace - redeploy")
+    elif lfp and rfp == lfp:
+        line(OK, f"deployed code matches the workspace exactly (fp {rfp})")
+    else:
+        line(BAD, f"deployed code DIFFERS from the workspace",
+             f"workspace fp {lfp or '?'} vs deployed fp {rfp}. Press Deploy / "
+             f"Redeploy - a git pull does not touch a deployment.")
+
     db = v.get("db") or {}
-    line(INFO, f"deployed db: {db.get('dialect')} -> {db.get('target')} "
-               f"(shared={db.get('shared')})",
-         f"reviews {db.get('reviews')} · drafts {db.get('drafts')} · "
-         f"untraceable {db.get('untraceable')}"
-         if db.get("reviews") is not None else "")
+    ldb = (lv.get("db") or {})
+    same_db = (db.get("target") and db.get("target") == ldb.get("target"))
+    line(OK if same_db else BAD,
+         f"deployed db: {db.get('dialect')} -> {db.get('target')}",
+         "same database as the workspace" if same_db else
+         f"DIFFERENT DATABASE. The workspace uses {ldb.get('target') or '?'}. "
+         f"The two dashboards can never agree while this is true, whatever is "
+         f"redeployed or cleared. Point both DATABASE_URL values at one "
+         f"database - the deployment's is the one receiving live webhooks.")
+    if db.get("reviews") is not None:
+        line(INFO, f"deployed rows: reviews {db.get('reviews')} · drafts "
+                   f"{db.get('drafts')} · matched {db.get('matched')} · "
+                   f"candidates {db.get('candidates')} · no-draft "
+                   f"{db.get('no_draft_row')} · untraceable {db.get('untraceable')}")
+        line(INFO, f"workspace rows: reviews {ldb.get('reviews')} · drafts "
+                   f"{ldb.get('drafts')} · matched {ldb.get('matched')} · "
+                   f"candidates {ldb.get('candidates')} · no-draft "
+                   f"{ldb.get('no_draft_row')} · untraceable {ldb.get('untraceable')}")
     try:
         h = httpx.get(f"{base}/api/health", timeout=20).json()
         dead = [k for k, val in (h.get("services") or {}).items() if not val]
