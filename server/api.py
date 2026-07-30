@@ -62,6 +62,8 @@ class DraftPatchV2(BaseModel):
     l1:                         str  | None = None
     l2:                         str  | None = None
     sub_theme:                  str  | None = None
+    sub_themes:                 list | None = None
+    scenarios:                  list | None = None
     l1_reasoning:               str  | None = None
     primary_scenario:           str  | None = None
     diagnostic_checks:          list | None = None
@@ -171,7 +173,12 @@ def _draft_dict(d: RcaDraft) -> dict:
         "l1":                          d.l1,
         "l2":                          d.l2,
         "sub_theme":                   d.sub_theme,
+        # Lists are the source of truth for the dashboard; the scalars are
+        # element 0 and stay in step for every existing consumer.
+        "sub_themes":                  d.sub_themes or ([d.sub_theme] if d.sub_theme else []),
+        "rca_posted_at":               d.rca_posted_at.isoformat() if d.rca_posted_at else None,
         "primary_scenario":            d.primary_scenario or "",
+        "scenarios":                   d.scenarios or ([d.primary_scenario] if d.primary_scenario else []),
         "overlay_scenarios":           d.overlay_scenarios or [],
         "wwr_scenarios":               d.wwr_scenarios or [],
         "l1_reasoning":                d.l1_reasoning,
@@ -667,7 +674,7 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
     edits = 0
     for field in (
         "stated_issue", "l1", "l2", "sub_theme", "l1_reasoning",
-        "primary_scenario",
+        "primary_scenario", "sub_themes", "scenarios", "overlay_scenarios",
         "diagnostic_checks", "what_went_wrong_bullets",
         "support_interaction_frames", "support_summary",
         "sp_interaction_frames", "area_of_improving",
@@ -686,6 +693,19 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
             except Exception:
                 pass
             edits += 1
+
+    # Keep the scalars in step with the lists. Writing only the list would
+    # leave the prompt, DSS routing and the Slack post reading a stale scalar,
+    # so an edit in the dashboard would change the chips and nothing else.
+    if patch.sub_themes is not None:
+        d.sub_theme = (patch.sub_themes or [None])[0]
+    if patch.scenarios is not None:
+        d.primary_scenario = (patch.scenarios or [None])[0]
+        d.overlay_scenarios = list(patch.scenarios or [])[1:]
+    if patch.sub_theme is not None and patch.sub_themes is None:
+        d.sub_themes = [patch.sub_theme] if patch.sub_theme else []
+    if patch.primary_scenario is not None and patch.scenarios is None:
+        d.scenarios = [s for s in ([patch.primary_scenario] + (d.overlay_scenarios or [])) if s]
 
     m = db.query(ReviewMetric).filter(ReviewMetric.review_id == review_id).first()
     if m and edits:
@@ -1023,10 +1043,11 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
     if scenarios:
         d.primary_scenario  = scenarios[0]
         d.overlay_scenarios = scenarios[1:]
+        d.scenarios         = scenarios
     else:
         # RCA-only re-run: keep whatever routing the draft already has.
-        scenarios = [s for s in ([d.primary_scenario] +
-                                 (d.overlay_scenarios or [])) if s]
+        scenarios = [s for s in (d.scenarios or
+                                 [d.primary_scenario] + (d.overlay_scenarios or [])) if s]
 
     from server.services import claude as claude_svc
     from server.services.rca_checklist import get_checklist
@@ -1038,7 +1059,8 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
         timeline=d.timeline or [],
         insights=d.insights or {},
         dss_rec=d.dss_rec or {},
-        l1=d.l1 or "", l2=d.l2 or "", sub_theme=d.sub_theme or "",
+        l1=d.l1 or "", l2=d.l2 or "",
+        sub_theme=", ".join(d.sub_themes or ([d.sub_theme] if d.sub_theme else [])),
         support_summary=d.support_summary or "",
         checklist=checklist,
         review_id=review_id,
@@ -1248,6 +1270,35 @@ async def send_review(review_id: str, db: Session = Depends(get_session)):
         m.sent = True
     db.commit()
     return {"ok": True, "ts": ts}
+
+
+@router.post("/api/reviews/{review_id}/post-rca")
+async def post_rca_to_thread(review_id: str, db: Session = Depends(get_session)):
+    """
+    Post the RCA into the review's own Slack thread, without marking the
+    review sent.
+
+    Send does two things at once - post the RCA and close the review - which
+    is wrong for the common case: the RCA goes to the team for comment while
+    the guest reply is still being edited, and the reply is pasted into
+    Trustpilot by hand anyway. This posts the RCA and nothing else, so the
+    two halves can happen in either order.
+    """
+    r = db.query(Review).filter(Review.id == review_id).first()
+    d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
+    if not r or not d:
+        raise HTTPException(404, "Not found")
+    if r.slack_channel == "C_MANUAL" or not r.slack_ts:
+        raise HTTPException(400, "This review was added by hand, so it has no "
+                                 "Slack thread to post into. Copy the post instead.")
+    text = (d.slack_thread_override or "").strip() or format_rca_slack(r, d)
+    ts = await post_to_thread(r.slack_channel, r.slack_ts, text, as_user=True)
+    if ts is None and not MOCK_MODE:
+        raise HTTPException(502, "Slack rejected the post - check the bot's "
+                                 "channel membership and scopes.")
+    d.rca_posted_at = datetime.utcnow()
+    db.commit()
+    return {"ok": True, "ts": ts, "posted_at": d.rca_posted_at.isoformat()}
 
 
 @router.post("/api/reviews/{review_id}/reprocess")

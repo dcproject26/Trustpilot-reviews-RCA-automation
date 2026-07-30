@@ -1502,6 +1502,13 @@ async def process_review(review_id: str, force_candidates: bool = False):
         draft.sub_theme                   = sub_theme
         draft.primary_scenario            = primary_scenario
         draft.overlay_scenarios           = overlay_scenarios or []
+        # The list columns the dashboard edits. A pipeline run classifies one
+        # of each, so it seeds a single-element list; a human can add more and
+        # the next re-run reads them back rather than overwriting - see
+        # regenerate-rca, which keeps the stored routing when none is passed.
+        draft.sub_themes                  = [sub_theme] if sub_theme else []
+        draft.scenarios                   = [x for x in ([primary_scenario] +
+                                             list(overlay_scenarios or [])) if x]
         draft.diagnostic_checks           = rca_v2.get("diagnosticChecks", [])
         draft.what_went_wrong_bullets     = rca_v2.get("whatWentWrongBullets", [])
         # Zendesk-derived frames (step 7b) are authoritative; RCA output is fallback.

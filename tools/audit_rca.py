@@ -65,6 +65,10 @@ def _entries(v3) -> list:
     w = v3.get("what_went_wrong") or {}
     for i, gi in enumerate(w.get("guest_issues") or []):
         add(f"guest_issues.{i}.issue", gi.get("issue"))
+        add(f"guest_issues.{i}.root_cause", gi.get("root_cause"))
+        # "claim" is the guest's own words quoted from the review, so the
+        # word ceiling and the no-prose rules do not apply to it - it is
+        # deliberately not added to the audited entries.
         ev = gi.get("evidence")
         for j, e in enumerate(ev if isinstance(ev, list) else [ev]):
             add(f"guest_issues.{i}.evidence.{j}", e)
@@ -168,6 +172,16 @@ def main():
             "possible" not in sp and "reason_if_not" not in sp
         check("sp_interaction is raised + records (new shape)", bool(sp_new),
               f"keys: {sorted(sp.keys()) if isinstance(sp, dict) else type(sp).__name__}")
+
+        # Each issue owns its claim, owner and root cause. A draft with none
+        # of them ran on the prompt before that change.
+        gis = (v3.get("what_went_wrong") or {}).get("guest_issues") or []
+        missing = [f"issue {i+1}: " + ", ".join(
+                       k for k in ("claim", "owner", "root_cause") if not g.get(k))
+                   for i, g in enumerate(gis)
+                   if not all(g.get(k) for k in ("claim", "owner", "root_cause"))]
+        check("every issue carries claim + owner + root_cause",
+              bool(gis) and not missing, "; ".join(missing[:4]))
 
         # Rule 12: an absence is stated once, not re-derived per section.
         absence = [p for p, t in entries

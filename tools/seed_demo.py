@@ -28,20 +28,19 @@ RCA_FULL = {
     "what_went_wrong": {
         "guest_issues": [
             {"issue": "Tickets did not arrive at the time of booking.",
-             "claim_accuracy": "Accurate",
+             "claim": "We booked tickets and they never arrived in time. Nobody told us at the time of booking that tickets take two hours to be delivered.",
+             "claim_accuracy": "Accurate", "owner": "Content",
+             "root_cause": "The page template has no field for fulfilment timing, so the two-hour window was never surfaced at checkout.",
              "evidence": ["The booking record shows tickets were issued 94 minutes after purchase.",
                           "No delivery window is stated anywhere on the experience page."]},
             {"issue": "Support did not explain the delay when first contacted.",
-             "claim_accuracy": "Partly accurate",
+             "claim": "We were left standing outside with nothing.",
+             "claim_accuracy": "Partly accurate", "owner": "CE",
+             "root_cause": "The associate used the generic delay macro instead of checking the fulfilment log.",
              "evidence": ["The first reply quoted a generic wait time rather than the actual fulfilment state."]},
         ],
         "what_happened": {
-            "root_causes": [
-                {"issue": "No delivery window on the experience page",
-                 "classification": "Content", "cause": "The page template has no field for fulfilment timing, so the two-hour window was never surfaced at checkout."},
-                {"issue": "First reply was templated",
-                 "classification": "CE", "cause": "The associate used the generic delay macro instead of checking the fulfilment log."},
-            ],
+            "root_causes": [],
         },
         "sp_escalation": {"escalated": "N/A", "reason": "Fulfilment is automated for this experience; no supply partner was involved."},
         "fixes": {
@@ -118,6 +117,8 @@ def main():
                        selected_candidate_bid="8842119", rca_v3=RCA_FULL,
                        l1="Operations Issue", l2="Tickets not received",
                        sub_theme="Delayed fulfilment",
+                       sub_themes=["Delayed fulfilment", "Instructions unclear"],
+                       scenarios=["Tickets sent late"],
                        zendesk_ticket_ids=["30994882"],
                        suggested_response="Hi David, thank you for flagging this and I am sorry the tickets arrived later than you expected...",
                        generated_at=now))

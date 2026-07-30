@@ -87,5 +87,29 @@ if (collapse) {
     collapse.includes('.sec-count') && collapse.includes('.ai-tag-inline'));
 }
 
+// ── each issue owns its claim, owner and root cause ───────────────────────
+// The handoff nests all three on the issue; drafts written before that keep
+// a parallel root_causes list. Both must render, or one shape blanks out.
+const wwr = block('const causesList = wh.root_causes', 'const wwrOpenAll');
+check('WWR row builder found', wwr !== null);
+if (wwr) {
+  check('claim comes from the issue', /gi\.claim/.test(wwr));
+  check('owner comes from the issue, falling back to classification',
+    /gi\.owner/.test(wwr) && /classification/.test(wwr));
+  check('root cause comes from the issue, falling back to the list',
+    /gi\.root_cause/.test(wwr) && /rcLegacy\.cause/.test(wwr));
+  check('unpaired causes still render',
+    /orphanCauses/.test(wwr) || /orphanHtml/.test(wwr));
+}
+
+// ── an untouched placeholder must never be saved as a value ───────────────
+const saver = block("col.querySelectorAll('[data-v3p]')", 'const spRaised');
+check('path saver found', saver !== null);
+if (saver) {
+  check('placeholder is not persisted as content',
+    /dataset\.ph/.test(saver) && /return/.test(saver),
+    'focusing and blurring an empty field would save "click to write"');
+}
+
 console.log(failed ? `\n=== ${failed} FAILED ===\n` : '\n=== ALL CHECKS PASSED ===\n');
 process.exit(failed ? 1 : 0);
