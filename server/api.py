@@ -519,9 +519,37 @@ def get_version():
     is_deploy = any(os.environ.get(k) for k in
                     ("REPLIT_DEPLOYMENT", "REPL_DEPLOYMENT",
                      "REPLIT_DEPLOYMENT_ID", "REPLIT_CLUSTER_DEPLOYMENT"))
+    # WHICH DATABASE. The default DATABASE_URL is sqlite:///./local.db - a file
+    # inside this container - so a published deployment and the dev repl each
+    # have their OWN reviews and neither can see the other's. Two dashboards
+    # then disagree, no amount of cache clearing changes it, and the difference
+    # is invisible from the UI. Reported here, credentials stripped.
+    db_info = {"dialect": "unknown", "target": "unknown", "shared": False}
+    try:
+        from server.db import engine, SessionLocal, Review, RcaDraft
+        url = engine.url
+        db_info["dialect"] = url.get_backend_name()
+        if url.get_backend_name().startswith("sqlite"):
+            db_info["target"] = url.database or ":memory:"
+            db_info["shared"] = False   # a file in this container only
+        else:
+            db_info["target"] = f"{url.host or '?'}/{url.database or '?'}"
+            db_info["shared"] = True    # a server both environments can reach
+        _s = SessionLocal()
+        try:
+            db_info["reviews"] = _s.query(Review).count()
+            db_info["drafts"]  = _s.query(RcaDraft).count()
+            db_info["untraceable"] = _s.query(RcaDraft).filter(
+                RcaDraft.match_tier.is_(None)).count()
+        finally:
+            _s.close()
+    except Exception as e:
+        db_info["error"] = str(e)[:200]
+
     return {
         "commit":     sha,
         "short":      sha[:7],
+        "db":         db_info,
         # What is checked out right now. If it differs from commit, the files
         # have moved on and this process has not - which is the entire failure
         # mode this endpoint exists to catch, and which it previously hid by

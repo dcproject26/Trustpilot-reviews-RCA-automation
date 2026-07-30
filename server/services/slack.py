@@ -159,15 +159,33 @@ def parse_review(event: dict) -> dict:
     # Priority: bold text in blocks → attachment.author_name → Unknown
     author = None
     body = text
+    # Accumulate EVERY section block, do not overwrite. `body = t` kept only the
+    # last section, so a review Trustpilot split across blocks lost everything
+    # before the final one - and the block carrying the author was dropped
+    # whole, taking the sentences beside the name with it. A review that arrives
+    # truncated can never be matched or RCA'd on what is missing.
+    block_parts: list[str] = []
     for b in blocks:
         if b.get("type") == "section":
-            t = b.get("text", {}).get("text", "")
+            t = (b.get("text") or {}).get("text", "")
+            if not t:
+                continue
             if not author and "*" in t:
                 parts = t.split("*")
                 if len(parts) >= 2:
                     author = parts[1].strip()
+                # Keep the rest of this block: the name is a prefix, not the
+                # whole block, and the remainder is review text.
+                rest = t.replace(f"*{author}*", "", 1).strip() if author else t
+                if rest:
+                    block_parts.append(rest)
             else:
-                body = t
+                block_parts.append(t)
+    if block_parts:
+        joined = "\n\n".join(dict.fromkeys(p.strip() for p in block_parts if p.strip()))
+        # Slack's message `text` is usually a flattened copy of the blocks;
+        # prefer the richer reconstruction, but never end up with less.
+        body = joined if len(joined) >= len(body or "") else body
     if not author:
         for att in attachments:
             if att.get("author_name"):

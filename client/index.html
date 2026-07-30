@@ -66,6 +66,9 @@
   }
   .brand-name { font-weight: 600; font-size: 15px; }
   .brand-sub { font-size: 12px; color: var(--text-mute); font-family: 'JetBrains Mono', monospace; }
+  .env-pill { font-family: 'JetBrains Mono', monospace; letter-spacing: 0; }
+  .env-pill.warn { border-color: var(--amber); color: var(--amber); }
+  .env-pill.warn .dot { background: var(--amber); }
   .topbar-status { display: flex; gap: 14px; margin-left: auto; align-items: center; }
   .status-pill {
     display: flex; align-items: center; gap: 6px;
@@ -1862,6 +1865,13 @@
       </div>
     </div>
     <div class="topbar-status">
+      <!-- Which backend am I looking at? A published deployment and the dev
+           repl each carry their own SQLite file, so two dashboards can show
+           different reviews and no amount of cache clearing changes it. This
+           chip names the environment, the running commit and the database. -->
+      <span class="status-pill env-pill" id="env-pill" title="environment · running commit · database">
+        <span class="dot"></span>…
+      </span>
       <span class="status-pill"><span class="dot"></span>anthropic</span>
       <span class="status-pill"><span class="dot"></span>slack_inbound</span>
       <span class="status-pill"><span class="dot"></span>slack_outbound</span>
@@ -1958,6 +1968,36 @@ function _bidFromReview(row) {
   // back to reference_number matters for rows drafted before bid_source existed.
   if (['attachment', 'manual', 'regex'].includes(row.bid_source)) return true;
   return !!(row.reference_number && String(row.reference_number).trim());
+}
+
+// Backend identity chip. Stale code or a different database is the single
+// most confusing failure in this app - two dashboards, two answers - so it is
+// on screen rather than in a curl command.
+async function loadEnvPill() {
+  const pill = document.getElementById('env-pill');
+  if (!pill) return;
+  try {
+    const v = await (await fetch('/api/version')).json();
+    const db = v.db || {};
+    const bits = [v.environment || '?', v.short || '?',
+                  `${db.dialect || '?'}:${db.target || '?'}`];
+    if (db.reviews != null) bits.push(`${db.reviews} reviews`);
+    pill.innerHTML = `<span class="dot"></span>${bits.join(' · ')}`;
+    // Amber when the files have moved on but this process has not, or when the
+    // database is a container-local file that another environment cannot see.
+    const warn = v.stale || db.shared === false;
+    pill.classList.toggle('warn', !!warn);
+    pill.title = (v.stale
+        ? `STALE: on disk ${(v.on_disk || '').slice(0, 7)}, running ${v.short}. Restart the server.\n`
+        : '')
+      + (db.shared === false
+        ? 'This database is a file inside this container. A published deployment has its OWN copy, so the two dashboards will not agree. Set DATABASE_URL to a shared Postgres to fix.'
+        : 'Shared database.')
+      + `\nstarted ${v.started_at || '?'}`;
+  } catch (e) {
+    pill.innerHTML = '<span class="dot"></span>version unavailable';
+    pill.classList.add('warn');
+  }
 }
 
 async function fetchInbox() {
@@ -2330,6 +2370,7 @@ const state = {
 
 // fire once REVIEWS + state exist; fetchInbox merges API rows then loads drafts
 (async () => {
+  await loadEnvPill();
   await fetchInbox();
   await loadSubThemeOptions();
   await loadDraftOverlays();

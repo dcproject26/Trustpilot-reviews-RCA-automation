@@ -216,6 +216,32 @@ def _ensure_columns():
 def init_db():
     Base.metadata.create_all(bind=engine)
     _ensure_columns()
+    _warn_if_container_local()
+
+
+def _warn_if_container_local():
+    """Say it at startup when the database is a file inside this container.
+
+    With the default DATABASE_URL (sqlite:///./local.db) a published deployment
+    and the dev repl each keep their OWN reviews, and neither can see the
+    other's. Two dashboards then disagree permanently and no amount of cache
+    clearing or restarting changes it, because it is not a caching problem.
+    """
+    import logging
+    log = logging.getLogger(__name__)
+    try:
+        if engine.url.get_backend_name().startswith("sqlite"):
+            log.warning(
+                "[db] DATABASE_URL is %s - a file inside THIS container. A "
+                "published deployment keeps a separate copy, so two dashboards "
+                "will show different reviews. Set DATABASE_URL to a shared "
+                "Postgres for both environments to see the same data.",
+                engine.url.database or ":memory:")
+        else:
+            log.info("[db] shared database: %s/%s",
+                     engine.url.host or "?", engine.url.database or "?")
+    except Exception:
+        pass
 
 
 def get_session():
