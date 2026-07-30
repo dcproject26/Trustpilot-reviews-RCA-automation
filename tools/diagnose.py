@@ -188,6 +188,43 @@ def sec_sheets():
 
 # ── 5. slack ingestion ──────────────────────────────────────────────────────
 
+# What each Slack scope unlocks, so a missing one reads as an action rather
+# than as a stack trace.
+_SCOPE_BLOCKS = {
+    "channels:history": "pulling reviews Slack failed to deliver (the Refresh button)",
+    "channels:read":    "checking the bot is still in the ORM channel",
+    "search:read":      "finding automation-failure pings for the RCA",
+    "groups:history":   "the same, for a private channel",
+}
+_config_actions: list[str] = []
+
+
+def _slack_call(fn, what: str):
+    """Run one Slack call. A missing scope is a configuration gap someone must
+    close, not a failure of this app - reported as an action, and it must not
+    abort the rest of the section the way an uncaught raise did."""
+    try:
+        return fn(), None
+    except Exception as e:
+        msg = str(e)
+        if "missing_scope" in msg:
+            import re as _re
+            m = _re.search(r"'needed': '([^']+)'", msg)
+            needed = (m.group(1) if m else "?").split(",")
+            for sc in needed:
+                sc = sc.strip()
+                blocks = _SCOPE_BLOCKS.get(sc, "")
+                action = (f"add the Slack scope {sc}"
+                          + (f" - blocks {blocks}" if blocks else ""))
+                if action not in _config_actions:
+                    _config_actions.append(action)
+            line(WARN, f"{what}: needs Slack scope {', '.join(n.strip() for n in needed)}",
+                 "an admin adds it under OAuth & Permissions and reinstalls the app")
+            return None, "missing_scope"
+        line(BAD, f"{what} failed", brief(e))
+        return None, "error"
+
+
 def sec_slack(hours: int):
     from server.config import (SLACK_BOT_TOKEN, SLACK_CHANNEL_ORM,
                                TRUSTPILOT_BOT_USER_ID)
@@ -202,6 +239,10 @@ def sec_slack(hours: int):
              "" if hits else "Slack is not reaching this server. Check the app's "
                              "Event Subscriptions URL points at this host's "
                              "/webhook/slack and shows Verified.")
+        if not hits:
+            _config_actions.append(
+                f"point the Slack app's Event Subscriptions URL at this host's "
+                f"/webhook/slack - 0 deliveries arrived in the last {hours}h")
     finally:
         s.close()
 
@@ -210,18 +251,28 @@ def sec_slack(hours: int):
         return
     from slack_sdk import WebClient
     c = WebClient(token=SLACK_BOT_TOKEN)
-    who = c.auth_test()
-    line(OK, f"bot token valid: {who.get('user')} on {who.get('team')}")
-    info = c.conversations_info(channel=SLACK_CHANNEL_ORM)["channel"]
-    line(OK if info.get("is_member") else BAD,
-         f"channel #{info.get('name')} is_member={info.get('is_member')}",
-         "" if info.get("is_member") else "the bot is NOT in the channel, so Slack "
-                                          "sends it no message events")
+    who, _ = _slack_call(c.auth_test, "auth.test")
+    if who:
+        line(OK, f"bot token valid: {who.get('user')} on {who.get('team')}")
+    info_res, _ = _slack_call(
+        lambda: c.conversations_info(channel=SLACK_CHANNEL_ORM), "channel membership")
+    if info_res:
+        info = info_res["channel"]
+        line(OK if info.get("is_member") else BAD,
+             f"channel #{info.get('name')} is_member={info.get('is_member')}",
+             "" if info.get("is_member") else "the bot is NOT in the channel, so "
+                                              "Slack sends it no message events")
     from server.services.slack import is_trustpilot_message, parse_review
     oldest = (datetime.now(timezone.utc) - timedelta(hours=hours)).timestamp()
-    msgs = (c.conversations_history(channel=SLACK_CHANNEL_ORM,
-                                    oldest=str(oldest), limit=200)
-            .get("messages") or [])
+    hist, _ = _slack_call(
+        lambda: c.conversations_history(channel=SLACK_CHANNEL_ORM,
+                                        oldest=str(oldest), limit=200),
+        "channel history")
+    if hist is None:
+        line(INFO, "skipping the history comparison - the scope above is needed "
+                   "to read what Slack actually delivered")
+        return
+    msgs = hist.get("messages") or []
     tp = [m for m in msgs if is_trustpilot_message({**m, "channel": SLACK_CHANNEL_ORM})]
     s = SessionLocal()
     try:
@@ -544,6 +595,11 @@ def main():
                 line(INFO, "nothing unmatched to run")
 
         hdr("VERDICT")
+        if _config_actions:
+            print(" Configuration someone must change (not a code fault):")
+            for a in _config_actions:
+                print(f"   • {a}")
+            print()
         if _problems:
             print(" The broken links, in order:")
             seen = set()
@@ -552,8 +608,11 @@ def main():
                     continue
                 seen.add(p)
                 print(f"   ✗ {p}")
-        else:
+        elif not _config_actions:
             print(" No broken link found. Every check passed.")
+        else:
+            print(" No broken link in the app itself - only the configuration "
+                  "listed above.")
 
     path = os.path.join(os.getcwd(), "diagnose_report.txt")
     try:
