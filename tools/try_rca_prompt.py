@@ -124,10 +124,21 @@ SUPPORT SUMMARY:
    mapping, inclusions on the page, fulfilment-type choice. Often we are the
    root cause. Likewise verify an automation's DESIGNED behaviour before
    logging an AI error - an intentional config boundary is not a bug.
-5. VERIFY EVERY GUEST CLAIM AT ITS SOURCE, per "WHERE FACTS LIVE" above.
-   The claim-accuracy verdict must quote what the source actually says -
-   "[experience-page] cancellation_policy: non-refundable" - not what seems
-   plausible. A claim with no reachable source stays "Unknown", flagged.
+5. VERIFY EVERY GUEST CLAIM AT ITS SOURCE. Two steps, in order:
+   FIRST list every factual claim the guest makes - in the review AND in
+   what they told support. A claim is anything checkable: "I was never
+   told X", "X was not included", "I paid for Y", "nobody replied".
+   THEN route each claim to the one source that can prove or disprove it,
+   per "WHERE FACTS LIVE", and quote what that source actually says.
+   Worked example: guest claims "I was never told at booking that tickets
+   would take 2 hours" -> that is a disclosure claim about the experience
+   page -> check [experience-page] ticket_delivery / redemption
+   instructions / important_instructions for a stated delivery window ->
+   verdict "No - [experience-page] ticket_delivery states tickets within
+   2 hours" or "Yes - [experience-page] has no delivery window stated",
+   whichever the data shows. The verdict quotes the source, never what
+   seems plausible. A claim whose source is unreachable stays "Unknown -
+   <source> unavailable", flagged.
 6. SOP NEEDLE. Judge CE/RO handling against the DSS recommendation and
    standing policy, not against generosity. STANDING POLICY: an out-of-policy
    cancellation/modification request is DENIED first - a correct denial is
@@ -164,9 +175,10 @@ SUPPORT SUMMARY:
 Sub-points only where relevant.
   1. Guest issue - 1-2 concise pointers PER issue raised.
   2. Is the guest's claim accurate? - Yes / Partially True / No.
-     Per issue when verdicts differ; each verdict cites its deciding
-     evidence WITH its source tag ([experience-page] / [booking] /
-     [zendesk] / [dss]).
+     Per issue when verdicts differ - and one entry per CLAIM when a
+     single issue carries several checkable claims. Each verdict cites
+     its deciding evidence WITH its source tag ([experience-page] /
+     [booking] / [zendesk] / [dss]).
   3. What actually happened?
      a. Root cause per issue - the concrete failing step, classified
         (Technical|Operational + HO|SP|AI|Guest)
