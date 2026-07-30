@@ -1210,12 +1210,10 @@ findable; one you quietly corrected is not.
                         were told, in that order. Attribute inside the summary
                         ("Guest asked ... ; agent said ...") - that is accurate
                         about a transcript in a way the actor field cannot be.
-                        THE SAME LENGTH LIMIT AS RULE 5 STILL APPLIES - one
-                        sentence, 120 characters, not two clauses stitched
-                        together. Pick the single most important thing the
-                        guest raised and the single most important thing they
-                        were told; the rest of the transcript is one click away
-                        on the ticket link, which is what that link is for.
+                        Rule 5 style applies: three phrases at most - what
+                        the guest raised; what they were told; how it ended.
+                        The rest of the transcript is one click away on the
+                        ticket link, which is what that link is for.
    LABEL EACH EVENT FROM ITS OWN BODY, never from the event beside it. On
    booking 32908218 the Selenium fulfilment blob and the booking-in-progress
    email - two different things one second apart - both came back
@@ -1234,25 +1232,23 @@ findable; one you quietly corrected is not.
      - Different actions? -> different labels, each from its own body.
    No ticket IDs, no "[ZD-xxxxx]", no "(xN)".
 
-5. SUMMARIES - ONE short sentence. Aim for 12-20 words, hard limit 120
-   characters. A CX analyst scans this column; anything longer stops being
-   scannable and becomes something to read.
-   - Guest contact -> WHY they reached out.
-   - Our response -> WHAT WE DID or OFFERED.
-   - Fulfilment -> WHAT was delivered and WHEN.
-   - Refund / outcome -> the amount and terms.
-   - Machinery -> the outcome in as few words as possible. The label already
-     says what ran, so the summary carries only what came back:
-     "No ticket URLs returned." not "The Selenium run attempted ticket
-     retrieval from the vendor site but returned no ticket URLs."
-   Do not restate the label. "Guest reply / Guest replied asking about their
-   tickets" wastes the whole line - the label already said it.
-   Keep the specifics that let someone verify it: amounts, pax, reference
-   numbers, validity dates, URLs in full. Drop everything else.
-   Say only what the event evidences. If the body does not say why the guest
-   contacted us, write what it does say - do not supply a motive.
-   Strip HTML and signatures. Never quote raw JSON. Never adopt the guest's
-   emotional wording.
+5. SUMMARIES - NOT sentences. 2-3 telegraphic phrases separated by "; ",
+   each phrase one fact. Hard limit 100 characters total. Drop articles,
+   subjects and connective prose; keep numbers, names, dates and outcomes:
+     "1 Adult + 1 Reduced; PLN 73.73; no add-on selected"
+     "no ticket URLs; vendor page timed out"
+     "ref 1022394558263; valid to 22 Jul 2027"
+     "guest wanted tickets now; told 2h delay; left unresolved"
+   The outcome phrase is mandatory - how it ended is the one thing a CX
+   analyst cannot infer from the label, so it must never be the phrase that
+   gets dropped to make room for detail.
+   Do not restate the label - the label already says what the event is; the
+   phrases carry only what the label cannot.
+   Keep the specifics that let someone verify: amounts, pax, reference
+   numbers, dates. Everything else goes.
+   Say only what the event evidences - never supply a motive the body does
+   not state. Strip HTML and signatures. Never quote raw JSON. Never adopt
+   the guest's emotional wording.
 
 6. ORDER - Booking created first, events as given, Review posted last. The
    input is already in order; do not re-sort it.

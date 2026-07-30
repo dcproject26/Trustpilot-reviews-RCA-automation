@@ -1604,9 +1604,11 @@ async def _shape_via_claude(
             # A label is a header word or two; 60 is generous for that and
             # still short enough that four of them plus a thread pill and a
             # ticket link fit a narrow column without forcing the wrap the
-            # screenshot showed.
+            # screenshot showed. Summaries are telegraph phrases with a
+            # 100-char instruction, so 110 leaves headroom for a near-miss
+            # while anything the cap actually cuts was already twice over.
             "label":   _clip(ev.get("label", ""), 60),
-            "summary": _clip(ev.get("summary", ""), 140),
+            "summary": _clip(ev.get("summary", ""), 110),
             "ticket_id": next((s.get("ticket_id") for s in srcs if s.get("ticket_id")), ""),
             "is_internal":     is_internal,
             "internal_reason": internal[0].get("internal_reason", "") if is_internal else "",
