@@ -53,6 +53,30 @@ def _detect_cols(headers: list[str]) -> dict[str, int]:
 
 # ─── fetch ──────────────────────────────────────────────────────────────────
 
+def _rows_via_service_account() -> list[list[str]]:
+    """Read the sheet through the Sheets API as the BigQuery service account.
+    The public CSV export needs the sheet to be link-viewable; a private sheet
+    answers with a login page, and this is the way in without opening it to
+    the world (share it with the service account's client_email as Viewer)."""
+    import json as _json
+    from google.oauth2 import service_account
+    from google.auth.transport.requests import Request as _GARequest
+    from server.config import GCP_SERVICE_ACCOUNT_JSON
+    if not GCP_SERVICE_ACCOUNT_JSON:
+        raise RuntimeError("no GCP_SERVICE_ACCOUNT_JSON to authenticate with")
+    creds = service_account.Credentials.from_service_account_info(
+        _json.loads(GCP_SERVICE_ACCOUNT_JSON),
+        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
+    creds.refresh(_GARequest())
+    url = (f"https://sheets.googleapis.com/v4/spreadsheets/"
+           f"{CANNED_RESPONSES_SHEET_ID}/values/A:Z")
+    r = httpx.get(url, headers={"Authorization": f"Bearer {creds.token}"},
+                  timeout=15.0)
+    if r.status_code != 200:
+        raise RuntimeError(f"Sheets API HTTP {r.status_code} ({r.text[:120]})")
+    return [[str(c) for c in row] for row in (r.json().get("values") or [])]
+
+
 async def _fetch_rows() -> list[dict]:
     csv_url = (
         f"https://docs.google.com/spreadsheets/d/{CANNED_RESPONSES_SHEET_ID}"
@@ -60,12 +84,21 @@ async def _fetch_rows() -> list[dict]:
     )
     async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as c:
         r = await c.get(csv_url)
-    if r.status_code != 200:
-        raise RuntimeError(f"Canned CSV export returned HTTP {r.status_code}")
+    raw: list[list[str]] = []
+    ctype = r.headers.get("content-type", "")
+    if r.status_code == 200 and "csv" in ctype.lower():
+        raw = list(csv.reader(io.StringIO(r.text)))
+    else:
+        # An HTML body here is Google's login page: the sheet is private.
+        import asyncio as _asyncio
+        log.warning(
+            f"[canned] CSV export not readable (HTTP {r.status_code}, {ctype}) - "
+            f"the sheet is probably not link-viewable; trying the service account")
+        raw = await _asyncio.to_thread(_rows_via_service_account)
 
-    reader = csv.reader(io.StringIO(r.text))
-    raw = list(reader)
     if not raw:
+        log.warning("[canned] sheet returned no rows - responses will be drafted "
+                    "with no tone reference")
         return []
 
     headers = [h.strip() for h in raw[0]]
@@ -113,7 +146,11 @@ async def _get_rows() -> list[dict]:
         _cache_rows = rows
         _cache_at = time.time()
     except Exception as e:
-        log.warning(f"[canned] sheet fetch failed: {e}; returning stale or empty")
+        # Silently returning [] means every response is drafted with no tone
+        # reference and nobody knows why - name the sheet and the cause.
+        log.error(f"[canned] sheet {CANNED_RESPONSES_SHEET_ID} unreadable: {e}. "
+                  f"Responses will be drafted without a tone reference. Fix: "
+                  f"share the sheet link-viewable, or with the service account.")
         if not _cache_rows:
             _cache_rows = []
     return _cache_rows
