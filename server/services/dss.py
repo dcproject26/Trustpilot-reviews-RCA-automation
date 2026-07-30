@@ -41,7 +41,7 @@ from urllib.parse import quote
 
 import httpx
 
-from server.config import DSS_SHEET_ID, is_live
+from server.config import DSS_SHEET_ID, GCP_SERVICE_ACCOUNT_JSON, is_live
 from server.services.mock_data import MOCK_DSS
 
 log = logging.getLogger(__name__)
@@ -119,29 +119,64 @@ def _row_passes(row: dict, col: str, ours: str | None) -> bool:
 
 # ─── fetch ──────────────────────────────────────────────────────────────────
 
-async def _fetch_tab(client: httpx.AsyncClient, tab: str) -> list[dict]:
-    # gviz CSV export takes the tab NAME, so no gid resolution is needed.
-    url = (f"https://docs.google.com/spreadsheets/d/{DSS_SHEET_ID}"
-           f"/gviz/tq?tqx=out:csv&sheet={quote(tab)}")
-    r = await client.get(url)
-    if r.status_code != 200 or "csv" not in r.headers.get("content-type", "").lower():
-        raise RuntimeError(f"tab {tab!r}: HTTP {r.status_code}, "
-                           f"content-type {r.headers.get('content-type', '?')}")
-    raw = list(csv.reader(io.StringIO(r.text)))
-    if not raw:
+def _rows_from_grid(grid: list[list[str]]) -> list[dict]:
+    if not grid:
         return []
-    headers = [_norm_header(h) for h in raw[0]]
+    headers = [_norm_header(h) for h in grid[0]]
     rows = []
-    for rw in raw[1:]:
-        if not any(c.strip() for c in rw):
+    for rw in grid[1:]:
+        if not any(str(c).strip() for c in rw):
             continue
-        row = {headers[i]: rw[i].strip() for i in range(min(len(headers), len(rw)))}
+        row = {headers[i]: str(rw[i]).strip()
+               for i in range(min(len(headers), len(rw)))}
         # is_Partenered is the sheet's spelling; accept the correct one too
         if "is_partnered" in row and "is_partenered" not in row:
             row["is_partenered"] = row["is_partnered"]
         if row.get("dss"):
             rows.append(row)
     return rows
+
+
+def _fetch_tab_as_service_account(tab: str) -> list[dict]:
+    """Sheets API read as the BigQuery service account. The DSS sheet is
+    private, so the public CSV export gets a login page; sharing the sheet
+    with the service account's client_email (Viewer) makes this path work
+    without opening the sheet to the world. Sync on purpose - called via
+    asyncio.to_thread, and google-auth's token refresh is sync anyway."""
+    import json as _json
+    from google.oauth2 import service_account
+    from google.auth.transport.requests import Request as _GARequest
+
+    creds = service_account.Credentials.from_service_account_info(
+        _json.loads(GCP_SERVICE_ACCOUNT_JSON),
+        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
+    creds.refresh(_GARequest())
+    url = (f"https://sheets.googleapis.com/v4/spreadsheets/{DSS_SHEET_ID}"
+           f"/values/{quote(tab, safe='')}")
+    r = httpx.get(url, headers={"Authorization": f"Bearer {creds.token}"},
+                  timeout=15.0)
+    if r.status_code != 200:
+        raise RuntimeError(f"tab {tab!r}: Sheets API HTTP {r.status_code} "
+                           f"({r.text[:120]})")
+    return _rows_from_grid(r.json().get("values") or [])
+
+
+async def _fetch_tab(client: httpx.AsyncClient, tab: str) -> list[dict]:
+    # gviz CSV export takes the tab NAME, so no gid resolution is needed.
+    # Works only when the sheet is link-viewable; a private sheet returns a
+    # login page, and then the service-account path below takes over.
+    url = (f"https://docs.google.com/spreadsheets/d/{DSS_SHEET_ID}"
+           f"/gviz/tq?tqx=out:csv&sheet={quote(tab)}")
+    r = await client.get(url)
+    if r.status_code == 200 and "csv" in r.headers.get("content-type", "").lower():
+        return _rows_from_grid(list(csv.reader(io.StringIO(r.text))))
+    if GCP_SERVICE_ACCOUNT_JSON:
+        import asyncio
+        return await asyncio.to_thread(_fetch_tab_as_service_account, tab)
+    raise RuntimeError(
+        f"tab {tab!r}: HTTP {r.status_code}, "
+        f"content-type {r.headers.get('content-type', '?')} - sheet is not "
+        f"link-viewable and no GCP_SERVICE_ACCOUNT_JSON is set")
 
 
 async def _get_tabs() -> dict[str, list[dict]]:
