@@ -3208,15 +3208,20 @@ function renderRcaCol() {
         <div class="section-label"><span class="marker"></span>Action — One-click reply</div>
         <div class="untraceable-detail">
           <div class="untraceable-status">
-            No booking found for <strong>${r.firstName}</strong>. Send the standard reply asking for booking details?
+            No booking found for <strong>${r.firstName}</strong>. Ask the guest for booking details.
           </div>
           <div class="untraceable-actions">
-            <button class="verify-btn">Verify and send reply</button>
+            <!-- Copy, not send: this reply is pasted into the Slack thread by
+                 hand like every other response in this app. The button used to
+                 say "Verify and send reply" and, with no thread to post to,
+                 quietly fell back to the clipboard - promising one thing and
+                 doing another. -->
+            <button class="verify-btn" data-copy-untraceable>Copy reply</button>
             <button class="skip-btn" data-rerun-match>↻ Re-run matching</button>
           </div>
           <div class="template-card">
-            <div class="template-label">Template that fires on Verify</div>
-            "Hi <strong>${r.firstName}</strong>, thank you for sharing your feedback. We would love to look into this for you — could you share your Headout booking reference number or the email used at the time of booking?"
+            <div class="template-label">Reply to copy</div>
+            <span data-untraceable-template>Hi ${r.firstName}, thank you for sharing your feedback. We would love to look into this for you — could you share your Headout booking reference number or the email used at the time of booking?</span>
           </div>
         </div>
       </div>
@@ -3263,24 +3268,29 @@ function renderRcaCol() {
         </div>
       </div>
     `;
-    const vBtn = col.querySelector('.verify-btn');
+    const vBtn = col.querySelector('[data-copy-untraceable]');
     if (vBtn) {
       vBtn.addEventListener('click', async () => {
-        vBtn.disabled = true; vBtn.textContent = 'Sending…';
+        const tpl = col.querySelector('[data-untraceable-template]');
+        const text = (tpl ? tpl.textContent : '').trim();
+        if (!text) return;
         try {
-          const resp = await fetch(`/api/reviews/${r.id}/request-bid`, {method: 'POST'});
-          const data = await resp.json();
-          if (!resp.ok) throw new Error(data.detail || 'failed');
-          if (data.posted) {
-            vBtn.textContent = '✓ Reply sent to Slack thread';
-          } else {
-            try { await navigator.clipboard.writeText(data.template); } catch (_) {}
-            vBtn.textContent = '✓ No Slack thread — reply copied, paste to guest';
-          }
+          await navigator.clipboard.writeText(text);
+          vBtn.textContent = '✓ Copied';
         } catch (e) {
-          vBtn.textContent = '✗ Failed — try again';
-          vBtn.disabled = false;
+          // Clipboard can be blocked by the browser; select the text so it can
+          // still be copied by hand rather than leaving a dead button.
+          try {
+            const range = document.createRange();
+            range.selectNodeContents(tpl);
+            const sel = window.getSelection();
+            sel.removeAllRanges(); sel.addRange(range);
+            vBtn.textContent = '✗ Clipboard blocked — text selected';
+          } catch (_) {
+            vBtn.textContent = '✗ Copy failed';
+          }
         }
+        setTimeout(() => { vBtn.textContent = 'Copy reply'; }, 2500);
       });
     }
     return;
