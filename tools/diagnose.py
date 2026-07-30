@@ -331,6 +331,36 @@ def sec_run(review_id: str):
         s.close()
 
 
+def _get_json(url: str, timeout: int = 20):
+    """GET with a CA bundle that actually works here.
+
+    A public replit.app cert failed verification because this Python has no
+    usable trust store - reported as "cannot reach", which is wrong and sends
+    someone looking at the wrong thing. Try the system default, then certifi,
+    then any bundle the environment names. Verification is never disabled.
+    """
+    import httpx
+    attempts = [("system default", None)]
+    try:
+        import certifi
+        attempts.append(("certifi", certifi.where()))
+    except Exception:
+        pass
+    for var in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"):
+        if os.getenv(var):
+            attempts.append((var, os.getenv(var)))
+    last = None
+    for label, bundle in attempts:
+        try:
+            kw = {"timeout": timeout}
+            if bundle:
+                kw["verify"] = bundle
+            return httpx.get(url, **kw).json(), label
+        except Exception as e:
+            last = e
+    raise last if last else RuntimeError("no attempt made")
+
+
 def sec_remote(url: str):
     """Check a PUBLISHED deployment over HTTP.
 
@@ -342,7 +372,9 @@ def sec_remote(url: str):
     import httpx
     base = url.rstrip("/")
     try:
-        v = httpx.get(f"{base}/api/version", timeout=20).json()
+        v, how = _get_json(f"{base}/api/version")
+        if how != "system default":
+            line(INFO, f"reached it using the {how} CA bundle")
     except Exception as e:
         line(BAD, f"cannot reach {base}", brief(e))
         return
@@ -401,7 +433,7 @@ def sec_remote(url: str):
                    f"candidates {ldb.get('candidates')} · no-draft "
                    f"{ldb.get('no_draft_row')} · untraceable {ldb.get('untraceable')}")
     try:
-        h = httpx.get(f"{base}/api/health", timeout=20).json()
+        h, _ = _get_json(f"{base}/api/health")
         dead = [k for k, val in (h.get("services") or {}).items() if not val]
         line(OK if not dead else BAD,
              f"deployed services: {len(h.get('services') or {}) - len(dead)} live",
@@ -409,7 +441,7 @@ def sec_remote(url: str):
     except Exception as e:
         line(WARN, "deployed /api/health unreadable", brief(e))
     try:
-        b = httpx.get(f"{base}/api/reviews/bulk-status", timeout=20).json()
+        b, _ = _get_json(f"{base}/api/reviews/bulk-status")
         if b.get("running"):
             line(INFO, f"a bulk re-run is in flight there: "
                        f"{b.get('done')}/{b.get('total')}, {b.get('failed')} failed")
@@ -421,6 +453,46 @@ def sec_remote(url: str):
              "which itself means it is running code older than a6b3545")
 
 
+def sec_fix():
+    """Re-run everything incomplete, in this process.
+
+    The dashboard button needs the server up and someone watching it; this is
+    the same job from the shell, so a box with the server stopped can still be
+    brought whole.
+    """
+    import asyncio
+    import logging
+    logging.basicConfig(level=logging.WARNING, force=True)
+    from server.api import _bulk_targets, _bulk_worker, _BULK
+    from server.db import SessionLocal
+    s = SessionLocal()
+    try:
+        ids = _bulk_targets(s, "incomplete", 100)
+    finally:
+        s.close()
+    if not ids:
+        line(OK, "nothing incomplete - every review has a match and an RCA")
+        return
+    line(INFO, f"re-running {len(ids)} review(s), 3 at a time "
+               f"(~{max(1, len(ids) // 3) * 40}s)")
+    _BULK.update({"running": True, "scope": "incomplete", "total": len(ids),
+                  "done": 0, "failed": 0, "current": "", "cancel": False,
+                  "results": [], "started_at": datetime.utcnow().isoformat(),
+                  "finished_at": None})
+    asyncio.run(_bulk_worker(ids))
+    ok = [r for r in _BULK["results"] if r["ok"]]
+    bad = [r for r in _BULK["results"] if not r["ok"]]
+    line(OK if not bad else BAD,
+         f"re-ran {len(ok)}/{len(ids)}"
+         + (f", {len(bad)} failed" if bad else ""),
+         "\n".join(f"{r['id']}: {r['error']}" for r in bad[:10]))
+    # Say what it looks like NOW, so the run is self-verifying.
+    try:
+        sec_database()
+    except Exception as e:
+        line(WARN, f"could not re-count after the fix: {brief(e)}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default="",
@@ -430,6 +502,9 @@ def main():
     ap.add_argument("--run", default="", help="review id to run; default picks the "
                                               "first unmatched one")
     ap.add_argument("--no-run", action="store_true", help="skip the pipeline run")
+    ap.add_argument("--fix", action="store_true",
+                    help="re-run EVERY incomplete review (no draft row, no "
+                         "match, or no RCA) right here - no server needed")
     args = ap.parse_args()
 
     out = io.StringIO()
@@ -458,7 +533,9 @@ def main():
             unmatched = sec_reviews() or []
         except Exception as e:
             line(BAD, f"review scan failed: {brief(e)}")
-        if not args.no_run:
+        if args.fix:
+            section(sec_fix, "7. FIXING EVERY INCOMPLETE REVIEW")
+        elif not args.no_run:
             target = args.run or (unmatched[0][0] if unmatched else "")
             if target:
                 section(sec_run, "7. LIVE PIPELINE RUN", target)
