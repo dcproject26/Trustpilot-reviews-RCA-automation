@@ -3169,25 +3169,34 @@ function renderRcaCol() {
     const _w = (rca.v3 || {}).what_went_wrong;
     if (_w) {
       // The 5 mandated headings, verbatim structure — this block posts as-is.
+      // Pointer fields are arrays now - each becomes its own indented line.
+      // Joining an array into a string here would print "a,b,c" as one run,
+      // which is the prose this format exists to avoid.
+      const sub = v => asPoints(v).map(x => '   - ' + x).join(nl);
       const gi = (_w.guest_issues || []);
-      wwrParts.push('1. Guest issue' + nl + gi.map(g => '• ' + (g.issue || '')).join(nl));
+      wwrParts.push('1. Guest issue' + nl +
+        gi.map(g => '• ' + (g.issue || '')).join(nl));
       wwrParts.push("2. Is the guest's claim accurate?" + nl +
-        gi.map(g => '• ' + (g.claim_accuracy || '—') + ' — ' + (g.evidence || '')).join(nl));
+        gi.map(g => ['• ' + (g.issue || '') + ': ' + (g.claim_accuracy || '—'),
+                     sub(g.evidence)].filter(Boolean).join(nl)).join(nl));
       const wh = _w.what_happened || {};
       const whLines = (wh.root_causes || []).map(c =>
         '• [' + (c.classification || '?') + '] ' + (c.issue ? c.issue + ': ' : '') + (c.cause || ''));
-      if (wh.operational_failure) whLines.push('• Operational failure: ' + wh.operational_failure);
-      if (wh.sop_gap) whLines.push('• SOP gap: ' + wh.sop_gap);
+      if (asPoints(wh.operational_failure).length)
+        whLines.push('• Operational failure' + nl + sub(wh.operational_failure));
+      if (asPoints(wh.sop_gap).length)
+        whLines.push('• SOP gap' + nl + sub(wh.sop_gap));
       if (wh.pattern) whLines.push('• Pattern: ' + wh.pattern);
       wwrParts.push('3. What actually happened?' + nl + whLines.join(nl));
       const sx = _w.sp_escalation || {};
       wwrParts.push('4. Supply Partner escalation' + nl +
-        '• ' + (sx.escalated || '—') + (sx.detail ? ' — ' + sx.detail : ''));
+        ['• Escalated: ' + (sx.escalated || '—'), sub(sx.detail)].filter(Boolean).join(nl));
       const fx = _w.fixes || {};
       const fxLines = [];
       if ((fx.teams || []).length) fxLines.push('• Teams: ' + fx.teams.join(', ') + (fx.owner ? ' · owner: ' + fx.owner : ''));
-      for (const a of (fx.actions || [])) fxLines.push('• ' + a);
-      if (fx.prevention) fxLines.push('• Prevention: ' + fx.prevention);
+      for (const a of asPoints(fx.actions)) fxLines.push('• ' + a);
+      if (asPoints(fx.prevention).length)
+        fxLines.push('• Prevention' + nl + sub(fx.prevention));
       wwrParts.push('5. Fixes' + nl + fxLines.join(nl));
     }
     for (const sc of (_w ? [] : (rca.wwrScenarios || []))) {
