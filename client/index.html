@@ -3314,6 +3314,9 @@ function renderRcaCol() {
       ['support',   'Customer / CE interactions', supportText],
       ['sp',        'SP interaction',        spText],
       ['aoi',       'Area of improvement',   aoiText],
+      ['prevention','Prevention',            asPoints(v3d.prevention).length
+                                               ? asPoints(v3d.prevention).map(x => '• ' + x).join(nl)
+                                               : (rca.prevention || '')],
       ['actions',   'Actions taken',         actionsText],
       ['resolution','Resolution',            rca.resolution || '—'],
       ['takedown',  'Review takedown',       takedownText],
@@ -3328,12 +3331,60 @@ function renderRcaCol() {
     }
     return out.join(nl);
   }
+  // Rendered independently of which WWR shape is in play.
+  const isaBlock = `
+    ${Object.keys(rca.issueSpecificAnswers || {}).length > 0 ? `
+    <div class="section" id="rca-issue-answers-section">
+      <div class="section-label"><span class="marker"></span>Issue-Specific Answers<span class="ai-tag-inline">AI</span></div>
+      <!-- Verdict + the evidence behind it. The old version rendered a
+           Yes/No/Unknown select only: it threw the evidence away, and an
+           answer that opens with a fact ("28 minutes (...)") matched no
+           option, so the browser displayed "Yes" for an answer that was not
+           Yes. A wrong verdict shown confidently is worse than none. -->
+      <div class="field-block" style="display:flex;flex-direction:column;gap:8px">
+        ${Object.entries(rca.issueSpecificAnswers).map(([key, val]) => {
+          const raw = String(val == null ? '' : val);
+          const m = raw.match(/^\s*(Yes|No|Unknown|N\/A)\b[:\s—-]*/i);
+          const verdict = m ? m[1] : '';
+          const rest = (m ? raw.slice(m[0].length) : raw).trim();
+          const known = ['yes','no','unknown'].indexOf(verdict.toLowerCase()) !== -1;
+          const cls = verdict.toLowerCase() === 'yes' ? 'pass'
+                    : verdict.toLowerCase() === 'no' ? 'flag' : 'na';
+          return `
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <div style="font-size:12.5px;color:var(--text)">${esc(key)}</div>
+              <div style="display:flex;gap:6px;align-items:flex-start">
+                ${known
+                  ? `<select class="classify-select" style="font-size:11px;width:96px;flex:none"
+                             data-isa-key="${esc(key)}" data-isa-rest="${esc(rest)}">
+                       ${['Yes','No','Unknown'].map(o => `<option${verdict.toLowerCase() === o.toLowerCase() ? ' selected' : ''}>${o}</option>`).join('')}
+                     </select>`
+                  : `<span class="chk-pill ${cls}" style="flex:none">${esc(verdict || 'answer')}</span>`}
+                <span class="chk-ev editable-text" contenteditable="true" spellcheck="false"
+                      data-isa-evidence="${esc(key)}"
+                      style="flex:1;min-width:0">${esc(rest || '—')}</span>
+              </div>
+            </div>`;
+        }).join('')}
+      </div>
+    </div>` : ''}
+  `;
+
+  const preventionBlock = (rca.prevention || '').trim() ? `
+    <div class="section" id="rca-prevention-section">
+      <div class="section-label"><span class="marker"></span>Prevention<span class="ai-tag-inline">AI</span></div>
+      <div class="field-block" style="display:flex;flex-direction:column;gap:3px">
+        ${String(rca.prevention).split(/\n|(?:^|\s)•\s/).map(x => x.trim()).filter(Boolean)
+            .map(x => `<div style="display:flex;gap:6px;font-size:12.5px"><span style="color:var(--text-mute)">•</span><span>${esc(x)}</span></div>`).join('')}
+      </div>
+    </div>` : '';
+
   // Keys must match SECTIONS in _genSlackText.
   const _slackSectionKeys = [
     ['tldr', 'TL;DR'], ['wwr', 'What went wrong'], ['logs', 'Booking logs'],
     ['flags', 'Flags'], ['sop', 'SOP'], ['support', 'CE interactions'],
     ['sp', 'SP interaction'], ['aoi', 'Area of improvement'],
-    ['actions', 'Actions'], ['resolution', 'Resolution'],
+    ['prevention', 'Prevention'], ['actions', 'Actions'], ['resolution', 'Resolution'],
     ['takedown', 'Takedown'], ['insights', 'Insights'],
   ];
   const _slackText = rca.slackThreadOverride || _genSlackText();
@@ -3508,41 +3559,7 @@ function renderRcaCol() {
       <button class="action-add-btn" data-wwr-add>+ Add step</button>`}
     </div>
 
-    ${Object.keys(rca.issueSpecificAnswers || {}).length > 0 ? `
-    <div class="section" id="rca-issue-answers-section">
-      <div class="section-label"><span class="marker"></span>Issue-Specific Answers<span class="ai-tag-inline">AI</span></div>
-      <!-- Verdict + the evidence behind it. The old version rendered a
-           Yes/No/Unknown select only: it threw the evidence away, and an
-           answer that opens with a fact ("28 minutes (...)") matched no
-           option, so the browser displayed "Yes" for an answer that was not
-           Yes. A wrong verdict shown confidently is worse than none. -->
-      <div class="field-block" style="display:flex;flex-direction:column;gap:8px">
-        ${Object.entries(rca.issueSpecificAnswers).map(([key, val]) => {
-          const raw = String(val == null ? '' : val);
-          const m = raw.match(/^\s*(Yes|No|Unknown|N\/A)\b[:\s—-]*/i);
-          const verdict = m ? m[1] : '';
-          const rest = (m ? raw.slice(m[0].length) : raw).trim();
-          const known = ['yes','no','unknown'].indexOf(verdict.toLowerCase()) !== -1;
-          const cls = verdict.toLowerCase() === 'yes' ? 'pass'
-                    : verdict.toLowerCase() === 'no' ? 'flag' : 'na';
-          return `
-            <div style="display:flex;flex-direction:column;gap:2px">
-              <div style="font-size:12.5px;color:var(--text)">${esc(key)}</div>
-              <div style="display:flex;gap:6px;align-items:flex-start">
-                ${known
-                  ? `<select class="classify-select" style="font-size:11px;width:96px;flex:none"
-                             data-isa-key="${esc(key)}" data-isa-rest="${esc(rest)}">
-                       ${['Yes','No','Unknown'].map(o => `<option${verdict.toLowerCase() === o.toLowerCase() ? ' selected' : ''}>${o}</option>`).join('')}
-                     </select>`
-                  : `<span class="chk-pill ${cls}" style="flex:none">${esc(verdict || 'answer')}</span>`}
-                <span class="chk-ev editable-text" contenteditable="true" spellcheck="false"
-                      data-isa-evidence="${esc(key)}"
-                      style="flex:1;min-width:0">${esc(rest || '—')}</span>
-              </div>
-            </div>`;
-        }).join('')}
-      </div>
-    </div>` : ''}
+
 
     <!-- The legacy checklist wall is gone. Its answers were "No" for "was
          there a tone problem?", i.e. No = no error, so rendering every No as
@@ -3634,6 +3651,7 @@ function renderRcaCol() {
     </div>
 
     ${v3Block}
+    ${isaBlock}
 
     <div class="section">
       <div class="section-label"><span class="marker"></span>Support Interaction<span class="ai-tag-inline">AI</span></div>
@@ -3662,6 +3680,8 @@ function renderRcaCol() {
           : `<div style="font-size:12px;color:var(--text-mute)">—</div>`}
       </div>
     </div>
+
+    ${preventionBlock}
 
     ${v3d.takedown ? `
     <div class="section">
