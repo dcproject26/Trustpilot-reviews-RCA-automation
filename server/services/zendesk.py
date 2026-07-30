@@ -365,6 +365,12 @@ _CHAT_CHANNELS  = ("chat", "messaging", "sunshine", "whatsapp", "widget",
                    "telegram", "viber", "kakao", "social")
 _CALL_CHANNELS  = ("voice", "phone", "call")
 _EMAIL_CHANNELS = ("email", "mail")
+# Zendesk's two most common non-conversational channels. Both were falling
+# through to "email", so a help-centre form submission and an integration's
+# API post both showed as mail in the timeline - two different things wearing
+# a third thing's label, on every ticket.
+_WEB_CHANNELS   = ("web", "web_form", "helpcenter", "help_center", "portal")
+_API_CHANNELS   = ("api", "rule", "trigger", "automation", "system", "webhook")
 
 
 def _map_channel(via_channel: str) -> str:
@@ -380,10 +386,14 @@ def _map_channel(via_channel: str) -> str:
         return "call"
     if any(k in ch for k in _EMAIL_CHANNELS):
         return "email"
+    if ch in _WEB_CHANNELS or any(k in ch for k in _WEB_CHANNELS):
+        return "web"
+    if ch in _API_CHANNELS or any(k in ch for k in _API_CHANNELS):
+        return "api"
     # Anything still unrecognised stays "email" because that is the pill
     # vocabulary the renderer knows, but it is logged: a channel showing up
-    # here is the next chat family to add, and silence is how the old default
-    # hid the problem for so long.
+    # here is the next family to add, and silence is how the old default hid
+    # the problem for so long.
     log.info(f"[zendesk] unmapped via.channel {ch!r} -> email")
     return "email"
 
@@ -657,6 +667,16 @@ def _get_timeline_sync(_z, booking_id: str):
     def _role(author_id) -> str:
         if author_id in _role_cache:
             return _role_cache[author_id]
+        # -1 is Zendesk's marker for a comment the system posted (a chat
+        # transcript, an automation), not a user id. Asking the API for it
+        # always fails with "id must be >= 0" and logged a warning on every
+        # single timeline - noise that buried the lookups that really did fail.
+        try:
+            if int(author_id) <= 0:
+                _role_cache[author_id] = ""
+                return ""
+        except (TypeError, ValueError):
+            pass
         role = ""
         try:
             u = _z.users(id=author_id)

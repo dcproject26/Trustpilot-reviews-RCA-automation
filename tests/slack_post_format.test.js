@@ -21,6 +21,17 @@ if (fnStart === -1 || fnEnd === -1) {
 }
 const genSource = html.slice(fnStart, fnEnd);
 
+// Pull in the module-scope helpers the generator calls. In the browser these
+// are in scope; extracting the generator alone made the harness fail on a
+// change that was correct - a false alarm is as costly as a missed one.
+function grab(sig) {
+  const a = html.indexOf(sig);
+  if (a === -1) return '';
+  const b = html.indexOf('\n}', a);
+  return b === -1 ? '' : html.slice(a, b + 2);
+}
+const helperSource = ['function _insightsWindowLabel(r) {'].map(grab).join('\n');
+
 const nl = '\n', div = '_'.repeat(61);
 const asPoints = v => (Array.isArray(v) ? v : (v ? [v] : [])).filter(Boolean);
 const state = {slackSections: {}, insightsWindow: '90d'};
@@ -54,7 +65,8 @@ const v3d = {
 };
 const spV3 = v3d.sp_interaction;
 const r = {rating: 1, author: 'David', insights: {tgidRating: {value: '4.2', sub: '90d'},
-           completion: {value: '57%', sub: 'vendor'}}};
+           completion: {value: '57%', sub: 'vendor'}},
+           insightsRaw: {_window_days: 90}};
 const b = {bid: '32908218'};
 const rca = {v3: v3d, issueL1: 'Operations Issue', issueL2: 'Ticket Issues',
   subTheme: 'C. Ticket Delayed', primaryScenario: 'Tickets sent late',
@@ -63,6 +75,7 @@ const rca = {v3: v3d, issueL1: 'Operations Issue', issueL2: 'Ticket Issues',
   actionsTaken: {sp:[],customer:[],business:[],ce:[],product:[]}, resolution: 'Full refund',
   tldr: '', checklistAnswers: []};
 
+eval(helperSource);
 eval(genSource);
 const out = _genSlackText();
 console.log(out);

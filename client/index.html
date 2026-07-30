@@ -548,6 +548,11 @@
   .tl-thread.sp { background: rgba(160, 122, 234, 0.15); color: #A07AEA; }
   .tl-thread.booking { background: rgba(93, 204, 140, 0.15); color: var(--green); }
   .tl-thread.review { background: rgba(242, 107, 107, 0.15); color: var(--red); }
+  /* web = the guest used the help-centre form; api = an integration posted it.
+     Both used to be labelled "email", so a form submission and a machine post
+     wore a third thing's name on every ticket. */
+  .tl-thread.web { background: rgba(120, 190, 200, 0.15); color: #78BEC8; }
+  .tl-thread.api { background: rgba(150, 150, 160, 0.15); color: #9696A0; }
   .tl-actor {
     font-size: 10.5px; font-weight: 600;
     text-transform: uppercase; letter-spacing: 0.04em;
@@ -2177,6 +2182,7 @@ async function loadDraftOverlays() {
       r.rca.subTheme  = draft.sub_theme || r.rca.subTheme || null;
       r.rca.tldr      = draft.tldr      || '';
       r.rca.v3        = draft.rca_v3    || {};
+      r.insightsRaw   = draft.insights  || {};
       r.untraceableReason  = (draft.extracted_signals || {}).untraceable_reason || '';
       r.extractedSignals   = draft.extracted_signals || {};
       r.narrowingAttempts  = draft.narrowing_attempts || [];
@@ -3139,6 +3145,19 @@ function renderReviewCol() {
   }
 }
 
+// The window these numbers were actually computed for. The picker is a
+// button someone may have clicked after the numbers were fetched, so labelling
+// a cached 7-day count "90d" because 90d is highlighted is how a Slack post
+// tells leadership the wrong scope. The data carries its own window.
+function _insightsWindowLabel(r) {
+  const raw = (r && r.insightsRaw) || {};
+  if (typeof raw._window_days === 'number' && raw._window_days > 0) return raw._window_days + 'd';
+  if (raw._window_label) return String(raw._window_label);
+  return (typeof state !== 'undefined' && state.insightsWindow)
+    ? state.insightsWindow + ' (picker — data carried no window)'
+    : 'unknown';
+}
+
 // Shared by every branch of the RCA column, including the untraceable one,
 // which returns before the main renderer's locals exist - a helper defined
 // down there is a ReferenceError up here.
@@ -3484,7 +3503,7 @@ function renderRcaCol() {
     const insText = insRows.length
       ? '```' + nl + insRows.map(([k, v, sub]) =>
           k.padEnd(17) + String(v) + (sub ? '  (' + sub + ')' : '')).join(nl) +
-        nl + 'window: ' + (state.insightsWindow || '90d') + '```'
+        nl + 'window: ' + _insightsWindowLabel(r) + '```'
       : '—';
 
     const tl = (rca.v3 || {}).tldr;
