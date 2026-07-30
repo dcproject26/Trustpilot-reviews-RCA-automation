@@ -32,7 +32,8 @@ BULLET_RE = re.compile(r"^\s*[•·\-–▪]")
 BANNED = [
     "structurally impossible", "meets the threshold", "purely defamatory",
     "the workflow should", "it is worth noting", "it appears that",
-    "compliance cannot be assessed", "is itself unverifiable",
+    "cannot be assessed", "is itself unverifiable",
+    "impossible without", "not possible without", "action possible without",
 ]
 
 PASS, FAIL, WARN = "PASS", "FAIL", "warn"
@@ -41,6 +42,12 @@ _results = []
 
 def check(name, ok, detail=""):
     _results.append((PASS if ok else FAIL, name, detail))
+
+
+def warn(name, ok, detail=""):
+    """Style smells: printed, never fatal, never change the verdict."""
+    if not ok:
+        _results.append((WARN, name, detail))
 
 
 def _entries(v3) -> list:
@@ -162,10 +169,21 @@ def main():
         check("sp_interaction is raised + records (new shape)", bool(sp_new),
               f"keys: {sorted(sp.keys()) if isinstance(sp, dict) else type(sp).__name__}")
 
+        # Rule 12: an absence is stated once, not re-derived per section.
+        absence = [p for p, t in entries
+                   if re.search(r"no (booking|support contact|guest contact|"
+                                r"support ticket|contact record)", t.lower())]
+        warn(f"same absence restated in {len(absence)} entries (rule 12: say it once)",
+             len(absence) <= 3, ", ".join(absence[:8]))
+
+        compound = [p for p, t in entries if "; " in t]
+        warn("compound sentences (two ideas joined by ';' - split them)",
+             not compound, ", ".join(compound[:6]))
+
         fails = [r for r in _results if r[0] == FAIL]
         for st, name, detail in _results:
             print(f"[{st}] {name}")
-            if detail and st == FAIL:
+            if detail and st in (FAIL, WARN):
                 print(f"       {detail}")
 
         old_shape = (not new_td and ("recommended" in td or "reason" in td)) \

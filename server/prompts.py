@@ -1016,6 +1016,12 @@ that turned out fine is silence - never a line in the output.
     sop_compliance objects carry the Zendesk ticket id their evidence comes
     from, as "ZD-<id>" - the dashboard renders it as a link to the ticket.
     "" only when no ticket is involved (booking-data evidence).
+12. SAY AN ABSENCE ONCE. When the case has no booking or no support
+    contact, the root cause states it in full, once. Every other section
+    notes only its own gap, in six words or fewer - "No booking record.",
+    "No guest contact found." - without re-deriving the whole situation.
+    A one-line review must produce a one-page RCA, not the same absence
+    restated in eight places.
 
 ━━ OUTPUT ━━
 
@@ -1063,11 +1069,9 @@ Sub-points only where relevant.
   separate entries - collapsing three failures into one hides the root cause.
   NEVER return an empty list. When the booking is unconfirmed or the systems
   gave you nothing, build the sequence from the guest's own account - they
-  always narrate one - and mark each such entry's "detail" as the guest's
-  account, unverified, naming the system that would settle it: "Guest's
-  account, unverified - the booking record would confirm the date on the
-  ticket." A reader must be able to see the shape of the case before anyone
-  has confirmed a booking; an absent timeline reads as "nothing happened".
+  always narrate one - and end each such "detail" with "(guest's account,
+  unverified)". Nothing more: the detail stays one short sentence inside the
+  word ceiling, and it never explains which system would verify it.
 
 "flags" - THE QA AREAS ARE A COVERAGE GUIDE FOR THIS RCA, NOT A SCORECARD
   FOR THE TEAM. Walk the CE / RO / scenario areas silently and ask of each:
@@ -1106,6 +1110,9 @@ Sub-points only where relevant.
   verdict = followed | deviated | unknown. detail carries the one-line
   story - including denial -> persistence -> HOC when that is what happened,
   which is FOLLOWED, not a deviation.
+  NO-CONTACT CASES: when no support contact exists, write actual = "No CE
+  or RO contact on record.", verdict = "unknown", detail = "". Never write
+  why compliance "cannot be assessed" - the unknown verdict already says it.
 
 "issue_specific_answers" - answer EXACTLY the questions listed under
   ISSUE-SPECIFIC QUESTIONS below, using each question verbatim as the key.
@@ -1116,7 +1123,10 @@ Sub-points only where relevant.
   Unanswerable from the data -> "Unknown ([source] unavailable)".
 
 "area_of_improving" - point form, what WE should do better, one line each.
-  Ownable and specific; no restating the review, no praise.
+  Ownable and specific; no restating the review, no praise. Each entry must
+  be doable by a named Headout team with systems that exist today. Never
+  invent new processes, ingestion requirements or outreach programmes - a
+  thin case does not license scope invention. Nothing real returns [].
 
 "takedown" - {"verdict": "Yes|No|Untraceable"}. One word, nothing else.
   Yes only when the review is factually false or breaches platform policy;
