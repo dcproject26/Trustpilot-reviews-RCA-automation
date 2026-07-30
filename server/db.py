@@ -133,6 +133,11 @@ class RcaDraft(Base):
 
     generated_at   = Column(DateTime, nullable=True)
     rca_posted_at  = Column(DateTime, nullable=True)  # RCA posted to the Slack thread
+    # Set when a HUMAN edits the RCA body through the dashboard. Every
+    # inline edit lands in rca_v3, and a re-run replaces that column whole -
+    # so without this marker a bulk run silently destroys the corrections
+    # someone typed, which is the one thing a re-run must never do.
+    rca_v3_edited_at = Column(DateTime, nullable=True)
     sent_at      = Column(DateTime, nullable=True)
     review       = relationship("Review", back_populates="draft")
 
@@ -186,6 +191,7 @@ def _ensure_columns():
         "sub_themes":             "JSONB" if is_pg else "JSON",
         "scenarios":              "JSONB" if is_pg else "JSON",
         "rca_posted_at":          "TIMESTAMP",
+        "rca_v3_edited_at":       "TIMESTAMP",
         "overlay_scenarios":      "JSONB" if is_pg else "JSON",
         "wwr_scenarios":          "JSONB" if is_pg else "JSON",
         "ticket_facts":           "JSONB" if is_pg else "JSON",

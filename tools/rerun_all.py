@@ -59,6 +59,11 @@ def _has_human_work(review, draft) -> list:
     if draft is not None:
         if getattr(draft, "sent_at", None):
             marks.append("sent_at")
+        # The RCA body itself. Every inline edit in the dashboard writes to
+        # rca_v3, and a re-run replaces that column whole - so this is the
+        # marker that actually matters, and it was the one not being checked.
+        if getattr(draft, "rca_v3_edited_at", None):
+            marks.append("rca edited")
         for f in HUMAN_FIELDS:
             if (getattr(draft, f, "") or "").strip():
                 marks.append(f)
