@@ -197,6 +197,7 @@ def _draft_dict(d: RcaDraft) -> dict:
         "slack_thread_override": d.slack_thread_override or "",
         "slack_mentions":        d.slack_mentions or [],
 
+        "template_name":      d.template_name or "",
         "suggested_response": d.suggested_response or "",
         "final_response":     d.final_response or "",
         "generated_at":       d.generated_at.isoformat() if d.generated_at else None,

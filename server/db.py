@@ -113,6 +113,12 @@ class RcaDraft(Base):
     # VS flow still writes, and writing v3 over it destroyed those fields.
     rca_v3             = Column(JSON, default=dict)
 
+    # Which canned-response situation the drafter used as its tone reference,
+    # or the explicit no-match marker. The dashboard already read
+    # draft.template_name in three places; nothing ever wrote it, so the
+    # "Template: X" chip and the no-match placeholder could never appear.
+    template_name      = Column(String, nullable=True)
+
     # ── Legacy fields still used by the v1 flow ──
     rca_fields         = Column(JSON, default=dict)
     signals            = Column(JSON, default=list)
@@ -173,6 +179,7 @@ def _ensure_columns():
         "slack_thread_override":  "TEXT",
         "slack_mentions":         "JSONB" if is_pg else "JSON",
         "rca_v3":                 "JSONB" if is_pg else "JSON",
+        "template_name":          "VARCHAR",
     }
     for col, coltype in wanted.items():
         if col in existing:

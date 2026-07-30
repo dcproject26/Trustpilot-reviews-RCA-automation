@@ -1325,8 +1325,15 @@ async def process_review(review_id: str, force_candidates: bool = False):
         _progress(review_id, 7, "drafting response")
         # ── 13. Response draft ────────────────────────────────────────────────
         response_draft = ""
+        draft_template_name = ""
         try:
             canned         = await get_canned_responses(l1, l2, sub_theme, review_text or "")
+            # Name the reference the drafter actually had. An empty list is
+            # worth surfacing: the response was written with no tone
+            # reference at all, which is what the associate needs to know.
+            draft_template_name = (
+                (canned[0].get("situation") or "").strip()[:120] if canned
+                else "NO MATCHING TEMPLATE — drafted without a tone reference")
             response_draft = await claude.draft_response_v2(
                 review_text=review_text,
                 l1=l1,
@@ -1432,6 +1439,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
 
         draft.ticket_facts                = ticket_facts or None
         draft.suggested_response          = response_draft
+        draft.template_name               = draft_template_name
         draft.generated_at                = datetime.utcnow()
         review.status                     = "draft"
 

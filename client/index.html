@@ -1792,6 +1792,37 @@
              border-radius:10px; color:var(--text-mute);
              font-family:'JetBrains Mono', monospace; }
   .row-add:hover { color:var(--text); border-color:var(--accent); }
+  /* RCA v3 section primitives. These replace the inline style="" attributes
+     the new sections were built with: one place to change spacing, and the
+     narrow-panel guards (min-width:0 + overflow-wrap) apply everywhere at
+     once instead of being remembered per element. A long unbroken evidence
+     string used to widen the whole panel. */
+  .rca-points { display:flex; flex-direction:column; gap:3px; min-width:0; }
+  .rca-point  { display:flex; gap:6px; align-items:flex-start; font-size:12.5px;
+                min-width:0; overflow-wrap:anywhere; }
+  .rca-point > .rca-bullet { color:var(--text-mute); flex:none; }
+  .rca-point > .rca-ptext  { flex:1; min-width:0; overflow-wrap:anywhere; }
+  .rca-kv { display:grid; grid-template-columns:92px minmax(0,1fr); gap:4px 10px;
+            font-size:12.5px; min-width:0; }
+  .rca-kv > span { min-width:0; overflow-wrap:anywhere; }
+  .rca-stack { display:flex; flex-direction:column; gap:4px; font-size:12.5px;
+               min-width:0; }
+  .rca-wrap { min-width:0; overflow-wrap:anywhere; }
+  /* Empty states say WHICH kind of empty: no data in the source, or nothing
+     generated yet. "—" left a reader unable to tell those apart. */
+  .rca-empty { font-size:11.5px; color:var(--text-mute); font-style:italic;
+               padding:2px 0; }
+  .rca-empty.err { color:#e5934b; font-style:normal; }
+  .chk-ev, .chk-item { min-width:0; overflow-wrap:anywhere; }
+  /* Transient confirmation after an inline edit saves. */
+  .save-tick { font-size:10px; color:var(--accent); margin-left:6px; opacity:0;
+               transition:opacity .15s ease; }
+  .save-tick.on { opacity:1; }
+  .slack-sec-actions { display:flex; gap:4px; margin-left:auto; }
+  .slack-sec-actions button { font-size:10px; padding:1px 6px; cursor:pointer;
+       background:transparent; border:1px solid var(--border); border-radius:8px;
+       color:var(--text-mute); font-family:'JetBrains Mono', monospace; }
+  .slack-sec-actions button:hover { color:var(--text); border-color:var(--accent); }
   .wwr5-h { font-size: 11px; font-weight: 600; letter-spacing: .04em;
             text-transform: uppercase; color: var(--text-mute); margin-bottom: 4px; }
   .wwr-stepper { display: flex; flex-direction: column; gap: 0; }
@@ -2275,6 +2306,9 @@ const state = {
   insightsWindow: '90d',
   // Which RCA sections go into the Slack thread post. All on by default;
   // unticking one drops it from the generated text.
+  // Slack post section choices, keyed BY REVIEW ID. A single global map
+  // silently carried one review's choices onto the next, so a post could
+  // ship without the section the previous analyst had switched off.
   slackSections: {},
   // Section open/closed state, keyed by section label text.
   collapsed: {},
@@ -3116,7 +3150,7 @@ function renderRcaCol() {
         `).join('')}
       </div>`
     : rca.supportInteraction.length === 0
-    ? `<div class="interactions"><div class="interactions-empty">No support interactions on this booking</div></div>`
+    ? `<div class="interactions"><div class="interactions-empty">No guest contact was found on this booking — the guest never reached support.</div></div>`
     : `<div class="interactions">
         ${rca.supportInteraction.map((s, i) => `
           <div class="convo-frame ${i === 0 ? 'open' : ''}" data-frame-idx="${i}">
@@ -3342,7 +3376,7 @@ function renderRcaCol() {
       ['takedown',  'Review takedown',       takedownText],
       ['insights',  'Experience insights',   insText],
     ];
-    const chosen = state.slackSections;
+    const chosen = state.slackSections[r.id] || {};
     const out = [header, cls];
     for (const [key, label, body] of SECTIONS) {
       if (chosen && chosen[key] === false) continue;
@@ -3361,7 +3395,7 @@ function renderRcaCol() {
            answer that opens with a fact ("28 minutes (...)") matched no
            option, so the browser displayed "Yes" for an answer that was not
            Yes. A wrong verdict shown confidently is worse than none. -->
-      <div class="field-block" style="display:flex;flex-direction:column;gap:8px">
+      <div class="field-block rca-points" style="gap:8px">
         ${Object.entries(rca.issueSpecificAnswers).map(([key, val]) => {
           const raw = String(val == null ? '' : val);
           const m = raw.match(/^\s*(Yes|No|Unknown|N\/A)\b[:\s—-]*/i);
@@ -3371,18 +3405,18 @@ function renderRcaCol() {
           const cls = verdict.toLowerCase() === 'yes' ? 'pass'
                     : verdict.toLowerCase() === 'no' ? 'flag' : 'na';
           return `
-            <div style="display:flex;flex-direction:column;gap:2px">
-              <div style="font-size:12.5px;color:var(--text)">${esc(key)}</div>
-              <div style="display:flex;gap:6px;align-items:flex-start">
+            <div class="rca-points" style="gap:2px">
+              <div class="rca-wrap" style="font-size:12.5px;color:var(--text)">${esc(key)}</div>
+              <div class="rca-point">
                 ${known
                   ? `<select class="classify-select" style="font-size:11px;width:96px;flex:none"
                              data-isa-key="${esc(key)}" data-isa-rest="${esc(rest)}">
                        ${['Yes','No','Unknown'].map(o => `<option${verdict.toLowerCase() === o.toLowerCase() ? ' selected' : ''}>${o}</option>`).join('')}
                      </select>`
                   : `<span class="chk-pill ${cls}" style="flex:none">${esc(verdict || 'answer')}</span>`}
-                <span class="chk-ev editable-text" contenteditable="true" spellcheck="false"
-                      data-isa-evidence="${esc(key)}"
-                      style="flex:1;min-width:0">${esc(rest || '—')}</span>
+                <span class="chk-ev editable-text rca-ptext" contenteditable="true" spellcheck="false"
+                      role="textbox" aria-label="Evidence for: ${esc(key)}"
+                      data-isa-evidence="${esc(key)}">${esc(rest) || 'No evidence recorded for this question.'}</span>
               </div>
             </div>`;
         }).join('')}
@@ -3399,17 +3433,17 @@ function renderRcaCol() {
       <div class="section-label"><span class="marker"></span>Evidence<span class="ai-tag-inline">AI</span>
         <span class="sec-count">${rca.evidence.length} · legacy</span>
       </div>
-      <div class="field-block" style="display:flex;flex-direction:column;gap:3px">
-        ${rca.evidence.map(e => `<div class="chk-ev">• ${esc(e)}</div>`).join('')}
+      <div class="field-block rca-points">
+        ${rca.evidence.map(e => `<div class="rca-point"><span class="rca-bullet">•</span><span class="rca-ptext">${esc(e)}</span></div>`).join('')}
       </div>
     </div>` : '';
 
   const preventionBlock = (rca.prevention || '').trim() ? `
     <div class="section" id="rca-prevention-section">
       <div class="section-label"><span class="marker"></span>Prevention<span class="ai-tag-inline">AI</span></div>
-      <div class="field-block" style="display:flex;flex-direction:column;gap:3px">
+      <div class="field-block rca-points">
         ${String(rca.prevention).split(/\n|(?:^|\s)•\s/).map(x => x.trim()).filter(Boolean)
-            .map(x => `<div style="display:flex;gap:6px;font-size:12.5px"><span style="color:var(--text-mute)">•</span><span>${esc(x)}</span></div>`).join('')}
+            .map(x => `<div class="rca-point"><span class="rca-bullet">•</span><span class="rca-ptext">${esc(x)}</span></div>`).join('')}
       </div>
     </div>` : '';
 
@@ -3430,8 +3464,12 @@ function renderRcaCol() {
         ${_slackSectionKeys.map(([key, label]) => `
           <label class="slack-sec-chip">
             <input type="checkbox" data-slack-section="${key}"
-                   ${state.slackSections[key] === false ? '' : 'checked'}>${label}
+                   ${(state.slackSections[r.id] || {})[key] === false ? '' : 'checked'}>${label}
           </label>`).join('')}
+        <span class="slack-sec-actions">
+          <button data-slack-sec-all>all</button>
+          <button data-slack-sec-none>none</button>
+        </span>
       </div>
       <div class="slack-edit-wrap">
         <textarea class="slack-edit-area" data-slack-edit>${_slackText.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
@@ -3447,9 +3485,11 @@ function renderRcaCol() {
     const tldrHtml = t ? `
     <div class="section" id="rca-tldr-section">
       <div class="section-label"><span class="marker"></span>TL;DR<span class="ai-tag-inline">AI</span></div>
-      <div class="field-block" style="display:grid;grid-template-columns:92px 1fr;gap:4px 10px;font-size:12.5px">
-        <span style="color:var(--text-mute)">Our mistake</span><span class="editable-text" contenteditable="true" spellcheck="false">${esc(t.our_mistake)}</span>
-        <span style="color:var(--text-mute)">Our fix</span><span class="editable-text" contenteditable="true" spellcheck="false">${esc(t.our_fix)}</span>
+      <div class="field-block rca-kv">
+        <span style="color:var(--text-mute)">Our mistake</span><span class="editable-text" contenteditable="true" spellcheck="false"
+              role="textbox" aria-label="TL;DR our mistake">${esc(t.our_mistake)}</span>
+        <span style="color:var(--text-mute)">Our fix</span><span class="editable-text" contenteditable="true" spellcheck="false"
+              role="textbox" aria-label="TL;DR our fix">${esc(t.our_fix)}</span>
       </div>
     </div>` : '';
 
@@ -3475,9 +3515,9 @@ function renderRcaCol() {
     const wwrHtml = v3d.what_went_wrong ? `
     <div class="section" id="rca-wwr5-section">
       <div class="section-label"><span class="marker"></span>What Went Wrong<span class="ai-tag-inline">AI</span></div>
-      <div class="field-block" style="display:flex;flex-direction:column;gap:10px;font-size:12.5px">
-        <div><div class="wwr5-h">1. Guest issue &amp; 2. Claim accuracy</div>${issues || '<div class="chk-ev">—</div>'}</div>
-        <div><div class="wwr5-h">3. What actually happened</div>${causes || '<div class="chk-ev">—</div>'}
+      <div class="field-block rca-stack" style="gap:10px">
+        <div><div class="wwr5-h">1. Guest issue &amp; 2. Claim accuracy</div>${issues || '<div class="rca-empty">No guest issues were identified — re-run the RCA if the review names one.</div>'}</div>
+        <div><div class="wwr5-h">3. What actually happened</div>${causes || '<div class="rca-empty">No root cause was returned for this review.</div>'}
           ${asPoints(wh.operational_failure).length ? `<div class="chk-ev" style="margin-top:4px"><strong>Operational failure</strong></div>${points(wh.operational_failure)}` : ''}
           ${asPoints(wh.sop_gap).length ? `<div class="chk-ev"><strong>SOP gap</strong></div>${points(wh.sop_gap)}` : ''}
           ${wh.pattern ? `<div class="chk-ev"><strong>Pattern:</strong> ${esc(wh.pattern)}</div>` : ''}
@@ -3508,9 +3548,10 @@ function renderRcaCol() {
             <div class="wwr-step-num">${i + 1}</div>
             <div class="wwr-step-body">
               <div class="wwr-what">${l.time ? `<span class="editable-text" contenteditable="true" spellcheck="false" data-log-idx="${i}" data-log-field="time" style="color:var(--text-mute);font-weight:400;margin-right:6px">${esc(l.time)}</span>` : ''}<strong class="editable-text" contenteditable="true" spellcheck="false" data-log-idx="${i}" data-log-field="what">${esc(l.what)}</strong></div>
-              <div class="wwr-why editable-text" contenteditable="true" spellcheck="false"
+              <div class="wwr-why editable-text rca-wrap" contenteditable="true" spellcheck="false"
+                   role="textbox" aria-label="Event ${i + 1} detail"
                    data-log-idx="${i}" data-log-field="detail"
-                   style="color:var(--text-mute)">${esc(l.detail)}</div>
+                   style="color:var(--text-mute)">${esc(l.detail) || 'No detail — click to add.'}</div>
             </div>
             <button class="row-del" data-log-del="${i}" title="Remove event">×</button>
           </div>`).join('<div class="wwr-connector"></div>')}
@@ -3539,7 +3580,7 @@ function renderRcaCol() {
         ${flags.length ? `<span class="sec-count">${flagSecs.map(t => flagGroups[t].length + ' ' + t).join(' · ')}</span>` : ''}
       </div>
       ${flags.length === 0
-        ? `<div class="field-block" style="font-size:12px;color:var(--text-mute)">✓ Checklist ran clean — no flags.</div>`
+        ? `<div class="field-block rca-empty">✓ Every QA area was checked and none needed raising.</div>`
         : `<div class="chk-groups">${flagSecs.map(t => `
             <div class="chk-group has-flags open" data-chk-section="${t}">
               <div class="chk-group-head" data-chk-group-toggle>
@@ -3552,10 +3593,12 @@ function renderRcaCol() {
                   <div class="chk-row chk-flag">
                     <span class="chk-mark">⚠</span>
                     <div class="chk-item">
-                      <span class="editable-text" contenteditable="true" spellcheck="false"
+                      <span class="editable-text rca-wrap" contenteditable="true" spellcheck="false"
+                            role="textbox" aria-label="Flag text"
                             data-flag-idx="${f._i}" data-flag-field="flag">${esc(f.flag)}</span>
-                      <div class="chk-ev"><span class="editable-text" contenteditable="true" spellcheck="false"
-                            data-flag-idx="${f._i}" data-flag-field="evidence">${esc(f.evidence)}</span>${f.zd_ref ? ' · ' + zdLink(f.zd_ref) : ''}</div>
+                      <div class="chk-ev"><span class="editable-text rca-wrap" contenteditable="true" spellcheck="false"
+                            role="textbox" aria-label="Flag evidence"
+                            data-flag-idx="${f._i}" data-flag-field="evidence">${esc(f.evidence) || 'No evidence — click to add.'}</span>${f.zd_ref ? ' · ' + zdLink(f.zd_ref) : ''}</div>
                     </div>
                     <button class="row-del" data-flag-del="${f._i}" title="Remove flag">×</button>
                   </div>`).join('')}
@@ -3568,11 +3611,12 @@ function renderRcaCol() {
     const sopHtml = sop ? `
     <div class="section" id="rca-sop-section">
       <div class="section-label"><span class="marker"></span>SOP Compliance<span class="ai-tag-inline">AI</span></div>
-      <div class="field-block" style="font-size:12.5px;display:flex;flex-direction:column;gap:4px">
+      <div class="field-block rca-stack">
         <div><span class="chk-pill ${sop.verdict === 'followed' ? 'pass' : sop.verdict === 'deviated' ? 'flag' : 'na'}">${esc(sop.verdict || 'unknown')}</span>
           <span style="color:var(--text-mute);font-size:11px;margin-left:6px">${sop.dss_available ? 'DSS needle used' : 'DSS needle unavailable — judged on standing policy'}</span>
           ${sop.zd_ref ? ' · ' + zdLink(sop.zd_ref) : ''}</div>
-        ${sop.expected ? `<div class="chk-ev"><strong>Expected:</strong> ${esc(sop.expected)}</div>` : ''}
+        ${sop.expected ? `<div class="chk-ev"><strong>Expected:</strong> ${esc(sop.expected)}</div>`
+                        : `<div class="rca-empty">No expected action recorded — the needle could not be resolved.</div>`}
         ${sop.actual ? `<div class="chk-ev"><strong>Actual:</strong> ${esc(sop.actual)}</div>` : ''}
         ${sop.detail ? `<div class="chk-ev">${esc(sop.detail)}</div>` : ''}
       </div>
@@ -3733,7 +3777,9 @@ function renderRcaCol() {
     ${true ? `
     <div class="section">
       <div class="section-label"><span class="marker"></span>SP Interaction<span class="ai-tag-inline">AI</span></div>
-      ${spInter || `<div class="interactions"><div class="interactions-empty">No SP interaction recorded${spV3 && spV3.possible === false ? ' — escalation not possible (' + esc(spV3.reason_if_not || 'vendor not partnered / opted out') + ')' : ''}</div></div>`}
+      ${spInter || `<div class="interactions"><div class="interactions-empty">${spV3 && spV3.possible === false
+            ? 'No SP interaction — escalation was not possible (' + esc(spV3.reason_if_not || 'vendor not partnered or opted out') + ').'
+            : 'No SP interaction recorded. If escalation was possible, that is itself a gap worth flagging.'}</div></div>`}
     </div>
     ` : ''}
 
@@ -3741,16 +3787,17 @@ function renderRcaCol() {
       <div class="section-label"><span class="marker"></span>Area of Improvement<span class="ai-tag-inline">AI</span></div>
       <!-- One pointer per line, editable in place. A single textarea invited
            the paragraph this section kept coming back as. -->
-      <div class="field-block" style="display:flex;flex-direction:column;gap:3px">
+      <div class="field-block rca-points">
         ${asPoints(rca.areaOfImproving).length
           ? asPoints(rca.areaOfImproving).map((a, i) => `
-            <div style="display:flex;gap:6px;align-items:flex-start;font-size:12.5px">
-              <span style="color:var(--text-mute)">•</span>
-              <span class="editable-text" contenteditable="true" spellcheck="false"
-                    data-aoi-idx="${i}" style="flex:1;min-width:0">${esc(a)}</span>
+            <div class="rca-point">
+              <span class="rca-bullet">•</span>
+              <span class="editable-text rca-ptext" contenteditable="true" spellcheck="false"
+                    role="textbox" aria-label="Area of improvement point ${i + 1}"
+                    data-aoi-idx="${i}">${esc(a)}</span>
               <button class="row-del" data-aoi-del="${i}" title="Remove">×</button>
             </div>`).join('')
-          : `<div style="font-size:12px;color:var(--text-mute)">—</div>`}
+          : `<div class="rca-empty">Nothing recorded yet — add a point, or re-run the RCA.</div>`}
         <button class="row-add" data-aoi-add>+ Add point</button>
       </div>
     </div>
@@ -3761,12 +3808,13 @@ function renderRcaCol() {
     ${v3d.takedown ? `
     <div class="section">
       <div class="section-label"><span class="marker"></span>Review Takedown<span class="ai-tag-inline">AI</span></div>
-      <div class="field-block" style="font-size:12.5px;display:flex;flex-direction:column;gap:4px">
+      <div class="field-block rca-stack">
         <div><select class="classify-select" style="font-size:11px;width:150px" data-takedown-rec>
           ${['Recommended','Not recommended'].map(o => `<option${(v3d.takedown.recommended ? 'Recommended' : 'Not recommended') === o ? ' selected' : ''}>${o}</option>`).join('')}
         </select></div>
         <div class="chk-ev editable-text" contenteditable="true" spellcheck="false"
-             data-takedown-reason>${esc(v3d.takedown.reason || '')}</div>
+             role="textbox" aria-label="Takedown reason"
+             data-takedown-reason>${esc(v3d.takedown.reason || '') || 'No reason given — click to write one.'}</div>
       </div>
     </div>` : ''}
 
@@ -3951,9 +3999,37 @@ function renderRcaCol() {
   // Ticking a section regenerates the post text. It also clears any manual
   // override - otherwise the checkbox would appear to do nothing, because the
   // saved override wins over the generator.
+  // Clearing the manual override is what makes a chip visibly do something:
+  // a saved override wins over the generator, so without this the checkbox
+  // would appear inert.
+  const clearOverrideAndRender = async () => {
+    if (rca.slackThreadOverride) {
+      rca.slackThreadOverride = '';
+      try {
+        await fetch(`/api/reviews/${r.id}/draft-v2`, {
+          method: 'PATCH', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({slack_thread_override: ''}),
+        });
+      } catch (_) { /* local render still updates */ }
+    }
+    renderRcaCol();
+  };
+  const secAll = col.querySelector('[data-slack-sec-all]');
+  if (secAll) secAll.addEventListener('click', async () => {
+    state.slackSections[r.id] = {};          // {} means every section included
+    await clearOverrideAndRender();
+  });
+  const secNone = col.querySelector('[data-slack-sec-none]');
+  if (secNone) secNone.addEventListener('click', async () => {
+    const off = {};
+    _slackSectionKeys.forEach(([k]) => { off[k] = false; });
+    state.slackSections[r.id] = off;
+    await clearOverrideAndRender();
+  });
   col.querySelectorAll('[data-slack-section]').forEach(cb => {
     cb.addEventListener('change', async () => {
-      state.slackSections[cb.dataset.slackSection] = cb.checked;
+      state.slackSections[r.id] = state.slackSections[r.id] || {};
+      state.slackSections[r.id][cb.dataset.slackSection] = cb.checked;
       if (rca.slackThreadOverride) {
         rca.slackThreadOverride = '';
         try {
@@ -4074,17 +4150,35 @@ function renderRcaCol() {
     });
   });
 
+  // Visible confirmation after an inline edit persists. An edit that blurred
+  // into silence gave the analyst no way to tell "saved" from "lost".
+  const flashSaved = (el, ok = true) => {
+    if (!el) return;
+    const host = el.parentElement || el;
+    let tick = host.querySelector(':scope > .save-tick');
+    if (!tick) {
+      tick = document.createElement('span');
+      tick.className = 'save-tick';
+      host.appendChild(tick);
+    }
+    tick.textContent = ok ? '✓ saved' : '✗ not saved';
+    tick.style.color = ok ? '' : '#e5534b';
+    tick.classList.add('on');
+    setTimeout(() => tick.classList.remove('on'), 1400);
+  };
+
   // ── v3 object edits (flags, booking logs, takedown) ─────────────────────
   // These live inside rca_v3, not in columns of their own, so every edit
   // writes the whole object back. Re-render only on structural change
   // (add/delete); a text edit must NOT re-render or the caret is lost.
-  const persistV3 = async () => {
+  const persistV3 = async (el) => {
     try {
-      await fetch(`/api/reviews/${r.id}/draft-v2`, {
+      const resp = await fetch(`/api/reviews/${r.id}/draft-v2`, {
         method: 'PATCH', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({rca_v3: rca.v3}),
       });
-    } catch (_) { /* keep the local edit; next change retries */ }
+      flashSaved(el, resp.ok);
+    } catch (_) { flashSaved(el, false); }   // keep the local edit; next change retries
   };
 
   col.querySelectorAll('[data-flag-idx]').forEach(el => {
@@ -4092,7 +4186,7 @@ function renderRcaCol() {
       const f = (rca.v3.flags || [])[parseInt(el.dataset.flagIdx)];
       if (!f) return;
       f[el.dataset.flagField] = el.textContent.trim();
-      await persistV3();
+      await persistV3(el);
     });
   });
   col.querySelectorAll('[data-flag-del]').forEach(btn => {
@@ -4113,7 +4207,7 @@ function renderRcaCol() {
       const l = (rca.v3.booking_logs || [])[parseInt(el.dataset.logIdx)];
       if (!l || typeof l === 'string') return;
       l[el.dataset.logField] = el.textContent.trim();
-      await persistV3();
+      await persistV3(el);
     });
   });
   col.querySelectorAll('[data-log-del]').forEach(btn => {
@@ -4139,7 +4233,7 @@ function renderRcaCol() {
   const tdReason = col.querySelector('[data-takedown-reason]');
   if (tdReason) tdReason.addEventListener('blur', async () => {
     rca.v3.takedown = {...(rca.v3.takedown || {}), reason: tdReason.textContent.trim()};
-    await persistV3();
+    await persistV3(tdReason);
   });
 
   // ── Collapsible sections ────────────────────────────────────────────────
@@ -4176,22 +4270,24 @@ function renderRcaCol() {
       const sel = col.querySelector(`[data-isa-key="${key}"]`);
       if (sel) sel.dataset.isaRest = rest;
       try {
-        await fetch(`/api/reviews/${r.id}/draft-v2`, {
+        const resp = await fetch(`/api/reviews/${r.id}/draft-v2`, {
           method: 'PATCH', headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({issue_specific_answers: rca.issueSpecificAnswers}),
         });
-      } catch (_) { /* keep local edit */ }
+        flashSaved(el, resp.ok);
+      } catch (_) { flashSaved(el, false); }
     });
   });
 
-  const persistAoi = async (list) => {
+  const persistAoi = async (list, el) => {
     rca.areaOfImproving = list;
     try {
-      await fetch(`/api/reviews/${r.id}/draft-v2`, {
+      const resp = await fetch(`/api/reviews/${r.id}/draft-v2`, {
         method: 'PATCH', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({area_of_improving: list}),
       });
-    } catch (_) { /* keep local edit */ }
+      flashSaved(el, resp.ok);
+    } catch (_) { flashSaved(el, false); }
   };
   col.querySelectorAll('[data-aoi-del]').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -4211,13 +4307,7 @@ function renderRcaCol() {
     el.addEventListener('blur', async () => {
       const list = Array.from(col.querySelectorAll('[data-aoi-idx]'))
         .map(x => x.textContent.trim()).filter(Boolean);
-      rca.areaOfImproving = list;
-      try {
-        await fetch(`/api/reviews/${r.id}/draft-v2`, {
-          method: 'PATCH', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({area_of_improving: list}),
-        });
-      } catch (_) { /* keep local edit */ }
+      await persistAoi(list, el);
     });
   });
 
