@@ -66,11 +66,69 @@ def classify(r, d, bq_live: bool) -> tuple[str, str]:
             f"attempts=0 draft_generated_at={d.generated_at}")
 
 
+def run_inline(review_id: str) -> int:
+    """Run the pipeline for ONE review in the foreground, with logging on and
+    the traceback printed. Background tasks swallow their exception into a log
+    line nobody reads; this puts the failure on screen."""
+    import asyncio
+    import logging
+    import traceback
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)-7s %(name)s: %(message)s",
+        force=True)
+    from server.pipeline import process_review
+    print(f"\n=== running the pipeline inline for {review_id} ===\n")
+    try:
+        asyncio.run(process_review(review_id))
+        print("\n=== pipeline returned without raising ===")
+    except Exception:
+        print("\n=== PIPELINE RAISED - this is the cause ===")
+        traceback.print_exc()
+        return 2
+
+    from server.db import SessionLocal, Review
+    db = SessionLocal()
+    try:
+        r = db.query(Review).filter(Review.id == review_id).first()
+        d = r.draft if r else None
+        if not d:
+            print("\nStill NO DRAFT ROW after a clean run - the save never "
+                  "happened. That is a bug, not a match failure.")
+            return 3
+        print(f"\nmatch_tier      : {d.match_tier}")
+        print(f"match_method    : {d.match_method}")
+        print(f"booking         : {(d.booking or {}).get('id') or '(none)'}"
+              f"{' [UNVERIFIED]' if (d.booking or {}).get('_unverified') else ''}")
+        print(f"candidates      : {len(d.candidates_list or [])}")
+        print(f"untraceable_why : {(d.extracted_signals or {}).get('untraceable_reason') or '-'}")
+        print(f"\nconfidence trail ({len(d.confidence_trail or [])} step(s)):")
+        import re as _re
+        for step in (d.confidence_trail or []):
+            print(f"  [{step.get('mark', '?'):<4}] "
+                  f"{_re.sub(r'<[^>]+>', '', step.get('text', ''))}")
+        print(f"\nextracted signals:")
+        for k, v in (d.extracted_signals or {}).items():
+            print(f"  {k}: {str(v)[:120]}")
+        print(f"\nnarrowing attempts ({len(d.narrowing_attempts or [])}):")
+        for a in (d.narrowing_attempts or []):
+            print(f"  {a}")
+    finally:
+        db.close()
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--all", action="store_true", help="include matched reviews")
     ap.add_argument("--id", default="", help="one review id, verbose")
+    ap.add_argument("--run", default="",
+                    help="run the pipeline for this review id in the "
+                         "foreground and print the traceback + trail")
     args = ap.parse_args()
+
+    if args.run:
+        return run_inline(args.run)
 
     from server.config import is_live
     from server.db import SessionLocal, Review

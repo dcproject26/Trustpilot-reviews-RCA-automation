@@ -2419,17 +2419,24 @@ function renderReviewCol() {
 
       <div class="section">
         <div class="section-label"><span class="marker"></span>Identifier Checks</div>
+        <!-- Reads r.confidenceTrail, the trail the pipeline actually writes.
+             This panel used to read r.untraceableChecks, which nothing in the
+             client ever assigns - so it was empty on every untraceable review
+             no matter what matching had done, and an empty panel got read as
+             "matching never ran". Each step keeps its own mark instead of a
+             hardcoded ✗: a warn and a fail are different findings. -->
         <div class="confidence-trail">
-          ${(r.untraceableChecks || []).length
-            ? (r.untraceableChecks || []).map(s => `
+          ${(r.confidenceTrail || []).length
+            ? (r.confidenceTrail || []).map(s => `
                 <div class="conf-step">
-                  <span class="mark fail">✗</span>
+                  <span class="mark ${s.mark === 'pass' ? 'pass' : s.mark === 'warn' ? 'warn' : 'fail'}">${
+                    s.mark === 'pass' ? '✓' : s.mark === 'warn' ? '!' : '✗'}</span>
                   <span class="label-text">${s.text}</span>
                 </div>`).join('')
-            : `<div class="rca-empty err">No checks were recorded, which means the
-                 match step never ran for this review — not that it ran and found
-                 nothing. Check that BigQuery is live (status pills, top right)
-                 and re-run the match.</div>`}
+            : `<div class="rca-empty err">No trail was recorded for this review, which
+                 means the pipeline did not reach the matching step — not that it
+                 searched and found nothing. Re-run the match, and if it stays
+                 empty the run is failing before matching.</div>`}
         </div>
       </div>
     `;
