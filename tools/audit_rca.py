@@ -35,6 +35,12 @@ BANNED = [
     "cannot be assessed", "is itself unverifiable",
     "impossible without", "not possible without", "action possible without",
 ]
+# "no action possible without X" is verdict prose in a finding, but it is the
+# honest answer in tldr.our_fix - "what are we doing about it" legitimately
+# resolves to "nothing, until we can identify the booking". Exempted there
+# and nowhere else.
+BANNED_EXEMPT = {"tldr.our_fix": ("impossible without", "not possible without",
+                                  "action possible without")}
 
 PASS, FAIL, WARN = "PASS", "FAIL", "warn"
 _results = []
@@ -167,7 +173,8 @@ def main():
         check("no entry starts with its own bullet", not bulleted,
               ", ".join(bulleted[:6]))
 
-        hits = [(p, b) for p, t in entries for b in BANNED if b in t.lower()]
+        hits = [(p, b) for p, t in entries for b in BANNED
+                if b in t.lower() and b not in BANNED_EXEMPT.get(p, ())]
         check("no verdict/advice prose", not hits,
               "; ".join(f"{p}: '{b}'" for p, b in hits[:5]))
 
@@ -197,12 +204,23 @@ def main():
         check("every issue carries claim + owner + root_cause",
               bool(gis) and not missing, "; ".join(missing[:4]))
 
-        # Rule 12: an absence is stated once, not re-derived per section.
-        absence = [p for p, t in entries
-                   if re.search(r"no (booking|support contact|guest contact|"
-                                r"support ticket|contact record)", t.lower())]
-        warn(f"same absence restated in {len(absence)} entries (rule 12: say it once)",
-             len(absence) <= 3, ", ".join(absence[:8]))
+        # Rule 12: an absence is stated ONCE in full, and noted elsewhere in
+        # six words or fewer. Counting every mention flagged the terse notes
+        # the rule asks for, so a compliant draft looked five times worse than
+        # it was. Only entries that RE-DERIVE the situation count: over eight
+        # words, and outside the two places allowed the full statement.
+        ABSENCE_RE = re.compile(r"no (booking|support contact|guest contact|"
+                                r"support ticket|contact record)")
+        allowed_full = ("tldr.our_mistake",)          # the headline
+        rederived = [f"{p} ({len(t.split())}w)" for p, t in entries
+                     if ABSENCE_RE.search(t.lower())
+                     and len(t.split()) > 8
+                     and p not in allowed_full
+                     and not p.endswith("root_cause")   # rule 12 states it here
+                     and not p.startswith("fixes.actions")]  # an action, not a restatement
+        warn(f"{len(rederived)} entr{'y' if len(rederived) == 1 else 'ies'} re-derive "
+             f"the absence instead of noting it in six words (rule 12)",
+             not rederived, ", ".join(rederived[:8]))
 
         compound = [p for p, t in entries if "; " in t]
         warn("compound sentences (two ideas joined by ';' - split them)",
