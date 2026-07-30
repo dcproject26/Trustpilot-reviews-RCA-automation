@@ -732,6 +732,61 @@ async def refresh_slack(hours: int = 72, background_tasks: BackgroundTasks = Non
             "queued": queued, "review_ids": ingested}
 
 
+# ── Bulk re-run ─────────────────────────────────────────────────────────────
+# Pipeline output is stored, not computed on read: a fix to matching, the
+# prompt or the RCA shape changes nothing on screen until each review runs
+# again. Doing that one card at a time does not scale past a handful, and
+# "the change is not reflecting" is indistinguishable from "the change does
+# not work". Runs SEQUENTIALLY - twenty concurrent pipelines would hammer
+# BigQuery, Zendesk and the model all at once.
+
+_BULK_MAX = 60
+
+
+@router.post("/api/reviews/reprocess-all")
+async def reprocess_all(tab: str = "untraceable", limit: int = _BULK_MAX,
+                        background_tasks: BackgroundTasks = None,
+                        db: Session = Depends(get_session)):
+    """tab: untraceable | possible_matches | bid | all"""
+    limit = max(1, min(int(limit), _BULK_MAX))
+    rows = db.query(Review).order_by(Review.received_at.desc()).limit(200).all()
+
+    ids = []
+    for r in rows:
+        d = r.draft
+        tier = d.match_tier if d else None
+        cand = bool(d and d.candidate_state)
+        if tab == "untraceable" and not (tier is None and not cand):
+            continue
+        if tab == "possible_matches" and not cand:
+            continue
+        if tab == "bid" and tier != 1:
+            continue
+        ids.append(r.id)
+        if len(ids) >= limit:
+            break
+
+    from server.pipeline import process_review as _pipeline
+
+    async def _run_all(review_ids):
+        for rid in review_ids:
+            try:
+                await _pipeline(rid)
+                log.info(f"[bulk] reprocessed {rid}")
+            except Exception as e:
+                # One bad review must not stop the queue.
+                log.exception(f"[bulk] {rid} failed: {e}")
+
+    if ids:
+        if background_tasks is not None:
+            background_tasks.add_task(lambda x: asyncio.run(_run_all(x)), ids)
+        else:
+            await _run_all(ids)
+    log.info(f"[bulk] queued {len(ids)} review(s) from tab={tab}")
+    return {"ok": True, "tab": tab, "queued": len(ids), "review_ids": ids,
+            "note": "runs sequentially; poll the inbox to watch them land"}
+
+
 # ── Scenario change → RCA regeneration ──────────────────────────────────────
 # The scenario select exists so a wrong or incomplete routing can be fixed;
 # fixing it only matters if the RCA is re-judged against the corrected

@@ -281,7 +281,21 @@ async def process_review(review_id: str, force_candidates: bool = False):
         if confirmed_bid and booking:
             pass   # confirmed booking in hand; skip the whole match cascade
         elif not is_live("bigquery"):
-            # MOCK_MODE: fall back to existing mock-aware find_booking
+            # MOCK_MODE: fall back to existing mock-aware find_booking.
+            # Say so in the trail FIRST. This branch used to record nothing at
+            # all when it found nothing, so a review that was never searched
+            # (BigQuery not live) was indistinguishable from one searched and
+            # missed - the panel simply came up empty, which reads as "we
+            # looked and there was nothing" rather than "we never looked".
+            confidence_trail.append({
+                "mark": "warn",
+                "text": ("<strong>BigQuery is not live on this server</strong> — no real "
+                         "booking search was attempted. This review is unmatched because "
+                         "the warehouse was unavailable, not because it could not be "
+                         "identified."),
+            })
+            log.error(f"[pipeline] {review_id}: BigQuery NOT live - matching ran in "
+                      f"mock mode, so any review will come out unmatched")
             try:
                 search_ctx = {
                     "id": review_id,
@@ -1077,6 +1091,58 @@ async def process_review(review_id: str, force_candidates: bool = False):
                         "no booking found — untraceable")),
                 })
 
+        # ── 5a. FLOOR: a BID in the review is a fact, never "untraceable" ────
+        # Everything above can come up empty for reasons that have nothing to
+        # do with the review: BigQuery not live (the mock branch then looks the
+        # BID up in MOCK_BOOKINGS and finds nothing), a connector token
+        # expired, verify_bid raising, a permissions change on the table. In
+        # every one of those cases a review carrying its own booking id was
+        # filed as unidentifiable, which is the one thing it demonstrably is
+        # not.
+        #
+        # So: if the text gave us a BID and matching produced no booking, the
+        # BID itself becomes the match, flagged unverified. The dashboard shows
+        # the id with a warning instead of hiding the review in Untraceable,
+        # and the reason is recorded rather than inferred.
+        untraceable_reason = None
+        if not booking and review.reference_number and bid_source:
+            why = ("BigQuery is not live on this server"
+                   if not is_live("bigquery")
+                   else "BigQuery did not return this booking")
+            booking = {
+                "id": str(review.reference_number),
+                "_unverified": True,
+                "_unverified_reason": why,
+                "_match": {"tier": 1, "confidence": "unverified",
+                           "method": f"BID {bid_source} from the review — {why}"},
+            }
+            match_tier      = 1
+            candidate_state = False
+            confidence_trail.append({
+                "mark": "warn",
+                "text": (f"<strong>BID {review.reference_number}</strong> taken from the "
+                         f"review ({bid_source}) but NOT verified — {why}. "
+                         f"Shown so the review is not filed as untraceable."),
+            })
+            log.warning(f"[pipeline] {review_id}: unverified BID fallback "
+                        f"{review.reference_number} ({why})")
+        elif not booking and not candidate_state:
+            # Genuinely nothing to show. Record WHY, so the panel and the
+            # diagnostic can tell "nothing to search with" from "the search
+            # never ran" without anyone reading the log.
+            if not is_live("bigquery"):
+                untraceable_reason = "BigQuery is not live on this server, so no match was attempted."
+            elif review.reference_number:
+                untraceable_reason = (f"BID {review.reference_number} was on the review but "
+                                      f"BigQuery did not return it.")
+            elif narrowing_attempts:
+                untraceable_reason = (f"No BID on the review; {len(narrowing_attempts)} "
+                                      f"search attempt(s) returned nothing.")
+            else:
+                untraceable_reason = ("No BID in the review text and no usable name or "
+                                      "venue signal to search with.")
+            log.info(f"[pipeline] {review_id} untraceable: {untraceable_reason}")
+
         # ── 5b. PERSIST THE MATCH NOW, before anything else can fail ─────────
         # The draft row used to be created only at the final save step, so a
         # confirmed Tier 1 booking sat in local variables through Zendesk,
@@ -1103,6 +1169,9 @@ async def process_review(review_id: str, force_candidates: bool = False):
             _d.bid_source         = bid_source
             _d.extracted_signals  = extracted_sigs or {}
             _d.narrowing_attempts = narrowing_attempts or []
+            _d.extracted_signals  = dict(_d.extracted_signals or {})
+            if untraceable_reason:
+                _d.extracted_signals["untraceable_reason"] = untraceable_reason
             for _c in ("booking", "candidates_list", "confidence_trail",
                        "extracted_signals", "narrowing_attempts"):
                 try:
@@ -1412,7 +1481,10 @@ async def process_review(review_id: str, force_candidates: bool = False):
         draft.candidate_state      = candidate_state
         draft.confidence_trail     = confidence_trail
         draft.bid_source           = bid_source
-        draft.extracted_signals    = extracted_sigs or {}
+        _sigs = dict(extracted_sigs or {})
+        if untraceable_reason:
+            _sigs["untraceable_reason"] = untraceable_reason
+        draft.extracted_signals    = _sigs
         draft.narrowing_attempts   = narrowing_attempts or []
         draft.timeline         = timeline
         draft.insights         = insights
