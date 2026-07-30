@@ -2177,7 +2177,9 @@ async function loadDraftOverlays() {
       r.rca.subTheme  = draft.sub_theme || r.rca.subTheme || null;
       r.rca.tldr      = draft.tldr      || '';
       r.rca.v3        = draft.rca_v3    || {};
-      r.untraceableReason = (draft.extracted_signals || {}).untraceable_reason || '';
+      r.untraceableReason  = (draft.extracted_signals || {}).untraceable_reason || '';
+      r.extractedSignals   = draft.extracted_signals || {};
+      r.narrowingAttempts  = draft.narrowing_attempts || [];
       r.rca.wwrChain  = draft.wwr_chain || [];
       r.rca.prevention= draft.prevention|| '';
       r.rca.evidence  = draft.evidence  || [];
@@ -3137,6 +3139,13 @@ function renderReviewCol() {
   }
 }
 
+// Shared by every branch of the RCA column, including the untraceable one,
+// which returns before the main renderer's locals exist - a helper defined
+// down there is a ReferenceError up here.
+const esc = s => String(s == null ? '' : s).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// Pointer fields are lists in the v3 shape; older drafts hold one string.
+const asPoints = v => (Array.isArray(v) ? v : (v ? [v] : [])).filter(Boolean);
+
 function renderRcaCol() {
   const r = REVIEWS.find(x => x.id === state.selected);
   if (!r) {
@@ -3174,9 +3183,42 @@ function renderRcaCol() {
 
       <div class="section">
         <div class="section-label"><span class="marker"></span>Why this flow</div>
+        <!-- This used to be one hardcoded sentence asserting "no BID, no
+             usable signals" on EVERY untraceable review - including reviews
+             naming a venue, a city and a date. A fixed claim about variable
+             data is worse than no claim: it sent people looking for a guest
+             problem when the search had actually failed or never run. It now
+             states what the pipeline recorded, and what was extracted. -->
         <div class="field-block">
-          <div style="font-size: 12px; color: var(--text-mute); line-height: 1.6;">
-            No BID in the review, no usable signals to search BigQuery or Zendesk. There is nothing to RCA on. The review still lives in this tab — when the guest replies with more info, it will move into Identified or Candidates and a full RCA will run.
+          <div style="font-size:12px;line-height:1.6">
+            ${r.untraceableReason
+              ? `<div class="rca-empty err" style="font-style:normal">${esc(r.untraceableReason)}</div>`
+              : `<div class="rca-empty err" style="font-style:normal">No reason was recorded, which means this review predates the check or the run never reached the matching step. Re-run matching below.</div>`}
+            ${(() => {
+              const sig = r.extractedSignals || {};
+              const bits = [];
+              if (sig.venue_hints && sig.venue_hints.length)
+                bits.push(`venue hints: ${esc(sig.venue_hints.join(', '))}`);
+              const mi = sig.match_indicators || {};
+              if (mi.experience_or_venue) bits.push(`venue: ${esc(mi.experience_or_venue)}`);
+              if (mi.city_or_country) bits.push(`city: ${esc(mi.city_or_country)}`);
+              if (mi.visit_date_hint) bits.push(`visit≈ ${esc(mi.visit_date_hint)}`);
+              if (sig.author_first || sig.author_last)
+                bits.push(`name: ${esc([sig.author_first, sig.author_last].filter(Boolean).join(' '))}`);
+              if (sig.review_pub_date) bits.push(`posted: ${esc(sig.review_pub_date)}`);
+              const attempts = (r.narrowingAttempts || []).length;
+              return bits.length || attempts
+                ? `<div style="margin-top:6px;color:var(--text-mute)">
+                     Extracted from this review: ${bits.join(' · ') || '(nothing)'}.
+                     ${attempts} BigQuery search${attempts === 1 ? '' : 'es'} ran.
+                     ${attempts && bits.length ? 'Signals existed and the searches came back empty — that is a matching gap, not a guest one.' : ''}
+                   </div>`
+                : `<div style="margin-top:6px;color:var(--text-mute)">Nothing was extracted and no search ran for this review.</div>`;
+            })()}
+            <div style="margin-top:6px;color:var(--text-mute)">
+              It stays in this tab until it matches — re-run matching after a fix,
+              or ask the guest for a booking reference.
+            </div>
           </div>
         </div>
       </div>
@@ -3215,11 +3257,11 @@ function renderRcaCol() {
     if (!id) return '';
     return `<a class="tl-tid" href="https://${_zdB}.zendesk.com/agent/tickets/${id}" target="_blank" rel="noopener" title="open ZD-${id}">ZD-${id}</a>`;
   };
-  const esc = s => String(s == null ? '' : s).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
   // Pointer fields arrive as arrays now, but older drafts hold one long
   // string - normalise both to a list so the renderer never prints "[object]"
   // or a wall of prose.
-  const asPoints = v => (Array.isArray(v) ? v : (v ? [v] : [])).filter(Boolean);
+
   const points = (v, cls = 'chk-ev') => asPoints(v)
     .map(p => `<div class="${cls}">• ${esc(p)}</div>`).join('');
 
