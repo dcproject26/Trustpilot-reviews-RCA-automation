@@ -85,6 +85,27 @@ def _venue_token_overlap(review_text: str, exp_name: str) -> bool:
     return bool(_sig_tokens(review_text) & _sig_tokens(exp_name))
 
 
+# Where each in-flight run is, keyed by review id. In-process on purpose: the
+# pipeline runs as a BackgroundTask in this same process, and if the process
+# restarts the task dies with it - a persisted stage would then claim a run is
+# mid-flight forever. An entry disappearing IS the signal that no run exists.
+#
+# This exists because Re-run gave the associate nothing for two-plus minutes:
+# a dozen sequential model calls plus fifteen warehouse queries with no way to
+# tell working from dead, which got read as dead.
+PIPELINE_PROGRESS: dict = {}
+
+_STAGES_TOTAL = 8
+
+
+def _progress(review_id: str, step: int, stage: str):
+    import time as _t
+    e = PIPELINE_PROGRESS.get(review_id) or {"started_at": _t.time()}
+    e.update({"step": step, "total": _STAGES_TOTAL, "stage": stage,
+              "elapsed_s": int(_t.time() - e["started_at"])})
+    PIPELINE_PROGRESS[review_id] = e
+
+
 async def process_review(review_id: str, force_candidates: bool = False):
     """
     force_candidates: an associate re-ran a review whose booking they had already
@@ -101,6 +122,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
             return
 
         log.info(f"[pipeline] {review_id} — start")
+        _progress(review_id, 1, "matching booking")
 
         # ── 1. Translate ──────────────────────────────────────────────────────
         if not review.body_english:
@@ -1055,6 +1077,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
                         "no booking found — untraceable")),
                 })
 
+        _progress(review_id, 2, "fetching Zendesk timeline")
         # ── 6. Zendesk timeline ──────────────────────────────────────────────
         timeline      = []
         extracted_bk  = {}
@@ -1123,6 +1146,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
             if "ticket_mail_seen" in extracted_bk:
                 booking["ticket_mail_seen"] = bool(extracted_bk["ticket_mail_seen"])
 
+        _progress(review_id, 3, "summarising support events")
         # ── 7b. Support frames (Claude summarisation of each timeline event) ─
         support_frames = []
         sp_frames      = []
@@ -1182,6 +1206,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
         except Exception as e:
             log.exception(f"Stated issue failed: {e}")
 
+        _progress(review_id, 4, "classifying issue")
         # ── 11. Classification ────────────────────────────────────────────────
         l1, l2, l1_reasoning, sub_theme = "", "", "", None
         try:
@@ -1209,6 +1234,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
         except Exception as e:
             log.exception(f"Warehouse L1/L2 lookup failed: {e}")
 
+        _progress(review_id, 5, "computing insights (BigQuery)")
         # ── 11c. Insights (after classification — needs L1/L2) ────────────────
         insights = {}
         if booking and booking.get("tid") and booking.get("vid"):
@@ -1225,6 +1251,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
         except Exception as e:
             log.exception(f"DSS failed: {e}")
 
+        _progress(review_id, 6, "generating RCA")
         # ── 12. Full structured RCA ───────────────────────────────────────────
         rca_v2 = {}
         try:
@@ -1291,6 +1318,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
         except Exception as e:
             log.exception(f"RCA v3 generation failed: {e}")
 
+        _progress(review_id, 7, "drafting response")
         # ── 13. Response draft ────────────────────────────────────────────────
         response_draft = ""
         try:
@@ -1312,6 +1340,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
         except Exception as e:
             log.exception(f"Response draft failed: {e}")
 
+        _progress(review_id, 8, "saving")
         # ── 14. Save ──────────────────────────────────────────────────────────
         draft = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
         if not draft:
@@ -1446,4 +1475,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
         except Exception:
             log.exception(f"[pipeline] {review_id}: could not record the failure")
     finally:
+        # Absent entry = no run in flight. Leaving a terminal entry behind
+        # would make the next poll read a finished run as a stuck one.
+        PIPELINE_PROGRESS.pop(review_id, None)
         db.close()

@@ -4008,6 +4008,21 @@ document.addEventListener('click', async (ev) => {
         }
       }
     } catch (_) {}
+    // Name the stage on the button. generated_at stays the completion signal
+    // (it survives a server restart; the in-process progress entry does not),
+    // so this is display only - if the progress endpoint has nothing, keep
+    // the generic spinner rather than concluding anything from its silence.
+    try {
+      const pr = await fetch(`/api/reviews/${r.id}/progress`);
+      if (pr.ok) {
+        const p = await pr.json();
+        if (p.running) {
+          const m = String(Math.floor(p.elapsed_s / 60));
+          const sec = String(p.elapsed_s % 60).padStart(2, '0');
+          btn.textContent = `⟳ ${p.step}/${p.total} ${p.stage} · ${m}:${sec}`;
+        }
+      }
+    } catch (_) {}
     // A full run is matching + Zendesk + insights + RCA generation + response
     // draft, which is a dozen sequential Claude calls. Three minutes was often
     // shorter than the run, so the poll gave up while the pipeline was still

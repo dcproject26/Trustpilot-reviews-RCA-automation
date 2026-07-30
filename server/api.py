@@ -890,6 +890,30 @@ async def reprocess_review(
     return {"ok": True, "review_id": review_id, "refreshed_from_slack": refreshed}
 
 
+@router.get("/api/reviews/{review_id}/progress")
+def review_progress(review_id: str):
+    """
+    Where the in-flight pipeline run for this review is, or idle.
+
+    Re-run is a dozen sequential model calls plus the warehouse queries -
+    minutes with no output. The button used to show a static spinner and
+    nothing else, which made "working" and "dead" the same picture; the
+    dashboard polls this instead and names the stage.
+
+    running: False means no run in flight IN THIS PROCESS. That is also what
+    a restart yields mid-run - the BackgroundTask dies with the process - so
+    the client treats it as "no live signal" and falls back to its
+    generated_at poll rather than declaring the run finished.
+    """
+    from server.pipeline import PIPELINE_PROGRESS
+    e = PIPELINE_PROGRESS.get(review_id)
+    if not e:
+        return {"running": False}
+    import time as _t
+    return {"running": True, "step": e["step"], "total": e["total"],
+            "stage": e["stage"], "elapsed_s": int(_t.time() - e["started_at"])}
+
+
 @router.get("/api/reporting")
 def reporting(db: Session = Depends(get_session)):
     metrics = (db.query(ReviewMetric)
