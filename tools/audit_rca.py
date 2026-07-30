@@ -212,9 +212,14 @@ def main():
         ABSENCE_RE = re.compile(r"no (booking|support contact|guest contact|"
                                 r"support ticket|contact record)")
         allowed_full = ("tldr.our_mistake",)          # the headline
-        rederived = [f"{p} ({len(t.split())}w)" for p, t in entries
+        # The [source] tag is required by rule 11 and is not prose, so it
+        # must not count against a word budget - it was pushing compliant
+        # five-word notes over the line.
+        def _content_words(t):
+            return len(re.sub(r"\[[a-z-]+\]", "", t).split())
+        rederived = [f"{p} ({_content_words(t)}w)" for p, t in entries
                      if ABSENCE_RE.search(t.lower())
-                     and len(t.split()) > 8
+                     and _content_words(t) > 8
                      and p not in allowed_full
                      and not p.endswith("root_cause")   # rule 12 states it here
                      and not p.startswith("fixes.actions")]  # an action, not a restatement

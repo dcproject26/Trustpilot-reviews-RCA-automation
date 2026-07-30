@@ -997,8 +997,12 @@ that turned out fine is silence - never a line in the output.
     25 is the hard ceiling. "Selenium FF, no disclosure" is too clipped;
     "The page did not state the two-hour delivery window." is right.
     Cut lead-ins ("It appears that", "It is worth noting"), cut adjectives
-    that carry no fact, never restate the review. One idea per sentence -
-    if you need "however" or a semicolon, write a second entry instead.
+    that carry no fact, never restate the review.
+    ONE IDEA PER ENTRY, AND NO SEMICOLONS. A semicolon always means two
+    entries welded together - split them, or drop the half the reader does
+    not need. "No guest contact found in Zendesk; no CE or RO interaction on
+    record." is one fact said twice: write "No guest contact found." The
+    same goes for "however", "although" and " - " used to bolt on a clause.
     A FINDING IS A FACT FROM THE DATA, NOT A JUDGEMENT. Write what the
     data shows, then the root cause. Never write advice, policy sermons,
     process proposals or verdict prose ("structurally impossible",
