@@ -1297,7 +1297,9 @@ async def process_review(review_id: str, force_candidates: bool = False):
 
         # ── 12b. RCA v3 (TL;DR + WWR chain + checklist) ──────────────────────
         rca_v3 = {}
+        _scenarios_routed = [s for s in ([primary_scenario] + overlay_scenarios) if s]
         try:
+            from server.checklist import issue_questions_for
             from server.services.rca_checklist import get_checklist
             checklist = await get_checklist(l1, l2)
             rca_v3 = await claude.generate_rca_v3(
@@ -1314,8 +1316,8 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 review_id=review_id,
                 timeline_raw=zd_meta.get("timeline_raw", []),
                 ticket_facts=ticket_facts,
-                scenarios_routed=[s for s in ([primary_scenario] + overlay_scenarios)
-                                  if s],
+                scenarios_routed=_scenarios_routed,
+                issue_questions=issue_questions_for(_scenarios_routed),
             )
         except Exception as e:
             log.exception(f"RCA v3 generation failed: {e}")
@@ -1404,7 +1406,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # The whole new-shape object (what_went_wrong 5 headings, booking_logs,
         # flags, interactions, sop_compliance) lives in rca_fields; a failed
         # generation keeps the previous one rather than wiping it.
-        draft.rca_fields              = _v3 or draft.rca_fields or {}
+        draft.rca_v3                  = _v3 or draft.rca_v3 or {}
         _tldr = _v3.get("tldr")
         if isinstance(_tldr, dict):
             draft.tldr = (f"Our mistake: {_tldr.get('our_mistake', '')} "
@@ -1412,7 +1414,13 @@ async def process_review(review_id: str, force_candidates: bool = False):
         else:
             draft.tldr = _tldr or draft.tldr
         draft.wwr_chain               = _v3.get("wwr_chain") or []
-        draft.prevention              = _v3.get("prevention") or draft.prevention
+        _prev = _v3.get("prevention")
+        if isinstance(_prev, list):
+            _prev = "\n".join(f"• {p}" for p in _prev if p)
+        draft.prevention              = _prev or draft.prevention
+        _aoi = _v3.get("area_of_improving")
+        if _aoi:
+            draft.area_of_improving   = _aoi if isinstance(_aoi, list) else [_aoi]
         draft.evidence                = _v3.get("evidence") or []
         draft.issue_specific_answers  = _v3.get("issue_specific_answers") or {}
         # The checklist runs silently now — only failures ship, as
@@ -1435,7 +1443,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
             "support_interaction_frames", "sp_interaction_frames",
             "area_of_improving", "actions_taken", "overlay_scenarios", "wwr_scenarios",
             "wwr_chain", "evidence", "issue_specific_answers", "checklist_answers",
-            "ticket_facts", "rca_fields",
+            "ticket_facts", "rca_v3", "area_of_improving",
         ):
             try:
                 flag_modified(draft, _col)

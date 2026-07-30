@@ -104,6 +104,14 @@ DSS RECOMMENDATION (SOP needle; {} or match_score 0 = needle unavailable):
 
 SUPPORT SUMMARY:
 <<SUPPORT_SUMMARY>>
+
+━━ ISSUE-SPECIFIC QUESTIONS - answer each verbatim as a key ━━
+<<ISSUE_QUESTIONS>>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THE QA AREAS BELOW ARE A COVERAGE GUIDE FOR THE RCA, NOT A TEAM SCORECARD.
+Use them to check that this RCA raises what the teams need to act on. An area
+that turned out fine is silence - never a line in the output.
 <<CE_BLOCK>>
 <<RO_BLOCK>>
 <<SCENARIO_BLOCK>>
@@ -160,7 +168,15 @@ SUPPORT SUMMARY:
    they cover. A structural fix without sizing gets rejected.
 9. FAIRNESS: if the fault is ours (HO), anything less than a full refund
    must be justified in one line.
-10. TELEGRAPH STYLE. Bullets and phrases. No paragraph restates the review.
+10. POINTERS, NOT PROSE. Every text field is a pointer a reader scans, not a
+    sentence they parse. One fact per pointer, <= 25 words, no lead-ins
+    ("It appears that", "The guest's claim that"), no clause stacking with
+    "however" / "; although" - a second thought is a second pointer. Where
+    the shape below takes a list, use several short entries instead of one
+    long one. Never restate the review.
+    THIS SCALES DOWN, NOT UP: a simple case yields fewer pointers, not
+    longer ones. A complex case yields MORE pointers, each still <= 25
+    words - that is how a big case stays readable.
 11. Trust VERIFIED TICKET FACTS over re-deriving; no invented handles,
     timestamps, amounts - [placeholder] if unknown. ZD_REF DISCIPLINE: every
     flag, every support_interaction row, and the sp_interaction and
@@ -203,15 +219,28 @@ Sub-points only where relevant.
      c. Durable prevention where warranted - PSI, checkout content, ticket
         checker, config change - with an owner. Scope by ROI, not blanket.
 
-"booking_logs" - numbered, one line per meaningful event, telegraph style,
-  chronological: "1. 22 Jul 15:22 - booking-in-progress email; tickets
-  promised in 2h". Machinery only where it explains the failure.
+"booking_logs" - what actually happened, in order: one entry per meaningful
+  event, each {"time", "what", "detail"}.
+    "what"   = the event, <= 12 words, no lead-in: "Booking-in-progress email
+               sent", "Selenium fulfilment attempt failed", "Guest opened chat".
+    "detail" = why it matters or what it produced, one pointer, <= 25 words.
+               Leave "" when the event speaks for itself.
+  Chronological, ending with the review. Include machinery (fulfilment runs,
+  automated mails) where it explains the failure; a retry sequence stays as
+  separate entries - collapsing three failures into one hides the root cause.
 
-"flags" - run ALL CE checks, ALL RO checks, and the checklist(s) for EVERY
-  routed scenario, silently. Return ONLY failures and items warranting
-  attention: {"flag", "team": "CE|RO|SP|content|tech|other", "evidence",
-  "zd_ref"}. A clean run returns []. Never return passing checks. A correct
-  out-of-policy denial is NOT a flag (rule 6).
+"flags" - THE QA AREAS ARE A COVERAGE GUIDE FOR THIS RCA, NOT A SCORECARD
+  FOR THE TEAM. Walk the CE / RO / scenario areas silently and ask of each:
+  "does this RCA need to say something here, and have I said it?" Return only
+  what the RCA must raise for the teams: a real gap found in the
+  investigation, a check the data could not settle, an area a team must act
+  on. Point form, one line each.
+  NEVER return: an area that turned out fine ("tone was empathetic", "no
+  missed follow-ups", "refund inside policy") - a QA area that passed is
+  silence, not a flag. A correct out-of-policy denial is not a flag (rule 6).
+  If a flag reads as a compliment or as "no issue found", delete it.
+  Shape: {"flag", "team": "CE|RO|SP|content|tech|other", "evidence", "zd_ref"}.
+  Nothing to raise returns [].
 
 "support_interaction" - CE's half: each guest touchpoint with when, channel,
   what happened, any CE miss flagged inline, and the ticket it lives on.
@@ -229,14 +258,22 @@ Sub-points only where relevant.
   story - including denial -> persistence -> HOC when that is what happened,
   which is FOLLOWED, not a deviation.
 
-"issue_specific_answers" - ONLY questions about the guest's experience
-  issue itself, drawn from the issue-type diagnostics (e.g. Meeting Point:
-  did we know the MP changed / voucher MP vs variant name vs true MP;
-  Tickets: delivery window disclosed at checkout, technical vs operational
-  non-delivery; Guide: why absent, working SP contact on file). NOTHING
-  about how the team handled it - handling lives in flags,
-  support_interaction and sop_compliance. Each answer Yes/No/Unknown +
-  source-tagged evidence.
+"issue_specific_answers" - answer EXACTLY the questions listed under
+  ISSUE-SPECIFIC QUESTIONS below, using each question verbatim as the key.
+  Do not add, drop, merge or reword them: this section is compared across
+  RCAs, and an invented question makes two RCAs incomparable. Every answer
+  starts Yes / No / Unknown (or the short fact, where the question asks
+  "how long" / "what / which"), then the source-tagged evidence in brackets.
+  Unanswerable from the data -> "Unknown ([source] unavailable)".
+
+"area_of_improving" - point form, what WE should do better, one line each.
+  Ownable and specific; no restating the review, no praise.
+
+"takedown" - should this review be pursued for takedown?
+  {"recommended": true|false, "reason": "<one line>"}. Recommend it only
+  when the review is factually false or breaches platform policy - a review
+  that is accurate, even partially, is not a takedown candidate, and the
+  reason must say which.
 
 "prevention" - ORM-ownable first; cross-team labelled with the team.
 
@@ -244,24 +281,28 @@ Return ONLY valid JSON:
 {
   "tldr": {"our_mistake": "...", "our_fix": "..."},
   "what_went_wrong": {
-    "guest_issues":  [{"issue": "...", "claim_accuracy": "Yes|Partially True|No", "evidence": "[source] ..."}],
-    "what_happened": {"root_causes": [{"issue": "...", "cause": "...",
+    "guest_issues":  [{"issue": "<pointer>", "claim_accuracy": "Yes|Partially True|No",
+                       "evidence": ["[source] <pointer>", "..."]}],
+    "what_happened": {"root_causes": [{"issue": "...", "cause": "<pointer>",
                        "classification": "Technical|Operational + HO|SP|AI|Guest"}],
-                      "operational_failure": "...|null", "sop_gap": "...|null",
+                      "operational_failure": ["<pointer>", "..."],
+                      "sop_gap": ["<pointer>", "..."],
                       "pattern": "<one-off|recurring - counts + window>"},
-    "sp_escalation": {"escalated": "Yes|No|N/A", "detail": "..."},
-    "fixes":         {"teams": ["..."], "actions": ["..."],
-                      "prevention": "...", "owner": "...|null"}
+    "sp_escalation": {"escalated": "Yes|No|N/A", "detail": ["<pointer>", "..."]},
+    "fixes":         {"teams": ["..."], "actions": ["<pointer>", "..."],
+                      "prevention": ["<pointer>", "..."], "owner": "...|null"}
   },
-  "booking_logs":         ["1. <time> - <event>; <outcome>", ...],
+  "booking_logs":         [{"time": "...", "what": "...", "detail": "..."}, ...],
   "flags":                [{"flag": "...", "team": "...", "evidence": "...", "zd_ref": "ZD-... or ''"}],
   "support_interaction":  [{"time": "...", "channel": "...", "summary": "...", "ce_miss": "...|null", "zd_ref": "ZD-... or ''"}],
   "sp_interaction":       {"possible": true|false, "reason_if_not": "...",
                            "raised": "Yes|No|N/A", "detail": "...", "zd_ref": "ZD-... or ''"},
   "sop_compliance":       {"dss_available": true|false, "expected": "...", "actual": "...",
                            "verdict": "followed|deviated|unknown", "detail": "...", "zd_ref": "ZD-... or ''"},
-  "issue_specific_answers": {"<experience question>": "Yes|No|Unknown ([source] <evidence>)"},
-  "prevention": "..."
+  "issue_specific_answers": {"<question verbatim>": "Yes|No|Unknown|<short fact> ([source] <evidence>)"},
+  "area_of_improving":    ["<pointer>", "..."],
+  "takedown":             {"recommended": true|false, "reason": "<one line>"},
+  "prevention":           ["<pointer>", "..."]
 }"""
 
 
@@ -276,6 +317,7 @@ def _block(title: str, items, numbered=True) -> str:
 
 
 def build_proposed(d, review_body, review_id, checklist, scenarios_routed):
+    from server.checklist import issue_questions_for
     booking = {k: v for k, v in (d.booking or {}).items()
                if k not in ("_match", "timeline_raw")}
 
@@ -314,8 +356,9 @@ def build_proposed(d, review_body, review_id, checklist, scenarios_routed):
         "<<INSIGHTS>>":         json.dumps(d.insights or {}, default=str),
         "<<DSS>>":              json.dumps(d.dss_rec or {}, default=str),
         "<<SUPPORT_SUMMARY>>":  d.support_summary or "(none)",
-        "<<CE_BLOCK>>":         _block("CE ERROR CHECKS - run ALL every time", checklist.get("ce", [])),
-        "<<RO_BLOCK>>":         _block("RO ERROR CHECKS - run ALL every time", checklist.get("ro", [])),
+        "<<CE_BLOCK>>":         _block("CE QA AREAS - guest-facing handling", checklist.get("ce", [])),
+        "<<RO_BLOCK>>":         _block("RO QA AREAS - fulfilment and escalation", checklist.get("ro", [])),
+        "<<ISSUE_QUESTIONS>>":  ("\n".join(f"- {q}" for q in issue_questions_for(scenarios_routed)) or "- (none supplied)"),
         "<<SCENARIO_BLOCK>>":   scenario_block,
     }.items():
         out = out.replace(token, str(value))

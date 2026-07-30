@@ -183,7 +183,7 @@ def _draft_dict(d: RcaDraft) -> dict:
         "flag_to_biz_message":         d.flag_to_biz_message,
 
         "tldr":                        d.tldr,
-        "rca_v3":                      d.rca_fields or {},
+        "rca_v3":                      d.rca_v3 or {},
         "wwr_chain":                   d.wwr_chain or [],
         "prevention":                  d.prevention,
         "evidence":                    d.evidence or [],
@@ -651,6 +651,71 @@ async def connect_dss(review_id: str, db: Session = Depends(get_session)):
     return {"ok": True, "dss_rec": dss_rec, "resolution": d.resolution}
 
 
+# ── Slack backfill ──────────────────────────────────────────────────────────
+# The webhook is the live path, but it only works while Slack can reach this
+# server: a redeployed Repl URL, a revoked token, or an outage means reviews
+# posted in that window exist in Slack and nowhere else. Re-ingesting them by
+# hand is not a workflow, so this reads recent channel history and pipelines
+# anything with no Review row. Safe to call repeatedly - already-ingested
+# messages are skipped by id.
+
+@router.post("/api/reviews/refresh-slack")
+async def refresh_slack(hours: int = 72, background_tasks: BackgroundTasks = None,
+                        db: Session = Depends(get_session)):
+    from datetime import timedelta, timezone as _tzz
+    from server.config import SLACK_CHANNEL_ORM
+    from server.services.slack import (
+        _bot, _user, is_trustpilot_message, parse_review)
+
+    client = _bot or _user
+    if not client or not SLACK_CHANNEL_ORM:
+        raise HTTPException(
+            503, "Slack not configured (needs SLACK_BOT_TOKEN + SLACK_CHANNEL_ORM)")
+
+    oldest = (datetime.now(_tzz.utc) - timedelta(hours=hours)).timestamp()
+    try:
+        res = await asyncio.to_thread(
+            lambda: client.conversations_history(
+                channel=SLACK_CHANNEL_ORM, oldest=str(oldest), limit=200))
+    except Exception as e:
+        raise HTTPException(502, f"Slack history read failed: {e}")
+
+    msgs = res.get("messages") or []
+    found = skipped = queued = 0
+    ingested = []
+    for m in msgs:
+        ev = {**m, "channel": SLACK_CHANNEL_ORM}
+        if not is_trustpilot_message(ev):
+            continue
+        found += 1
+        parsed = parse_review(ev)
+        rid = f"tp_{parsed['slack_ts'].replace('.', '_')}"
+        if db.query(Review).filter(Review.id == rid).first():
+            skipped += 1
+            continue
+        db.add(Review(
+            id=rid, slack_ts=parsed["slack_ts"],
+            slack_channel=parsed["slack_channel"], rating=parsed["rating"],
+            language=parsed["language"], author=parsed.get("author") or None,
+            body_original=parsed["body_original"],
+            reference_number=parsed["reference_number"], status="new"))
+        db.commit()
+        queued += 1
+        ingested.append(rid)
+
+    # Pipelines run in the background so the button returns at once; the
+    # dashboard's own poll fills each card in as its run finishes.
+    from server.pipeline import process_review as _pipeline
+    for rid in ingested:
+        background_tasks.add_task(lambda x: asyncio.run(_pipeline(x)), rid)
+
+    log.info(f"[refresh-slack] {hours}h: {found} Trustpilot posts, "
+             f"{skipped} already had rows, {queued} queued")
+    return {"ok": True, "window_hours": hours, "messages_scanned": len(msgs),
+            "trustpilot_found": found, "already_present": skipped,
+            "queued": queued, "review_ids": ingested}
+
+
 # ── Scenario change → RCA regeneration ──────────────────────────────────────
 # The scenario select exists so a wrong or incomplete routing can be fixed;
 # fixing it only matters if the RCA is re-judged against the corrected
@@ -677,6 +742,7 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
 
     from server.services import claude as claude_svc
     from server.services.rca_checklist import get_checklist
+    from server.checklist import issue_questions_for
     checklist = await get_checklist(d.l1, d.l2)
     rca_v3 = await claude_svc.generate_rca_v3(
         review_text=r.body_english or r.body_original or "",
@@ -691,23 +757,30 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
         timeline_raw=d.timeline_raw or [],
         ticket_facts=d.ticket_facts or {},
         scenarios_routed=scenarios,
+        issue_questions=issue_questions_for(scenarios),
     )
     if not rca_v3:
         raise HTTPException(502, "RCA regeneration returned nothing - draft unchanged")
 
     # Same projection the pipeline does on save.
-    d.rca_fields = rca_v3
+    d.rca_v3 = rca_v3
     _tldr = rca_v3.get("tldr")
     if isinstance(_tldr, dict):
         d.tldr = (f"Our mistake: {_tldr.get('our_mistake', '')} "
                   f"Our fix: {_tldr.get('our_fix', '')}").strip()
     elif _tldr:
         d.tldr = _tldr
-    d.prevention             = rca_v3.get("prevention") or d.prevention
+    _prev = rca_v3.get("prevention")
+    if isinstance(_prev, list):
+        _prev = "\n".join(f"• {p}" for p in _prev if p)
+    d.prevention             = _prev or d.prevention
+    _aoi = rca_v3.get("area_of_improving")
+    if _aoi:
+        d.area_of_improving  = _aoi if isinstance(_aoi, list) else [_aoi]
     d.issue_specific_answers = rca_v3.get("issue_specific_answers") or {}
     d.checklist_answers      = []
-    for _col in ("rca_fields", "overlay_scenarios", "issue_specific_answers",
-                 "checklist_answers"):
+    for _col in ("rca_v3", "overlay_scenarios", "issue_specific_answers",
+                 "checklist_answers", "area_of_improving"):
         flag_modified(d, _col)
     db.commit()
     return {"ok": True, "rca_v3": rca_v3,

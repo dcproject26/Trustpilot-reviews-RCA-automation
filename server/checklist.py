@@ -376,3 +376,129 @@ def actions_for(scenario_names) -> dict:
             seen.add(key)
             tabs[owner].append(item)
     return tabs
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Issue-specific questions — the EXACT questions the RCA answers, per scenario.
+#
+# These were previously left to the model ("draw from the issue-type
+# diagnostics"), which produced a different, largely irrelevant set on every
+# run - questions about how the team handled the case, questions the data
+# cannot answer, and none of the ones a reviewer actually asks. A fixed bank
+# per scenario makes the section comparable across RCAs and auditable.
+#
+# Rule for anything added here: it must be about the guest's EXPERIENCE and
+# answerable from the experience page, booking, or ticket data. How CE/RO
+# handled the contact belongs in flags and sop_compliance, never here.
+# ─────────────────────────────────────────────────────────────────────────────
+
+ISSUE_QUESTIONS = {
+    "Tickets sent late": [
+        "Was the ticket delivery window disclosed on the experience page before purchase?",
+        "Were tickets delivered inside the window that was communicated?",
+        "How long after booking were tickets actually delivered?",
+        "Was the booking same-day or close-dated (less runway to absorb a delay)?",
+        "Does the fulfilment type used match what the experience page promises?",
+    ],
+    "Guest did not see tickets": [
+        "Was the ticket email delivered, and does the Ticket_email_seen tag show it was opened?",
+        "Did delivery time match the ETA communicated at purchase?",
+        "Were tickets sent to the email address on the booking?",
+    ],
+    "Invalid tickets": [
+        "Do the tickets match the booking: date, time, pax, experience, variant?",
+        "Was the ticket rejected at the venue, and on what stated ground?",
+        "Which fulfilment type produced the ticket (prepurchase / freesale / vendor API)?",
+        "Did other bookings on this TID-VID hit the same invalidity?",
+    ],
+    "Unfulfilled booking": [
+        "Was the booking fulfilled at all, and if not, at which step did it stop?",
+        "Was there an automation failure recorded for this booking?",
+        "What is the completion rate for this TID-VID over the recent window?",
+    ],
+    "Redemption issue with tickets": [
+        "Were the redemption instructions on the voucher complete and correct?",
+        "Was entry denied, and on what stated ground?",
+        "Is this a fulfilment, technical, or operational failure?",
+    ],
+    "Meeting point issues": [
+        "What meeting point does the experience page show, and does the map link match it?",
+        "Had the meeting point changed, and did we know before the guest travelled?",
+        "Does the voucher meeting point match the variant name and the true meeting point?",
+        "Were identifiers and redemption instructions present on the voucher?",
+    ],
+    "SP — no shows / delays": [
+        "Was the guide or host present at the meeting point at the stated time?",
+        "Were the voucher redemption details (meeting point, map link, identifiers) correct?",
+        "Did the guest follow the redemption process as documented?",
+        "Was a working SP contact on file for the guest to reach on the day?",
+    ],
+    "SP — guided tour quality": [
+        "What did the experience page promise about the guide, language, and group size?",
+        "Which promised inclusions were not delivered?",
+        "Is this a recurring complaint for this TID-VID?",
+    ],
+    "Venue closure (weather/strike)": [
+        "Was the venue closed on the date of visit, and is there proof?",
+        "Was the closure partial or full?",
+        "Did the experience page carry a closure or weather callout?",
+        "Did we know about the closure before the guest travelled?",
+    ],
+    "Pricing / convenience fee": [
+        "What did the guest pay in total, including all fees?",
+        "What does the experience page list as included in the variant booked?",
+        "Is the price difference the guest claims supported by the venue's own pricing?",
+        "Was any convenience fee disclosed at checkout?",
+    ],
+    "Content issues": [
+        "What does the experience page state about the specific point the guest disputes?",
+        "Is the page content accurate as of the booking date?",
+        "Is the discrepancy present for other bookings on this TID-VID?",
+    ],
+    "AG redemption issues": [
+        "Were the audio-guide redemption details present on the voucher or email?",
+        "Was the audio guide delivered, and in the language selected at booking?",
+        "Does the variant booked actually include the audio guide?",
+    ],
+    "Refund issues": [
+        "Was a refund due under the policy shown on the experience page?",
+        "Was the refund issued, for how much, and when?",
+        "Was it inside the timeframe promised to the guest?",
+    ],
+    "Guest error": [
+        "What did the guest book versus what they say they intended to book?",
+        "Did the guest contact us inside the policy window shown at checkout?",
+        "Does the cancellation policy on the experience page cover this request?",
+    ],
+    "Tech error during booking": [
+        "What did the guest attempt to book, and what did the booking record?",
+        "Is there evidence of the failure in clarity or the booking flow?",
+        "Did the checkout page display correct information at the time of booking?",
+    ],
+    "Untraceable booking": [
+        "What identifying details did the guest give, and which sources were searched?",
+        "Is there any booking matching the experience and name given?",
+    ],
+}
+
+# Used when no scenario routes, or to top up a thin scenario set.
+GENERAL_ISSUE_QUESTIONS = [
+    "What did the experience page promise on the point the guest disputes?",
+    "What does the booking record actually show?",
+    "Is this a one-off or does it recur on this TID-VID?",
+]
+
+
+def issue_questions_for(scenario_names) -> list:
+    """The exact experience-side questions this RCA must answer, deduped in
+    routing order. Falls back to the general set when nothing routed."""
+    out, seen = [], set()
+    for name in (scenario_names or []):
+        for q in ISSUE_QUESTIONS.get(name, []):
+            k = q.lower()
+            if k not in seen:
+                seen.add(k)
+                out.append(q)
+    if not out:
+        return list(GENERAL_ISSUE_QUESTIONS)
+    return out

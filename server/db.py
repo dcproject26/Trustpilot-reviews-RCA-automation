@@ -106,6 +106,13 @@ class RcaDraft(Base):
     flag_to_biz_state           = Column(String, default="off")  # off | drafted | sent
     flag_to_biz_message         = Column(Text, nullable=True)
 
+    # The full RCA v3 object: tldr{our_mistake,our_fix}, what_went_wrong (the
+    # 5 headings), booking_logs, flags, support/sp interaction, sop_compliance,
+    # issue_specific_answers, area_of_improving, takedown, prevention.
+    # Its own column, NOT rca_fields: that one holds the legacy v1 shape the
+    # VS flow still writes, and writing v3 over it destroyed those fields.
+    rca_v3             = Column(JSON, default=dict)
+
     # ── Legacy fields still used by the v1 flow ──
     rca_fields         = Column(JSON, default=dict)
     signals            = Column(JSON, default=list)
@@ -165,6 +172,7 @@ def _ensure_columns():
         "ticket_facts":           "JSONB" if is_pg else "JSON",
         "slack_thread_override":  "TEXT",
         "slack_mentions":         "JSONB" if is_pg else "JSON",
+        "rca_v3":                 "JSONB" if is_pg else "JSON",
     }
     for col, coltype in wanted.items():
         if col in existing:

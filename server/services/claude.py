@@ -409,6 +409,7 @@ async def generate_rca_v3(
     timeline_raw: list = None,
     ticket_facts: dict = None,
     scenarios_routed: list = None,
+    issue_questions: list = None,
 ) -> dict:
     """
     Returns the RCA v3 shape:
@@ -463,7 +464,7 @@ async def generate_rca_v3(
             review_text, booking, timeline, insights, dss_rec,
             l1, l2, sub_theme, support_summary, checklist, review_id or "",
             timeline_raw=timeline_raw, ticket_facts=ticket_facts,
-            scenarios_routed=scenarios_routed),
+            scenarios_routed=scenarios_routed, issue_questions=issue_questions),
         max_tokens=6000,
     )
     try:
