@@ -164,7 +164,10 @@ def _extract_json_object(text: str):
     start = s.find("{")
     if start == -1:
         return None
-    depth = 0
+    # Track BOTH container kinds. Closing only braces left every unclosed array
+    # open, so a response cut inside a list - the common case, since the long
+    # fields here are lists - stayed unparseable and the whole RCA was lost.
+    stack: list[str] = []
     in_str = False
     esc = False
     end = -1
@@ -180,11 +183,12 @@ def _extract_json_object(text: str):
         else:
             if c == '"':
                 in_str = True
-            elif c == "{":
-                depth += 1
-            elif c == "}":
-                depth -= 1
-                if depth == 0:
+            elif c in "{[":
+                stack.append(c)
+            elif c in "}]":
+                if stack:
+                    stack.pop()
+                if not stack:
                     end = i
                     break
     if end != -1:
@@ -192,17 +196,54 @@ def _extract_json_object(text: str):
             return json.loads(_strip_trailing_commas(s[start:end + 1]))
         except Exception:
             pass
-    # Truncated tail — repair using the scan's final state.
-    frag = s[start:]
-    if in_str:
-        frag += '"'
-    frag = _strip_trailing_commas(frag.rstrip().rstrip(","))
-    if depth > 0:
-        frag += "}" * depth
+
+    # Truncated tail. Close what is open, and if that still will not parse,
+    # walk backwards dropping the last partial element and try again: the cut
+    # can land mid-key or mid-number, where no amount of closing helps.
+    def _close(frag: str, open_stack: list[str], inside_string: bool) -> str:
+        if inside_string:
+            frag += '"'
+        frag = _strip_trailing_commas(frag.rstrip().rstrip(","))
+        for ch in reversed(open_stack):
+            frag += "}" if ch == "{" else "]"
+        return frag
+
+    body = s[start:]
+    attempt = _close(body, stack, in_str)
     try:
-        return json.loads(frag)
+        return json.loads(attempt)
     except Exception:
-        return None
+        pass
+
+    # Recompute the state at each earlier cut point rather than assuming it.
+    for cut in range(len(body) - 1, max(len(body) - 20000, 0), -1):
+        if body[cut] not in ",}]\"":
+            continue
+        head = body[:cut + 1]
+        st: list[str] = []
+        ins = es = False
+        for c in head:
+            if ins:
+                if es:
+                    es = False
+                elif c == "\\":
+                    es = True
+                elif c == '"':
+                    ins = False
+            elif c == '"':
+                ins = True
+            elif c in "{[":
+                st.append(c)
+            elif c in "}]":
+                if st:
+                    st.pop()
+        if ins or not st:
+            continue
+        try:
+            return json.loads(_close(head, st, False))
+        except Exception:
+            continue
+    return None
 
 
 def _fill_facts_from_booking(facts: dict, booking: dict) -> None:
@@ -459,19 +500,32 @@ async def generate_rca_v3(
         }
 
     # Unknown review (manual test) OR live mode: run the real prompt
+    # 6000 was sized for the old shape. The v3 answer carries five WWR
+    # headings, booking logs, flags, both interaction blocks, SOP compliance,
+    # the fixed question bank, area-of-improving, takedown and prevention - a
+    # complex case runs past 6000 and the JSON comes back cut mid-string.
     raw = await _call(
         prompts.rca_v3_prompt(
             review_text, booking, timeline, insights, dss_rec,
             l1, l2, sub_theme, support_summary, checklist, review_id or "",
             timeline_raw=timeline_raw, ticket_facts=ticket_facts,
             scenarios_routed=scenarios_routed, issue_questions=issue_questions),
-        max_tokens=6000,
+        max_tokens=16000,
     )
-    try:
-        return json.loads(_strip_fences(raw))
-    except Exception:
-        log.exception("RCA v3 JSON parse failed")
-        return {}
+    # _extract_json_object, not json.loads: it tolerates a preamble, fences and
+    # - the case that actually bit - a truncated tail, closing the open string
+    # and braces so a long RCA degrades to a partial one instead of vanishing.
+    # Strict parsing turned one over-long answer into an empty RCA panel with
+    # no visible cause.
+    parsed = _extract_json_object(raw)
+    if isinstance(parsed, dict) and parsed:
+        if len(raw) > 200 and not raw.rstrip().endswith("}"):
+            log.warning(f"[rca_v3] answer looks truncated ({len(raw)} chars) - "
+                        f"recovered {sorted(parsed.keys())}")
+        return parsed
+    log.error(f"[rca_v3] could not parse the model answer ({len(raw)} chars). "
+              f"First 300: {raw[:300]!r}")
+    return {}
 
 
 # ─── 6b. Support event summarisation (Zendesk → frames) ─────────────────────

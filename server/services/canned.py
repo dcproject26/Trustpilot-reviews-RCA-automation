@@ -40,9 +40,15 @@ def _detect_cols(headers: list[str]) -> dict[str, int]:
     col: dict[str, int] = {}
     for i, h in enumerate(headers):
         hl = h.lower().strip()
-        if any(k in hl for k in ("situation", "case", "scenario", "theme")):
+        # "issue" and "type" belong here: the live sheet's header is
+        # "Main Issue Type", which matched none of situation/case/scenario/theme,
+        # so the sheet read fine and then every row was dropped for want of a
+        # situation column - reported as "0 rows" as if the sheet were empty.
+        if any(k in hl for k in ("situation", "case", "scenario", "theme",
+                                 "issue", "type", "topic", "category")):
             col.setdefault("situation", i)
-        if any(k in hl for k in ("response", "template", "reply", "message", "text")):
+        if any(k in hl for k in ("response", "template", "reply", "message", "text",
+                                 "macro", "copy")):
             col.setdefault("response", i)
         if any(k in hl for k in ("l1", "category", "issue type")):
             col.setdefault("l1_hint", i)
@@ -109,7 +115,13 @@ async def _fetch_rows() -> list[dict]:
     )
 
     if "situation" not in col or "response" not in col:
-        log.warning(f"[canned] could not detect required columns from headers: {headers}")
+        log.error(
+            f"[canned] the sheet READ fine but its columns were not recognised. "
+            f"Headers seen: {headers}. Needed: one column naming the situation "
+            f"(situation/case/scenario/theme/issue/type/topic/category) and one "
+            f"holding the reply (response/template/reply/message/text/macro/copy). "
+            f"Every response will be drafted with no tone reference until this "
+            f"matches.")
         return []
 
     sit_idx  = col["situation"]
