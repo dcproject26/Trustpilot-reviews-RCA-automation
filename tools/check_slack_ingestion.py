@@ -28,6 +28,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OK, BAD, WARN = "  OK  ", " FAIL ", " WARN "
 
 
+def _migrate_first():
+    """Bring the schema up to the models before querying them.
+
+    These tools are what someone runs BEFORE restarting anything - that is
+    the whole point of a diagnostic - so they cannot assume the server has
+    already run the migration. Without this, the first command after a pull
+    that adds a column dies on "column does not exist" and reads as data
+    loss rather than a pending migration. init_db() is idempotent.
+    """
+    from server.db import init_db
+    init_db()
+
+
 def line(state, label, detail=""):
     print(f"[{state}] {label}" + (f"\n         {detail}" if detail else ""))
 
@@ -209,6 +222,7 @@ def scan_history(client, hours: int, replay: bool):
 
 
 def main():
+    _migrate_first()
     ap = argparse.ArgumentParser()
     ap.add_argument("--hours", type=int, default=72,
                     help="lookback window for history and DB counts")

@@ -89,11 +89,27 @@ RCA_FULL = {
 }
 
 
+def _migrate_first():
+    """Bring the schema up to the models before querying them.
+
+    These tools are what someone runs BEFORE restarting anything - that is
+    the whole point of a diagnostic - so they cannot assume the server has
+    already run the migration. Without this, the first command after a pull
+    that adds a column dies on "column does not exist" and reads as data
+    loss rather than a pending migration. init_db() is idempotent.
+    """
+    from server.db import init_db
+    init_db()
+
+
 def main():
     from server.db import Base, engine, SessionLocal, Review, RcaDraft
+    # The guard runs FIRST. Migrating before it would touch a production
+    # Postgres on the way to refusing to write to it.
     if not str(engine.url).startswith("sqlite"):
         print(f"refusing to seed a non-SQLite database: {engine.url.get_backend_name()}")
         return 1
+    _migrate_first()
     Base.metadata.create_all(engine)
     s = SessionLocal()
     now = datetime.utcnow()

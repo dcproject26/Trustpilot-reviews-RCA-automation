@@ -39,6 +39,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 HUMAN_FIELDS = ("final_response", "slack_thread_override", "resolution")
 
 
+def _migrate_first():
+    """Bring the schema up to the models before querying them.
+
+    These tools are what someone runs BEFORE restarting anything - that is
+    the whole point of a diagnostic - so they cannot assume the server has
+    already run the migration. Without this, the first command after a pull
+    that adds a column dies on "column does not exist" and reads as data
+    loss rather than a pending migration. init_db() is idempotent.
+    """
+    from server.db import init_db
+    init_db()
+
+
 def _has_human_work(review, draft) -> list:
     marks = []
     if getattr(review, "status", "") == "sent":
@@ -85,6 +98,7 @@ async def _run(ids, concurrency: int):
 
 
 def main():
+    _migrate_first()
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true", help="actually do it")
     ap.add_argument("--include-edited", action="store_true",

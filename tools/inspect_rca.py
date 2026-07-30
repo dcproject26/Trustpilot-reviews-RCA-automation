@@ -39,6 +39,19 @@ SECTIONS = [
 ]
 
 
+def _migrate_first():
+    """Bring the schema up to the models before querying them.
+
+    These tools are what someone runs BEFORE restarting anything - that is
+    the whole point of a diagnostic - so they cannot assume the server has
+    already run the migration. Without this, the first command after a pull
+    that adds a column dies on "column does not exist" and reads as data
+    loss rather than a pending migration. init_db() is idempotent.
+    """
+    from server.db import init_db
+    init_db()
+
+
 def _filled(v) -> bool:
     if v is None:
         return False
@@ -48,6 +61,7 @@ def _filled(v) -> bool:
 
 
 def main():
+    _migrate_first()
     ap = argparse.ArgumentParser()
     ap.add_argument("--id", help="dump one review's rca_v3 in full")
     ap.add_argument("--empty", help="list only reviews where this section is empty")
