@@ -77,6 +77,7 @@ SCENARIO_CHECKS = {
         "Check clarity for errors and proof (e.g. wrong date booked)",
         "Check URL and booking flow on Zendesk + experience page; if unsure raise with tech",
         "If clarity fails, raise with tech team",
+        "Action as per DSS",
         "Confirm FF was done correctly; check for CE/RO error",
     ],
     "Redemption issue with tickets": [

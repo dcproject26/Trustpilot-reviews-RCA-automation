@@ -3467,13 +3467,30 @@ function renderRcaCol() {
           <span class="classify-label">Scenario</span>
           <!-- Editable like L1/L2/sub-theme above it. The routed scenario is a
                lookup from the classification, and a lookup can be wrong the
-               same way a classification can - a chip made this the one field
-               in the panel an associate could see but not fix. -->
+               same way a classification can. Changing anything here re-runs
+               the RCA against the corrected scenario checklists - editing a
+               routing the RCA never re-reads would fix nothing. -->
           <select class="classify-select" data-scenario-select>
             ${rca.primaryScenario ? `<option>${rca.primaryScenario}</option>` : `<option value="">— none —</option>`}
             ${SCENARIO_OPTIONS.filter(o => o !== rca.primaryScenario)
                 .map(o => `<option>${o}</option>`).join('')}
           </select>
+        </div>
+        <div class="classify-row" style="align-items:flex-start">
+          <span class="classify-label">Overlays</span>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;min-width:0">
+            ${(rca.overlayScenarios || []).map((o, i) => `
+              <span class="chk-pill na" style="display:inline-flex;align-items:center;gap:4px">${o}
+                <button data-overlay-remove="${i}" title="Remove overlay"
+                  style="background:none;border:none;cursor:pointer;color:inherit;padding:0;font-size:12px">×</button>
+              </span>`).join('')}
+            <select class="classify-select" data-overlay-add style="width:auto;font-size:11px">
+              <option value="">+ add</option>
+              ${SCENARIO_OPTIONS.filter(o => o !== rca.primaryScenario && !(rca.overlayScenarios || []).includes(o))
+                  .map(o => `<option>${o}</option>`).join('')}
+            </select>
+            <span data-scenario-regen-status style="font-size:11px;color:var(--text-mute)"></span>
+          </div>
         </div>
       </div>
     </div>
@@ -3721,20 +3738,63 @@ function renderRcaCol() {
     });
   }
 
-  const scenarioSel = col.querySelector('[data-scenario-select]');
-  if (scenarioSel) {
-    scenarioSel.addEventListener('change', async () => {
-      const val = scenarioSel.value || null;
-      rca.primaryScenario = val || '';
+  // Any scenario change (primary or overlays) re-runs the RCA against the
+  // corrected checklists - the whole point of the field being editable.
+  const regenStatus = col.querySelector('[data-scenario-regen-status]');
+  const regenRca = async () => {
+    const scenarios = [rca.primaryScenario, ...(rca.overlayScenarios || [])].filter(Boolean);
+    if (!scenarios.length) return;
+    if (regenStatus) regenStatus.textContent = '⟳ re-running RCA for new scenarios…';
+    try {
+      const resp = await fetch(`/api/reviews/${r.id}/regenerate-rca`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scenarios }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || 'regen failed');
+      rca.v3 = data.rca_v3 || {};
+      rca.tldr = data.tldr || rca.tldr;
+      rca.prevention = data.prevention || rca.prevention;
+      rca.issueSpecificAnswers = data.issue_specific_answers || {};
+      rca.checklistAnswers = [];
+      rca.primaryScenario = data.primary_scenario || rca.primaryScenario;
+      rca.overlayScenarios = data.overlay_scenarios || rca.overlayScenarios;
+      renderRcaCol();
+    } catch (e) {
+      if (regenStatus) regenStatus.textContent = '✗ RCA re-run failed — scenario saved, try again';
+      // Persist the routing itself even when generation failed
       try {
         await fetch(`/api/reviews/${r.id}/draft-v2`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ primary_scenario: val }),
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ primary_scenario: rca.primaryScenario || null }),
         });
-      } catch (e) { /* keep local edit; server save retried on next change */ }
+      } catch (_) { /* keep local edit */ }
+    }
+  };
+
+  const scenarioSel = col.querySelector('[data-scenario-select]');
+  if (scenarioSel) {
+    scenarioSel.addEventListener('change', () => {
+      rca.primaryScenario = scenarioSel.value || '';
+      regenRca();
     });
   }
+  const overlayAdd = col.querySelector('[data-overlay-add]');
+  if (overlayAdd) {
+    overlayAdd.addEventListener('change', () => {
+      const val = overlayAdd.value;
+      if (!val) return;
+      rca.overlayScenarios = [...(rca.overlayScenarios || []), val];
+      regenRca();
+    });
+  }
+  col.querySelectorAll('[data-overlay-remove]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.overlayRemove);
+      rca.overlayScenarios = (rca.overlayScenarios || []).filter((_, i) => i !== idx);
+      regenRca();
+    });
+  });
 
   // Persist Actions Taken to the draft (send each tab as plain context strings).
   const persistActions = async () => {

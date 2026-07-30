@@ -651,6 +651,72 @@ async def connect_dss(review_id: str, db: Session = Depends(get_session)):
     return {"ok": True, "dss_rec": dss_rec, "resolution": d.resolution}
 
 
+# ── Scenario change → RCA regeneration ──────────────────────────────────────
+# The scenario select exists so a wrong or incomplete routing can be fixed;
+# fixing it only matters if the RCA is re-judged against the corrected
+# scenario checklists. This re-runs ONLY the RCA step from the draft's stored
+# data (booking, timeline, insights, DSS, ticket facts) - no refetching.
+
+class ScenarioRegen(BaseModel):
+    scenarios: list[str]
+
+
+@router.post("/api/reviews/{review_id}/regenerate-rca")
+async def regenerate_rca(review_id: str, body: ScenarioRegen,
+                         db: Session = Depends(get_session)):
+    r = db.query(Review).filter(Review.id == review_id).first()
+    d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
+    if not r or not d:
+        raise HTTPException(404, "Not found")
+
+    scenarios = [s for s in (body.scenarios or []) if s in SCENARIO_CHECKS]
+    if not scenarios:
+        raise HTTPException(400, "No valid scenarios given")
+    d.primary_scenario  = scenarios[0]
+    d.overlay_scenarios = scenarios[1:]
+
+    from server.services import claude as claude_svc
+    from server.services.rca_checklist import get_checklist
+    checklist = await get_checklist(d.l1, d.l2)
+    rca_v3 = await claude_svc.generate_rca_v3(
+        review_text=r.body_english or r.body_original or "",
+        booking=d.booking or {},
+        timeline=d.timeline or [],
+        insights=d.insights or {},
+        dss_rec=d.dss_rec or {},
+        l1=d.l1 or "", l2=d.l2 or "", sub_theme=d.sub_theme or "",
+        support_summary=d.support_summary or "",
+        checklist=checklist,
+        review_id=review_id,
+        timeline_raw=d.timeline_raw or [],
+        ticket_facts=d.ticket_facts or {},
+        scenarios_routed=scenarios,
+    )
+    if not rca_v3:
+        raise HTTPException(502, "RCA regeneration returned nothing - draft unchanged")
+
+    # Same projection the pipeline does on save.
+    d.rca_fields = rca_v3
+    _tldr = rca_v3.get("tldr")
+    if isinstance(_tldr, dict):
+        d.tldr = (f"Our mistake: {_tldr.get('our_mistake', '')} "
+                  f"Our fix: {_tldr.get('our_fix', '')}").strip()
+    elif _tldr:
+        d.tldr = _tldr
+    d.prevention             = rca_v3.get("prevention") or d.prevention
+    d.issue_specific_answers = rca_v3.get("issue_specific_answers") or {}
+    d.checklist_answers      = []
+    for _col in ("rca_fields", "overlay_scenarios", "issue_specific_answers",
+                 "checklist_answers"):
+        flag_modified(d, _col)
+    db.commit()
+    return {"ok": True, "rca_v3": rca_v3,
+            "primary_scenario": d.primary_scenario,
+            "overlay_scenarios": d.overlay_scenarios,
+            "tldr": d.tldr, "prevention": d.prevention,
+            "issue_specific_answers": d.issue_specific_answers}
+
+
 # ── NEW: Flag to Biz (two-step: draft, then send) ───────────────────────────
 
 @router.post("/api/reviews/{review_id}/flag-to-biz")
