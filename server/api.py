@@ -872,6 +872,11 @@ def _bulk_targets(db, scope: str, limit: int) -> list[str]:
         tier = d.match_tier if d else None
         cand = bool(d and d.candidate_state)
         if scope == "incomplete":
+            # Never re-run a sent review in bulk. Its work is finished, and a
+            # re-run rewrites the RCA under a reply that has already gone to
+            # the guest.
+            if r.status == "sent":
+                continue
             broken = (d is None
                       or (tier is None and not cand)
                       or not (d.rca_v3 or {}))
@@ -933,12 +938,21 @@ async def reprocess_all(tab: str = "incomplete", limit: int = _BULK_MAX,
     Returns immediately. Progress is at GET /api/reviews/bulk-status, so the
     browser can be closed and reopened without losing the run.
     """
+    # Claim the slot BEFORE the target query. Checking the flag, then spending
+    # a query, then setting it, leaves a window where two clicks both pass the
+    # check and start two workers over the same reviews - each re-running the
+    # other's rows and both writing the same drafts.
     if _BULK["running"]:
         return {"ok": False, "already_running": True, **_bulk_public()}
-
-    limit = max(1, min(int(limit), _BULK_MAX))
-    ids = _bulk_targets(db, tab, limit)
+    _BULK["running"] = True
+    try:
+        limit = max(1, min(int(limit), _BULK_MAX))
+        ids = _bulk_targets(db, tab, limit)
+    except Exception:
+        _BULK["running"] = False
+        raise
     if not ids:
+        _BULK["running"] = False
         return {"ok": True, "queued": 0, "scope": tab,
                 "note": "nothing matched that scope"}
 

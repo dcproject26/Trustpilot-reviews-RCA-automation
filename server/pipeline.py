@@ -1554,7 +1554,12 @@ async def process_review(review_id: str, force_candidates: bool = False):
         draft.suggested_response          = response_draft
         draft.template_name               = draft_template_name
         draft.generated_at                = datetime.utcnow()
-        review.status                     = "draft"
+        # A review already SENT stays sent. A re-run regenerates the AI half,
+        # which is a fine thing to do to an old review - but resetting the
+        # status would pull it out of Sent and back into a working tab, as if
+        # the reply had never gone out.
+        if review.status != "sent":
+            review.status                 = "draft"
 
         # Force SQLAlchemy to detect JSON column changes on re-runs
         # (JSON type does not track in-place mutations automatically)

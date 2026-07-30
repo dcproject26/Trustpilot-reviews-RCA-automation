@@ -1075,7 +1075,11 @@ async def shortlist(indicators: dict, author_first, author_last,
             seen_tickets.add(tid)
             sig = ticket_signals(t)
             bid = sig.get("booking_id")
-            if not bid or bid in by_bid or bid in weak_by_bid:
+            # Only a bid already accepted as a STRONG match short-circuits.
+            # Skipping one held weakly meant a later ticket that satisfied
+            # every indicator was discarded as a duplicate, leaving the weaker
+            # reading of the same booking in its place.
+            if not bid or bid in by_bid:
                 continue
             ok, used = matches_indicators(sig, indicators, author_first, author_last)
             sig["found_via"]  = label
@@ -1084,6 +1088,7 @@ async def shortlist(indicators: dict, author_first, author_last,
             if ok:
                 sig["matched_on"] = used
                 by_bid[bid] = sig
+                weak_by_bid.pop(bid, None)   # promoted: drop the weak reading
             elif name and name_matches(sig.get("guest_name") or "",
                                        author_first, author_last):
                 # The name matched but another indicator disagreed. That is a
@@ -1094,9 +1099,10 @@ async def shortlist(indicators: dict, author_first, author_last,
                 # showing a human two plausible bookings to choose from beats
                 # filing a review with a name, a venue and a city as
                 # unidentifiable.
-                sig["matched_on"] = ["name"]
-                sig["weak"] = True
-                weak_by_bid[bid] = sig
+                if bid not in weak_by_bid:
+                    sig["matched_on"] = ["name"]
+                    sig["weak"] = True
+                    weak_by_bid[bid] = sig
 
     out = list(by_bid.values())
     if not out and weak_by_bid:
