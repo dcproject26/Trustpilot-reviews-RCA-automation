@@ -1005,7 +1005,10 @@ def bulk_cancel():
 # data (booking, timeline, insights, DSS, ticket facts) - no refetching.
 
 class ScenarioRegen(BaseModel):
-    scenarios: list[str]
+    # Empty = keep the draft's stored scenarios. That turns this endpoint
+    # into the cheap prompt-iteration path: one model call over stored data,
+    # no re-matching, no BigQuery, no Zendesk.
+    scenarios: list[str] = []
 
 
 @router.post("/api/reviews/{review_id}/regenerate-rca")
@@ -1017,10 +1020,13 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
         raise HTTPException(404, "Not found")
 
     scenarios = [s for s in (body.scenarios or []) if s in SCENARIO_CHECKS]
-    if not scenarios:
-        raise HTTPException(400, "No valid scenarios given")
-    d.primary_scenario  = scenarios[0]
-    d.overlay_scenarios = scenarios[1:]
+    if scenarios:
+        d.primary_scenario  = scenarios[0]
+        d.overlay_scenarios = scenarios[1:]
+    else:
+        # RCA-only re-run: keep whatever routing the draft already has.
+        scenarios = [s for s in ([d.primary_scenario] +
+                                 (d.overlay_scenarios or [])) if s]
 
     from server.services import claude as claude_svc
     from server.services.rca_checklist import get_checklist

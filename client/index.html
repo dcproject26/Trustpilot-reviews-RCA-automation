@@ -3989,6 +3989,8 @@ function renderRcaCol() {
         <div class="rca-title-row">
           <div class="rca-title" contenteditable="true" spellcheck="false">AI RCA</div>
           <span class="rca-edit-icon" title="Click title to edit">✎</span>
+          <button class="refresh-slack-btn" data-rca-only-regen style="margin-left:auto"
+                  title="One model call over the stored booking/timeline/insights — no re-matching, no BigQuery, no Zendesk. Use after a prompt change; the full ↻ Re-run is only needed when the DATA should change.">↻ RCA only</button>
         </div>
         <div class="rca-sub">BID ${r.booking.bid || '—'} · drafted ${r.time || ''} · click any field to edit</div>
       </div>
@@ -4341,6 +4343,24 @@ function renderRcaCol() {
       }
       renderRcaCol();
     });
+  });
+
+  const rcaOnly = col.querySelector('[data-rca-only-regen]');
+  if (rcaOnly) rcaOnly.addEventListener('click', async () => {
+    const orig = rcaOnly.textContent;
+    rcaOnly.disabled = true; rcaOnly.textContent = 'regenerating…';
+    try {
+      const resp = await fetch(`/api/reviews/${r.id}/regenerate-rca`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({scenarios: []}),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      await fetchInbox(); renderRcaCol();
+    } catch (e) {
+      rcaOnly.textContent = 'failed — see server log';
+      setTimeout(() => { rcaOnly.disabled = false; rcaOnly.textContent = orig; }, 3000);
+      return;
+    }
   });
 
   const slackRegen = col.querySelector('[data-slack-regen]');
