@@ -8,1914 +8,837 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
+  /* ═══════════════════════════════════════════════════════════════════════
+     Reviews RCA Workbench — light workbench theme.
+     Tokens are the handoff's, verbatim. Colour earns its place: purple is
+     the accent and nothing else uses it; green/amber/red mean done / needs
+     a human / guest-facing problem. Everything else is the neutral ramp.
+     Single-theme by design - the handoff commits to a light surface for
+     all-day reading, so there is no dark variant to get half-right.
+     ═══════════════════════════════════════════════════════════════════════ */
   :root {
-    --bg: #0E0E12;
-    --bg-elev: #15151C;
-    --bg-elev-2: #1C1C26;
-    --bg-elev-3: #22222F;
-    --border: #2A2A38;
-    --border-lit: #3A3A4A;
-    /* Raised after the de-colouring pass left the page grey-on-grey: with
-       the decorative colour gone, the mute/dim tiers were carrying most of
-       the actual content and sat too close to the background to read. */
-    --text: #F2F2F5;
-    --text-mute: #B4B4C2;
-    --text-dim: #8A8A9C;
-    --accent: #C4F25B;
-    --green: #5DCC8C;
-    --green-bg: rgba(93, 204, 140, 0.12);
-    --amber: #F2B544;
-    --amber-bg: rgba(242, 181, 68, 0.12);
-    --red: #F26B6B;
-    --red-bg: rgba(242, 107, 107, 0.12);
-    --blue: #6BA4F2;
-    --blue-bg: rgba(107, 164, 242, 0.12);
-    --purple: #B57DF2;
-    --purple-bg: rgba(181, 125, 242, 0.12);
+    --page:        #F6F5F2;
+    --facts-bg:    #FBFAF8;
+    --card:        #FFFFFF;
+    --inset:       #F7F5F0;
+    --hover-fill:  #F0EEE8;
+
+    --border:      #E6E4DE;
+    --hairline:    #F2F0EA;
+    --input-bd:    #E0DDD6;
+    --dashed:      #D4D0C7;
+
+    --text:        #1D1C1A;
+    --body:        #4B4843;
+    --muted:       #6E6B64;
+    --muted-2:     #8A867E;
+    --dim:         #9B968D;
+    --empty:       #B9B4AA;
+
+    --accent:      #8000FF;
+    --accent-hov:  #6E00DB;
+    --accent-bg:   #F5F1FC;
+    --accent-bd:   #D8CDEF;
+    --accent-bd-2: #E3D7F7;
+    --chip-bg:     #EDE6F9;
+    --chip-fg:     #6E00DB;
+
+    --green:       #2F7A4D;  --green-bg: #E7F1E9;
+    --amber:       #8A6414;  --amber-bg: #FBF3DC;
+    --red:         #B8443C;  --red-bg:   #FAE9E7;
+
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
   }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
-    font-family: 'Inter', -apple-system, sans-serif;
-    background: var(--bg);
+    margin: 0;
+    background: var(--page);
     color: var(--text);
-    height: 100vh;
-    overflow: hidden;
-    font-size: 14px;
+    font-family: var(--sans);
+    font-size: 13px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
+    overflow: hidden;
   }
-  .app { display: grid; grid-template-rows: 56px 1fr; height: 100vh; }
-  .bulk-bar { padding: 6px 0 2px; }
-  .bulk-track { height: 3px; background: var(--bg-elev-2); border-radius: 2px;
-                overflow: hidden; }
-  .bulk-fill { height: 100%; width: 0; background: var(--accent);
-               transition: width .3s ease; }
-  .bulk-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px;
-               font-size: 10.5px; color: var(--text-mute);
-               font-family: 'JetBrains Mono', monospace; }
-  .bulk-meta .err { color: #e5534b; }
-  .bulk-cancel { margin-left: auto; background: none; border: none; cursor: pointer;
-                 color: var(--text-mute); text-decoration: underline;
-                 font-size: 10.5px; font-family: 'JetBrains Mono', monospace; }
-  .bulk-cancel:hover { color: #e5534b; }
-  .refresh-slack-btn { margin-left: 8px; font-size: 10px; padding: 2px 8px;
-      border: 1px solid var(--border); border-radius: 10px; cursor: pointer;
-      background: transparent; color: var(--text-mute);
-      font-family: 'JetBrains Mono', monospace; }
-  .refresh-slack-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
-  .refresh-slack-btn:disabled { opacity: .6; cursor: default; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  ::selection { background: #E5DCF8; }
+  button { font: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .mono, .k.mono, .v.mono { font-family: var(--mono); }
+
+  /* ── app shell ───────────────────────────────────────────────────────── */
+  .app { height: 100vh; overflow-x: auto; overflow-y: hidden; }
   .topbar {
-    background: var(--bg-elev);
+    height: 52px; flex: none; background: var(--card);
     border-bottom: 1px solid var(--border);
-    padding: 0 24px;
-    display: flex;
-    align-items: center;
-    gap: 24px;
+    display: flex; align-items: center; gap: 16px; padding: 0 20px;
+    min-width: 1280px;
   }
   .logo-block { display: flex; align-items: center; gap: 10px; }
   .logo {
-    width: 30px; height: 30px;
-    border-radius: 7px;
-    background: var(--bg-elev-3);
-    border: 1px solid var(--border-lit);
+    width: 28px; height: 28px; border-radius: 7px;
+    background: var(--accent); color: #fff;
     display: flex; align-items: center; justify-content: center;
-    font-size: 10.5px; font-weight: 700; color: var(--text-mute);
-    letter-spacing: 0.04em;
+    font-weight: 700; font-size: 12px;
   }
-  .brand-name { font-weight: 600; font-size: 15px; }
-  .brand-sub { font-size: 12px; color: var(--text-mute); font-family: 'JetBrains Mono', monospace; }
-  .env-pill { font-family: 'JetBrains Mono', monospace; letter-spacing: 0; }
-  .env-pill.warn { border-color: var(--amber); color: var(--amber); }
-  .env-pill.warn .dot { background: var(--amber); }
-  .topbar-status { display: flex; gap: 14px; margin-left: auto; align-items: center; }
+  .brand-name { font-weight: 650; font-size: 14px; }
+  .brand-sub  { font-size: 11.5px; color: var(--muted-2); }
+  .topbar-status { margin-left: auto; display: flex; align-items: center; gap: 14px; }
   .status-pill {
     display: flex; align-items: center; gap: 6px;
-    font-size: 11px; color: var(--text-mute);
-    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px; color: var(--muted-2);
   }
-  .status-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
-  .status-pill.off .dot { background: var(--text-dim); }
+  .status-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  .status-pill.warn { color: var(--amber); }
+  .status-pill.warn .dot { background: #B8860B; }
+  .env-pill { font-family: var(--mono); }
 
   .main {
-    display: grid;
-    grid-template-columns: 260px 360px 1fr;
-    overflow: hidden;
-    height: calc(100vh - 56px);
+    display: flex; min-width: 1280px;
+    height: calc(100vh - 52px); overflow: hidden;
   }
 
-  /* === COLUMN 1 — INBOX === */
+  /* ── buttons ─────────────────────────────────────────────────────────── */
+  .btn, .refresh-slack-btn, .rerun-btn, .verify-btn, .skip-btn,
+  .copy-response-btn, .slack-regen-btn, .reporting-link, .flag-biz-btn {
+    font: inherit; font-size: 12px; padding: 5px 12px; border-radius: 6px;
+    border: 1px solid var(--input-bd); background: var(--card);
+    color: var(--body); cursor: pointer;
+  }
+  .btn:hover, .refresh-slack-btn:hover, .rerun-btn:hover, .verify-btn:hover,
+  .skip-btn:hover, .copy-response-btn:hover, .slack-regen-btn:hover,
+  .reporting-link:hover, .flag-biz-btn:hover {
+    border-color: var(--empty); color: var(--text);
+  }
+  .btn.primary, .send-btn, .candidate-confirm-btn {
+    font-weight: 600; border: none;
+    background: var(--accent); color: #fff;
+  }
+  .btn.primary:hover, .send-btn:hover, .candidate-confirm-btn:hover {
+    background: var(--accent-hov); color: #fff;
+  }
+  .btn:disabled, .send-btn:disabled { opacity: .5; cursor: default; }
+  /* Dashed = "add something that isn't there yet". */
+  .row-add, .add-manual-btn, .action-add-btn {
+    font: inherit; font-size: 11.5px; padding: 4px 10px; border-radius: 6px;
+    border: 1px dashed var(--dashed); background: none; color: var(--muted);
+    cursor: pointer; align-self: flex-start;
+  }
+  .row-add:hover, .add-manual-btn:hover, .action-add-btn:hover {
+    color: var(--text); border-color: var(--empty);
+  }
+  .row-del, .action-delete-btn {
+    background: none; border: none; color: var(--dim); cursor: pointer;
+    font-size: 13px; line-height: 1; padding: 0 3px; flex: none;
+  }
+  .row-del:hover, .action-delete-btn:hover { color: var(--red); }
+
+  /* ── column 1 · inbox ────────────────────────────────────────────────── */
   .inbox {
-    background: var(--bg-elev);
+    width: 300px; flex: none; background: var(--card);
     border-right: 1px solid var(--border);
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
+    display: flex; flex-direction: column; min-height: 0;
   }
-  .inbox-head {
-    padding: 16px 14px 12px;
-    border-bottom: 1px solid var(--border);
-    position: sticky; top: 0;
-    background: var(--bg-elev);
-    z-index: 2;
-  }
+  .inbox-head { padding: 14px 14px 10px; border-bottom: 1px solid #EEECE6; }
   .inbox-title {
-    font-size: 11px; color: var(--text-dim);
-    text-transform: uppercase; letter-spacing: 0.08em;
-    margin-bottom: 10px; font-weight: 600;
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    font-size: 11px; font-weight: 650; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--dim); margin-bottom: 10px;
   }
-  .inbox-tabs { display: flex; gap: 3px; flex-wrap: wrap; }
+  .inbox-title .refresh-slack-btn {
+    font-size: 11px; padding: 3px 9px; text-transform: none;
+    letter-spacing: 0; font-weight: 400;
+  }
+  .inbox-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
   .inbox-tab {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-mute);
-    padding: 5px 10px;
-    border-radius: 14px;
-    font-size: 11.5px; font-family: inherit; cursor: pointer;
-    transition: all 0.12s ease;
-    display: flex; align-items: center; gap: 5px;
+    font: inherit; font-size: 11.5px; padding: 5px 9px; border-radius: 7px;
+    cursor: pointer; display: flex; align-items: center; gap: 5px;
+    border: 1px solid var(--input-bd); background: var(--card); color: var(--muted);
   }
-  .inbox-tab:hover { color: var(--text); }
-  .inbox-tab.active { background: var(--text); color: var(--bg); border-color: var(--text); }
   .inbox-tab .num {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    background: var(--border-lit);
-    padding: 0 5px; border-radius: 8px;
-    color: var(--text-mute);
+    font-size: 10px; font-family: var(--mono); padding: 0 5px;
+    border-radius: 7px; background: var(--hover-fill); color: var(--muted-2);
   }
-  .inbox-tab.active .num { background: var(--bg); color: var(--text); }
-  .inbox-list { padding: 8px; overflow-y: auto; flex: 1; }
+  .inbox-tab.active { border-color: var(--text); background: var(--text); color: #fff; }
+  .inbox-tab.active .num { background: rgba(255,255,255,.2); color: #fff; }
+  .inbox-list { flex: 1; overflow-y: auto; padding: 8px; }
+
   .review-item {
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    padding: 10px 12px;
-    cursor: pointer;
-    margin-bottom: 4px;
-    transition: all 0.12s ease;
+    padding: 10px 12px; border-radius: 9px; cursor: pointer; margin-bottom: 4px;
+    border: 1px solid transparent; background: transparent;
   }
-  .review-item:hover { background: var(--bg-elev-2); }
-  .review-item.selected { background: var(--bg-elev-2); border-color: var(--border-lit); }
+  .review-item:hover { background: var(--facts-bg); }
+  .review-item.active { border-color: #C9BBE8; background: var(--accent-bg); }
   .review-item-top {
-    display: flex; justify-content: space-between;
-    align-items: flex-start; margin-bottom: 4px; gap: 8px;
+    display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
   }
-  .review-author-line {
-    font-size: 12.5px;
-    font-weight: 600;
-    color: var(--text);
-  }
-  .review-stars-line {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 4px;
-    font-size: 11px;
-  }
+  .review-author { font-weight: 600; font-size: 12.5px; }
+  .review-time   { font-size: 11px; color: var(--dim); flex: none; }
+  .review-stars-line { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+  .review-stars { color: var(--red); font-size: 11px; letter-spacing: 1px; flex: none; }
   .review-exp {
-    color: var(--text-mute);
-    font-size: 10.5px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .review-stars { color: var(--red); font-size: 11px; letter-spacing: 1px; }
-  .review-time {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px; color: var(--text-dim); flex-shrink: 0;
+    font-size: 11px; color: var(--muted-2);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .review-preview {
-    font-size: 12px; color: var(--text);
-    line-height: 1.4; margin-bottom: 6px;
-    display: -webkit-box; -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical; overflow: hidden;
+    font-size: 12px; color: var(--body); margin-top: 4px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   }
-  .review-tags { display: flex; gap: 3px; flex-wrap: wrap; }
+  .review-tags { display: flex; gap: 5px; margin-top: 6px; align-items: center; }
+  /* One stage chip per card carries the colour; language is plain text. */
   .tag {
-    font-size: 9.5px; padding: 2px 6px; border-radius: 3px;
-    font-family: 'JetBrains Mono', monospace;
-    font-weight: 600; text-transform: uppercase;
-    letter-spacing: 0.04em;
+    font-size: 10px; font-weight: 700; letter-spacing: .04em;
+    padding: 2px 7px; border-radius: 5px;
+    background: var(--hover-fill); color: var(--muted);
   }
-  /* Every inbox card carried three tags in three different hues - language,
-     status and tier - so a list of thirty reviews was ninety coloured chips
-     and no card stood out from any other. Language and status are context,
-     not alarm: they go neutral. Colour is kept only where it tells the
-     reader to do something - untraceable needs a human, sent is finished. */
-  .tag-lang { background: var(--bg-elev-3); color: var(--text-mute); }
-  .tag-new { background: var(--bg-elev-3); color: var(--text-mute); }
-  .tag-draft { background: var(--bg-elev-3); color: var(--text-mute); }
-  .tag-sent { background: var(--green-bg); color: var(--green); }
-  .tag-t1 { background: var(--bg-elev-3); color: var(--text-mute); }
-  .tag-t2 { background: var(--bg-elev-3); color: var(--text-mute); }
-  .tag-untr { background: var(--amber-bg); color: var(--amber); }
-  .tag-ch1 { background: rgba(125, 181, 242, 0.1); color: #7DB5F2; }
-  .tag-ch2 { background: rgba(242, 125, 181, 0.1); color: #F27DB5; }
+  .tag.stage-ok   { background: var(--green-bg); color: var(--green); }
+  .tag.stage-warn { background: var(--amber-bg); color: var(--amber); }
+  .tag.stage-bad  { background: var(--red-bg);   color: var(--red); }
+  .tag-lang { background: none; padding: 0; font-size: 10.5px; font-weight: 400; color: var(--dim); }
   .inbox-footer {
-    padding: 10px 12px;
-    border-top: 1px solid var(--border);
-    background: var(--bg-elev);
+    padding: 10px 12px; border-top: 1px solid #EEECE6; display: flex; gap: 8px;
   }
-  .add-manual-btn, .reporting-link {
-    width: 100%;
-    background: transparent;
-    border: 1px dashed var(--border-lit);
-    color: var(--text-mute);
-    padding: 8px;
-    border-radius: 8px;
-    font-family: inherit; font-size: 11.5px;
-    cursor: pointer; margin-bottom: 6px;
-    display: flex; align-items: center; justify-content: center; gap: 5px;
-    transition: all 0.12s ease;
-  }
-  .add-manual-btn:hover, .reporting-link:hover {
-    color: var(--text); border-color: var(--text-mute);
-  }
-  .empty-state {
-    padding: 30px 16px;
-    text-align: center;
-    color: var(--text-dim);
-    font-size: 12px;
-    font-style: italic;
-  }
+  .inbox-footer .add-manual-btn { flex: 1; padding: 7px; border-radius: 7px; text-align: center; }
+  .inbox-footer .reporting-link { flex: 1; padding: 7px; border-radius: 7px; background: none; }
 
-  /* === COLUMN 2 === */
+  /* bulk job progress */
+  .bulk-bar { margin: 0 0 10px; }
+  .bulk-track { height: 4px; background: var(--hover-fill); border-radius: 3px; overflow: hidden; }
+  .bulk-fill { height: 100%; width: 0; background: var(--accent); transition: width .3s ease; }
+  .bulk-meta {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 10.5px; color: var(--muted-2); margin-top: 4px;
+  }
+  .bulk-cancel { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 10.5px; }
+  .bulk-cancel:hover { color: var(--red); }
+
+  /* ── column 2 · the facts ────────────────────────────────────────────── */
   .review-col {
-    background: var(--bg);
-    border-right: 1px solid var(--border);
-    overflow-y: auto;
-    padding: 22px 22px 80px;
+    width: 410px; flex: none; border-right: 1px solid var(--border);
+    overflow-y: auto; padding: 20px 20px 60px; background: var(--facts-bg);
   }
-  .breadcrumb {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 11.5px; color: var(--text-mute);
-    margin-bottom: 16px;
-    font-family: 'JetBrains Mono', monospace;
+  .col-label {
+    font-size: 11px; font-weight: 650; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--dim); margin-bottom: 14px;
   }
-  .breadcrumb .sep { color: var(--text-dim); }
-  .breadcrumb .current { color: var(--text); }
-
-  .section { margin-bottom: 22px; }
-  .section-label {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 10.5px; text-transform: uppercase;
-    letter-spacing: 0.08em; color: var(--text-dim);
-    font-weight: 600; margin-bottom: 8px;
-  }
-  /* One lime dot per heading is fourteen lime dots down the panel, none of
-     which mean anything. The heading is already a heading. */
-  .section-label .marker {
-    width: 5px; height: 5px; border-radius: 50%;
-    background: var(--border-lit);
-  }
+  .breadcrumb { font-size: 11.5px; color: var(--muted-2); margin-bottom: 10px; }
 
   .review-card {
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px 16px;
-    border-left: 2px solid rgba(242, 107, 107, 0.45);
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px; margin-bottom: 14px;
   }
   .review-card-head {
-    display: flex; justify-content: space-between;
-    align-items: flex-start; margin-bottom: 8px; gap: 10px;
+    display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
   }
-  .review-author { font-size: 15px; font-weight: 600; }
-  .review-meta {
-    font-size: 11.5px; color: var(--text-mute);
-    font-family: 'JetBrains Mono', monospace;
-  }
-  .review-body-original {
-    font-size: 13px; color: var(--text);
-    line-height: 1.55; white-space: pre-wrap;
-  }
+  .review-author-line { font-weight: 650; font-size: 14px; }
+  .review-meta { font-size: 11.5px; color: var(--muted-2); }
+  .review-card .review-stars { font-size: 12px; letter-spacing: 2px; margin: 2px 0 8px; display: block; }
+  .review-body-original { font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
   .translation-card {
-    margin-top: 8px;
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px 16px;
-    border-left: 2px solid var(--border-lit);
+    margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border);
+    background: none; border-radius: 0;
   }
   .translation-label {
-    font-size: 9.5px; color: var(--blue);
-    font-family: 'JetBrains Mono', monospace;
-    text-transform: uppercase; letter-spacing: 0.08em;
-    margin-bottom: 6px; font-weight: 600;
+    font-size: 10.5px; font-weight: 650; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--dim); margin-bottom: 4px;
   }
-  .translation-body { font-size: 13px; color: var(--text); line-height: 1.55; }
+  .translation-body { font-size: 12.5px; color: var(--body); line-height: 1.6; }
+
+  /* facts sub-heading + its inline control */
+  .facts-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 6px; gap: 8px;
+  }
+  .facts-head-title { font-size: 12px; font-weight: 650; color: var(--body); }
+  .facts-block { margin-bottom: 14px; }
 
   .match-card {
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px 14px;
-    display: flex; align-items: center; gap: 12px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px;
   }
+  .match-top { display: flex; align-items: center; gap: 10px; }
   .match-tier-badge {
-    width: 34px; height: 34px;
-    border-radius: 7px;
+    flex: none; width: 34px; height: 34px; border-radius: 8px;
     display: flex; align-items: center; justify-content: center;
-    font-weight: 700; font-size: 13px; flex-shrink: 0;
-    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700; font-size: 13px; font-family: var(--mono);
+    background: var(--hover-fill); color: var(--muted);
   }
-  .match-tier-badge.t1 { background: var(--green-bg); color: var(--green); }
-  .match-tier-badge.t2 { background: var(--amber-bg); color: var(--amber); }
-  .match-info { flex: 1; }
-  .match-title { font-size: 12.5px; font-weight: 600; margin-bottom: 2px; }
-  .match-method { font-size: 11px; color: var(--text-mute); }
+  .match-tier-badge.t1   { background: var(--green-bg); color: var(--green); }
+  .match-tier-badge.t2, .match-tier-badge.t3 { background: var(--amber-bg); color: var(--amber); }
+  .match-tier-badge.untr { background: var(--red-bg); color: var(--red); }
+  .match-title  { font-weight: 600; font-size: 12.5px; }
+  .match-method { font-size: 11.5px; color: var(--muted-2); }
+  .match-foot {
+    margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border);
+    font-size: 11.5px; color: var(--muted-2); line-height: 1.55;
+  }
+  .match-foot strong { color: var(--body); font-weight: 600; }
+  .match-warn {
+    margin-top: 10px; font-size: 12px; color: var(--amber);
+    background: var(--amber-bg); border-radius: 7px; padding: 8px 10px; line-height: 1.55;
+  }
 
-  .candidates-picker {
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px 16px;
-    margin-top: 10px;
-  }
-  .candidates-picker-label {
-    font-size: 10px;
-    color: var(--amber);
-    font-family: 'JetBrains Mono', monospace;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    font-weight: 600;
-    margin-bottom: 10px;
-  }
-  .candidate-card {
-    background: var(--bg-elev-3);
-    border: 1.5px solid var(--border);
-    border-radius: 6px;
-    padding: 12px 14px;
-    margin-bottom: 8px;
-    cursor: pointer;
-    transition: all 0.12s ease;
-  }
-  .candidate-card:last-child { margin-bottom: 0; }
-  .candidate-card:hover { border-color: var(--text-mute); }
-  .candidate-card.selected {
-    border-color: var(--accent);
-    background: rgba(196, 242, 91, 0.04);
-  }
-  .candidate-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 6px;
-    gap: 8px;
-  }
-  .candidate-bid {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12.5px;
-    font-weight: 600;
-    color: var(--blue);
-  }
-  .candidate-score {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    color: var(--text-mute);
-  }
-  .candidate-score-bar {
-    display: inline-block;
-    width: 50px;
-    height: 4px;
-    background: var(--border);
-    border-radius: 2px;
-    margin-right: 6px;
-    vertical-align: middle;
-    overflow: hidden;
-  }
-  .candidate-score-fill {
-    height: 100%;
-    background: var(--accent);
-  }
-  .candidate-exp {
-    font-size: 12.5px;
-    color: var(--text);
-    font-weight: 500;
-    margin-bottom: 4px;
-  }
-  .candidate-meta {
-    font-size: 11px;
-    color: var(--text-mute);
-    margin-bottom: 6px;
-  }
-  .candidate-reasons {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-  .candidate-reason-pill {
-    font-size: 9.5px;
-    background: var(--green-bg);
-    color: var(--green);
-    padding: 2px 6px;
-    border-radius: 3px;
-    font-weight: 500;
-  }
-  .candidate-confirm-btn {
-    background: var(--accent);
-    color: var(--bg);
-    border: none;
-    padding: 9px 14px;
-    border-radius: 5px;
-    font-family: inherit;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    margin-top: 10px;
-    width: 100%;
-  }
-  .confidence-trail {
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px 14px;
-    margin-top: 8px;
-  }
+  /* match trail — "how we built this match" */
+  .confidence-trail { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
   .confidence-trail-label {
-    font-size: 10px;
-    color: var(--amber);
-    font-family: 'JetBrains Mono', monospace;
-    text-transform: uppercase; letter-spacing: 0.06em;
-    font-weight: 600; margin-bottom: 8px;
+    font-size: 10.5px; font-weight: 650; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--dim); margin-bottom: 5px;
   }
   .conf-step {
-    display: grid;
-    grid-template-columns: 16px 1fr;
-    gap: 10px;
-    padding: 4px 0;
-    font-size: 11.5px;
-    align-items: baseline;
+    display: flex; gap: 8px; font-size: 12px; padding: 2px 0;
+    align-items: baseline; color: var(--body);
   }
-  .conf-step .mark {
-    color: var(--green);
-    font-weight: 700;
-    font-size: 10.5px;
-  }
-  .conf-step .mark.fail { color: var(--red); }
-  .conf-step .mark.warn { color: var(--amber); }
-  .conf-step .label-text { color: var(--text-mute); }
-  .conf-step .label-text strong { color: var(--text); font-weight: 600; }
+  .conf-step .mark { flex: none; font-weight: 700; font-size: 11px; }
+  .conf-step.pass .mark { color: var(--green); }
+  .conf-step.warn .mark, .conf-step.fail .mark { color: var(--amber); }
 
-  .details-grid {
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
+  /* candidate picker */
+  .candidates-picker { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .candidates-picker-label {
+    font-size: 10.5px; font-weight: 650; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--dim);
   }
-  /* Sixteen rows each drawn as a full-width box made the experience panel a
-     wall of cells. The separator is kept - a key/value table needs one to
-     stay scannable - but at a weight that guides rather than divides. */
+  .candidate-card {
+    padding: 10px 12px; border-radius: 8px; cursor: pointer;
+    border: 1.5px solid var(--border); background: var(--facts-bg);
+  }
+  .candidate-card.active, .candidate-card.selected { border-color: var(--accent); background: var(--accent-bg); }
+  .candidate-top { display: flex; justify-content: space-between; align-items: center; }
+  .candidate-bid { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--accent); }
+  .candidate-radio {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 1.5px solid #C9C4BA; background: #fff; box-sizing: border-box;
+  }
+  .candidate-card.active .candidate-radio, .candidate-card.selected .candidate-radio { border: 4px solid var(--accent); }
+  .candidate-exp  { font-size: 12px; margin-top: 2px; }
+  .candidate-meta, .candidate-reasons { font-size: 11px; color: var(--muted-2); }
+  .candidate-score { font-size: 11px; color: var(--muted-2); }
+  .candidate-score-bar { height: 3px; background: var(--hover-fill); border-radius: 2px; margin-top: 4px; overflow: hidden; }
+  .candidate-score-fill { height: 100%; background: var(--accent); }
+  .candidate-reason-pill {
+    font-size: 10px; padding: 1px 6px; border-radius: 5px;
+    background: var(--hover-fill); color: var(--muted); margin-right: 4px;
+  }
+  .picker-actions { display: flex; gap: 8px; margin-top: 4px; }
+  .picker-actions .candidate-confirm-btn { flex: 1; padding: 8px; border-radius: 7px; font-size: 12px; }
+  .picker-actions .skip-btn { padding: 8px 10px; border-radius: 7px; font-size: 12px; color: var(--muted); }
+
+  /* booking details */
+  .details-grid { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 6px 0; }
   .detail-row {
-    display: grid;
-    grid-template-columns: 120px 1fr;
-    padding: 6px 14px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.035);
-    font-size: 12px;
-    align-items: center;
+    display: grid; grid-template-columns: 118px 1fr; padding: 4px 16px;
+    font-size: 12px; align-items: baseline;
   }
-  .detail-row:last-child { border-bottom: none; }
-  .detail-row:last-child { border-bottom: none; }
-  .detail-row .k { color: var(--text-mute); font-size: 11px; }
-  .detail-row .v { color: var(--text); font-weight: 500; }
-  .detail-row .v.mono { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; }
-  .detail-row .v.placeholder { color: var(--text-dim); font-style: italic; }
-  .booking-status-pill {
-    display: inline-block;
-    padding: 1px 7px;
-    border-radius: 3px;
-    font-size: 10.5px;
-    font-weight: 600;
-    font-family: 'JetBrains Mono', monospace;
-    text-transform: uppercase;
-  }
-  .status-cancelled { background: var(--red-bg); color: var(--red); }
-  .status-complete { background: var(--green-bg); color: var(--green); }
-  .status-pending { background: var(--amber-bg); color: var(--amber); }
-  .pill-sm {
-    display: inline-block;
-    padding: 1px 6px;
-    border-radius: 3px;
-    font-size: 10.5px;
-    font-weight: 600;
-    font-family: 'JetBrains Mono', monospace;
-  }
-  .pill-green { background: var(--green-bg); color: var(--green); }
-  .pill-grey  { background: var(--bg-elev-3, #2a2a2a); color: var(--text-mute); }
-  .pill-red   { background: var(--red-bg); color: var(--red); }
-  .bms-link, .tgid-link {
-    color: var(--accent, #7c93ff);
-    text-decoration: underline;
-    text-decoration-style: dotted;
-  }
-  .bms-link:hover, .tgid-link:hover { text-decoration-style: solid; }
+  .detail-row .k { color: var(--muted-2); font-size: 11.5px; }
+  .detail-row .v { font-weight: 500; overflow-wrap: anywhere; }
+  .detail-row .v.mono { font-family: var(--mono); font-size: 11.5px; }
+  .detail-row .v.dim, .detail-row .v .placeholder { color: var(--empty); }
+  .booking-status-pill { font-size: 11px; padding: 1px 7px; border-radius: 5px; background: var(--hover-fill); color: var(--muted); }
+  .bms-link, .tgid-link, .dss-row-ref { font-family: var(--mono); font-size: 11.5px; }
 
-  .timeline {
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px 16px;
-  }
-  .tl-event {
-    display: grid;
-    grid-template-columns: 80px 1fr;
-    padding: 7px 0;
-    gap: 12px;
-    border-bottom: 1px solid var(--border);
-    align-items: flex-start;
-    font-size: 12px;
-  }
-  .tl-event:last-of-type { border-bottom: none; }
-  .tl-time {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10.5px; color: var(--text-dim);
-    padding-top: 1px;
-  }
-  .tl-content {
-    display: flex; flex-direction: column; gap: 4px;
-    /* .tl-event is a CSS grid with an "80px 1fr" track. A grid item's default
-       min-width is auto, not 0 - so the 1fr track does not actually shrink
-       below the intrinsic width of whatever is inside it. A label longer
-       than the old 1-3 word vocabulary ("Booking-in-progress email sent" vs
-       "Tickets sent") was wide enough to blow the row past the panel width,
-       which is the horizontal scrollbar and the one-word-per-line stacking
-       in the screenshot - not a text-wrapping bug, a sizing one. */
-    min-width: 0;
-  }
-  .tl-header {
-    display: flex; align-items: center; gap: 6px 8px;
-    /* nowrap forced the label to shrink toward its narrowest breakable unit
-       instead of letting the thread pill / flag / ticket link drop to a
-       second line, which is what actually produced the word-per-line stack. */
-    flex-wrap: wrap;
-  }
-  .tl-thread {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9px;
-    padding: 2px 6px;
-    border-radius: 3px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    font-weight: 600;
-    flex-shrink: 0;
-  }
-  .tl-thread.chat { background: rgba(124, 138, 245, 0.15); color: #7C8AF5; }
-  .tl-thread.email { background: rgba(95, 170, 240, 0.15); color: #5FAAF0; }
-  .tl-thread.sp { background: rgba(160, 122, 234, 0.15); color: #A07AEA; }
-  .tl-thread.booking { background: rgba(93, 204, 140, 0.15); color: var(--green); }
-  .tl-thread.review { background: rgba(242, 107, 107, 0.15); color: var(--red); }
-  /* web = the guest used the help-centre form; api = an integration posted it.
-     Both used to be labelled "email", so a form submission and a machine post
-     wore a third thing's name on every ticket. */
-  .tl-thread.web { background: rgba(120, 190, 200, 0.15); color: #78BEC8; }
-  .tl-thread.api { background: rgba(150, 150, 160, 0.15); color: #9696A0; }
-  .tl-actor {
-    font-size: 10.5px; font-weight: 600;
-    text-transform: uppercase; letter-spacing: 0.04em;
-  }
-  .tl-actor.creation { color: var(--blue); }
-  .tl-actor.support { color: var(--amber); }
-  .tl-actor.sp { color: var(--purple); }
-  .tl-actor.review { color: var(--red); }
-  .tl-actor.ai { color: #FA8BFF; }
-  .tl-summary { color: var(--text); line-height: 1.5; }
-  .tl-internal { opacity: .55; }
-  .tl-flag {
-    font-size: 10px; letter-spacing: .04em; text-transform: uppercase;
-    color: var(--amber); border: 1px solid var(--amber); border-radius: 3px;
-    padding: 0 4px; margin-left: 6px; white-space: nowrap;
-  }
-  .tl-tid {
-    font-size: 10px; color: var(--text-mute); margin-left: 6px;
-    text-decoration: none; border-bottom: 1px dotted var(--text-mute);
-    /* "ZD-34011333" was breaking after the hyphen in the narrow panel,
-       leaving "ZD-" on one line and the number on the next - a wrapped
-       fragment that read as UI garbage rather than as a link. The whole id
-       moves to the next line together or not at all. */
-    white-space: nowrap;
-  }
-  .tl-tid:hover { color: var(--accent); border-bottom-color: var(--accent); }
-  .tl-hidden-note {
-    font-size: 11px; color: var(--text-mute); cursor: pointer;
-    padding: 7px 0 2px; user-select: none;
-  }
-  .tl-hidden-note:hover { color: var(--accent); }
-  .timeline-summary {
-    margin-top: 10px;
-    padding-top: 10px;
-    border-top: 1px dashed var(--border);
-    font-size: 12px;
-    color: var(--text-mute);
-    line-height: 1.5;
-  }
-  .timeline-summary strong { color: var(--text); font-weight: 600; }
-
-  .insights-wrap {
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
-  }
+  /* insights */
   .insights-header {
-    padding: 9px 12px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background: var(--bg-elev-3);
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;
   }
-  .insights-title { font-size: 11px; color: var(--text-mute); font-weight: 600; }
-  .window-picker {
-    display: flex;
-    gap: 2px;
-    background: var(--bg-elev);
-    border-radius: 5px;
-    padding: 2px;
-  }
+  .insights-title { font-size: 12px; font-weight: 650; color: var(--body); }
+  .window-picker { display: flex; gap: 2px; background: var(--hover-fill); border-radius: 6px; padding: 2px; }
   .window-btn {
-    background: transparent;
-    border: none;
-    color: var(--text-dim);
-    padding: 3px 8px;
-    font-size: 10.5px;
-    font-family: 'JetBrains Mono', monospace;
-    border-radius: 3px;
-    cursor: pointer;
-    font-weight: 500;
-    transition: all 0.12s ease;
+    font: inherit; font-size: 11px; font-family: var(--mono);
+    padding: 2px 8px; border-radius: 5px; border: none; cursor: pointer;
+    background: transparent; color: var(--muted-2);
   }
-  .window-btn:hover { color: var(--text); }
-  .window-btn.active { background: var(--text); color: var(--bg); }
-  .insights-grid {
-    padding: 12px;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
+  .window-btn.active { background: #fff; color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .insights-wrap { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  /* Group headings and the footnote span the whole 2-col grid; the note is
+     ordered last so it reads as a footnote wherever the builder emits it. */
+  .insight-group { grid-column: 1 / -1; margin: 4px 0 0; font-size: 10.5px;
+                   font-weight: 650; letter-spacing: .05em; text-transform: uppercase;
+                   color: var(--dim); }
+  .insight-group:first-child { margin-top: 0; }
+  .insight-note { grid-column: 1 / -1; order: 99; margin-top: 4px; }
+  .insight-group > .label-text {
+    font-size: 10.5px; font-weight: 650; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--dim); margin-bottom: 6px; display: block;
   }
-  .insight-tile {
-    background: var(--bg-elev-3);
-    border-radius: 6px;
-    padding: 10px 12px;
-    min-width: 0;
-    overflow: hidden;
-  }
-  #build-stamp.is-stale {
-    color: var(--red, #ff5c5c); opacity: 1; font-weight: 700;
-  }
-  #build-stamp.is-deploy {
-    color: var(--amber); opacity: .95; font-weight: 600;
-  }
-  .insight-group {
-    grid-column: 1 / -1;
-    font-size: 9.5px;
-    font-weight: 700;
-    letter-spacing: .09em;
-    text-transform: uppercase;
-    color: var(--text-dim);
-    margin: 10px 0 -2px;
-    padding-bottom: 5px;
-    border-bottom: 1px solid var(--border);
-  }
-  .insight-group:first-of-type { margin-top: 0; }
-  .insight-group { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-  .group-range {
-    font-weight: 500; letter-spacing: .02em; text-transform: none;
-    color: var(--text-mute); font-size: 10px; white-space: nowrap;
-  }
-  .tile-empty {
-    font-size: 12px; font-weight: 400; color: var(--text-mute);
-    font-family: inherit; letter-spacing: .01em;
-  }
-  .tile-pct {
-    font-size: 11px; font-weight: 600; color: var(--text-dim);
-    margin-left: 4px;
-  }
-  .flag-biz-btn.full { grid-column: 1 / -1; }
-  .tile-why {
-    font-size: 10.5px; font-weight: 400; color: var(--text-mute);
-    font-family: system-ui, sans-serif; letter-spacing: 0;
-    margin-top: 5px; line-height: 1.45;
-  }
-  .why-n { color: var(--text-dim); font-weight: 700; }
-  .tile-n {
-    font-size: 11px; font-weight: 400; color: var(--text-mute);
-    letter-spacing: 0; margin-left: 2px;
-  }
-  /* Hidden while everything agrees. The env pill in the top bar already
-     names the build and the database; this said the same thing a second
-     time, in the corner, over the content. It earns its place only when the
-     page and the server disagree - which is exactly when it is the answer. */
-  #build-stamp {
-    position: fixed; right: 8px; bottom: 6px; z-index: 40;
-    font-size: 10px; font-family: var(--mono, monospace);
-    color: var(--text-mute); opacity: .5; pointer-events: none;
-    letter-spacing: .3px;
-    display: none;
-  }
-  #build-stamp.is-stale, #build-stamp.is-deploy { display: block; }
+  .insights-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-items: start; }
+  .insight-tile { background: var(--inset); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+  .insight-tile-label { font-size: 10.5px; color: var(--muted-2); margin-bottom: 2px; }
+  .insight-tile-value { font-size: 15px; font-weight: 650; color: var(--text); font-family: var(--mono); }
+  .insight-tile-value.tile-empty { font-size: 12px; font-weight: 500; color: var(--empty); font-style: italic; font-family: var(--sans); }
+  .insight-tile-sub, .tile-n, .tile-why { font-size: 10.5px; color: var(--muted-2); font-family: var(--sans); font-weight: 400; }
   .insight-note {
-    grid-column: 1 / -1;
-    font-size: 11px;
-    color: var(--amber);
-    background: rgba(255,176,32,.07);
-    border: 1px solid rgba(255,176,32,.18);
-    border-radius: 6px;
-    padding: 7px 10px;
-    margin-bottom: 2px;
-    line-height: 1.45;
-  }
-  .insight-tile-label {
-    font-size: 10px;
-    color: var(--text-mute);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 4px;
-    font-weight: 600;
-  }
-  .insight-tile-value {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text);
-    font-family: 'JetBrains Mono', monospace;
-  }
-  .insight-tile-sub {
-    font-size: 10px;
-    color: var(--text-dim);
-    margin-top: 2px;
-  }
-  .insight-tile.amber .insight-tile-value { color: var(--amber); }
-  .insight-tile.red .insight-tile-value { color: var(--red); }
-  .insight-tile.red { box-shadow: inset 2px 0 0 var(--red); }
-  .insight-tile.grey .insight-tile-value { color: var(--text-mute); }
-  .insight-tile.green .insight-tile-value { color: var(--green); }
-  .insight-tile.full { grid-column: 1 / -1; }
-  .similar-summary-line {
-    font-size: 11.5px;
-    color: var(--text);
-    line-height: 1.5;
-    padding: 6px 0 8px;
-    border-bottom: 1px dashed var(--border);
-    margin-bottom: 4px;
-  }
-  .similar-summary-line strong { color: var(--accent); font-weight: 600; }
-  .similar-list { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; margin-bottom: 8px; }
-  .similar-sub-label {
-    font-size: 9.5px;
-    color: var(--text-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    font-weight: 600;
-    margin-top: 8px;
-    margin-bottom: 2px;
-    font-family: 'JetBrains Mono', monospace;
-  }
-  .dss-card {
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--amber);
-    border-radius: 8px;
-    padding: 12px 14px;
-  }
-  .dss-row {
-    display: grid;
-    grid-template-columns: 130px 1fr;
-    gap: 10px;
-    padding: 5px 0;
-    font-size: 12px;
-  }
-  .dss-row .k {
-    color: var(--text-dim);
-    font-size: 10.5px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .dss-row .v.placeholder {
-    color: var(--text-mute);
-    font-style: italic;
-  }
-  .dss-note {
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px dashed var(--border);
-    font-size: 10.5px;
-    color: var(--text-dim);
-    font-style: italic;
-  }
-  .placeholder-tag {
-    margin-left: auto;
-    font-size: 9px;
-    background: var(--amber-bg);
-    color: var(--amber);
-    padding: 2px 6px;
-    border-radius: 3px;
-    font-family: 'JetBrains Mono', monospace;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .flag-modal-backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(4px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
-  .flag-modal {
-    background: var(--bg-elev);
-    border: 1px solid var(--border-lit);
-    border-radius: 12px;
-    width: 520px;
-    max-width: 90vw;
-    max-height: 80vh;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  }
-  .flag-modal-head {
-    padding: 14px 18px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .flag-modal-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text);
-  }
-  .flag-modal-close {
-    background: transparent;
-    border: none;
-    color: var(--text-mute);
-    font-size: 18px;
-    cursor: pointer;
-    line-height: 1;
-    padding: 0 4px;
-  }
-  .flag-modal-close:hover { color: var(--text); }
-  .flag-modal-body {
-    padding: 16px 18px;
-    overflow-y: auto;
-    flex: 1;
-  }
-  .flag-modal-row {
-    margin-bottom: 12px;
-  }
-  .flag-modal-row label {
-    display: block;
-    font-size: 10.5px;
-    color: var(--text-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    font-weight: 600;
-    margin-bottom: 5px;
-    font-family: 'JetBrains Mono', monospace;
-  }
-  .flag-dest {
-    font-size: 13px; color: var(--text); padding: 7px 0;
-  }
-  .flag-hint {
-    grid-column: 2; font-size: 11px; color: var(--text-mute); margin-top: 4px;
-  }
-  .flag-input {
-    width: 100%;
-    background: var(--bg-elev-3);
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 8px 10px;
-    border-radius: 5px;
-    font-family: inherit;
-    font-size: 13px;
-    outline: none;
-  }
-  .flag-input:focus { border-color: var(--accent); }
-  .flag-textarea {
-    width: 100%;
-    min-height: 140px;
-    background: var(--bg-elev-3);
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 10px 12px;
-    border-radius: 5px;
-    font-family: inherit;
-    font-size: 12.5px;
-    line-height: 1.55;
-    outline: none;
-    resize: vertical;
-  }
-  .flag-textarea:focus { border-color: var(--accent); }
-  .flag-modal-actions {
-    padding: 12px 18px;
-    border-top: 1px solid var(--border);
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
-  }
-    margin-top: 8px;
-    background: var(--red-bg);
-    border: 1px solid rgba(242, 107, 107, 0.35);
-    color: var(--red);
-    padding: 6px 10px;
-    border-radius: 5px;
-    font-family: inherit;
-    font-size: 10.5px;
-    font-weight: 600;
-    cursor: pointer;
-    width: 100%;
-    transition: all 0.12s ease;
-  }
-  .flag-biz-btn:hover {
-    background: rgba(242, 107, 107, 0.2);
-    border-color: var(--red);
-  }
-  .flag-biz-btn.flagged {
-    background: var(--green-bg);
-    border-color: rgba(93, 204, 140, 0.35);
-    color: var(--green);
-  }
-  .similar-empty {
-    font-size: 10.5px;
-    color: var(--text-dim);
-    font-style: italic;
-    padding: 4px 0;
-  }
-    font-size: 10.5px;
-    color: var(--text-dim);
-    font-style: italic;
-    padding: 4px 0;
-  }
-  .similar-item {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 11px; padding: 5px 8px;
-    background: var(--bg-elev); border-radius: 5px;
-    width: 100%; min-width: 0; box-sizing: border-box;
-  }
-  .similar-item .ref { font-family: 'JetBrains Mono', monospace; color: var(--blue); font-size: 10.5px; flex-shrink: 0; }
-  .similar-item .desc { flex: 1 1 0; min-width: 0; color: var(--text-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .similar-item .date { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-dim); flex-shrink: 0; }
-
-  /* === COLUMN 3 === */
-  .rca-col {
-    background: var(--bg);
-    overflow-y: auto;
-    padding: 22px 24px 100px;
-    position: relative;
-  }
-  .rca-head {
-    display: flex; justify-content: space-between;
-    align-items: flex-start; margin-bottom: 18px;
-    padding-bottom: 14px;
-    border-bottom: 1px solid var(--border);
-  }
-  .rca-title-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .rca-edit-icon {
-    color: var(--text-dim);
-    font-size: 12px;
-    cursor: pointer;
-    opacity: 0.7;
-    transition: opacity 0.12s ease;
-  }
-  .rca-edit-icon:hover { opacity: 1; color: var(--accent); }
-  .rca-title {
-    font-size: 15px; font-weight: 600;
-    margin-bottom: 4px;
-    line-height: 1.3;
-    border-radius: 4px;
-    padding: 2px 4px;
-    margin-left: -4px;
-    transition: background 0.12s ease, box-shadow 0.12s ease;
-    outline: none;
-  }
-  .editable-text {
-    border-radius: 3px;
-    padding: 1px 4px;
-    margin-left: -4px;
-    margin-right: -4px;
-    transition: background 0.12s ease, box-shadow 0.12s ease;
-    outline: none;
-    cursor: text;
-  }
-  .editable-text:hover { background: rgba(196, 242, 91, 0.06); }
-  .editable-text:focus {
-    background: var(--bg-elev-3);
-    box-shadow: 0 0 0 2px var(--accent);
-  }
-  .rca-title[contenteditable="true"]:hover {
-    background: var(--bg-elev-2);
-  }
-  .rca-title[contenteditable="true"]:focus {
-    background: var(--bg-elev-2);
-    box-shadow: 0 0 0 2px var(--accent);
-  }
-  .rca-sub {
-    font-size: 11.5px; color: var(--text-mute);
-    font-family: 'JetBrains Mono', monospace;
-  }
-  /* This mark appears on roughly fourteen headings. As a lime-to-blue
-     gradient chip it read as fourteen buttons competing with the content;
-     the reader already knows the panel is AI-written. Reduced to a quiet
-     monogram that can be found when looked for and ignored otherwise. */
-  .ai-tag-inline {
-    background: none;
-    color: var(--text-dim);
-    border: 1px solid var(--border);
-    padding: 1px 4px;
-    border-radius: 3px;
-    font-size: 8.5px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-left: 6px;
+    display: flex; gap: 6px; align-items: baseline; padding-top: 8px;
+    border-top: 1px dashed var(--border); font-size: 11.5px;
+    color: var(--amber); line-height: 1.5;
   }
 
-  .stated-issue {
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px 14px;
-    border-left: 2px solid var(--border-lit);
-  }
-  .stated-issue-text {
-    font-size: 12.5px;
-    color: var(--text);
-    line-height: 1.55;
-  }
-  .stated-issue-text strong { font-weight: 600; }
-
+  /* classification */
   .classify-block {
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px 16px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px; margin-top: 14px;
   }
-  .classify-row {
-    display: flex; gap: 10px;
-    align-items: center; margin-bottom: 8px;
+  .classify-selects { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 6px; }
+  .classify-row { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted-2); }
+  .classify-label { font-size: 11px; color: var(--muted-2); }
+  .classify-select, .field-input, select.classify-select {
+    font: inherit; font-size: 12.5px; padding: 6px 8px; border-radius: 6px;
+    border: 1px solid var(--input-bd); background: var(--facts-bg); color: var(--text);
+    max-width: 100%;
   }
-  .classify-row:last-of-type { margin-bottom: 0; }
-  /* 24px fits "L1" and nothing else: "Sub-theme", "Scenario" and "Overlay"
-     were cut mid-word to "SUB-THEMI", "SCENA", "OVERI". Sized to the longest
-     label instead, and no longer shouted in caps. */
-  .classify-label {
-    font-size: 11px; color: var(--text-mute);
-    letter-spacing: 0.01em;
-    font-weight: 500; width: 78px;
-    flex-shrink: 0;
+  .classify-select:focus, .field-input:focus { outline: none; border-color: var(--accent); }
+  /* multi-value chip rows */
+  .chip-row {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    padding: 7px 0 3px; min-width: 0;
   }
-  .classify-select {
-    background: var(--bg-elev-3);
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 6px 10px;
-    border-radius: 5px;
-    font-family: inherit; font-size: 12.5px;
-    font-weight: 500; flex: 1; cursor: pointer;
+  .chip-row-label {
+    flex: none; width: 100%; font-size: 11px; color: var(--muted-2); margin-bottom: -2px;
   }
-  .classify-select:focus { outline: 1px solid var(--accent); }
-  .reasoning-text {
-    font-size: 11.5px;
-    color: var(--text-mute);
-    line-height: 1.5;
-    padding: 9px 11px;
-    background: var(--bg-elev-3);
-    border-radius: 5px;
-    border-left: 2px solid var(--accent);
-    margin-top: 8px;
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px;
+    padding: 3px 6px 3px 10px; border-radius: 12px;
+    background: var(--accent-bg); color: var(--body); border: 1px solid var(--accent-bd-2);
+  }
+  .chip button {
+    font: inherit; font-size: 11px; line-height: 1; border: none; background: none;
+    color: var(--dim); cursor: pointer; padding: 0 2px;
+  }
+  .chip button:hover { color: var(--red); }
+  .chip-add {
+    font: inherit; font-size: 11px; padding: 3px 6px; border-radius: 10px;
+    border: 1px dashed var(--dashed); background: none; color: var(--muted);
+    cursor: pointer; width: auto;
   }
 
-  .wwr-block {
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
+  /* ── column 3 · RCA & response ───────────────────────────────────────── */
+  .rca-col { flex: 1; min-width: 0; overflow-y: auto; padding: 20px 24px 40px; }
+  .rca-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 12px; margin-bottom: 14px; max-width: 720px;
   }
-  .checks-section {
-    padding: 12px 14px;
-    background: var(--bg-elev-3);
-    border-bottom: 1px solid var(--border);
+  .rca-title-row { display: flex; align-items: baseline; gap: 8px; }
+  .rca-title {
+    font-size: 11px; font-weight: 650; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--dim);
   }
-  .checks-title {
-    font-size: 10px;
-    color: var(--text-mute);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 6px;
-    font-family: 'JetBrains Mono', monospace;
+  .rca-edit-icon { display: none; }
+  .rca-sub { font-size: 11.5px; color: var(--muted-2); margin-top: 2px; }
+  .rca-head-actions { display: flex; gap: 8px; flex: none; }
+  .rca-head-actions .btn, .rca-head-actions .send-btn, .rca-head-actions .copy-response-btn {
+    font-size: 12.5px; padding: 7px 14px; border-radius: 7px;
   }
-  .check-item {
-    display: grid;
-    grid-template-columns: 22px 1fr;
-    gap: 10px;
-    padding: 8px 10px;
-    margin-bottom: 5px;
-    background: var(--bg-elev-3);
-    border-radius: 5px;
-    border-left: 2px solid var(--border);
-    align-items: flex-start;
-  }
-  .check-item.pass { border-left-color: var(--green); }
-  .check-item.fail { border-left-color: var(--red); background: rgba(242, 107, 107, 0.04); }
-  .check-item.warn { border-left-color: var(--amber); background: rgba(255, 175, 76, 0.04); }
-  .check-item .mark {
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: var(--green);
-    color: var(--bg);
-    font-size: 11px;
-    font-weight: 700;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    margin-top: 1px;
-  }
-  .check-item .mark.fail { background: var(--red); color: white; }
-  .check-item .mark.warn { background: var(--amber); color: var(--bg); }
-  .check-body {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-width: 0;
-  }
-  .check-q {
-    font-size: 11.5px;
-    color: var(--text);
-    font-weight: 500;
-    line-height: 1.4;
-  }
-  .check-a {
-    font-size: 11px;
-    color: var(--text-mute);
-    line-height: 1.45;
-  }
-  .check-item.fail .check-a { color: var(--red); font-weight: 500; }
-  .check-item.warn .check-a { color: var(--amber); font-weight: 500; }
-  .wwr-text { padding: 12px 14px; }
-  .wwr-textarea {
-    width: 100%;
-    background: transparent;
-    border: none;
-    color: var(--text);
-    font-family: inherit;
-    font-size: 12.5px;
-    line-height: 1.7;
-    resize: vertical;
-    outline: none;
-    min-height: 140px;
-    white-space: pre-wrap;
-  }
+  .rca-head-actions .send-btn { padding: 7px 16px; }
+  .rca-stack-outer { max-width: 720px; display: flex; flex-direction: column; gap: 12px; }
 
-  .field-block {
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px 14px;
+  /* every RCA block is a white card with a collapsible header */
+  .section {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px;
   }
-  .field-textarea {
-    width: 100%;
-    background: transparent;
-    border: none;
-    color: var(--text);
-    font-family: inherit;
-    font-size: 12.5px;
-    line-height: 1.55;
-    resize: none;
-    outline: none;
-    padding: 0;
-    min-height: 50px;
+  .section-label {
+    display: flex; align-items: baseline; gap: 8px;
+    font-size: 11px; font-weight: 650; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--dim);
+    margin-bottom: 8px; cursor: pointer; user-select: none;
   }
+  .section-label .marker { display: none; }
+  .section-chev {
+    margin-left: auto; flex: none; font-size: 10px; color: var(--dim);
+    cursor: pointer; user-select: none; padding: 2px 6px;
+  }
+  .section.is-collapsed > *:not(.section-label) { display: none; }
+  .section-label .hint,
+  .sec-count { font-size: 11px; color: var(--muted-2); text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .section-label .hint.dim { color: var(--empty); font-size: 10.5px; }
+  .ai-tag-inline { display: none; }
 
-  .interactions {
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0;
-    overflow: hidden;
+  /* inline-editable text: hover tint, purple focus ring */
+  .editable-text {
+    outline: none; border-radius: 4px; padding: 1px 4px; margin: -1px -4px;
+    cursor: text; display: inline-block; min-width: 40px;
   }
-  .interactions-empty {
-    padding: 20px 16px;
-    text-align: center;
-    color: var(--text-dim);
-    font-size: 11.5px;
-    font-style: italic;
+  .editable-text:hover { background: var(--accent-bg); }
+  .editable-text:focus { background: var(--accent-bg); box-shadow: 0 0 0 2px var(--accent); }
+  .rca-wrap, .editable-text.rca-wrap { display: block; overflow-wrap: anywhere; }
+  .stated-issue { background: none; border: none; padding: 0; }
+  .stated-issue-text { font-size: 13px; line-height: 1.55; }
+  .rca-empty { font-size: 12px; color: var(--empty); font-style: italic; }
+  .rca-empty.err { color: var(--amber); font-style: normal; }
+  .empty-state, .interactions-empty, .action-empty, .chk-none {
+    font-size: 12px; color: var(--empty); font-style: italic; padding: 4px 0;
   }
-  .convo-frame {
-    border-bottom: 1px solid var(--border);
-  }
-  .convo-frame:last-child { border-bottom: none; }
-  .convo-num {
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background: none;
-    border: 1px solid var(--border-lit);
-    color: var(--text-mute);
-    font-size: 10px;
-    font-weight: 600;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-family: 'JetBrains Mono', monospace;
-    flex-shrink: 0;
-  }
-  .convo-num.sp {
-    border-color: var(--purple);
-    color: var(--purple);
-  }
-  .sp-frame {
-    border-bottom: 1px solid var(--border);
-    padding: 12px 14px;
-  }
-  .sp-frame:last-child { border-bottom: none; }
-  .sp-frame-head {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 6px;
-  }
-  .sp-frame-body {
-    padding-left: 30px;
-  }
-  .sp-frame-summary {
-    font-size: 12px;
-    color: var(--text);
-    line-height: 1.5;
-  }
-  .convo-frame-head {
-    padding: 10px 14px;
-    background: transparent;
-    border: none;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    cursor: pointer;
-    color: var(--text);
-    font-family: inherit;
-    text-align: left;
-    transition: background 0.12s ease;
-  }
-  .convo-frame-head:hover { background: var(--bg-elev-3); }
-  .convo-frame.open .convo-frame-head { background: var(--bg-elev-3); }
-  .convo-type-pill {
-    font-size: 9.5px;
-    padding: 2px 7px;
-    border-radius: 3px;
-    font-family: 'JetBrains Mono', monospace;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    flex-shrink: 0;
-  }
-  .convo-type-pill.email { background: var(--blue-bg); color: var(--blue); }
-  .convo-type-pill.chat { background: var(--purple-bg); color: var(--purple); }
-  .convo-type-pill.call { background: var(--amber-bg); color: var(--amber); }
-  .convo-type-pill.sp { background: var(--red-bg); color: var(--red); }
-  .convo-time {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10.5px;
-    color: var(--text-dim);
-    flex-shrink: 0;
-  }
-  .convo-label {
-    flex: 1;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--text);
-  }
-  .convo-chevron {
-    color: var(--text-dim);
-    font-size: 11px;
-    transition: transform 0.12s ease;
-  }
-  .convo-frame.open .convo-chevron { transform: rotate(90deg); }
-  .convo-body {
-    padding: 0 14px 12px 14px;
-    display: none;
-  }
-  .convo-frame.open .convo-body { display: block; }
-  .convo-line {
-    display: grid;
-    grid-template-columns: 90px 1fr;
-    gap: 10px;
-    padding: 5px 0;
-    font-size: 12px;
+  .field-block { background: none; border: none; border-radius: 0; padding: 0; }
+  .rca-stack { display: flex; flex-direction: column; gap: 8px; }
+  .rca-kv { display: grid; grid-template-columns: 96px 1fr; gap: 6px 12px; font-size: 12.5px; min-width: 0; }
+  .rca-kv > span { min-width: 0; overflow-wrap: anywhere; }
+  .rca-kv > span:nth-child(odd) { color: var(--muted-2); }
+  .rca-points { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .rca-point { display: flex; gap: 6px; align-items: flex-start; font-size: 12px; min-width: 0; }
+  .rca-point > .rca-bullet { color: var(--empty); flex: none; }
+  .rca-point > .rca-ptext { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+
+  /* booking timeline */
+  .tl-row {
+    display: grid; grid-template-columns: 88px 1fr auto; gap: 12px;
+    padding: 6px 0; border-bottom: 1px solid var(--hairline); font-size: 12px;
     align-items: baseline;
   }
-  /* A line with no key label has ONE child, which lands in the 90px column -
-     so a full-width summary wrapped at about fifteen characters down a
-     narrow ribbon with the rest of the card empty beside it. */
-  .convo-line:not(:has(.k)) { grid-template-columns: 1fr; }
-  .convo-line .k {
-    color: var(--text-dim);
-    font-size: 10.5px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+  .tl-row:last-of-type { border-bottom: none; }
+  .tl-time { font-family: var(--mono); font-size: 11px; color: var(--dim); padding-top: 1px; }
+  .tl-body { min-width: 0; }
+  .tl-what { font-weight: 600; font-size: 12px; }
+  .tl-detail { color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+
+  /* what went wrong — numbered collapsible issues */
+  .wwr-issue { min-width: 0; border-bottom: 1px solid var(--hairline); }
+  .wwr-issue:last-of-type { border-bottom: none; }
+  .wwr-issue-head {
+    display: flex; align-items: center; gap: 10px; padding: 10px 0;
+    cursor: pointer; user-select: none;
   }
-  .convo-line .v {
-    color: var(--text);
-    line-height: 1.5;
+  .wwr-n {
+    flex: none; width: 20px; height: 20px; border-radius: 50%;
+    border: 1px solid var(--dashed); color: var(--muted-2);
+    font-size: 10.5px; font-weight: 600; font-family: var(--mono);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .wwr-issue-title { font-weight: 600; font-size: 12.5px; flex: 1; min-width: 0; }
+  .wwr-issue-chev { flex: none; font-size: 10px; color: var(--dim); }
+  .wwr-issue-body {
+    padding: 2px 0 12px 30px; min-width: 0;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .wwr-blk { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .wwr-blk-label {
+    font-size: 10.5px; font-weight: 650; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--dim);
+  }
+  .wwr-claim {
+    font-size: 12px; color: var(--body); line-height: 1.5;
+    border-left: 2px solid var(--border); padding-left: 10px; font-style: italic;
+  }
+  .wwr-ev-row { font-size: 12px; color: var(--body); line-height: 1.5; display: flex; gap: 8px; }
+  .wwr-ev-row > .dash { color: var(--empty); flex: none; }
+  .wwr-ev-row > .editable-text { min-width: 0; flex: 1; overflow-wrap: anywhere; display: block; }
+  .wwr-analysis {
+    font-size: 12px; color: var(--body); padding: 8px 10px;
+    background: var(--inset); border-radius: 8px; line-height: 1.5; min-width: 0;
+  }
+  .wwr-analysis-head { display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px; flex-wrap: wrap; }
+  .wwr-analysis .editable-text:hover { background: #F0EBE2; }
+  .wwr-analysis .editable-text:focus { background: #fff; box-shadow: 0 0 0 2px var(--accent); }
+  .wwr-cause-label { color: var(--text); font-weight: 600; }
+  .row-add.wwr-add { margin-top: 2px; font-size: 11px; padding: 2px 8px; }
+
+  /* chips shared by accuracy / owner / team / verdict */
+  .chip-acc {
+    font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 5px;
+    background: var(--hover-fill); color: var(--muted); flex: none;
+  }
+  .chip-acc.ok   { background: var(--green-bg); color: var(--green); }
+  .chip-acc.part { background: var(--amber-bg); color: var(--amber); }
+  .chip-acc.no   { background: var(--red-bg);   color: var(--red); }
+  .chip-owner {
+    font-size: 10px; font-weight: 700; letter-spacing: .05em;
+    padding: 2px 7px; border-radius: 5px;
+    background: var(--chip-bg); color: var(--chip-fg); flex: none;
+  }
+  .chip-team {
+    flex: none; font-size: 10px; font-weight: 700; letter-spacing: .05em;
+    padding: 2px 7px; border-radius: 5px;
+    background: var(--amber-bg); color: var(--amber); margin-top: 1px;
+  }
+  .chk-pill, .chip-verdict {
+    font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 5px;
+    background: var(--hover-fill); color: var(--muted);
+  }
+  .chk-pill.pass, .chip-verdict.pass { background: var(--green-bg); color: var(--green); }
+  .chk-pill.flag, .chip-verdict.flag { background: var(--red-bg);   color: var(--red); }
+  .chk-pill.na,   .chip-verdict.na   { background: var(--hover-fill); color: var(--muted); }
+
+  /* SOP */
+  .sop-line { font-size: 12px; line-height: 1.55; margin-top: 3px; }
+  .sop-line .k { color: var(--muted-2); }
+  .sop-note { font-size: 11.5px; color: var(--muted-2); margin-top: 6px; }
+
+  /* guest ↔ support, SP records */
+  .interactions { display: flex; flex-direction: column; }
+  .convo-frame { border-bottom: 1px solid var(--hairline); min-width: 0; }
+  .convo-frame:last-of-type { border-bottom: none; }
+  .convo-frame-head {
+    display: flex; gap: 10px; padding: 9px 0; font-size: 12px;
+    align-items: center; cursor: pointer; user-select: none;
+    background: none; border: none; width: 100%; text-align: left; color: var(--text);
+  }
+  .convo-num { flex: none; font-family: var(--mono); font-size: 10.5px; color: var(--dim);
+               width: auto; height: auto; border: none; background: none; }
+  .convo-type-pill {
+    flex: none; font-size: 10px; font-weight: 700; letter-spacing: .05em;
+    padding: 2px 7px; border-radius: 5px; background: var(--hover-fill);
+    color: var(--muted); text-transform: uppercase;
+  }
+  .convo-time { flex: none; font-family: var(--mono); font-size: 11px; color: var(--dim); }
+  .interaction-summary-line {
+    flex: 1; min-width: 0; line-height: 1.5;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .convo-frame.open .interaction-summary-line { white-space: normal; overflow: visible; }
+  .convo-chevron { flex: none; font-size: 10px; color: var(--dim); }
+  .convo-body { padding: 0 0 10px 30px; min-width: 0; display: none; }
+  .convo-frame.open .convo-body { display: block; }
+  .convo-line { font-size: 12px; color: var(--body); line-height: 1.6; overflow-wrap: anywhere; }
+  .convo-line .k {
+    color: var(--muted-2); font-size: 10.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .04em;
+  }
+  .convo-detail {
+    font-size: 12px; color: var(--muted); line-height: 1.6; margin-top: 4px;
+    padding: 8px 10px; background: var(--inset); border-radius: 6px; overflow-wrap: anywhere;
   }
   .convo-gap {
-    background: var(--red-bg); color: var(--red);
-    font-size: 10.5px; padding: 4px 8px;
-    border-radius: 3px; margin-top: 6px;
-    border-left: 2px solid var(--red);
-    display: inline-block;
+    background: var(--red-bg); color: var(--red); font-size: 11px;
+    padding: 4px 8px; border-radius: 5px; margin-top: 6px;
   }
-  .convo-comp {
-    background: var(--green-bg); color: var(--green);
-    font-size: 10.5px; padding: 4px 8px;
-    border-radius: 3px; margin-top: 6px;
-    border-left: 2px solid var(--green);
-    display: inline-block;
-    font-weight: 500;
-  }
-  .interaction-summary-line {
-    padding: 10px 14px;
-    border-top: 1px dashed var(--border);
-    font-size: 11.5px;
-    color: var(--text-mute);
-    line-height: 1.55;
-  }
-  .interaction-summary-line strong { color: var(--text); font-weight: 600; }
+  .sp-frame { border-bottom: 1px solid var(--hairline); padding: 9px 0; }
+  .sp-frame:last-of-type { border-bottom: none; }
+  .sp-frame-head { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+  .sp-frame-body { padding-left: 0; margin-top: 4px; }
+  .sp-frame-summary { font-size: 12px; color: var(--body); line-height: 1.5; }
+  .sp-raised-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .sp-raised-row .k { color: var(--muted-2); }
 
-  .action-block {
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
-  }
-  .action-tabs {
-    display: flex;
-    background: var(--bg-elev-3);
-    border-bottom: 1px solid var(--border);
-    overflow-x: auto;
-  }
+  /* flags */
+  .flag-row { display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
+  .flag-body { min-width: 0; font-size: 12.5px; flex: 1; }
+  .flag-ev { font-size: 11.5px; color: var(--muted-2); margin-top: 1px; }
+  .chk-groups { display: flex; flex-direction: column; gap: 8px; }
+  .chk-group { border: none; }
+  .chk-group-head { display: none; }
+  .chk-group-body { display: flex; flex-direction: column; gap: 8px; }
+  .chk-row { display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
+  .chk-mark { flex: none; color: var(--empty); }
+  .chk-item { font-size: 12.5px; color: var(--text); line-height: 1.5; min-width: 0; flex: 1; }
+  .chk-ev { font-size: 11.5px; color: var(--muted-2); margin-top: 1px; line-height: 1.5; }
+  .chk-zd, .zd-link { font-family: var(--mono); font-size: 11px; }
+  .chk-gtag { font-size: 10px; font-weight: 700; color: var(--muted); }
+
+  /* actions taken */
+  .action-tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
   .action-tab {
-    padding: 8px 12px;
-    font-size: 11px;
-    color: var(--text-mute);
-    cursor: pointer;
-    border-right: 1px solid var(--border);
-    font-weight: 500;
-    background: transparent;
-    border-top: none; border-bottom: none; border-left: none;
-    font-family: inherit;
-    white-space: nowrap;
-  }
-  .action-tab:hover { color: var(--text); }
-  .action-tab.active {
-    color: var(--text);
-    background: var(--bg-elev-2);
-    box-shadow: inset 0 -2px 0 var(--accent);
+    font: inherit; font-size: 11.5px; padding: 4px 9px; border-radius: 6px;
+    cursor: pointer; display: flex; align-items: center; gap: 5px;
+    border: 1px solid var(--input-bd); background: var(--card); color: var(--muted);
   }
   .action-tab .count {
-    background: var(--border-lit);
-    padding: 1px 5px;
-    border-radius: 7px;
-    font-size: 9px;
-    margin-left: 4px;
-    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; font-family: var(--mono); padding: 0 5px; border-radius: 7px;
+    background: var(--hover-fill); color: var(--muted-2);
   }
-  .action-content { padding: 12px 14px; }
+  .action-tab.active { border-color: var(--text); background: var(--text); color: #fff; }
+  .action-tab.active .count { background: rgba(255,255,255,.2); color: #fff; }
   .action-item {
-    padding: 8px 0;
-    border-bottom: 1px solid var(--border);
-    position: relative;
+    display: flex; gap: 8px; padding: 5px 0; font-size: 12px;
+    border-bottom: 1px solid var(--hairline); align-items: baseline;
   }
-  .action-item:last-of-type { border-bottom: none; }
-  .action-delete-btn {
-    position: absolute;
-    top: 8px;
-    right: 0;
-    width: 20px;
-    height: 20px;
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-dim);
-    border-radius: 4px;
-    font-size: 12px;
-    line-height: 1;
-    cursor: pointer;
-    font-family: inherit;
-    transition: all 0.12s ease;
-    padding: 0;
-  }
-  .action-delete-btn:hover {
-    border-color: var(--red);
-    color: var(--red);
-  }
+  .action-time { flex: none; font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
+  .action-content { flex: 1; min-width: 0; }
+  .action-item-head { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+  .action-raised-with { display: flex; gap: 4px; align-items: baseline; }
+  .action-sep { color: var(--empty); }
   .action-edit {
-    border-radius: 3px;
-    padding: 1px 4px;
-    margin-left: -4px;
-    margin-right: -4px;
-    transition: background 0.12s ease, box-shadow 0.12s ease;
-    outline: none;
+    outline: none; border-radius: 4px; padding: 0 4px; margin: 0 -4px;
+    cursor: text; line-height: 1.5;
   }
-  .action-edit:hover { background: var(--bg-elev-3); }
-  .action-edit:focus {
-    background: var(--bg-elev-3);
-    box-shadow: 0 0 0 2px var(--accent);
-  }
-  .action-edit.handle { color: var(--blue); font-family: 'JetBrains Mono', monospace; font-weight: 500; }
-  .action-sep { color: var(--text-dim); }
-  .action-add-btn {
-    width: 100%;
-    background: transparent;
-    border: 1px dashed var(--border-lit);
-    color: var(--text-mute);
-    padding: 8px;
-    border-radius: 6px;
-    font-family: inherit;
-    font-size: 11.5px;
-    cursor: pointer;
-    margin-top: 10px;
-    transition: all 0.12s ease;
-  }
-  .action-add-btn:hover {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  .action-item-head {
-    display: flex; justify-content: space-between;
-    align-items: center; margin-bottom: 3px; gap: 8px;
-  }
-  .action-raised-with { font-size: 12px; font-weight: 600; color: var(--text); }
-  .action-raised-with .handle {
-    color: var(--blue);
-    font-family: 'JetBrains Mono', monospace;
-    font-weight: 500;
-  }
-  .action-time {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10.5px; color: var(--text-dim);
-  }
-  .action-context { font-size: 11.5px; color: var(--text-mute); line-height: 1.5; margin-bottom: 3px; }
-  .action-where {
-    font-size: 10.5px; color: var(--blue);
-    text-decoration: none;
-    font-family: 'JetBrains Mono', monospace;
-  }
-  .action-where:hover { text-decoration: underline; }
-  .action-empty {
-    text-align: center; color: var(--text-dim);
-    font-size: 11.5px; padding: 14px 0; font-style: italic;
-  }
+  .action-edit:hover { background: var(--accent-bg); }
+  .action-edit:focus { background: var(--accent-bg); box-shadow: 0 0 0 2px var(--accent); }
+  .action-context { flex: 1; min-width: 0; }
+  .action-where { font-family: var(--mono); font-size: 11px; }
 
-  .resolution-block {
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border);
-    border-left: 2px solid var(--border-lit);
-    border-radius: 8px;
-    padding: 12px 14px;
+  /* resolution & takedown, side by side */
+  .wrapup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .wrapup-field { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted-2); }
+  .wrapup-field input, .wrapup-field select {
+    font: inherit; font-size: 12.5px; padding: 6px 8px; border-radius: 6px;
+    border: 1px solid var(--input-bd); background: var(--facts-bg); color: var(--text);
   }
-  .connect-dss-btn {
-    margin-left: auto;
-    background: var(--bg-elev-3);
-    border: 1px solid var(--border-lit);
-    color: var(--accent);
-    padding: 3px 9px;
-    border-radius: 4px;
-    font-family: inherit;
-    font-size: 10px;
-    font-weight: 600;
-    cursor: pointer;
-    text-transform: none;
-    letter-spacing: 0;
-    transition: all 0.12s ease;
+  .resolution-block { background: none; border: none; padding: 0; }
+
+  /* response to guest — the only purple-bordered card */
+  .reply-block {
+    background: var(--card); border: 1px solid var(--accent-bd);
+    border-radius: 10px; padding: 14px 16px;
   }
-  .connect-dss-btn:hover {
-    background: var(--accent);
-    color: var(--bg);
-    border-color: var(--accent);
+  .reply-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .reply-head .section-label { margin: 0; color: var(--accent); cursor: default; }
+  .reply-head-actions { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+  .reply-head-actions button {
+    font: inherit; font-size: 11px; padding: 3px 10px; border-radius: 6px;
+    border: 1px solid var(--input-bd); background: var(--card); color: var(--body); cursor: pointer;
   }
-  .connect-dss-btn.connected {
-    background: var(--green-bg);
-    color: var(--green);
-    border-color: rgba(93, 204, 140, 0.35);
+  .reply-head-actions button:hover { border-color: var(--empty); }
+  .reply-edit-header { display: none; }
+  .reply-text, .field-textarea, .flag-textarea {
+    width: 100%; box-sizing: border-box; min-height: 110px;
+    font: inherit; font-size: 13px; line-height: 1.6; padding: 10px 12px;
+    border-radius: 7px; border: 1px solid var(--input-bd);
+    background: var(--facts-bg); color: var(--text); resize: vertical; outline: none;
   }
-  .dss-status {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: 10px;
-    padding-top: 8px;
-    border-top: 1px dashed var(--border);
-    font-size: 10.5px;
-    color: var(--text-dim);
-    font-family: 'JetBrains Mono', monospace;
+  .reply-text:focus, .field-textarea:focus { border-color: var(--accent); }
+  .reply-meta { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--dim); margin-top: 6px; }
+  .tpl-name, .template-label { font-size: 11px; color: var(--muted-2); margin-bottom: 6px; }
+  .template-card { background: var(--inset); border-radius: 8px; padding: 10px 12px; font-size: 12px; }
+
+  /* slack thread post */
+  .slack-preview { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .slack-preview-label {
+    font-size: 11px; font-weight: 650; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--dim);
   }
-  .dss-status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    flex-shrink: 0;
+  .slack-head { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+  .slack-sections { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; align-items: center; }
+  .slack-sections-label {
+    font-size: 10.5px; color: var(--dim); text-transform: uppercase; letter-spacing: .05em;
   }
-  /* Task #13 Column 3 additions */
-  .scenario-chip {
-    display: inline-block; padding: 3px 10px; border-radius: 12px;
-    background: var(--accent); color: #fff; font-size: 12px; font-weight: 600;
+  .slack-sec-chip {
+    display: inline-flex; align-items: center; gap: 4px; font-size: 11px;
+    color: var(--muted); border: 1px solid var(--input-bd); border-radius: 10px;
+    padding: 2px 8px; cursor: pointer; user-select: none;
   }
-  .dss-row-ref {
-    font-size: 11px; color: var(--text-mute); margin: 2px 0 6px;
-    font-family: ui-monospace, monospace;
+  .slack-sec-chip input { margin: 0; cursor: pointer; accent-color: var(--accent); }
+  .slack-sec-actions { display: flex; gap: 6px; margin-left: auto; }
+  .slack-sec-actions button {
+    font: inherit; font-size: 10.5px; background: none; border: none;
+    color: var(--dim); cursor: pointer; text-decoration: underline;
   }
-  .tpl-name {
-    font-size: 12px; font-weight: 600; color: var(--accent); margin: 4px 0 6px;
-  }
-  /* Checklist v2 — grouped by section with compact cards */
-  .chk-bar { display: flex; align-items: center; gap: 10px; font-size: 11px; margin: 2px 0 8px; font-family: 'JetBrains Mono', monospace; }
-  .chk-bar .chk-p { color: var(--green); }
-  .chk-bar .chk-f { color: var(--amber); font-weight: 600; }
-  .chk-bar .chk-n { color: var(--text-mute); }
-  .chk-bar .chk-pill { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 10px; font-size: 10px; }
-  .chk-bar .chk-pill.pass { background: var(--green-bg); color: var(--green); }
-  .chk-bar .chk-pill.flag { background: var(--amber-bg); color: var(--amber); }
-  .chk-bar .chk-pill.na   { background: rgba(150,150,165,0.08); color: var(--text-mute); }
-  .chk-groups { display: flex; flex-direction: column; gap: 4px; }
-  .chk-group { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-  /* A full amber box round every flag group made two ordinary findings look
-     like an incident. The left rule alone carries the same meaning without
-     ringing the whole panel. */
-  .chk-group.has-flags { border-color: var(--border); border-left: 2px solid var(--amber); }
-  .chk-group-head {
-    display: flex; align-items: center; gap: 8px; padding: 6px 10px;
-    background: var(--bg-elev-2); cursor: pointer; font-size: 11px;
-    font-weight: 600; color: var(--text); user-select: none;
-  }
-  .chk-group-head:hover { background: var(--bg-elev-3); }
-  .chk-group-head .chk-chevron { font-size: 10px; color: var(--text-mute); transition: transform .15s; }
-  .chk-group.open .chk-chevron { transform: rotate(90deg); }
-  .chk-group-head .chk-gtag { font-size: 9px; color: var(--text-mute); margin-left: auto; font-family: 'JetBrains Mono', monospace; }
-  .chk-group-body { display: none; padding: 4px 10px 6px; }
-  .chk-group.open .chk-group-body { display: block; }
-  .chk-row { display: grid; grid-template-columns: 14px 1fr auto; gap: 6px; align-items: start; padding: 3px 0; border-bottom: 1px solid var(--border); }
-  .chk-row:last-child { border-bottom: none; }
-  .chk-mark { font-size: 11px; line-height: 1.5; }
-  .chk-row.chk-flag .chk-mark { color: var(--amber); }
-  .chk-row.chk-pass .chk-mark { color: var(--green); }
-  .chk-row.chk-na  .chk-mark { color: var(--text-mute); }
-  .chk-item { font-size: 12.5px; color: var(--text); line-height: 1.5; }
-  .chk-ev { font-size: 11.5px; color: var(--text-mute); margin-top: 2px; line-height: 1.5; }
-  .chk-zd { color: var(--accent); font-family: ui-monospace, monospace; }
-  .chk-ans { font-size: 11px; color: var(--text-mute); white-space: nowrap; }
-  /* Editable Slack thread post */
+  .slack-sec-actions button:hover { color: var(--text); }
   .slack-edit-wrap { position: relative; }
   .slack-edit-area {
-    width: 100%; min-height: 200px; max-height: 500px; overflow-y: auto;
-    background: var(--bg); border: 1px solid var(--border); border-radius: 5px;
-    padding: 12px 14px; font-size: 11px; color: var(--text); line-height: 1.65;
-    font-family: 'JetBrains Mono', monospace; resize: vertical;
+    width: 100%; box-sizing: border-box; margin-top: 10px; min-height: 220px;
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.6;
+    padding: 10px 12px; border-radius: 7px; border: 1px solid var(--input-bd);
+    background: var(--facts-bg); color: var(--text); resize: vertical; outline: none;
   }
-  .slack-edit-hint {
-    position: absolute; top: 8px; right: 10px;
-    font-size: 9px; color: var(--text-dim); pointer-events: none;
+  .slack-edit-hint { position: absolute; right: 10px; top: 16px; font-size: 10px; color: var(--empty); }
+  .slack-post-row { display: flex; justify-content: flex-end; margin-top: 10px; gap: 8px; }
+  .slack-post-btn {
+    font: inherit; font-size: 12px; font-weight: 600; padding: 7px 16px;
+    border-radius: 7px; border: none; background: var(--accent); color: #fff; cursor: pointer;
   }
-  .slack-regen-btn {
-    margin-top: 6px; background: none; border: 1px solid var(--border);
-    color: var(--text-mute); font-size: 10px; padding: 2px 8px;
-    border-radius: 4px; cursor: pointer;
-  }
-  .slack-regen-btn:hover { color: var(--accent); border-color: var(--accent); }
-  .rerun-btn {
-    margin-left: auto; background: none; border: 1px solid var(--border);
-    color: var(--text-mute); font-size: 11px; padding: 2px 8px;
-    border-radius: 4px; cursor: pointer;
-  }
-  .rerun-btn:hover { color: var(--accent); border-color: var(--accent); }
-  .rerun-btn:disabled { opacity: 0.6; cursor: default; }
-  /* WWR stacked scenario blocks */
-  .wwr-scenarios { display: flex; flex-direction: column; gap: 12px; }
-  .wwr-scn { border-left: 2px solid var(--border); padding: 6px 0 6px 12px; }
-  .wwr-scn.primary { border-left-color: var(--accent); }
-  .wwr-scn-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-  .wwr-scn-tag {
-    font-size: 9px; font-weight: 700; letter-spacing: 0.5px; padding: 1px 6px;
-    border-radius: 3px; background: var(--bg-elev-2); color: var(--text-mute);
-  }
-  .wwr-scn.primary .wwr-scn-tag { background: var(--accent); color: #fff; }
-  .wwr-scn-name { font-size: 13px; font-weight: 700; color: var(--text); }
-  .wwr-scn-row { display: flex; align-items: baseline; gap: 8px; margin: 4px 0; }
-  .wwr-scn-k { flex-shrink: 0; width: 70px; font-size: 11px; font-weight: 600; color: var(--text-mute); }
-  .wwr-scn-v { font-size: 12px; color: var(--text); flex: 1; cursor: text; }
-  .wwr-scn-v:focus { outline: 1px solid var(--accent); border-radius: 3px; }
-  .dss-status-dot.off { background: var(--text-dim); }
-  .dss-status-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
-  .dss-status-dot.loading { background: var(--amber); animation: pulse 1.2s ease-in-out infinite; }
-  @keyframes pulse {
-    0%, 100% { opacity: 0.4; }
-    50% { opacity: 1; }
-  }
-  .reply-block {
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px 16px;
-    /* Neutral rail. Five cards each carried a different coloured 3px
-       left border - blue, blue, green, green, lime - which read as five
-       unrelated states rather than five cards. The rail marks the block;
-       colour is reserved for things that need acting on. */
-    border-left: 2px solid var(--border-lit);
-  }
-  .reply-edit-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-    font-size: 10.5px;
-    color: var(--text-mute);
-    font-family: 'JetBrains Mono', monospace;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-  }
-  .reply-edit-header .edit-hint {
-    color: var(--text-dim);
-    font-weight: 500;
-  }
-  .reply-text {
-    width: 100%;
-    background: var(--bg);
-    border: 1.5px solid var(--border-lit);
-    color: var(--text);
-    padding: 12px 14px;
-    border-radius: 6px;
-    font-family: inherit;
-    font-size: 13px;
-    line-height: 1.6;
-    resize: vertical;
-    min-height: 110px;
-    outline: none;
-    transition: border-color 0.15s ease;
-  }
-  .reply-text:hover { border-color: var(--text-mute); }
-  .reply-text:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(196, 242, 91, 0.1); }
-  .reply-meta {
-    display: flex;
-    justify-content: space-between;
-    margin-top: 8px;
-    font-size: 10.5px;
-    color: var(--text-dim);
-    font-family: 'JetBrains Mono', monospace;
-  }
+  .slack-post-btn:hover { background: var(--accent-hov); }
 
-  /* Slack post preview — full content */
-  .slack-preview {
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px 16px;
-    border-left: 3px solid #ECB22E;
+  /* T2 gate + untraceable one-click reply */
+  .rca-gate {
+    max-width: 520px; margin: 40px auto 0; text-align: center;
+    padding: 40px 30px; border: 1px dashed var(--dashed); border-radius: 12px;
   }
-  .slack-sections { display:flex; flex-wrap:wrap; gap:5px; align-items:center;
-                    margin-bottom:8px; }
-  .slack-sections-label { font-size:10px; color:var(--text-mute);
-                          text-transform:uppercase; letter-spacing:.06em; }
-  .slack-sec-chip { display:inline-flex; align-items:center; gap:3px;
-                    font-size:11px; color:var(--text-mute); cursor:pointer;
-                    border:1px solid var(--border); border-radius:10px;
-                    padding:1px 7px; user-select:none; }
-  .slack-sec-chip input { margin:0; cursor:pointer; }
-  .slack-preview-label {
-    font-size: 10px;
-    color: #ECB22E;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-weight: 600;
-    margin-bottom: 10px;
-    font-family: 'JetBrains Mono', monospace;
-  }
-  .slack-preview-content {
-    background: var(--bg);
-    border-radius: 5px;
-    padding: 12px 14px;
-    font-size: 11.5px;
-    color: var(--text);
-    line-height: 1.65;
-    font-family: 'JetBrains Mono', monospace;
-    max-height: 400px;
-    overflow-y: auto;
-  }
-  .sp-section {
-    margin-bottom: 10px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--border);
-  }
-  .sp-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
-  .sp-heading {
-    color: var(--accent);
-    font-weight: 600;
-    margin-bottom: 4px;
-    font-size: 10.5px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-  }
-  .sp-row { padding: 1px 0; color: var(--text-mute); }
-  .sp-row .k { color: var(--text-dim); }
-  .sp-row .v { color: var(--text); }
+  .rca-gate-title { font-size: 15px; font-weight: 650; margin-bottom: 6px; }
+  .rca-gate-body { font-size: 12.5px; color: var(--muted); line-height: 1.6; max-width: 38ch; margin: 0 auto; }
+  .untr-wrap { max-width: 560px; }
+  .untr-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .untr-lead { font-size: 12.5px; color: var(--body); line-height: 1.6; margin-bottom: 12px; }
+  .untr-template { background: var(--inset); border-radius: 8px; padding: 12px 14px; font-size: 12.5px; line-height: 1.6; }
+  .untraceable-actions { display: flex; gap: 8px; margin-top: 12px; }
+  .untraceable-actions .btn.primary { padding: 8px 16px; border-radius: 7px; font-size: 12.5px; }
+  .untraceable-actions .btn { padding: 8px 14px; border-radius: 7px; font-size: 12.5px; }
+  .untraceable-status, .untraceable-detail { font-size: 12px; color: var(--muted-2); line-height: 1.55; }
 
+  /* send bar */
   .send-bar {
-    position: static;
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px 18px;
-    margin-top: 40px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; margin-top: 14px; max-width: 720px;
   }
-  .send-info {
-    font-size: 11px; color: var(--text-mute);
-    font-family: 'JetBrains Mono', monospace;
-  }
-  .send-info .dot {
-    display: inline-block;
-    width: 6px; height: 6px; border-radius: 50%;
-    background: var(--green); margin-right: 5px;
-    vertical-align: middle;
-  }
+  .send-info { font-size: 11.5px; color: var(--muted-2); }
   .send-actions { display: flex; gap: 8px; }
-  .btn {
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border-lit);
-    color: var(--text);
-    padding: 8px 14px;
-    border-radius: 5px;
-    font-family: inherit; font-size: 12.5px;
-    font-weight: 500; cursor: pointer;
-    transition: all 0.12s ease;
-  }
-  .btn:hover { border-color: var(--text-mute); }
-  .btn.primary {
-    background: var(--accent); color: var(--bg);
-    border-color: var(--accent); font-weight: 600;
-  }
-  .btn.primary:hover { background: #D4FF6B; }
 
-  /* Untraceable column 2/3 */
-  .untraceable-detail {
-    background: var(--bg-elev-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 18px 20px;
-    margin-bottom: 16px;
-  }
-  .untraceable-status {
-    background: var(--red-bg);
-    border: 1px solid rgba(242, 107, 107, 0.25);
-    color: var(--red);
-    padding: 10px 14px;
-    border-radius: 6px;
-    font-size: 11.5px;
-    margin-bottom: 14px;
-  }
-  .untraceable-status strong { color: var(--text); font-weight: 600; }
-  .untraceable-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 12px;
-  }
-  .verify-btn {
-    padding: 8px 14px;
-    background: #007A5A;
-    color: white;
-    border: none;
-    border-radius: 5px;
-    font-family: inherit;
-    font-size: 12.5px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .skip-btn {
-    padding: 8px 14px;
-    background: transparent;
-    color: var(--text);
-    border: 1px solid var(--border-lit);
-    border-radius: 5px;
-    font-family: inherit;
-    font-size: 12.5px;
-    cursor: pointer;
-  }
-  .template-card {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-left: 2px solid var(--border-lit);
-    padding: 11px 14px;
-    border-radius: 0 6px 6px 0;
-    font-size: 12px;
-    color: var(--text-mute);
-    line-height: 1.55;
-    margin-top: 12px;
-  }
-  .template-card strong { color: var(--text); font-weight: 600; }
-  .template-label {
-    font-size: 10px;
-    color: var(--green);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: 6px;
-    font-weight: 600;
-    font-family: 'JetBrains Mono', monospace;
-  }
+  /* similar reviews / support */
+  .similar-list { display: flex; flex-direction: column; gap: 6px; }
+  .similar-item { font-size: 12px; color: var(--body); line-height: 1.5; }
+  .similar-sub-label { font-size: 10.5px; color: var(--dim); text-transform: uppercase; letter-spacing: .05em; }
+  .similar-summary-line { font-size: 11.5px; color: var(--muted-2); }
 
-  /* ── RCA v3 styles ────────────────────────────────────────────────── */
-  .tldr-banner { cursor: text; border-radius: 4px; }
-  .tldr-banner:focus { outline: 1px solid var(--accent); background: var(--bg-elev-2); }
-  /* Collapsible sections. The RCA column runs to a dozen sections on a
-     complex case, so every section head is a toggle. State lives in
-     state.collapsed keyed by label text, so it survives re-renders. */
-  .section-label { cursor: pointer; user-select: none; }
-  .section-chev { display:inline-block; margin-left:auto; font-size:9px;
-                  color: var(--text-mute); transition: transform .12s ease; }
-  .section.is-collapsed .section-chev { transform: rotate(-90deg); }
-  .section.is-collapsed > *:not(.section-label) { display: none; }
-  .sec-count { font-size:10px; color:var(--text-mute); margin-left:6px;
-               font-family:'JetBrains Mono', monospace; }
-  .row-del { background:none; border:none; color:var(--text-mute); cursor:pointer;
-             font-size:13px; line-height:1; padding:0 2px; flex:none; opacity:.5; }
-  .row-del:hover { opacity:1; color:#e5534b; }
-  .row-add { margin-top:5px; font-size:11px; padding:2px 8px; cursor:pointer;
-             background:transparent; border:1px dashed var(--border);
-             border-radius:10px; color:var(--text-mute);
-             font-family:'JetBrains Mono', monospace; }
-  .row-add:hover { color:var(--text); border-color:var(--accent); }
-  /* RCA v3 section primitives. These replace the inline style="" attributes
-     the new sections were built with: one place to change spacing, and the
-     narrow-panel guards (min-width:0 + overflow-wrap) apply everywhere at
-     once instead of being remembered per element. A long unbroken evidence
-     string used to widen the whole panel. */
-  .rca-points { display:flex; flex-direction:column; gap:3px; min-width:0; }
-  .rca-point  { display:flex; gap:6px; align-items:flex-start; font-size:12.5px;
-                min-width:0; overflow-wrap:anywhere; }
-  .rca-point > .rca-bullet { color:var(--text-mute); flex:none; }
-  .rca-point > .rca-ptext  { flex:1; min-width:0; overflow-wrap:anywhere; }
-  .rca-kv { display:grid; grid-template-columns:92px minmax(0,1fr); gap:4px 10px;
-            font-size:12.5px; min-width:0; }
-  .rca-kv > span { min-width:0; overflow-wrap:anywhere; }
-  .rca-stack { display:flex; flex-direction:column; gap:4px; font-size:12.5px;
-               min-width:0; }
-  .rca-wrap { min-width:0; overflow-wrap:anywhere; }
-  /* Empty states say WHICH kind of empty: no data in the source, or nothing
-     generated yet. "—" left a reader unable to tell those apart. */
-  .rca-empty { font-size:11.5px; color:var(--text-mute); font-style:italic;
-               padding:2px 0; }
-  .rca-empty.err { color:#e5934b; font-style:normal; }
-  .chk-ev, .chk-item { min-width:0; overflow-wrap:anywhere; }
-  /* Transient confirmation after an inline edit saves. */
-  .save-tick { font-size:10px; color:var(--accent); margin-left:6px; opacity:0;
-               transition:opacity .15s ease; }
-  .save-tick.on { opacity:1; }
-  .slack-sec-actions { display:flex; gap:4px; margin-left:auto; }
-  .slack-sec-actions button { font-size:10px; padding:1px 6px; cursor:pointer;
-       background:transparent; border:1px solid var(--border); border-radius:8px;
-       color:var(--text-mute); font-family:'JetBrains Mono', monospace; }
-  .slack-sec-actions button:hover { color:var(--text); border-color:var(--accent); }
-  .wwr5-h { font-size: 11.5px; font-weight: 700; letter-spacing: .04em;
-            text-transform: uppercase; color: var(--text); margin-bottom: 5px; }
-  .wwr-stepper { display: flex; flex-direction: column; gap: 0; }
-  .wwr-step {
-    display: flex; align-items: flex-start; gap: 10px;
-    padding: 10px 0; position: relative;
-  }
-  /* Outlined, not filled. Six solid lime discs down a timeline pull the eye
-     to the numbering instead of to the events, and lime-on-white failed
-     contrast besides. */
+  /* legacy timeline (facts pane) */
+  .timeline { display: flex; flex-direction: column; }
+  .tl-event { border-bottom: 1px solid var(--hairline); padding: 8px 0; font-size: 12px; }
+  .tl-event:last-child { border-bottom: none; }
+  .tl-header { display: flex; gap: 8px; align-items: baseline; }
+  .tl-actor { font-weight: 600; }
+  .tl-tid, .tl-time { font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
+  .tl-content { color: var(--body); line-height: 1.55; margin-top: 2px; overflow-wrap: anywhere; }
+  .tl-summary, .timeline-summary { font-size: 11.5px; color: var(--muted-2); }
+  .tl-flag { color: var(--amber); font-size: 11px; }
+  .tl-thread { padding-left: 14px; border-left: 2px solid var(--hairline); }
+  .tl-hidden-note { font-size: 11px; color: var(--dim); font-style: italic; }
+
+  /* WWR scenario blocks (legacy drafts) */
+  .wwr-scenarios { display: flex; flex-direction: column; gap: 10px; }
+  .wwr-scn { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .wwr-scn-head { display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px; }
+  .wwr-scn-name { font-weight: 600; font-size: 12.5px; }
+  .wwr-scn-tag { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; background: var(--chip-bg); color: var(--chip-fg); }
+  .wwr-scn-row { display: grid; grid-template-columns: 92px 1fr; gap: 4px 10px; font-size: 12px; }
+  .wwr-scn-k { color: var(--muted-2); }
+  .wwr-scn-v { color: var(--body); overflow-wrap: anywhere; }
+
+  /* legacy stepper (kept so old drafts still render) */
+  .wwr-stepper { display: flex; flex-direction: column; }
+  .wwr-step { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; }
   .wwr-step-num {
-    flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%;
-    background: none; border: 1px solid var(--border-lit);
-    color: var(--text-mute); font-size: 11px; font-weight: 600;
-    font-family: 'JetBrains Mono', monospace;
-    display: flex; align-items: center; justify-content: center; margin-top: 2px;
+    flex: none; width: 22px; height: 22px; border-radius: 50%;
+    background: none; border: 1px solid var(--dashed); color: var(--muted-2);
+    font-size: 11px; font-weight: 600; font-family: var(--mono);
+    display: flex; align-items: center; justify-content: center;
   }
   .wwr-step-body { flex: 1; min-width: 0; }
-  .wwr-what { font-size: 13px; font-weight: 600; color: var(--text); cursor: text; }
-  .wwr-why  { font-size: 12.5px; color: var(--text-mute); margin-top: 3px; cursor: text; line-height: 1.5; }
-  .wwr-what:focus, .wwr-why:focus { outline: 1px solid var(--accent); border-radius: 3px; }
-  .wwr-connector {
-    width: 2px; height: 16px; background: var(--border);
-    margin-left: 11px;
+  .wwr-what { font-size: 12.5px; font-weight: 600; color: var(--text); cursor: text; }
+  .wwr-why  { font-size: 12px; color: var(--muted); margin-top: 3px; cursor: text; line-height: 1.5; }
+  .wwr-connector { width: 1px; height: 10px; background: var(--border); margin-left: 11px; }
+  .wwr5-h {
+    font-size: 10.5px; font-weight: 650; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--dim); margin-bottom: 5px;
   }
-  .evidence-list { padding: 6px 0; }
-  .ev-item { font-size: 12px; color: var(--text); margin-bottom: 6px; line-height: 1.5; }
-  .ev-source { color: var(--accent); font-weight: 600; margin-right: 4px; }
-  .check-table th, .check-table td { border-bottom: 1px solid var(--border); }
-  .check-table tr:last-child td { border-bottom: none; }
+
+  /* modals */
+  .flag-modal {
+    position: fixed; inset: 0; background: rgba(29,28,26,.45);
+    display: flex; align-items: center; justify-content: center; z-index: 100;
+  }
+  .flag-modal-body {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px 22px; width: 560px; max-width: 92vw; max-height: 88vh; overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(29,28,26,.16);
+  }
+  .flag-modal-head { display: flex; align-items: center; margin-bottom: 12px; }
+  .flag-modal-title { font-size: 14px; font-weight: 650; }
+  .flag-modal-close {
+    margin-left: auto; background: none; border: none; font-size: 18px;
+    color: var(--dim); cursor: pointer; line-height: 1;
+  }
+  .flag-modal-close:hover { color: var(--text); }
+  .flag-modal-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; font-size: 11.5px; color: var(--muted-2); }
+  .flag-modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+  .flag-input, .flag-dest {
+    font: inherit; font-size: 12.5px; padding: 7px 9px; border-radius: 6px;
+    border: 1px solid var(--input-bd); background: var(--facts-bg); color: var(--text);
+  }
+  .flag-hint { font-size: 11px; color: var(--dim); }
+  .flag-textarea { min-height: 140px; font-size: 12.5px; }
+
+  /* misc */
+  .pill-sm { font-size: 10px; padding: 1px 6px; border-radius: 5px; }
+  .pill-grey { background: var(--hover-fill); color: var(--muted); }
+  .sep { color: var(--empty); }
+  .why-n { color: var(--muted-2); font-weight: 600; }
+  .placeholder { color: var(--empty); }
+  #build-stamp {
+    position: fixed; right: 8px; bottom: 6px; z-index: 40;
+    font-size: 10px; font-family: var(--mono); color: var(--dim);
+    pointer-events: none; display: none;
+  }
+  #build-stamp.is-stale, #build-stamp.is-deploy { display: block; color: var(--amber); }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
@@ -1923,11 +846,9 @@
 <div class="app">
   <header class="topbar">
     <div class="logo-block">
-      <div class="logo">OR</div>
-      <div>
-        <div class="brand-name">ORM RCA</div>
-        <div class="brand-sub">Headout · CX</div>
-      </div>
+      <div class="logo">R</div>
+      <div class="brand-name">Reviews RCA</div>
+      <div class="brand-sub">Headout · CX</div>
     </div>
     <div class="topbar-status">
       <!-- Which backend am I looking at? A published deployment and the dev
@@ -1944,25 +865,16 @@
       <span class="status-pill svc-pill" id="svc-pill" title="service connections">
         <span class="dot"></span><span id="svc-text">checking…</span>
       </span>
+      <button class="refresh-slack-btn" data-refresh-slack
+              title="Pull Trustpilot reviews from Slack that aren't here yet">↻ Refresh from Slack</button>
+      <button class="refresh-slack-btn" data-rerun-all
+              title="Re-run every review missing a match or an RCA">⟳ Fix incomplete</button>
     </div>
   </header>
 
   <div class="main">
     <aside class="inbox">
       <div class="inbox-head">
-        <div class="inbox-title">Inbox
-          <!-- Pulls anything the webhook missed. The webhook is still the live
-               path; this exists because a redeployed URL or a token blip means
-               reviews sit in Slack unseen, and re-ingesting by hand is not a
-               workflow. -->
-          <button class="refresh-slack-btn" data-refresh-slack
-                  title="Pull Trustpilot reviews from Slack that aren't here yet">↻ Refresh</button>
-          <!-- Pipeline output is stored, not computed on read, so a fix lands
-               only when a review runs again. Re-running 20+ cards by hand is
-               not a workflow. -->
-          <button class="refresh-slack-btn" data-rerun-all
-                  title="Re-run every review that is missing a match or an RCA">⟳ Fix incomplete</button>
-        </div>
         <!-- Job progress. The state lives on the server, so closing the tab or
              reloading does not lose the run - this bar reattaches to whatever
              is already going. -->
@@ -1974,16 +886,17 @@
           </div>
         </div>
         <div class="inbox-tabs">
-          <button class="inbox-tab active" data-tab="identified">Reviews with BID <span class="num" id="cnt-identified">3</span></button>
-          <button class="inbox-tab" data-tab="candidates">Reviews with possible matches <span class="num" id="cnt-candidates">0</span></button>
-          <button class="inbox-tab" data-tab="untraceable">Untraceable <span class="num" id="cnt-untraceable">1</span></button>
+          <button class="inbox-tab active" data-tab="all">All <span class="num" id="cnt-all">0</span></button>
+          <button class="inbox-tab" data-tab="identified">Matched <span class="num" id="cnt-identified">0</span></button>
+          <button class="inbox-tab" data-tab="candidates">Confirm <span class="num" id="cnt-candidates">0</span></button>
+          <button class="inbox-tab" data-tab="untraceable">Untraceable <span class="num" id="cnt-untraceable">0</span></button>
           <button class="inbox-tab" data-tab="sent">Sent <span class="num" id="cnt-sent">0</span></button>
         </div>
       </div>
       <div class="inbox-list" id="inbox-list"></div>
       <div class="inbox-footer">
-        <button class="add-manual-btn">+ Add review manually</button>
-        <button class="reporting-link">⌘ Reporting</button>
+        <button class="add-manual-btn">+ Add review</button>
+        <button class="reporting-link">Reporting</button>
       </div>
     </aside>
 
@@ -2490,6 +1403,8 @@ const state = {
   slackSections: {},
   // Section open/closed state, keyed by section label text.
   collapsed: {},
+  wwrOpen: {},      // per-issue open state in What went wrong
+  ixOpen: {},       // per-contact open state in Guest <-> support
   // Machinery is hidden by default - it was ~8 of 14 events on a real
   // review, and an associate writing an RCA should not be scrolling past
   // Selenium runs to find the two events that matter.
@@ -2511,6 +1426,7 @@ const state = {
 function renderInbox() {
   const list = document.getElementById('inbox-list');
   const filtered = REVIEWS.filter(r => {
+    if (state.filter === 'all') return true;
     if (state.filter === 'identified') return r.type === 'identified' && r.status !== 'sent';
     if (state.filter === 'candidates') return r.type === 'candidates';
     if (state.filter === 'untraceable') return r.type === 'untraceable';
@@ -2518,6 +1434,7 @@ function renderInbox() {
     return false;
   });
 
+  document.getElementById('cnt-all').textContent = REVIEWS.length;
   document.getElementById('cnt-identified').textContent = REVIEWS.filter(r => r.type === 'identified' && r.status !== 'sent').length;
   document.getElementById('cnt-candidates').textContent = REVIEWS.filter(r => r.type === 'candidates').length;
   document.getElementById('cnt-untraceable').textContent = REVIEWS.filter(r => r.type === 'untraceable').length;
@@ -2528,21 +1445,32 @@ function renderInbox() {
     return;
   }
 
-  list.innerHTML = filtered.map(r => `
-    <div class="review-item ${r.id === state.selected ? 'selected' : ''}" data-id="${r.id}">
+  // One stage chip per card, coloured by what it asks of the reader:
+  // green = nothing to do, amber = a human must confirm, red = stuck.
+  const stageOf = (r) => r.status === 'sent'          ? ['Sent', 'ok']
+                       : r.type === 'candidates'      ? ['Confirm match', 'warn']
+                       : r.type === 'untraceable'     ? ['Untraceable', 'bad']
+                       :                                ['Draft ready', 'ok'];
+  list.innerHTML = filtered.map(r => {
+    const [stage, kind] = stageOf(r);
+    const body = r.english || r.original || '';
+    return `
+    <div class="review-item ${r.id === state.selected ? 'active' : ''}" data-id="${r.id}">
       <div class="review-item-top">
-        <span class="review-author-line">${r.author}</span>
-        <span class="review-time">${r.time}</span>
+        <span class="review-author">${esc(r.author)}</span>
+        <span class="review-time">${esc(r.time)}</span>
       </div>
-      <div class="review-stars-line"><span class="review-stars">${r.stars}</span>${r.booking?.experience ? `<span class="review-exp">· ${r.booking.experience.length > 40 ? r.booking.experience.substring(0, 40) + '…' : r.booking.experience}</span>` : ''}</div>
-      <div class="review-preview">${(r.english || r.original).substring(0, 100)}${(r.english || r.original).length > 100 ? '…' : ''}</div>
+      <div class="review-stars-line">
+        <span class="review-stars">${r.stars}</span>
+        <span class="review-exp">${esc(r.booking?.experience || '—')}</span>
+      </div>
+      <div class="review-preview">${esc(body.substring(0, 120))}${body.length > 120 ? '…' : ''}</div>
       <div class="review-tags">
-        <span class="tag tag-lang">${r.lang}</span>
-        <span class="tag tag-${r.status}">${r.status}</span>
-        <span class="tag tag-${r.tier === 'T1' ? 't1' : r.tier === 'T2' ? 't2' : 'untr'}">${r.tier}</span>
+        <span class="tag stage-${kind}">${stage}</span>
+        <span class="tag tag-lang">${esc(r.lang || '')}</span>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 
   list.querySelectorAll('.review-item').forEach(el => {
     el.addEventListener('click', () => {
@@ -2565,49 +1493,46 @@ function renderReviewCol() {
 
   if (r.type === 'untraceable') {
     col.innerHTML = `
-      <div class="breadcrumb">
-        <span>Untraceable</span>
-        <span class="sep">›</span>
-        <span class="current">${r.author}</span>
-      </div>
+      <div class="col-label">The facts</div>
 
-      <div class="section">
-        <div class="section-label"><span class="marker"></span>Trustpilot Review</div>
-        <div class="review-card">
-          <div class="review-card-head">
-            <div class="review-author">${r.author}</div>
-            <div class="review-meta">${r.stars} · ${r.lang} · No ref</div>
-          </div>
-          <div class="review-body-original">${r.original}</div>
+      <div class="review-card">
+        <div class="review-card-head">
+          <div class="review-author-line">${esc(r.author)}</div>
+          <div class="review-meta">${esc(r.lang)} · no reference</div>
         </div>
+        <span class="review-stars">${r.stars}</span>
+        <div class="review-body-original">${esc(r.original)}</div>
       </div>
 
-      ${r.untraceableReason ? `
-      <div class="section">
-        <div class="section-label"><span class="marker"></span>Why this is untraceable</div>
-        <div class="field-block rca-empty err">${r.untraceableReason}</div>
-      </div>` : ''}
-
-      <div class="section">
-        <div class="section-label"><span class="marker"></span>Identifier Checks</div>
+      <div class="facts-block">
+        <div class="facts-head"><span class="facts-head-title">Booking match</span>
+          <button class="rerun-btn" data-rerun-match title="Re-run the booking search for this review">↻ Re-run</button>
+        </div>
+        <div class="match-card">
+          <div class="match-top">
+            <span class="match-tier-badge untr">—</span>
+            <div>
+              <div class="match-title">No booking found</div>
+              <div class="match-method">No venue, date or name usable for search</div>
+            </div>
+          </div>
+          <div class="match-warn">${r.untraceableReason
+            || 'No trail was recorded — the pipeline never reached matching. Re-run the match; if it stays empty the run fails before matching.'}</div>
         <!-- Reads r.confidenceTrail, the trail the pipeline actually writes.
              This panel used to read r.untraceableChecks, which nothing in the
              client ever assigns - so it was empty on every untraceable review
              no matter what matching had done, and an empty panel got read as
              "matching never ran". Each step keeps its own mark instead of a
              hardcoded ✗: a warn and a fail are different findings. -->
-        <div class="confidence-trail">
-          ${(r.confidenceTrail || []).length
-            ? (r.confidenceTrail || []).map(s => `
-                <div class="conf-step">
-                  <span class="mark ${s.mark === 'pass' ? 'pass' : s.mark === 'warn' ? 'warn' : 'fail'}">${
-                    s.mark === 'pass' ? '✓' : s.mark === 'warn' ? '!' : '✗'}</span>
-                  <span class="label-text">${s.text}</span>
-                </div>`).join('')
-            : `<div class="rca-empty err">No trail was recorded for this review, which
-                 means the pipeline did not reach the matching step — not that it
-                 searched and found nothing. Re-run the match, and if it stays
-                 empty the run is failing before matching.</div>`}
+          ${(r.confidenceTrail || []).length ? `
+          <div class="confidence-trail">
+            <div class="confidence-trail-label">How we built this match</div>
+            ${(r.confidenceTrail || []).map(st => `
+              <div class="conf-step ${st.mark === 'pass' ? 'pass' : st.mark === 'warn' ? 'warn' : 'fail'}">
+                <span class="mark">${st.mark === 'pass' ? '✓' : st.mark === 'warn' ? '!' : '✗'}</span>
+                <span class="label-text">${st.text}</span>
+              </div>`).join('')}
+          </div>` : ''}
         </div>
       </div>
     `;
@@ -2720,7 +1645,7 @@ function renderReviewCol() {
 
   const signalsBox = _sigRows.length
     ? `<div class="section">
-         <div class="section-label"><span class="marker"></span>Extracted from review<span class="ai-tag-inline">AI</span></div>
+         <div class="section-label">Extracted from review<span class="section-chev">▾</span></div>
          <div class="details-grid">
            ${_sigRows.map(([k, v]) => `
              <div class="detail-row">
@@ -2749,7 +1674,7 @@ function renderReviewCol() {
               : `Nothing extracted — no venue, city, date or name found in the review
                  text. Matching has no indicators to search on.`);
         return `<div class="section">
-         <div class="section-label"><span class="marker"></span>Extracted from review<span class="ai-tag-inline">AI</span></div>
+         <div class="section-label">Extracted from review<span class="section-chev">▾</span></div>
          <div class="chk-none" style="font-size:12px;color:${_bidMatched ? 'var(--text-mute)' : 'var(--amber)'}">
            ${_msg}
          </div>
@@ -2768,7 +1693,7 @@ function renderReviewCol() {
   const _searchDead = !!(_mentions.length && _mentions[0].search_unavailable);
   const slackPings = r.booking && r.booking.bid
     ? `<div class="section">
-         <div class="section-label"><span class="marker"></span>Slack mentions of this BID</div>
+         <div class="section-label">Slack mentions of this BID<span class="section-chev">▾</span></div>
          ${_searchDead ? `
          <div class="chk-none" style="font-size:12px;color:var(--amber)">
            ${(_mentions[0].text || 'Slack could not be searched.').replace(/</g,'&lt;')}
@@ -2797,52 +1722,40 @@ function renderReviewCol() {
     : '';
 
   col.innerHTML = `
-    <div class="breadcrumb">
-      <span>${r.type === 'identified' ? 'Reviews with BID' : 'Reviews with possible matches'}</span>
-      <span class="sep">›</span>
-      <span class="current">${r.type === 'identified' ? 'BID ' + b.bid : r.author}</span>
-    </div>
+    <div class="col-label">The facts</div>
 
-    <div class="section">
-      <div class="section-label"><span class="marker"></span>Trustpilot Review</div>
-      <div class="review-card">
-        <div class="review-card-head">
-          <div class="review-author">${r.author}</div>
-          <div class="review-meta">${r.stars} · ${r.lang}${r.type === 'identified' ? ' · BID ' + b.bid : ' · No BID in text'}</div>
-        </div>
-        <div class="review-body-original">${r.original}</div>
+    <div class="review-card">
+      <div class="review-card-head">
+        <div class="review-author-line">${esc(r.author)}</div>
+        <div class="review-meta">${esc(r.lang)}${r.type === 'identified' ? ' · BID ' + esc(b.bid) : ' · no BID in text'}</div>
       </div>
+      <span class="review-stars">${r.stars}</span>
+      <div class="review-body-original">${esc(r.original)}</div>
       ${r.english ? `
         <div class="translation-card">
-          <div class="translation-label">English · Claude</div>
-          <div class="translation-body">${r.english}</div>
-        </div>
-      ` : ''}
+          <div class="translation-label">English translation · AI</div>
+          <div class="translation-body">${esc(r.english)}</div>
+        </div>` : ''}
     </div>
 
-    <div class="section">
-      <div class="section-label"><span class="marker"></span>Booking Match
+    <div class="facts-block">
+      <div class="facts-head"><span class="facts-head-title">Booking match</span>
         <button class="rerun-btn" data-rerun-match title="Re-run the booking search + full analysis for this review">↻ Re-run</button>
       </div>
       <div class="match-card">
-        <div class="match-tier-badge ${r.matchTier}">${r.tier}</div>
-        <div class="match-info">
-          <div class="match-title">${r.matchTitle}</div>
-          <div class="match-method">${r.matchMethod}</div>
+        <div class="match-top">
+          <span class="match-tier-badge ${r.matchTier}">${r.tier}</span>
+          <div>
+            <div class="match-title">${r.matchTitle}</div>
+            <div class="match-method">${r.matchMethod}</div>
+          </div>
         </div>
-      </div>
-      ${signalsBox}
-      ${confTrail}
-      ${slackPings}
+        ${signalsBox}
+        ${confTrail}
+        ${slackPings}
       ${r.candidateState && r.candidatesList ? `
         <div class="candidates-picker">
-          <div class="candidates-picker-label" style="display:flex;align-items:center;gap:10px">
-            <span>↑ Pick the correct booking to continue RCA</span>
-            <button class="rerun-btn" data-mark-untraceable style="margin-left:auto"
-                    title="None of these is this guest's booking — clear them and move to Untraceable">
-              None of these → Untraceable
-            </button>
-          </div>
+          <div class="candidates-picker-label">Pick the correct booking to continue</div>
           ${r.candidatesList.some(c => c.scoreVenue != null) && !r.candidatesList.some(c => c.venueSignal) ? `
           <div class="candidates-picker-label" style="color:var(--amber);text-transform:none;letter-spacing:0">
             ⚠ No venue agreement — none of these match the venue in the review.
@@ -2876,13 +1789,19 @@ function renderReviewCol() {
               </div>
             </div>`;
           }).join('')}
-          <button class="candidate-confirm-btn">Confirm selection · run full RCA</button>
+          <div class="picker-actions">
+            <button class="candidate-confirm-btn">Confirm · run full RCA</button>
+            <button class="skip-btn" data-mark-untraceable
+                    title="None of these is this guest's booking">None → Untraceable</button>
+          </div>
         </div>
       ` : ''}
+      </div>
     </div>
 
-    <div class="section">
-      <div class="section-label"><span class="marker"></span>Experience Details</div>
+    ${r.type === 'identified' ? `
+    <div class="facts-block">
+      <div class="facts-head"><span class="facts-head-title">Booking details</span></div>
       <div class="details-grid">
         <div class="detail-row"><span class="k">Booking ID</span><span class="v mono">${b.bmsLink ? `<a href="${b.bmsLink}" target="_blank" rel="noopener" class="bms-link">${b.bid}</a>` : b.bid}</span></div>
         <div class="detail-row"><span class="k">Experience</span><span class="v">${b.experience || "—"}</span></div>
@@ -2906,36 +1825,36 @@ function renderReviewCol() {
         <div class="detail-row"><span class="k">Booking status</span><span class="v">${b.status ? `<span class="booking-status-pill status-${b.status}">${b.status}</span>` : '—'}</span></div>
         <div class="detail-row"><span class="k">Lead time</span><span class="v mono">${b.leadTime || '—'}</span></div>
       </div>
-    </div>
+    </div>` : ''}
 
-    <div class="section">
+    <div class="facts-block">
       <!-- Every timestamp is IST, so the suffix said nothing per-row while its
            16 characters overflowed the 80px time column - "IST" wrapped onto
            its own line on every timed row, next to one-line date-only
            bookends, which read as three different date formats. Stated once
            here instead; the stored string keeps its suffix and time_sort
            stays UTC. -->
-      <div class="section-label"><span class="marker"></span>Events Timeline <span style="font-size:9.5px;color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0;margin-left:6px">times in IST</span></div>
-      <div class="timeline">
+      <div class="facts-head"><span class="facts-head-title">Support timeline</span>
+        <span style="font-size:11px;color:var(--dim)">times in IST</span></div>
+      <div class="details-grid" style="padding:8px 16px">
         ${events}
         <div class="timeline-summary">${r.timelineSummary}</div>
       </div>
     </div>
 
-    <div class="section">
-      <div class="section-label"><span class="marker"></span>Experience Insights</div>
-      <div class="insights-wrap">
-        <!-- Outside the branch on purpose. This used to live only in the
-             fallback arm, so the moment real insights arrived the picker
-             vanished and the window could not be changed at all. -->
-        <div class="insights-header">
-          <div class="insights-title">Window:</div>
-          <div class="window-picker">
-            <button class="window-btn ${state.insightsWindow === '7d' ? 'active' : ''}" data-window="7d">7d</button>
-            <button class="window-btn ${state.insightsWindow === '30d' ? 'active' : ''}" data-window="30d">30d</button>
-            <button class="window-btn ${state.insightsWindow === '90d' ? 'active' : ''}" data-window="90d">90d</button>
-          </div>
+    <div class="facts-block">
+      <!-- Picker lives outside the branch on purpose: it used to sit only in
+           the fallback arm, so the moment real insights arrived it vanished
+           and the window could not be changed at all. -->
+      <div class="insights-header">
+        <span class="insights-title">Experience insights</span>
+        <div class="window-picker">
+          <button class="window-btn ${state.insightsWindow === '7d' ? 'active' : ''}" data-window="7d">7d</button>
+          <button class="window-btn ${state.insightsWindow === '30d' ? 'active' : ''}" data-window="30d">30d</button>
+          <button class="window-btn ${state.insightsWindow === '90d' ? 'active' : ''}" data-window="90d">90d</button>
         </div>
+      </div>
+      <div class="insights-wrap">
         ${r.liveInsights ? (() => {
           const li = r.liveInsights;
           // rating_15d / rating_30d are back-compat aliases: the server sends
@@ -3120,6 +2039,49 @@ function renderReviewCol() {
         </div>`}
       </div>
     </div>
+    ${(() => {
+      const rc = r.rca || {};
+      const chipRow = (label, values, addAttr, options, removeAttr) => `
+        <div class="chip-row">
+          <span class="chip-row-label">${label}</span>
+          ${(values || []).map((v, i) => `
+            <span class="chip">${esc(v)}
+              <button ${removeAttr}="${i}" title="Remove">×</button>
+            </span>`).join('')}
+          <select class="chip-add" ${addAttr}>
+            <option value="">+ add</option>
+            ${(options || []).filter(o => !(values || []).includes(o))
+                .map(o => `<option>${esc(o)}</option>`).join('')}
+          </select>
+        </div>`;
+      const subOpts = SUB_THEME_OPTIONS[rc.issueL1 + '::' + rc.issueL2] || [];
+      return `
+      <div class="classify-block">
+        <div class="col-label" style="margin-bottom:10px">Classification</div>
+        <div class="classify-selects">
+          <label class="classify-row">L1
+            <select class="classify-select">
+              <option>${esc(rc.issueL1 || '')}</option>
+              ${['Operations Issue','SP issue','CO miss','Fulfilment','Product/UX','Customer error','Pricing','Other']
+                  .filter(o => o !== rc.issueL1).map(o => `<option>${o}</option>`).join('')}
+            </select>
+          </label>
+          <label class="classify-row">L2
+            <select class="classify-select">
+              <option>${esc(rc.issueL2 || '')}</option>
+              ${(L2_OPTIONS[rc.issueL1] || []).filter(o => o !== rc.issueL2)
+                  .map(o => `<option>${esc(o)}</option>`).join('')}
+            </select>
+          </label>
+        </div>
+        ${chipRow('Sub-themes', rc.subTheme ? [rc.subTheme] : [], 'data-subtheme-select', subOpts, 'data-subtheme-remove')}
+        ${chipRow('Scenarios', rc.primaryScenario ? [rc.primaryScenario] : [], 'data-scenario-select', SCENARIO_OPTIONS, 'data-scenario-remove')}
+        ${chipRow('Overlays', rc.overlayScenarios || [], 'data-overlay-add',
+                  SCENARIO_OPTIONS.filter(o => o !== rc.primaryScenario), 'data-overlay-remove')}
+        <span data-scenario-regen-status style="font-size:11px;color:var(--muted-2)"></span>
+      </div>`;
+    })()}
+
   `;
 
   // Machinery toggle. Hiding is a display choice, so it is reversible and it
@@ -3273,39 +2235,45 @@ function renderRcaCol() {
 
   const col = document.getElementById('rca-col');
 
-  if (r.type === 'untraceable') {
+  // The RCA runs against a specific booking, so an unconfirmed candidate set
+  // gets a gate rather than a half-built workspace: editing an analysis that
+  // is about to be regenerated against a different booking wastes the work.
+  if (r.type === 'candidates') {
     col.innerHTML = `
       <div class="rca-head">
         <div>
-          <div class="rca-title">Untraceable review</div>
-          <div class="rca-sub">Slack-only flow · No booking found</div>
+          <div class="rca-title">RCA &amp; response</div>
+          <div class="rca-sub">Locked until a booking is confirmed</div>
+        </div>
+      </div>
+      <div class="rca-gate">
+        <div class="rca-gate-title">Confirm the booking first</div>
+        <div class="rca-gate-body">The RCA runs against a specific booking. Pick the
+          correct candidate in the middle panel — the full analysis fills in here
+          once confirmed.</div>
+      </div>`;
+    return;
+  }
+
+  if (r.type === 'untraceable') {
+    col.innerHTML = `
+      <div class="untr-wrap">
+      <div class="col-label">Untraceable — ask the guest</div>
+      <div class="untr-card">
+        <div class="untr-lead">No booking found for <strong>${esc(r.firstName)}</strong>. The standard
+          move is a one-line reply asking for the booking reference; the review stays in
+          this tab until it matches.</div>
+        <div class="untr-template" data-untraceable-template>Hi ${esc(r.firstName)}, thank you for sharing your feedback. We would love to look into this for you — could you share your Headout booking reference number or the email used at the time of booking?</div>
+        <div class="untraceable-actions">
+          <!-- Copy, not send: this reply is pasted into the Slack thread by
+               hand like every other response in this app. -->
+          <button class="btn primary" data-copy-untraceable>Copy reply</button>
+          <button class="btn" data-rerun-match>↻ Re-run matching</button>
         </div>
       </div>
 
       <div class="section">
-        <div class="section-label"><span class="marker"></span>Action — One-click reply</div>
-        <div class="untraceable-detail">
-          <div class="untraceable-status">
-            No booking found for <strong>${r.firstName}</strong>. Ask the guest for booking details.
-          </div>
-          <div class="untraceable-actions">
-            <!-- Copy, not send: this reply is pasted into the Slack thread by
-                 hand like every other response in this app. The button used to
-                 say "Verify and send reply" and, with no thread to post to,
-                 quietly fell back to the clipboard - promising one thing and
-                 doing another. -->
-            <button class="verify-btn" data-copy-untraceable>Copy reply</button>
-            <button class="skip-btn" data-rerun-match>↻ Re-run matching</button>
-          </div>
-          <div class="template-card">
-            <div class="template-label">Reply to copy</div>
-            <span data-untraceable-template>Hi ${r.firstName}, thank you for sharing your feedback. We would love to look into this for you — could you share your Headout booking reference number or the email used at the time of booking?</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="section">
-        <div class="section-label"><span class="marker"></span>Why this flow</div>
+        <div class="section-label">Why this flow<span class="section-chev">▾</span></div>
         <!-- This used to be one hardcoded sentence asserting "no BID, no
              usable signals" on EVERY untraceable review - including reviews
              naming a venue, a city and a date. A fixed claim about variable
@@ -3344,6 +2312,7 @@ function renderRcaCol() {
             </div>
           </div>
         </div>
+      </div>
       </div>
     `;
     const vBtn = col.querySelector('[data-copy-untraceable]');
@@ -3401,18 +2370,24 @@ function renderRcaCol() {
     .map((p, i) => `<div class="${cls}">• ${edSpan(`${path}.${i}`, p)}</div>`).join('');
 
   const supV3 = v3d.support_interaction || [];
+  // One row per contact: number, channel, time, one-line summary, ticket,
+  // chevron. The full detail lives behind the chevron so a long thread does
+  // not push the rest of the RCA off the screen.
   const sup = supV3.length > 0
     ? `<div class="interactions">
         ${supV3.map((s, i) => `
-          <div class="convo-frame open">
-            <div class="convo-frame-head" style="cursor:default">
-              <span class="convo-num">${i + 1}</span>
+          <div class="convo-frame ${state.ixOpen[i] ? 'open' : ''}">
+            <div class="convo-frame-head" data-ix-toggle="${i}">
+              <span class="convo-num">${String(i + 1).padStart(2, '0')}</span>
               <span class="convo-type-pill">${esc(s.channel || '')}</span>
               <span class="convo-time">${esc(s.time || '')}</span>
-              <span style="margin-left:auto">${s.zd_ref ? zdLink(s.zd_ref) : ''}</span>
+              <span class="interaction-summary-line">${esc(s.summary || '')}</span>
+              ${s.zd_ref ? zdLink(s.zd_ref) : ''}
+              <span class="convo-chevron">${state.ixOpen[i] ? '▾' : '▸'}</span>
             </div>
             <div class="convo-body">
-              <div class="convo-line"><span class="v">${edSpan(`support_interaction.${i}.summary`, s.summary)}</span></div>
+              <div class="convo-line">${edSpan(`support_interaction.${i}.summary`, s.summary)}</div>
+              ${s.detail ? `<div class="convo-detail">${esc(s.detail)}</div>` : ''}
               ${s.ce_miss ? `<div class="convo-gap">⚠ CE miss: ${edSpan(`support_interaction.${i}.ce_miss`, s.ce_miss)}</div>` : ''}
             </div>
           </div>
@@ -3680,7 +2655,7 @@ function renderRcaCol() {
   const isaBlock = `
     ${Object.keys(rca.issueSpecificAnswers || {}).length > 0 ? `
     <div class="section" id="rca-issue-answers-section">
-      <div class="section-label"><span class="marker"></span>Issue-Specific Answers<span class="ai-tag-inline">AI</span></div>
+      <div class="section-label">Issue-Specific Answers<span class="section-chev">▾</span></div>
       <!-- Verdict + the evidence behind it. The old version rendered a
            Yes/No/Unknown select only: it threw the evidence away, and an
            answer that opens with a fact ("28 minutes (...)") matched no
@@ -3721,9 +2696,9 @@ function renderRcaCol() {
   // is the sourced proof someone already collected.
   const evidenceBlock = (rca.evidence || []).length ? `
     <div class="section" id="rca-evidence-section">
-      <div class="section-label"><span class="marker"></span>Evidence<span class="ai-tag-inline">AI</span>
+      <div class="section-label">Evidence
         <span class="sec-count">${rca.evidence.length} · legacy</span>
-      </div>
+      <span class="section-chev">▾</span></div>
       <div class="field-block rca-points">
         ${rca.evidence.map(e => `<div class="rca-point"><span class="rca-bullet">•</span><span class="rca-ptext">${esc(e)}</span></div>`).join('')}
       </div>
@@ -3741,8 +2716,12 @@ function renderRcaCol() {
   ];
   const _slackText = rca.slackThreadOverride || _genSlackText();
   const slackPost = `
-    <div class="slack-preview">
-      <div class="slack-preview-label">Slack Thread Post (editable)</div>
+    <div class="slack-preview section" id="rca-slack-section">
+      <div class="slack-head section-label">
+        <span class="slack-preview-label">Slack thread post</span>
+        <button class="slack-regen-btn" data-slack-regen style="margin-left:auto">↻ Regenerate from RCA</button>
+        <span class="section-chev">▾</span>
+      </div>
       <div class="slack-sections">
         <span class="slack-sections-label">include:</span>
         ${_slackSectionKeys.map(([key, label]) => `
@@ -3759,11 +2738,14 @@ function renderRcaCol() {
         <textarea class="slack-edit-area" data-slack-edit>${_slackText.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
         <span class="slack-edit-hint">edit &amp; blur to save</span>
       </div>
-      <button class="slack-regen-btn" data-slack-regen>↻ Regenerate from RCA</button>
+      <div class="slack-post-row">
+        <button class="slack-post-btn" data-slack-post>Post to Slack thread ↑</button>
+      </div>
     </div>
   `;
 
-  // ── v3 new-shape sections (5-heading WWR, flags, booking logs, SOP) ──────
+  // ── v3 new-shape sections (WWR, booking timeline, flags, SOP) ───────────
+  let _flagsHtml = '';
   const newShapeBlock = (v3d.what_went_wrong || v3d.flags || v3d.sop_compliance) ? (() => {
     const t = (typeof v3d.tldr === 'object' && v3d.tldr) ? v3d.tldr : null;
     // TL;DR is a mandated heading, so an absent one is reported rather than
@@ -3771,7 +2753,7 @@ function renderRcaCol() {
     // was made" instead of "the model did not answer".
     const tldrHtml = `
     <div class="section" id="rca-tldr-section">
-      <div class="section-label"><span class="marker"></span>TL;DR<span class="ai-tag-inline">AI</span></div>
+      <div class="section-label">TL;DR<span class="section-chev">▾</span></div>
       ${t ? `<div class="field-block rca-kv">
         <span style="color:var(--text-mute)">Our mistake</span><span class="editable-text" contenteditable="true" spellcheck="false"
               role="textbox" aria-label="TL;DR our mistake" data-v3p="tldr.our_mistake">${esc(t.our_mistake)}</span>
@@ -3782,42 +2764,92 @@ function renderRcaCol() {
     </div>`;
 
     const w = v3d.what_went_wrong || {};
-    const issues = (w.guest_issues || []).map((gi, gidx) => `
-        <div class="chk-row">
-          <span class="chk-mark">•</span>
-          <div class="chk-item">${edSpan(`what_went_wrong.guest_issues.${gidx}.issue`, gi.issue)}
-            <div class="chk-ev">Claim: <strong>${edSpan(`what_went_wrong.guest_issues.${gidx}.claim_accuracy`, gi.claim_accuracy || '—')}</strong></div>
-            ${edPoints(`what_went_wrong.guest_issues.${gidx}.evidence`, gi.evidence)}
-          </div>
-        </div>`).join('');
     const wh = w.what_happened || {};
-    const causes = (wh.root_causes || []).map((rc, cidx) => `
-        <div class="chk-row">
-          <span class="chk-mark">→</span>
-          <div class="chk-item">${edSpan(`what_went_wrong.what_happened.root_causes.${cidx}.issue`, rc.issue)}
-            <div class="chk-ev">${edSpan(`what_went_wrong.what_happened.root_causes.${cidx}.cause`, rc.cause)}</div>
-          </div>
-        </div>`).join('');
     const spx = w.sp_escalation || {};
     const fx  = w.fixes || {};
+    // The handoff folds the five headings into one row per guest issue:
+    // number, title, accuracy chip, and — expanded — Claim / Evidence /
+    // Analysis. Root causes come back as their own list, so issue i is
+    // paired with root_cause i and any surplus causes are appended as
+    // unpaired rows rather than dropped.
+    const accClass = (a) => { const t = String(a || '').toLowerCase();
+      return t.startsWith('yes') || t.startsWith('accur') ? 'ok'
+           : t.startsWith('no') ? 'no'
+           : t ? 'part' : ''; };
+    const causesList = wh.root_causes || [];
+    const gIssues = w.guest_issues || [];
+    const rowCount = Math.max(gIssues.length, causesList.length);
+    const wwrRows = Array.from({length: rowCount}, (_, i) => {
+      const gi = gIssues[i] || {};
+      const rc = causesList[i] || {};
+      const open = state.wwrOpen[i] !== false;
+      const title = gi.issue || rc.issue || 'Untitled issue';
+      const evidence = asPoints(gi.evidence);
+      return `
+      <div class="wwr-issue">
+        <div class="wwr-issue-head" data-wwr-toggle="${i}">
+          <span class="wwr-n">${String(i + 1).padStart(2, '0')}</span>
+          <span class="wwr-issue-title">${esc(title)}</span>
+          ${gi.claim_accuracy ? `<span class="chip-acc ${accClass(gi.claim_accuracy)}">${esc(gi.claim_accuracy)}</span>` : ''}
+          <span class="wwr-issue-chev">${open ? '▾' : '▸'}</span>
+        </div>
+        ${open ? `
+        <div class="wwr-issue-body">
+          <div class="wwr-blk">
+            <span class="wwr-blk-label">Claim</span>
+            <div class="wwr-claim">${gi.issue ? '“' + edSpan(`what_went_wrong.guest_issues.${i}.issue`, gi.issue) + '”'
+                                               : '<span class="rca-empty">No claim recorded.</span>'}</div>
+          </div>
+          <div class="wwr-blk">
+            <span class="wwr-blk-label">Evidence</span>
+            ${evidence.length ? evidence.map((e, j) => `
+              <div class="wwr-ev-row"><span class="dash">—</span>${
+                edSpan(`what_went_wrong.guest_issues.${i}.evidence.${j}`, e)}</div>`).join('')
+              : '<div class="rca-empty">No evidence recorded.</div>'}
+            <button class="row-add wwr-add" data-wwr-ev-add="${i}">+ Add evidence</button>
+          </div>
+          <div class="wwr-blk">
+            <span class="wwr-blk-label">Analysis</span>
+            <div class="wwr-analysis">
+              <div class="wwr-analysis-head">
+                ${gi.claim_accuracy ? `<span class="chip-acc ${accClass(gi.claim_accuracy)}">${esc(gi.claim_accuracy)}</span>` : ''}
+                ${rc.classification ? `<span class="chip-owner">owner · ${esc(rc.classification)}</span>` : ''}
+              </div>
+              <span class="rca-wrap"><span class="wwr-cause-label">Root cause:</span> ${
+                rc.cause ? edSpan(`what_went_wrong.what_happened.root_causes.${i}.cause`, rc.cause)
+                         : '<span class="rca-empty">Not recorded.</span>'}</span>
+            </div>
+          </div>
+        </div>` : ''}
+      </div>`;
+    }).join('');
+
+    const wwrOpenAll = rowCount > 0 && Array.from({length: rowCount}, (_, i) => state.wwrOpen[i] !== false).every(Boolean);
     const wwrHtml = v3d.what_went_wrong ? `
     <div class="section" id="rca-wwr5-section">
-      <div class="section-label"><span class="marker"></span>What Went Wrong<span class="ai-tag-inline">AI</span></div>
-      <div class="field-block rca-stack" style="gap:12px">
-        <div><div class="wwr5-h">1. Guest issue &amp; 2. Claim accuracy</div>${issues || '<div class="rca-empty">No guest issues were identified — re-run the RCA if the review names one.</div>'}</div>
-        <div><div class="wwr5-h">3. What actually happened</div>${causes || '<div class="rca-empty">No root cause was returned for this review.</div>'}
-          ${asPoints(wh.operational_failure).length ? `<div class="chk-ev" style="margin-top:4px"><strong>Operational failure</strong></div>${edPoints('what_went_wrong.what_happened.operational_failure', wh.operational_failure)}` : ''}
-          ${asPoints(wh.sop_gap).length ? `<div class="chk-ev"><strong>SOP gap</strong></div>${edPoints('what_went_wrong.what_happened.sop_gap', wh.sop_gap)}` : ''}
-          ${wh.pattern ? `<div class="chk-ev"><strong>Pattern:</strong> ${edSpan('what_went_wrong.what_happened.pattern', wh.pattern)}</div>` : ''}
-        </div>
-        <div><div class="wwr5-h">4. SP escalation</div>
-          <div class="chk-ev"><strong>${edSpan('what_went_wrong.sp_escalation.escalated', spx.escalated || '—')}</strong></div>${edPoints('what_went_wrong.sp_escalation.detail', spx.detail)}
-        </div>
-        <div><div class="wwr5-h">5. Fixes</div>
-          ${(fx.teams || []).length ? `<div class="chk-ev"><strong>Teams:</strong> ${esc((fx.teams || []).join(', '))}${fx.owner ? ' · owner: ' + esc(fx.owner) : ''}</div>` : ''}
-          ${edPoints('what_went_wrong.fixes.actions', fx.actions)}
-        </div>
+      <div class="section-label">
+        <span>What went wrong</span>
+        <span class="hint">${rowCount} issue${rowCount === 1 ? '' : 's'} · ${causesList.length} root cause${causesList.length === 1 ? '' : 's'}</span>
+        <button class="btn" style="margin-left:auto;font-size:11px;padding:2px 9px" data-wwr-all>${wwrOpenAll ? 'Collapse all' : 'Expand all'}</button>
+        <span class="section-chev">▾</span>
       </div>
+      ${wwrRows || '<div class="rca-empty">No guest issues were identified — re-run the RCA if the review names one.</div>'}
+      ${(asPoints(wh.operational_failure).length || asPoints(wh.sop_gap).length || wh.pattern) ? `
+      <div class="wwr-blk" style="margin-top:10px">
+        ${asPoints(wh.operational_failure).length ? `<span class="wwr-blk-label">Operational failure</span>${edPoints('what_went_wrong.what_happened.operational_failure', wh.operational_failure)}` : ''}
+        ${asPoints(wh.sop_gap).length ? `<span class="wwr-blk-label">SOP gap</span>${edPoints('what_went_wrong.what_happened.sop_gap', wh.sop_gap)}` : ''}
+        ${wh.pattern ? `<div class="chk-ev"><strong>Pattern:</strong> ${edSpan('what_went_wrong.what_happened.pattern', wh.pattern)}</div>` : ''}
+      </div>` : ''}
+      <div class="wwr-blk" style="margin-top:10px">
+        <span class="wwr-blk-label">Fixes</span>
+        ${(fx.teams || []).length ? `<div class="chk-ev"><strong>Teams:</strong> ${esc((fx.teams || []).join(', '))}${fx.owner ? ' · owner: ' + esc(fx.owner) : ''}</div>` : ''}
+        ${edPoints('what_went_wrong.fixes.actions', fx.actions)}
+        ${asPoints(spx.detail).length || spx.escalated ? `
+        <div class="chk-ev" style="margin-top:6px"><strong>SP escalation:</strong> ${
+          edSpan('what_went_wrong.sp_escalation.escalated', spx.escalated || '—')}</div>
+        ${edPoints('what_went_wrong.sp_escalation.detail', spx.detail)}` : ''}
+      </div>
+      <button class="row-add" style="margin-top:10px" data-wwr-issue-add>+ Add issue</button>
     </div>` : '';
 
     // Numbered stepper, same shape as the WWR chain - a reader follows the
@@ -3837,24 +2869,23 @@ function renderRcaCol() {
           : 'No booking was matched, so there is no system timeline to draw from. Add the events by hand below.');
     const logsHtml = `
     <div class="section" id="rca-booking-logs-section">
-      <div class="section-label"><span class="marker"></span>What Happened<span class="ai-tag-inline">AI</span>
+      <div class="section-label"><span>Booking timeline</span>
+        <span class="hint">times in IST</span>
         ${logRows.length ? `<span class="sec-count">${logRows.length} event${logRows.length === 1 ? '' : 's'}</span>` : ''}
-      </div>
-      ${logRows.length ? '' : `<div class="field-block rca-empty">${logsEmptyWhy}</div>`}
-      <div class="wwr-stepper">
-        ${logRows.map((l, i) => `
-          <div class="wwr-step">
-            <div class="wwr-step-num">${i + 1}</div>
-            <div class="wwr-step-body">
-              <div class="wwr-what">${l.time ? `<span class="editable-text" contenteditable="true" spellcheck="false" data-log-idx="${i}" data-log-field="time" style="color:var(--text-mute);font-weight:400;margin-right:6px">${esc(l.time)}</span>` : ''}<strong class="editable-text" contenteditable="true" spellcheck="false" data-log-idx="${i}" data-log-field="what">${esc(l.what)}</strong></div>
-              <div class="wwr-why editable-text rca-wrap" contenteditable="true" spellcheck="false"
-                   role="textbox" aria-label="Event ${i + 1} detail"
-                   data-log-idx="${i}" data-log-field="detail"
-                   style="color:var(--text-mute)">${esc(l.detail) || 'No detail — click to add.'}</div>
-            </div>
-            <button class="row-del" data-log-del="${i}" title="Remove event">×</button>
-          </div>`).join('<div class="wwr-connector"></div>')}
-      </div>
+      <span class="section-chev">▾</span></div>
+      ${logRows.length ? '' : `<div class="rca-empty">${logsEmptyWhy}</div>`}
+      ${logRows.map((l, i) => `
+        <div class="tl-row">
+          <span class="tl-time editable-text" contenteditable="true" spellcheck="false"
+                data-log-idx="${i}" data-log-field="time">${esc(l.time)}</span>
+          <div class="tl-body">
+            <span class="tl-what editable-text" contenteditable="true" spellcheck="false"
+                  data-log-idx="${i}" data-log-field="what">${esc(l.what)}</span><span class="tl-detail"> — <span
+                  class="editable-text" contenteditable="true" spellcheck="false"
+                  data-log-idx="${i}" data-log-field="detail">${esc(l.detail) || 'no detail'}</span></span>
+          </div>
+          <button class="row-del" data-log-del="${i}" title="Remove event">×</button>
+        </div>`).join('')}
       <button class="row-add" data-log-add>+ Add event</button>
     </div>`;
 
@@ -3875,9 +2906,9 @@ function renderRcaCol() {
     });
     const flagsHtml = `
     <div class="section" id="rca-flags-section">
-      <div class="section-label"><span class="marker"></span>Flags<span class="ai-tag-inline">AI</span>
+      <div class="section-label">Flags
         ${flags.length ? `<span class="sec-count">${flagSecs.map(t => flagGroups[t].length + ' ' + t).join(' · ')}</span>` : ''}
-      </div>
+      <span class="section-chev">▾</span></div>
       ${flags.length === 0
         ? `<div class="field-block rca-empty">✓ Every QA area was checked and none needed raising.</div>`
         : `<div class="chk-groups">${flagSecs.map(t => `
@@ -3909,7 +2940,7 @@ function renderRcaCol() {
     const sop = v3d.sop_compliance || null;
     const sopHtml = sop ? `
     <div class="section" id="rca-sop-section">
-      <div class="section-label"><span class="marker"></span>SOP Compliance<span class="ai-tag-inline">AI</span></div>
+      <div class="section-label">SOP Compliance<span class="section-chev">▾</span></div>
       <div class="field-block rca-stack">
         <div><select class="classify-select" style="width:130px;font-size:11.5px" data-sop-verdict>
             ${['followed','deviated','unknown'].map(o => `<option${(sop.verdict || 'unknown') === o ? ' selected' : ''}>${o}</option>`).join('')}
@@ -3922,13 +2953,14 @@ function renderRcaCol() {
       </div>
     </div>` : '';
 
-    return tldrHtml + wwrHtml + logsHtml + flagsHtml + sopHtml;
+    _flagsHtml = flagsHtml;
+    return tldrHtml + logsHtml + wwrHtml + sopHtml;
   })() : '';
 
   // ── v3 sections (legacy shape, gated on tldr presence) ────────────────────
   const v3Block = newShapeBlock ? newShapeBlock : (rca.tldr || (rca.wwrScenarios || []).length) ? `
     <div class="section" id="rca-wwr-section">
-      <div class="section-label"><span class="marker"></span>What Went Wrong<span class="ai-tag-inline">AI</span></div>
+      <div class="section-label">What Went Wrong<span class="section-chev">▾</span></div>
       ${(rca.wwrScenarios || []).length ? `
       <div class="wwr-scenarios">
         ${rca.wwrScenarios.map((sc, i) => `
@@ -3987,85 +3019,25 @@ function renderRcaCol() {
     <div class="rca-head">
       <div>
         <div class="rca-title-row">
-          <div class="rca-title" contenteditable="true" spellcheck="false">AI RCA</div>
-          <span class="rca-edit-icon" title="Click title to edit">✎</span>
-          <button class="refresh-slack-btn" data-rca-only-regen style="margin-left:auto"
-                  title="One model call over the stored booking/timeline/insights — no re-matching, no BigQuery, no Zendesk. Use after a prompt change; the full ↻ Re-run is only needed when the DATA should change.">↻ RCA only</button>
+          <div class="rca-title">RCA &amp; response</div>
         </div>
-        <div class="rca-sub">BID ${r.booking.bid || '—'} · drafted ${r.time || ''} · click any field to edit</div>
+        <div class="rca-sub">Drafted by AI ${r.time || ''} · every field is editable ·
+          Send marks as sent — paste into Trustpilot manually</div>
+      </div>
+      <div class="rca-head-actions">
+        <button class="refresh-slack-btn" data-rca-only-regen
+                title="One model call over the stored booking/timeline/insights — no re-matching, no BigQuery, no Zendesk.">↻ RCA only</button>
+        <button class="btn copy-response-btn">Copy response</button>
+        <button class="send-btn">Send ↑</button>
       </div>
     </div>
 
+    <div class="rca-stack-outer">
     <div class="section">
-      <div class="section-label"><span class="marker"></span>Guest's Stated Issue<span class="ai-tag-inline">AI</span></div>
+      <div class="section-label"><span>Guest's stated issue</span><span class="section-chev">▾</span></div>
       <div class="stated-issue">
         <div class="stated-issue-text editable-text" contenteditable="true" spellcheck="false">${r.statedIssue || ''}</div>
         ${(r.statedIssue || '').trim() ? '' : `<div class="rca-empty">Nothing was extracted — click above to write the guest's issue in one line.</div>`}
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-label"><span class="marker"></span>Issue Classification<span class="ai-tag-inline">AI</span></div>
-      <div class="classify-block">
-        <div class="classify-row">
-          <span class="classify-label">L1</span>
-          <select class="classify-select">
-            <option>${rca.issueL1}</option>
-            <option>SP issue</option>
-            <option>CO miss</option>
-            <option>Fulfilment</option>
-            <option>Product/UX</option>
-            <option>Customer error</option>
-            <option>Pricing</option>
-            <option>Other</option>
-          </select>
-        </div>
-        <div class="classify-row">
-          <span class="classify-label">L2</span>
-          <select class="classify-select">
-            <option>${rca.issueL2}</option>
-            ${(L2_OPTIONS[rca.issueL1] || []).filter(o => o !== rca.issueL2).map(o => `<option>${o}</option>`).join('')}
-          </select>
-        </div>
-        ${(rca.subTheme || (SUB_THEME_OPTIONS[rca.issueL1 + '::' + rca.issueL2] || []).length) ? `
-        <div class="classify-row">
-          <span class="classify-label">Sub-theme</span>
-          <select class="classify-select" data-subtheme-select>
-            ${rca.subTheme ? `<option>${rca.subTheme}</option>` : `<option value="">— none —</option>`}
-            ${(SUB_THEME_OPTIONS[rca.issueL1 + '::' + rca.issueL2] || [])
-                .filter(o => o !== rca.subTheme)
-                .map(o => `<option>${o}</option>`).join('')}
-          </select>
-        </div>` : ''}
-        <div class="classify-row">
-          <span class="classify-label">Scenario</span>
-          <!-- Editable like L1/L2/sub-theme above it. The routed scenario is a
-               lookup from the classification, and a lookup can be wrong the
-               same way a classification can. Changing anything here re-runs
-               the RCA against the corrected scenario checklists - editing a
-               routing the RCA never re-reads would fix nothing. -->
-          <select class="classify-select" data-scenario-select>
-            ${rca.primaryScenario ? `<option>${rca.primaryScenario}</option>` : `<option value="">— none —</option>`}
-            ${SCENARIO_OPTIONS.filter(o => o !== rca.primaryScenario)
-                .map(o => `<option>${o}</option>`).join('')}
-          </select>
-        </div>
-        <div class="classify-row" style="align-items:flex-start">
-          <span class="classify-label">Overlays</span>
-          <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;min-width:0">
-            ${(rca.overlayScenarios || []).map((o, i) => `
-              <span class="chk-pill na" style="display:inline-flex;align-items:center;gap:4px">${o}
-                <button data-overlay-remove="${i}" title="Remove overlay"
-                  style="background:none;border:none;cursor:pointer;color:inherit;padding:0;font-size:12px">×</button>
-              </span>`).join('')}
-            <select class="classify-select" data-overlay-add style="width:auto;font-size:11px">
-              <option value="">+ add</option>
-              ${SCENARIO_OPTIONS.filter(o => o !== rca.primaryScenario && !(rca.overlayScenarios || []).includes(o))
-                  .map(o => `<option>${o}</option>`).join('')}
-            </select>
-            <span data-scenario-regen-status style="font-size:11px;color:var(--text-mute)"></span>
-          </div>
-        </div>
       </div>
     </div>
 
@@ -4073,21 +3045,23 @@ function renderRcaCol() {
     ${isaBlock}
 
     <div class="section">
-      <div class="section-label"><span class="marker"></span>Support Interaction<span class="ai-tag-inline">AI</span></div>
+      <div class="section-label"><span>Guest ↔ support</span><span class="hint">${(v3d.support_interaction || []).length} contact${(v3d.support_interaction || []).length === 1 ? '' : 's'}</span><span class="section-chev">▾</span></div>
       ${sup}
     </div>
 
     ${true ? `
     <div class="section">
-      <div class="section-label"><span class="marker"></span>SP Interaction<span class="ai-tag-inline">AI</span></div>
+      <div class="section-label"><span>SP interaction</span><span class="hint">with the supply partner</span><span class="section-chev">▾</span></div>
       ${spInter || `<div class="interactions"><div class="interactions-empty">${spV3 && spV3.possible === false
             ? 'No SP interaction — escalation was not possible (' + esc(spV3.reason_if_not || 'vendor not partnered or opted out') + ').'
             : 'No SP interaction recorded. If escalation was possible, that is itself a gap worth flagging.'}</div></div>`}
     </div>
     ` : ''}
 
+    ${_flagsHtml}
+
     <div class="section">
-      <div class="section-label"><span class="marker"></span>Area of Improvement<span class="ai-tag-inline">AI</span></div>
+      <div class="section-label"><span>Area of improvement</span><span class="section-chev">▾</span></div>
       <!-- One pointer per line, editable in place. A single textarea invited
            the paragraph this section kept coming back as. -->
       <div class="field-block rca-points">
@@ -4108,20 +3082,7 @@ function renderRcaCol() {
     ${evidenceBlock}
 
     <div class="section">
-      <div class="section-label"><span class="marker"></span>Review Takedown<span class="ai-tag-inline">AI</span></div>
-      <div class="field-block">
-        <select class="classify-select" style="font-size:12px;width:150px" data-takedown-rec>
-          ${(() => {
-            const td = v3d.takedown || {};
-            const cur = td.verdict || (td.recommended === true ? 'Yes' : td.recommended === false ? 'No' : '—');
-            return ['Yes','No','Untraceable'].map(o => `<option${cur === o ? ' selected' : ''}>${o}</option>`).join('');
-          })()}
-        </select>
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-label"><span class="marker"></span>Action Taken</div>
+      <div class="section-label"><span>Actions taken</span><span class="section-chev">▾</span></div>
       <div class="action-block">
         <div class="action-tabs">
           <button class="action-tab ${state.actionTab === 'sp' ? 'active' : ''}" data-tab="sp">SP <span class="count">${rca.actionsTaken.sp.length}</span></button>
@@ -4154,42 +3115,44 @@ function renderRcaCol() {
     </div>
 
     <div class="section">
-      <div class="section-label">
-        <span class="marker"></span>Resolution<span class="ai-tag-inline">AI</span>
+      <div class="section-label"><span>Resolution &amp; takedown</span><span class="section-chev">▾</span></div>
+      <div class="wrapup-grid">
+        <label class="wrapup-field">Resolution
+          <textarea class="field-textarea" style="min-height:64px"
+                    placeholder="Comp / refund / explanation offered to the guest">${esc(rca.resolution || '')}</textarea>
+        </label>
+        <label class="wrapup-field">Takedown request
+          <select data-takedown-rec>
+            ${(() => {
+              const td = v3d.takedown || {};
+              const cur = td.verdict || (td.recommended === true ? 'Yes' : td.recommended === false ? 'No' : 'No');
+              return ['No','Yes','Untraceable'].map(o => `<option${cur === o ? ' selected' : ''}>${o}</option>`).join('');
+            })()}
+          </select>
+        </label>
       </div>
-      <div class="dss-row-ref">DSS row: ${rca.issueL1 || '—'} / ${rca.issueL2 || '—'}</div>
-      <div class="resolution-block">
-        <textarea class="field-textarea" placeholder="Final resolution offered to the guest — comp / refund / explanation">${rca.resolution || ''}</textarea>
-      </div>
+      <div class="dss-row-ref" style="margin-top:8px">DSS row: ${esc(rca.issueL1 || '—')} / ${esc(rca.issueL2 || '—')}</div>
     </div>
 
-    <div class="section">
-      <div class="section-label"><span class="marker"></span>Response to Guest<span class="ai-tag-inline">AI</span></div>
-      ${rca.templateName ? `<div class="tpl-name">Template: ${rca.templateName}</div>` : ''}
-      <div class="reply-block">
-        <div class="reply-edit-header">
-          <span>Editable — review before sending</span>
-          <span class="edit-hint">✎ Click to edit</span>
+    <div class="reply-block" id="rca-reply-section">
+      <div class="reply-head">
+        <span class="section-label" style="margin:0">Response to guest</span>
+        <span class="hint" style="font-size:11px;color:var(--dim)">goes out via Trustpilot on Send ↑</span>
+        <div class="reply-head-actions">
+          <button data-reply-edit>✎ Edit</button>
+          <button data-reply-copy>⧉ Copy</button>
         </div>
-        <textarea class="reply-text" placeholder="${(rca.templateName && rca.templateName.indexOf('NO MATCHING') !== -1) ? rca.templateName : 'AI-drafted response — edit as needed'}">${rca.reply}</textarea>
-        <div class="reply-meta">
-          <span>Goes out via Trustpilot Slack integration on Send ↑</span>
-          <span>${(rca.reply || '').length} chars</span>
-        </div>
+      </div>
+      ${rca.templateName ? `<div class="tpl-name">Template: ${esc(rca.templateName)}</div>` : ''}
+      <textarea class="reply-text" placeholder="${(rca.templateName && rca.templateName.indexOf('NO MATCHING') !== -1) ? esc(rca.templateName) : 'AI-drafted response — edit as needed'}">${esc(rca.reply)}</textarea>
+      <div class="reply-meta">
+        <span>Editable — review before sending</span>
+        <span>${(rca.reply || '').length} chars</span>
       </div>
     </div>
 
-    <div class="section">
-      <div class="section-label"><span class="marker"></span>Slack Thread Post</div>
-      ${slackPost}
-    </div>
+    ${slackPost}
 
-    <div class="send-bar">
-      <div class="send-info"><span class="dot"></span>Mark as sent — paste the response into Trustpilot manually</div>
-      <div class="send-actions">
-        <button class="btn copy-response-btn">Copy response</button>
-        <button class="btn primary send-btn">Send ↑</button>
-      </div>
     </div>
   `;
 
@@ -4345,6 +3308,63 @@ function renderRcaCol() {
     });
   });
 
+  // ── What went wrong: per-issue collapse, expand-all, add rows ──────────
+  col.querySelectorAll('[data-wwr-toggle]').forEach(el => {
+    el.addEventListener('click', ev => {
+      if (ev.target.closest('[contenteditable="true"], button, a')) return;
+      const i = parseInt(el.dataset.wwrToggle);
+      state.wwrOpen[i] = state.wwrOpen[i] === false;
+      renderRcaCol();
+    });
+  });
+  const wwrAll = col.querySelector('[data-wwr-all]');
+  if (wwrAll) wwrAll.addEventListener('click', () => {
+    const rows = col.querySelectorAll('[data-wwr-toggle]').length;
+    const allOpen = Array.from({length: rows}, (_, i) => state.wwrOpen[i] !== false).every(Boolean);
+    for (let i = 0; i < rows; i++) state.wwrOpen[i] = !allOpen;
+    renderRcaCol();
+  });
+  col.querySelectorAll('[data-wwr-ev-add]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const i = parseInt(btn.dataset.wwrEvAdd);
+      const w = rca.v3.what_went_wrong = rca.v3.what_went_wrong || {};
+      const gi = (w.guest_issues = w.guest_issues || [])[i] || (w.guest_issues[i] = {});
+      gi.evidence = [...asPoints(gi.evidence), 'New evidence — click to edit'];
+      await persistV3(); renderRcaCol();
+    });
+  });
+  const wwrIssueAdd = col.querySelector('[data-wwr-issue-add]');
+  if (wwrIssueAdd) wwrIssueAdd.addEventListener('click', async () => {
+    const w = rca.v3.what_went_wrong = rca.v3.what_went_wrong || {};
+    w.guest_issues = [...(w.guest_issues || []),
+      {issue: 'New issue — click to edit', claim_accuracy: '', evidence: []}];
+    await persistV3(); renderRcaCol();
+  });
+
+  // ── Guest <-> support: per-contact expand ──────────────────────────────
+  col.querySelectorAll('[data-ix-toggle]').forEach(el => {
+    el.addEventListener('click', ev => {
+      if (ev.target.closest('[contenteditable="true"], button, a')) return;
+      const i = parseInt(el.dataset.ixToggle);
+      state.ixOpen[i] = !state.ixOpen[i];
+      renderRcaCol();
+    });
+  });
+
+  // ── Response card: Edit focuses the textarea, Copy flips for 1.5s ──────
+  const replyArea = col.querySelector('.reply-text');
+  const replyEdit = col.querySelector('[data-reply-edit]');
+  if (replyEdit && replyArea) replyEdit.addEventListener('click', () => {
+    replyArea.focus();
+    replyArea.setSelectionRange(replyArea.value.length, replyArea.value.length);
+  });
+  const replyCopy = col.querySelector('[data-reply-copy]');
+  if (replyCopy && replyArea) replyCopy.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(replyArea.value); } catch (_) {}
+    replyCopy.textContent = '✓ Copied';
+    setTimeout(() => { replyCopy.textContent = '⧉ Copy'; }, 1500);
+  });
+
   const rcaOnly = col.querySelector('[data-rca-only-regen]');
   if (rcaOnly) rcaOnly.addEventListener('click', async () => {
     const orig = rcaOnly.textContent;
@@ -4400,7 +3420,7 @@ function renderRcaCol() {
     });
   });
 
-  const subThemeSel = col.querySelector('[data-subtheme-select]');
+  const subThemeSel = document.querySelector('[data-subtheme-select]');
   if (subThemeSel) {
     subThemeSel.addEventListener('change', async () => {
       const val = subThemeSel.value || null;
@@ -4451,14 +3471,14 @@ function renderRcaCol() {
     }
   };
 
-  const scenarioSel = col.querySelector('[data-scenario-select]');
+  const scenarioSel = document.querySelector('[data-scenario-select]');
   if (scenarioSel) {
     scenarioSel.addEventListener('change', () => {
       rca.primaryScenario = scenarioSel.value || '';
       regenRca();
     });
   }
-  const overlayAdd = col.querySelector('[data-overlay-add]');
+  const overlayAdd = document.querySelector('[data-overlay-add]');
   if (overlayAdd) {
     overlayAdd.addEventListener('change', () => {
       const val = overlayAdd.value;
@@ -4467,7 +3487,7 @@ function renderRcaCol() {
       regenRca();
     });
   }
-  col.querySelectorAll('[data-overlay-remove]').forEach(btn => {
+  document.querySelectorAll('[data-overlay-remove]').forEach(btn => {
     btn.addEventListener('click', () => {
       const idx = parseInt(btn.dataset.overlayRemove);
       rca.overlayScenarios = (rca.overlayScenarios || []).filter((_, i) => i !== idx);
