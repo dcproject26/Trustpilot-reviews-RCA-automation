@@ -949,11 +949,17 @@ def matches_indicators(sig: dict, ind: dict, first, last) -> tuple[bool, list]:
         want = _venue_tokens(venue)
         got  = _venue_tokens(sig.get("experience") or "")
         overlap = want & got
-        # At least one DISTINCTIVE word must agree. Overlapping only on venue
-        # -type nouns ("palace") matches half the catalogue.
-        if not (overlap and (overlap - _VENUE_GENERIC)):
-            return False, used
-        used.append("venue")
+        # A ticket that records NO experience cannot contradict the review's
+        # venue - it simply has nothing to say. Rejecting on it threw away
+        # tickets whose requester name matched exactly, which is how a review
+        # naming a guest, a venue and a city ended up untraceable. Only an
+        # experience that is present AND disagrees rejects.
+        if got:
+            # At least one DISTINCTIVE word must agree. Overlapping only on
+            # venue-type nouns ("palace") matches half the catalogue.
+            if not (overlap and (overlap - _VENUE_GENERIC)):
+                return False, used
+            used.append("venue")
 
     # City only filters when there is NO venue. The extractor returns whatever
     # the review gives it -- sometimes a city ("Krakow"), sometimes a country
@@ -1035,7 +1041,7 @@ async def shortlist(indicators: dict, author_first, author_last,
         queries.append((f'type:ticket "{venue}" {ORDER}', "venue"))
 
     loop = asyncio.get_running_loop()
-    seen_tickets, by_bid = set(), {}
+    seen_tickets, by_bid, weak_by_bid = set(), {}, {}
     for q, label in queries:
         try:
             hits = await loop.run_in_executor(None, lambda qq=q: _search_with_retry(_z, qq))
@@ -1049,18 +1055,34 @@ async def shortlist(indicators: dict, author_first, author_last,
             seen_tickets.add(tid)
             sig = ticket_signals(t)
             bid = sig.get("booking_id")
-            if not bid or bid in by_bid:
+            if not bid or bid in by_bid or bid in weak_by_bid:
                 continue
             ok, used = matches_indicators(sig, indicators, author_first, author_last)
-            if not ok:
-                continue
-            sig["matched_on"]  = used
-            sig["found_via"]   = label
-            sig["created_at"]  = str(getattr(t, "created_at", "") or "")
-            sig["ticket_id"]   = tid
-            by_bid[bid] = sig
+            sig["found_via"]  = label
+            sig["created_at"] = str(getattr(t, "created_at", "") or "")
+            sig["ticket_id"]  = tid
+            if ok:
+                sig["matched_on"] = used
+                by_bid[bid] = sig
+            elif name and name_matches(sig.get("guest_name") or "",
+                                       author_first, author_last):
+                # The name matched but another indicator disagreed. That is a
+                # weaker signal, not a refutation - the guest may have written
+                # about one leg of a multi-experience trip, or the ticket may
+                # carry a different experience name than the review's wording.
+                # Held back, and used only if nothing stronger survives:
+                # showing a human two plausible bookings to choose from beats
+                # filing a review with a name, a venue and a city as
+                # unidentifiable.
+                sig["matched_on"] = ["name"]
+                sig["weak"] = True
+                weak_by_bid[bid] = sig
 
     out = list(by_bid.values())
+    if not out and weak_by_bid:
+        out = list(weak_by_bid.values())
+        log.info(f"[shortlist] no ticket satisfied every indicator; falling back "
+                 f"to {len(out)} name-matching ticket(s) as candidates")
     out.sort(key=lambda s: s.get("created_at") or "", reverse=True)
 
     # Pax as a narrowing step: only when it actually separates the candidates.
