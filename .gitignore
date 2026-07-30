@@ -12,3 +12,4 @@ local.db-*
 
 # Diagnostic output, regenerated on demand.
 diagnose_report.txt
+demo.db

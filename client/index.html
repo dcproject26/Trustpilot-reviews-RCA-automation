@@ -71,11 +71,13 @@
   }
   .logo-block { display: flex; align-items: center; gap: 10px; }
   .logo {
-    width: 32px; height: 32px;
-    border-radius: 8px;
-    background: linear-gradient(135deg, #FF6B35, #F7B731);
+    width: 30px; height: 30px;
+    border-radius: 7px;
+    background: var(--bg-elev-3);
+    border: 1px solid var(--border-lit);
     display: flex; align-items: center; justify-content: center;
-    font-size: 11px; font-weight: 700; color: white;
+    font-size: 10.5px; font-weight: 700; color: var(--text-mute);
+    letter-spacing: 0.04em;
   }
   .brand-name { font-weight: 600; font-size: 15px; }
   .brand-sub { font-size: 12px; color: var(--text-mute); font-family: 'JetBrains Mono', monospace; }
@@ -192,13 +194,18 @@
     font-weight: 600; text-transform: uppercase;
     letter-spacing: 0.04em;
   }
-  .tag-lang { background: var(--blue-bg); color: var(--blue); }
-  .tag-new { background: var(--red-bg); color: var(--red); }
-  .tag-draft { background: var(--amber-bg); color: var(--amber); }
+  /* Every inbox card carried three tags in three different hues - language,
+     status and tier - so a list of thirty reviews was ninety coloured chips
+     and no card stood out from any other. Language and status are context,
+     not alarm: they go neutral. Colour is kept only where it tells the
+     reader to do something - untraceable needs a human, sent is finished. */
+  .tag-lang { background: var(--bg-elev-3); color: var(--text-mute); }
+  .tag-new { background: var(--bg-elev-3); color: var(--text-mute); }
+  .tag-draft { background: var(--bg-elev-3); color: var(--text-mute); }
   .tag-sent { background: var(--green-bg); color: var(--green); }
-  .tag-t1 { background: var(--green-bg); color: var(--green); }
-  .tag-t2 { background: var(--amber-bg); color: var(--amber); }
-  .tag-untr { background: var(--red-bg); color: var(--red); }
+  .tag-t1 { background: var(--bg-elev-3); color: var(--text-mute); }
+  .tag-t2 { background: var(--bg-elev-3); color: var(--text-mute); }
+  .tag-untr { background: var(--amber-bg); color: var(--amber); }
   .tag-ch1 { background: rgba(125, 181, 242, 0.1); color: #7DB5F2; }
   .tag-ch2 { background: rgba(242, 125, 181, 0.1); color: #F27DB5; }
   .inbox-footer {
@@ -252,9 +259,11 @@
     letter-spacing: 0.08em; color: var(--text-dim);
     font-weight: 600; margin-bottom: 8px;
   }
+  /* One lime dot per heading is fourteen lime dots down the panel, none of
+     which mean anything. The heading is already a heading. */
   .section-label .marker {
     width: 5px; height: 5px; border-radius: 50%;
-    background: var(--accent);
+    background: var(--border-lit);
   }
 
   .review-card {
@@ -262,7 +271,7 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 14px 16px;
-    border-left: 3px solid var(--red);
+    border-left: 2px solid rgba(242, 107, 107, 0.45);
   }
   .review-card-head {
     display: flex; justify-content: space-between;
@@ -283,7 +292,7 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 12px 16px;
-    border-left: 3px solid var(--blue);
+    border-left: 2px solid var(--border-lit);
   }
   .translation-label {
     font-size: 9.5px; color: var(--blue);
@@ -451,14 +460,18 @@
     border-radius: 8px;
     overflow: hidden;
   }
+  /* Sixteen rows each drawn as a full-width box made the experience panel a
+     wall of cells. The separator is kept - a key/value table needs one to
+     stay scannable - but at a weight that guides rather than divides. */
   .detail-row {
     display: grid;
     grid-template-columns: 120px 1fr;
-    padding: 7px 14px;
-    border-bottom: 1px solid var(--border);
+    padding: 6px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.035);
     font-size: 12px;
     align-items: center;
   }
+  .detail-row:last-child { border-bottom: none; }
   .detail-row:last-child { border-bottom: none; }
   .detail-row .k { color: var(--text-mute); font-size: 11px; }
   .detail-row .v { color: var(--text); font-weight: 500; }
@@ -685,12 +698,18 @@
     font-size: 11px; font-weight: 400; color: var(--text-mute);
     letter-spacing: 0; margin-left: 2px;
   }
+  /* Hidden while everything agrees. The env pill in the top bar already
+     names the build and the database; this said the same thing a second
+     time, in the corner, over the content. It earns its place only when the
+     page and the server disagree - which is exactly when it is the answer. */
   #build-stamp {
     position: fixed; right: 8px; bottom: 6px; z-index: 40;
     font-size: 10px; font-family: var(--mono, monospace);
     color: var(--text-mute); opacity: .5; pointer-events: none;
     letter-spacing: .3px;
+    display: none;
   }
+  #build-stamp.is-stale, #build-stamp.is-deploy { display: block; }
   .insight-note {
     grid-column: 1 / -1;
     font-size: 11px;
@@ -998,16 +1017,21 @@
     font-size: 11.5px; color: var(--text-mute);
     font-family: 'JetBrains Mono', monospace;
   }
+  /* This mark appears on roughly fourteen headings. As a lime-to-blue
+     gradient chip it read as fourteen buttons competing with the content;
+     the reader already knows the panel is AI-written. Reduced to a quiet
+     monogram that can be found when looked for and ignored otherwise. */
   .ai-tag-inline {
-    background: linear-gradient(135deg, #C4F25B, #6BA4F2);
-    color: #0E0E10;
-    padding: 2px 5px;
+    background: none;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    padding: 1px 4px;
     border-radius: 3px;
-    font-size: 9px;
-    font-weight: 700;
+    font-size: 8.5px;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    margin-left: 5px;
+    margin-left: 6px;
   }
 
   .stated-issue {
@@ -1015,7 +1039,7 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 12px 14px;
-    border-left: 3px solid var(--blue);
+    border-left: 2px solid var(--border-lit);
   }
   .stated-issue-text {
     font-size: 12.5px;
@@ -1035,10 +1059,13 @@
     align-items: center; margin-bottom: 8px;
   }
   .classify-row:last-of-type { margin-bottom: 0; }
+  /* 24px fits "L1" and nothing else: "Sub-theme", "Scenario" and "Overlay"
+     were cut mid-word to "SUB-THEMI", "SCENA", "OVERI". Sized to the longest
+     label instead, and no longer shouted in caps. */
   .classify-label {
-    font-size: 10.5px; color: var(--text-dim);
-    text-transform: uppercase; letter-spacing: 0.06em;
-    font-weight: 600; width: 24px;
+    font-size: 11px; color: var(--text-mute);
+    letter-spacing: 0.01em;
+    font-weight: 500; width: 78px;
     flex-shrink: 0;
   }
   .classify-select {
@@ -1188,10 +1215,11 @@
     width: 20px;
     height: 20px;
     border-radius: 50%;
-    background: var(--accent);
-    color: var(--bg);
-    font-size: 10.5px;
-    font-weight: 700;
+    background: none;
+    border: 1px solid var(--border-lit);
+    color: var(--text-mute);
+    font-size: 10px;
+    font-weight: 600;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1199,8 +1227,8 @@
     flex-shrink: 0;
   }
   .convo-num.sp {
-    background: var(--purple);
-    color: white;
+    border-color: var(--purple);
+    color: var(--purple);
   }
   .sp-frame {
     border-bottom: 1px solid var(--border);
@@ -1282,6 +1310,10 @@
     font-size: 12px;
     align-items: baseline;
   }
+  /* A line with no key label has ONE child, which lands in the 90px column -
+     so a full-width summary wrapped at about fifteen characters down a
+     narrow ribbon with the rest of the card empty beside it. */
+  .convo-line:not(:has(.k)) { grid-template-columns: 1fr; }
   .convo-line .k {
     color: var(--text-dim);
     font-size: 10.5px;
@@ -1444,7 +1476,7 @@
   .resolution-block {
     background: var(--bg-elev-2);
     border: 1px solid var(--border);
-    border-left: 3px solid var(--green);
+    border-left: 2px solid var(--border-lit);
     border-radius: 8px;
     padding: 12px 14px;
   }
@@ -1513,7 +1545,10 @@
   .chk-bar .chk-pill.na   { background: rgba(150,150,165,0.08); color: var(--text-mute); }
   .chk-groups { display: flex; flex-direction: column; gap: 4px; }
   .chk-group { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-  .chk-group.has-flags { border-color: var(--amber); border-left: 3px solid var(--amber); }
+  /* A full amber box round every flag group made two ordinary findings look
+     like an incident. The left rule alone carries the same meaning without
+     ringing the whole panel. */
+  .chk-group.has-flags { border-color: var(--border); border-left: 2px solid var(--amber); }
   .chk-group-head {
     display: flex; align-items: center; gap: 8px; padding: 6px 10px;
     background: var(--bg-elev-2); cursor: pointer; font-size: 11px;
@@ -1587,7 +1622,11 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 14px 16px;
-    border-left: 3px solid var(--accent);
+    /* Neutral rail. Five cards each carried a different coloured 3px
+       left border - blue, blue, green, green, lime - which read as five
+       unrelated states rather than five cards. The rail marks the block;
+       colour is reserved for things that need acting on. */
+    border-left: 2px solid var(--border-lit);
   }
   .reply-edit-header {
     display: flex;
@@ -1601,8 +1640,8 @@
     letter-spacing: 0.06em;
   }
   .reply-edit-header .edit-hint {
-    color: var(--accent);
-    font-weight: 600;
+    color: var(--text-dim);
+    font-weight: 500;
   }
   .reply-text {
     width: 100%;
@@ -1773,7 +1812,7 @@
   .template-card {
     background: var(--bg);
     border: 1px solid var(--border);
-    border-left: 3px solid var(--green);
+    border-left: 2px solid var(--border-lit);
     padding: 11px 14px;
     border-radius: 0 6px 6px 0;
     font-size: 12px;
@@ -1851,9 +1890,14 @@
     display: flex; align-items: flex-start; gap: 10px;
     padding: 10px 0; position: relative;
   }
+  /* Outlined, not filled. Six solid lime discs down a timeline pull the eye
+     to the numbering instead of to the events, and lime-on-white failed
+     contrast besides. */
   .wwr-step-num {
-    flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%;
-    background: var(--accent); color: #fff; font-size: 12px; font-weight: 700;
+    flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%;
+    background: none; border: 1px solid var(--border-lit);
+    color: var(--text-mute); font-size: 11px; font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
     display: flex; align-items: center; justify-content: center; margin-top: 2px;
   }
   .wwr-step-body { flex: 1; min-width: 0; }
@@ -1890,13 +1934,13 @@
       <span class="status-pill env-pill" id="env-pill" title="environment · running commit · database">
         <span class="dot"></span>…
       </span>
-      <span class="status-pill"><span class="dot"></span>anthropic</span>
-      <span class="status-pill"><span class="dot"></span>slack_inbound</span>
-      <span class="status-pill"><span class="dot"></span>slack_outbound</span>
-      <span class="status-pill"><span class="dot"></span>bigquery</span>
-      <span class="status-pill"><span class="dot"></span>zendesk</span>
-      <span class="status-pill off"><span class="dot"></span>dss</span>
-      <span class="status-pill"><span class="dot"></span>canned</span>
+      <!-- One chip, filled from /api/health. These were seven hard-coded
+           pills that rendered green whatever the services were actually
+           doing - a health indicator that cannot report ill health is worse
+           than none, and it read as a row of decorations besides. -->
+      <span class="status-pill svc-pill" id="svc-pill" title="service connections">
+        <span class="dot"></span><span id="svc-text">checking…</span>
+      </span>
     </div>
   </header>
 
@@ -2049,6 +2093,35 @@ async function loadEnvPill() {
       + `\nstarted ${v.started_at || '?'}`;
   } catch (e) {
     pill.innerHTML = '<span class="dot"></span>version unavailable';
+    pill.classList.add('warn');
+  }
+}
+
+// The service chip. Healthy is deliberately quiet - a grey "7 services live"
+// that nobody has to read. Anything down turns the chip amber and names what
+// is down, because that is the only state worth interrupting someone for.
+async function loadServicePill() {
+  const pill = document.getElementById('svc-pill');
+  const text = document.getElementById('svc-text');
+  if (!pill || !text) return;
+  try {
+    const h = await (await fetch('/api/health')).json();
+    const svc = h.services || {};
+    const names = Object.keys(svc);
+    const down = names.filter(n => !svc[n]);
+    if (h.mock_mode) {
+      text.textContent = 'mock mode — no live services';
+      pill.classList.add('warn');
+    } else if (down.length) {
+      text.textContent = `${names.length - down.length}/${names.length} services · ${down.join(', ')} down`;
+      pill.classList.add('warn');
+    } else {
+      text.textContent = `${names.length} services live`;
+      pill.classList.remove('warn');
+    }
+    pill.title = names.map(n => `${svc[n] ? '● live' : '○ down'}  ${n}`).join('\n');
+  } catch (e) {
+    text.textContent = 'health unavailable';
     pill.classList.add('warn');
   }
 }
@@ -2423,6 +2496,7 @@ const state = {
 // fire once REVIEWS + state exist; fetchInbox merges API rows then loads drafts
 (async () => {
   await loadEnvPill();
+  loadServicePill();
   pollBulk(false);          // reattach to a bulk run already in flight
   await fetchInbox();
   await loadSubThemeOptions();
@@ -3897,7 +3971,8 @@ function renderRcaCol() {
     <div class="section">
       <div class="section-label"><span class="marker"></span>Guest's Stated Issue<span class="ai-tag-inline">AI</span></div>
       <div class="stated-issue">
-        <div class="stated-issue-text editable-text" contenteditable="true" spellcheck="false">${r.statedIssue}</div>
+        <div class="stated-issue-text editable-text" contenteditable="true" spellcheck="false">${r.statedIssue || ''}</div>
+        ${(r.statedIssue || '').trim() ? '' : `<div class="rca-empty">Nothing was extracted — click above to write the guest's issue in one line.</div>`}
       </div>
     </div>
 
