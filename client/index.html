@@ -545,6 +545,11 @@
   .tl-tid {
     font-size: 10px; color: var(--text-mute); margin-left: 6px;
     text-decoration: none; border-bottom: 1px dotted var(--text-mute);
+    /* "ZD-34011333" was breaking after the hyphen in the narrow panel,
+       leaving "ZD-" on one line and the number on the next - a wrapped
+       fragment that read as UI garbage rather than as a link. The whole id
+       moves to the next line together or not at all. */
+    white-space: nowrap;
   }
   .tl-tid:hover { color: var(--accent); border-bottom-color: var(--accent); }
   .tl-hidden-note {
@@ -2355,7 +2360,7 @@ function renderReviewCol() {
   const _zdBase = (r.zendeskSubdomain || 'headout');
   const events = _shown.map(e => `
     <div class="tl-event${e.is_internal ? ' tl-internal' : ''}">
-      <div class="tl-time" title="${e.time_sort || ''}">${e.time}</div>
+      <div class="tl-time" title="${e.time_sort || ''}">${(e.time || '').replace(/ IST$/, '')}</div>
       <div class="tl-content">
         <div class="tl-header">
           ${(!e._isBookend && !e._isElided && e.thread)
@@ -2620,7 +2625,13 @@ function renderReviewCol() {
     </div>
 
     <div class="section">
-      <div class="section-label"><span class="marker"></span>Events Timeline</div>
+      <!-- Every timestamp is IST, so the suffix said nothing per-row while its
+           16 characters overflowed the 80px time column - "IST" wrapped onto
+           its own line on every timed row, next to one-line date-only
+           bookends, which read as three different date formats. Stated once
+           here instead; the stored string keeps its suffix and time_sort
+           stays UTC. -->
+      <div class="section-label"><span class="marker"></span>Events Timeline <span style="font-size:9.5px;color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0;margin-left:6px">times in IST</span></div>
       <div class="timeline">
         ${events}
         <div class="timeline-summary">${r.timelineSummary}</div>
