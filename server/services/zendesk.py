@@ -1383,6 +1383,22 @@ async def find_bids_by_text(
     return deduped, all_records
 
 
+def _clip(text: str, n: int) -> str:
+    """
+    Hard-cap a model-written string, regardless of what the prompt asked for.
+
+    The prompt tells the model to keep summaries to one sentence under 120
+    characters, and on a chat transcript it wrote two clauses and went past
+    it - a length rule is a request the model can ignore under enough
+    pressure to fit competing content in, not a guarantee. This is the
+    guarantee: whatever comes back, the renderer never receives more than
+    this many characters, so a layout built for a short label or summary
+    cannot be blown out by one verbose response.
+    """
+    text = str(text or "").strip()
+    return text if len(text) <= n else text[: n - 1].rstrip() + "…"
+
+
 def _fallback_shape(raw_events: list) -> list:
     """
     Mechanical fallback when Claude shaping fails.
@@ -1584,8 +1600,13 @@ async def _shape_via_claude(
             "time_sort": time_sort,
             "thread":  thread,
             "actor":   actor,
-            "label":   ev.get("label", ""),
-            "summary": ev.get("summary", ""),
+            # Capped independently of the prompt's own instruction - see _clip.
+            # A label is a header word or two; 60 is generous for that and
+            # still short enough that four of them plus a thread pill and a
+            # ticket link fit a narrow column without forcing the wrap the
+            # screenshot showed.
+            "label":   _clip(ev.get("label", ""), 60),
+            "summary": _clip(ev.get("summary", ""), 140),
             "ticket_id": next((s.get("ticket_id") for s in srcs if s.get("ticket_id")), ""),
             "is_internal":     is_internal,
             "internal_reason": internal[0].get("internal_reason", "") if is_internal else "",

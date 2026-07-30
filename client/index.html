@@ -493,8 +493,24 @@
     font-size: 10.5px; color: var(--text-dim);
     padding-top: 1px;
   }
-  .tl-content { display: flex; flex-direction: column; gap: 4px; }
-  .tl-header { display: flex; align-items: center; gap: 8px; }
+  .tl-content {
+    display: flex; flex-direction: column; gap: 4px;
+    /* .tl-event is a CSS grid with an "80px 1fr" track. A grid item's default
+       min-width is auto, not 0 - so the 1fr track does not actually shrink
+       below the intrinsic width of whatever is inside it. A label longer
+       than the old 1-3 word vocabulary ("Booking-in-progress email sent" vs
+       "Tickets sent") was wide enough to blow the row past the panel width,
+       which is the horizontal scrollbar and the one-word-per-line stacking
+       in the screenshot - not a text-wrapping bug, a sizing one. */
+    min-width: 0;
+  }
+  .tl-header {
+    display: flex; align-items: center; gap: 6px 8px;
+    /* nowrap forced the label to shrink toward its narrowest breakable unit
+       instead of letting the thread pill / flag / ticket link drop to a
+       second line, which is what actually produced the word-per-line stack. */
+    flex-wrap: wrap;
+  }
   .tl-thread {
     font-family: 'JetBrains Mono', monospace;
     font-size: 9px;
@@ -2051,10 +2067,6 @@ async function loadDraftOverlays() {
         time: f.time || '', label: f.label || '', summary: f.summary || f.weDid || '',
       }));
 
-      // ── Ticket fact extraction ────────────────────────────────────────────
-      r.ticketFacts = (draft.ticket_facts && Object.keys(draft.ticket_facts).length)
-        ? draft.ticket_facts : null;
-
       // ── Candidate list (T2) ──────────────────────────────────────────────
       if (Array.isArray(draft.candidates_list) && draft.candidates_list.length) {
         r.candidatesList = draft.candidates_list.map(c => ({
@@ -2606,43 +2618,6 @@ function renderReviewCol() {
         <div class="detail-row"><span class="k">Lead time</span><span class="v mono">${b.leadTime || '—'}</span></div>
       </div>
     </div>
-
-    ${r.ticketFacts ? (() => {
-      const tf = r.ticketFacts;
-      const refund = tf.refund || {};
-      const hasRefund = refund.issued != null || refund.amount || refund.reference_id || refund.out_of_policy != null;
-      const ceActions = Array.isArray(tf.ce_actions) ? tf.ce_actions : [];
-      const tags = Array.isArray(tf.interaction_tags) ? tf.interaction_tags : [];
-      const rows = [];
-      if (tf.guest_full_name) rows.push(`<div class="detail-row"><span class="k">Guest name</span><span class="v">${tf.guest_full_name}</span></div>`);
-      if (tf.booking_status) rows.push(`<div class="detail-row"><span class="k">Booking status</span><span class="v"><span class="pill-sm pill-grey">${tf.booking_status}</span></span></div>`);
-      if (tf.primary_issue) rows.push(`<div class="detail-row"><span class="k">Primary issue</span><span class="v">${tf.primary_issue}</span></div>`);
-      if (tf.delay_or_issue_reason) rows.push(`<div class="detail-row"><span class="k">Issue reason</span><span class="v">${tf.delay_or_issue_reason}</span></div>`);
-      if (hasRefund) {
-        const refParts = [];
-        if (refund.issued === true) refParts.push(`<span class="pill-sm pill-green">Issued</span>`);
-        else if (refund.issued === false) refParts.push(`<span class="pill-sm pill-grey">Not issued</span>`);
-        if (refund.amount) refParts.push(`<strong>${refund.amount}</strong>`);
-        if (refund.reference_id) refParts.push(`ref: <span class="mono">${refund.reference_id}</span>`);
-        if (refund.out_of_policy === true) refParts.push(`<span class="pill-sm pill-red">Out of policy</span>`);
-        rows.push(`<div class="detail-row"><span class="k">Refund</span><span class="v">${refParts.join(' · ')}</span></div>`);
-      }
-      const bools = [];
-      if (tf.sla_breached === true) bools.push(`<span class="pill-sm pill-red">SLA breached</span>`);
-      if (tf.is_same_day_booking === true) bools.push(`<span class="pill-sm pill-grey">Same-day</span>`);
-      if (tf.is_cancellable === false) bools.push(`<span class="pill-sm pill-grey">Non-cancellable</span>`);
-      if (tf.is_reschedulable === false) bools.push(`<span class="pill-sm pill-grey">Non-reschedule</span>`);
-      if (bools.length) rows.push(`<div class="detail-row"><span class="k">Flags</span><span class="v" style="display:flex;flex-wrap:wrap;gap:4px">${bools.join('')}</span></div>`);
-      if (tf.resolution_summary) rows.push(`<div class="detail-row"><span class="k">Resolution</span><span class="v">${tf.resolution_summary}</span></div>`);
-      if (ceActions.length) rows.push(`<div class="detail-row" style="align-items:flex-start"><span class="k" style="padding-top:2px">CE actions</span><span class="v"><ul style="margin:0;padding-left:16px;list-style:disc">${ceActions.map(a => `<li style="margin-bottom:2px">${a}</li>`).join('')}</ul></span></div>`);
-      if (tags.length) rows.push(`<div class="detail-row"><span class="k">Tags</span><span class="v" style="display:flex;flex-wrap:wrap;gap:4px">${tags.map(t => `<span class="pill-sm pill-grey" style="font-size:9px">${t}</span>`).join('')}</span></div>`);
-      if (!rows.length) return '';
-      return `
-    <div class="section">
-      <div class="section-label"><span class="marker"></span>Ticket Facts <span style="font-size:9.5px;color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0;margin-left:6px">extracted from Zendesk</span></div>
-      <div class="details-grid">${rows.join('')}</div>
-    </div>`;
-    })() : ''}
 
     <div class="section">
       <div class="section-label"><span class="marker"></span>Events Timeline</div>

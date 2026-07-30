@@ -149,6 +149,12 @@ findable; one you quietly corrected is not.
                         were told, in that order. Attribute inside the summary
                         ("Guest asked ... ; agent said ...") - that is accurate
                         about a transcript in a way the actor field cannot be.
+                        THE SAME LENGTH LIMIT AS RULE 5 STILL APPLIES - one
+                        sentence, 120 characters, not two clauses stitched
+                        together. Pick the single most important thing the
+                        guest raised and the single most important thing they
+                        were told; the rest of the transcript is one click away
+                        on the ticket link, which is what that link is for.
    LABEL EACH EVENT FROM ITS OWN BODY, never from the event beside it. On
    booking 32908218 the Selenium fulfilment blob and the booking-in-progress
    email - two different things one second apart - both came back

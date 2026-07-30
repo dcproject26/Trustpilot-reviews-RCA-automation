@@ -323,11 +323,14 @@ async def search_mentions(bid: str, limit: int = 20) -> list[dict]:
         return []
     if not _user:
         log.info("[slack] search_mentions: no user token (search:read) — cannot search")
+        # Full explanation lives in tools/test_slack_search.py's own output, not
+        # here - this text renders straight onto the dashboard, and a paragraph
+        # of setup instructions in a warning strip is the kind of thing that
+        # gets flagged as unreadable right after it gets flagged as unsearched.
         return _unavailable(
             "no_user_token",
-            "Slack was not searched: no SLACK_USER_TOKEN is set. search.messages "
-            "requires a user token (xoxp-/xoxe-) with the search:read scope - a "
-            "bot token cannot call it. Run tools/test_slack_search.py to confirm.")
+            "Slack not searched: no user token configured. "
+            "Run tools/test_slack_search.py.")
     try:
         res = _user.search_messages(query=str(bid), count=limit)
     except Exception as e:
@@ -335,9 +338,7 @@ async def search_mentions(bid: str, limit: int = 20) -> list[dict]:
         log.warning(f"[slack] search_mentions {bid} failed: {code}: {e}")
         return _unavailable(
             code,
-            f"Slack was not searched: search.messages returned '{code}'. "
-            "Nothing here says whether this booking was discussed in Slack. "
-            "Run tools/test_slack_search.py for the specific fix.")
+            f"Slack not searched ({code}). Run tools/test_slack_search.py.")
     out = []
     for m in (res.get("messages") or {}).get("matches") or []:
         ch = m.get("channel", {}) or {}
