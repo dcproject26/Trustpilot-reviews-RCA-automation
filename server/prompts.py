@@ -1061,6 +1061,13 @@ Sub-points only where relevant.
   Chronological, ending with the review. Include machinery (fulfilment runs,
   automated mails) where it explains the failure; a retry sequence stays as
   separate entries - collapsing three failures into one hides the root cause.
+  NEVER return an empty list. When the booking is unconfirmed or the systems
+  gave you nothing, build the sequence from the guest's own account - they
+  always narrate one - and mark each such entry's "detail" as the guest's
+  account, unverified, naming the system that would settle it: "Guest's
+  account, unverified - the booking record would confirm the date on the
+  ticket." A reader must be able to see the shape of the case before anyone
+  has confirmed a booking; an absent timeline reads as "nothing happened".
 
 "flags" - THE QA AREAS ARE A COVERAGE GUIDE FOR THIS RCA, NOT A SCORECARD
   FOR THE TEAM. Walk the CE / RO / scenario areas silently and ask of each:

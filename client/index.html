@@ -3666,16 +3666,20 @@ function renderRcaCol() {
   // ── v3 new-shape sections (5-heading WWR, flags, booking logs, SOP) ──────
   const newShapeBlock = (v3d.what_went_wrong || v3d.flags || v3d.sop_compliance) ? (() => {
     const t = (typeof v3d.tldr === 'object' && v3d.tldr) ? v3d.tldr : null;
-    const tldrHtml = t ? `
+    // TL;DR is a mandated heading, so an absent one is reported rather than
+    // dropped - a missing headline that leaves no gap reads as "no mistake
+    // was made" instead of "the model did not answer".
+    const tldrHtml = `
     <div class="section" id="rca-tldr-section">
       <div class="section-label"><span class="marker"></span>TL;DR<span class="ai-tag-inline">AI</span></div>
-      <div class="field-block rca-kv">
+      ${t ? `<div class="field-block rca-kv">
         <span style="color:var(--text-mute)">Our mistake</span><span class="editable-text" contenteditable="true" spellcheck="false"
               role="textbox" aria-label="TL;DR our mistake">${esc(t.our_mistake)}</span>
         <span style="color:var(--text-mute)">Our fix</span><span class="editable-text" contenteditable="true" spellcheck="false"
               role="textbox" aria-label="TL;DR our fix">${esc(t.our_fix)}</span>
-      </div>
-    </div>` : '';
+      </div>`
+      : `<div class="field-block rca-empty">No TL;DR was returned. Re-run the RCA — if it stays empty the model's answer was cut short.</div>`}
+    </div>`;
 
     const w = v3d.what_went_wrong || {};
     const issues = (w.guest_issues || []).map(gi => `
@@ -3723,9 +3727,21 @@ function renderRcaCol() {
     const logRows = (v3d.booking_logs || []).map(l => (typeof l === 'string'
       ? {time: '', what: l.replace(/^\s*\d+[.)]\s*/, ''), detail: ''}
       : {time: l.time || '', what: l.what || '', detail: l.detail || ''}));
-    const logsHtml = logRows.length ? `
+    // The section renders even with nothing in it. It used to collapse to ''
+    // on an empty list, which took the "+ Add event" button with it - so the
+    // one case where a human most needs to write the timeline by hand was the
+    // one case with no way to do it, and the RCA simply had no such heading.
+    const logsEmptyWhy = (r.booking && r.booking.bid)
+      ? 'The model returned no events for this booking. Re-run the RCA, or add them by hand below.'
+      : (r.candidateState
+          ? 'No booking is confirmed yet, so there is no system timeline to draw from. Confirm a candidate above and re-run the RCA, or add the events by hand below.'
+          : 'No booking was matched, so there is no system timeline to draw from. Add the events by hand below.');
+    const logsHtml = `
     <div class="section" id="rca-booking-logs-section">
-      <div class="section-label"><span class="marker"></span>What Happened<span class="ai-tag-inline">AI</span></div>
+      <div class="section-label"><span class="marker"></span>What Happened<span class="ai-tag-inline">AI</span>
+        ${logRows.length ? `<span class="sec-count">${logRows.length} event${logRows.length === 1 ? '' : 's'}</span>` : ''}
+      </div>
+      ${logRows.length ? '' : `<div class="field-block rca-empty">${logsEmptyWhy}</div>`}
       <div class="wwr-stepper">
         ${logRows.map((l, i) => `
           <div class="wwr-step">
@@ -3741,7 +3757,7 @@ function renderRcaCol() {
           </div>`).join('<div class="wwr-connector"></div>')}
       </div>
       <button class="row-add" data-log-add>+ Add event</button>
-    </div>` : '';
+    </div>`;
 
     const flags = v3d.flags || [];
     // Grouped by owning team with counts, because a flat list of a dozen
