@@ -1102,6 +1102,7 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
         d.area_of_improving  = _aoi if isinstance(_aoi, list) else [_aoi]
     d.issue_specific_answers = rca_v3.get("issue_specific_answers") or {}
     d.checklist_answers      = []
+    d.generated_at           = datetime.utcnow()
     for _col in ("rca_v3", "overlay_scenarios", "issue_specific_answers",
                  "checklist_answers", "area_of_improving"):
         flag_modified(d, _col)

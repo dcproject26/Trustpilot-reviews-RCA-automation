@@ -1017,9 +1017,10 @@ that turned out fine is silence - never a line in the output.
     from, as "ZD-<id>" - the dashboard renders it as a link to the ticket.
     "" only when no ticket is involved (booking-data evidence).
 12. SAY AN ABSENCE ONCE. When the case has no booking or no support
-    contact, the root cause states it in full, once. Every other section
-    notes only its own gap, in six words or fewer - "No booking record.",
-    "No guest contact found." - without re-deriving the whole situation.
+    contact, the root cause states it in full, once. Every other section -
+    INCLUDING sop_gap, sp_escalation and each flag - notes only its own gap,
+    in six words or fewer: "No booking record.", "No guest contact found."
+    Never explain again what the absence prevents; the root cause said it.
     A one-line review must produce a one-page RCA, not the same absence
     restated in eight places.
 
@@ -1094,9 +1095,12 @@ Sub-points only where relevant.
   silence, not a flag. A correct out-of-policy denial is not a flag (rule 6).
   If a flag reads as a compliment or as "no issue found", delete it.
   WRITE EACH FLAG IN PLAIN WORDS: what went wrong and who should look at
-  it, in one short sentence a new team member understands on first read.
+  it, in ONE short sentence - under 15 words, one idea, no semicolon.
   "First reply quoted 24 hours after tickets were already sent." - not
   process language about workflows, thresholds or compliance surfaces.
+  The action a team must take belongs in fixes.actions, not welded onto the
+  end of the flag: a flag that says what went wrong AND what to do about it
+  is two entries pretending to be one.
   Shape: {"flag", "team": "CE|RO|SP|content|tech|other", "evidence", "zd_ref"}.
   Nothing to raise returns [].
 
