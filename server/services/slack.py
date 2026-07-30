@@ -329,8 +329,7 @@ async def search_mentions(bid: str, limit: int = 20) -> list[dict]:
         # gets flagged as unreadable right after it gets flagged as unsearched.
         return _unavailable(
             "no_user_token",
-            "Slack not searched: no user token configured. "
-            "Run tools/test_slack_search.py.")
+            "Slack search (WIP): user token not configured yet.")
     try:
         res = _user.search_messages(query=str(bid), count=limit)
     except Exception as e:
@@ -338,7 +337,7 @@ async def search_mentions(bid: str, limit: int = 20) -> list[dict]:
         log.warning(f"[slack] search_mentions {bid} failed: {code}: {e}")
         return _unavailable(
             code,
-            f"Slack not searched ({code}). Run tools/test_slack_search.py.")
+            f"Slack search (WIP): {code}.")
     out = []
     for m in (res.get("messages") or {}).get("matches") or []:
         ch = m.get("channel", {}) or {}
