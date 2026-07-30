@@ -165,10 +165,13 @@ def _ensure_columns():
     installations self-heal on deploy without a manual migration.
     create_all() only creates missing tables, never missing columns.
     """
+    import logging
+    log = logging.getLogger(__name__)
     from sqlalchemy import inspect as _inspect, text as _text
     try:
         existing = {c["name"] for c in _inspect(engine).get_columns("rca_drafts")}
-    except Exception:
+    except Exception as e:
+        log.error(f"[db] cannot inspect rca_drafts, skipping migration: {e}")
         return
     is_pg = engine.dialect.name == "postgresql"
     wanted = {
@@ -181,14 +184,33 @@ def _ensure_columns():
         "rca_v3":                 "JSONB" if is_pg else "JSON",
         "template_name":          "VARCHAR",
     }
+    added, failed = [], []
     for col, coltype in wanted.items():
         if col in existing:
             continue
         try:
             with engine.begin() as conn:
                 conn.execute(_text(f"ALTER TABLE rca_drafts ADD COLUMN {col} {coltype}"))
-        except Exception:
-            pass
+            added.append(col)
+        except Exception as e:
+            failed.append(f"{col}: {e}")
+    if added:
+        log.info(f"[db] migration added columns: {', '.join(added)}")
+    # A swallowed migration failure is not a small problem: the model declares
+    # the column, so every SELECT on rca_drafts then fails with "no such
+    # column", the reviews list returns nothing, and the dashboard shows every
+    # review as untraceable - a symptom that looks nothing like its cause.
+    # Loud, and re-checked, so the log names the missing column.
+    if failed:
+        log.error(f"[db] MIGRATION FAILED for {len(failed)} column(s): {'; '.join(failed)}")
+    try:
+        now = {c["name"] for c in _inspect(engine).get_columns("rca_drafts")}
+        missing = sorted(set(wanted) - now)
+        if missing:
+            log.error(f"[db] rca_drafts is MISSING declared columns {missing} - "
+                      f"queries on this table will fail until they are added")
+    except Exception:
+        pass
 
 
 def init_db():
