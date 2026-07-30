@@ -331,8 +331,66 @@ def sec_run(review_id: str):
         s.close()
 
 
+def sec_remote(url: str):
+    """Check a PUBLISHED deployment over HTTP.
+
+    A deployment is a frozen snapshot: it keeps running the code it was built
+    from no matter what is pulled into the workspace, and the two can share a
+    database, so the published dashboard shows current data rendered by old
+    code. That is invisible from either side - this compares them.
+    """
+    import httpx
+    base = url.rstrip("/")
+    try:
+        v = httpx.get(f"{base}/api/version", timeout=20).json()
+    except Exception as e:
+        line(BAD, f"cannot reach {base}", brief(e))
+        return
+    local = ""
+    try:
+        import server.api as api
+        local = api.get_version().get("short", "")
+    except Exception:
+        pass
+    same = (not local) or v.get("short") == local
+    line(OK if same else BAD,
+         f"deployed code: {v.get('short')} ({v.get('environment')})",
+         "" if same else
+         f"BEHIND: the workspace is on {local}, the deployment is on "
+         f"{v.get('short')}. Press Deploy / Redeploy - a git pull does not "
+         f"touch a deployment.")
+    db = v.get("db") or {}
+    line(INFO, f"deployed db: {db.get('dialect')} -> {db.get('target')} "
+               f"(shared={db.get('shared')})",
+         f"reviews {db.get('reviews')} · drafts {db.get('drafts')} · "
+         f"untraceable {db.get('untraceable')}"
+         if db.get("reviews") is not None else "")
+    try:
+        h = httpx.get(f"{base}/api/health", timeout=20).json()
+        dead = [k for k, val in (h.get("services") or {}).items() if not val]
+        line(OK if not dead else BAD,
+             f"deployed services: {len(h.get('services') or {}) - len(dead)} live",
+             "" if not dead else f"not live: {dead}")
+    except Exception as e:
+        line(WARN, "deployed /api/health unreadable", brief(e))
+    try:
+        b = httpx.get(f"{base}/api/reviews/bulk-status", timeout=20).json()
+        if b.get("running"):
+            line(INFO, f"a bulk re-run is in flight there: "
+                       f"{b.get('done')}/{b.get('total')}, {b.get('failed')} failed")
+        elif b.get("total"):
+            line(INFO, f"last bulk re-run there: {b.get('done')}/{b.get('total')}, "
+                       f"{b.get('failed')} failed")
+    except Exception:
+        line(WARN, "deployed build has no /api/reviews/bulk-status",
+             "which itself means it is running code older than a6b3545")
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--url", default="",
+                    help="also check a published deployment over HTTP, e.g. "
+                         "https://trustpilot-rca.replit.app")
     ap.add_argument("--hours", type=int, default=72)
     ap.add_argument("--run", default="", help="review id to run; default picks the "
                                               "first unmatched one")
@@ -353,6 +411,8 @@ def main():
         print(f"ORM RCA diagnostic · {datetime.utcnow().isoformat()}Z · "
               f"cwd {os.getcwd()}")
         section(sec_build, "1. BUILD & PROCESS")
+        if args.url:
+            section(sec_remote, "1b. PUBLISHED DEPLOYMENT", args.url)
         section(sec_services, "2. SERVICES")
         section(sec_database, "3. DATABASE")
         section(sec_sheets, "4. SHEETS (DSS, canned)")
