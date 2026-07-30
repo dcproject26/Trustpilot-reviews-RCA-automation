@@ -370,9 +370,22 @@ def sec_remote(url: str):
 
     db = v.get("db") or {}
     ldb = (lv.get("db") or {})
+    # Compare cluster identity first: the hostname can differ while the
+    # database is the same one behind a proxy, and can match while the data
+    # does not. system_identifier is the cluster's own id.
+    rid_, lid_ = db.get("identity"), ldb.get("identity")
+    if rid_ and lid_ and "unknown" not in (rid_, lid_):
+        same_db = rid_ == lid_
+        if same_db:
+            line(OK, f"deployed db is the SAME cluster as the workspace",
+                 f"identity {rid_} · deployment reaches it as {db.get('target')}, "
+                 f"the workspace as {ldb.get('target')} - different names, one "
+                 f"database, so the two dashboards do share data")
+            return
     same_db = (db.get("target") and db.get("target") == ldb.get("target"))
     line(OK if same_db else BAD,
-         f"deployed db: {db.get('dialect')} -> {db.get('target')}",
+         f"deployed db: {db.get('dialect')} -> {db.get('target')}"
+         + (f" [identity {rid_}]" if rid_ else ""),
          "same database as the workspace" if same_db else
          f"DIFFERENT DATABASE. The workspace uses {ldb.get('target') or '?'}. "
          f"The two dashboards can never agree while this is true, whatever is "

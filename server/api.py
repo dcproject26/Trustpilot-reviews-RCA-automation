@@ -556,6 +556,29 @@ def get_version():
         else:
             db_info["target"] = f"{url.host or '?'}/{url.database or '?'}"
             db_info["shared"] = True    # a server both environments can reach
+            # The hostname does not identify the database: Replit reaches the
+            # same Postgres through a workspace-local proxy under a different
+            # name, so two environments can look split when they are not - and
+            # can look identical when they are not either. system_identifier
+            # is the cluster's own id, so comparing it across environments
+            # settles it without writing a marker row.
+            try:
+                from sqlalchemy import text as _t
+                with engine.connect() as _c:
+                    db_info["identity"] = str(_c.execute(_t(
+                        "SELECT system_identifier::text FROM pg_control_system()"
+                    )).scalar())
+            except Exception:
+                try:
+                    from sqlalchemy import text as _t
+                    with engine.connect() as _c:
+                        row = _c.execute(_t(
+                            "SELECT current_database(), "
+                            "coalesce(inet_server_addr()::text, 'local'), "
+                            "pg_postmaster_start_time()::text")).first()
+                    db_info["identity"] = "|".join(str(x) for x in row) if row else "unknown"
+                except Exception:
+                    db_info["identity"] = "unknown"
         _s = SessionLocal()
         try:
             # Report the parts, not a derived total. "untraceable" alone was
