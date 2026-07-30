@@ -40,6 +40,19 @@ PASS, FAIL, WARN = "PASS", "FAIL", "warn"
 _results = []
 
 
+def _migrate_first():
+    """Bring the schema up to the models before querying them.
+
+    These tools are what someone runs BEFORE restarting anything - that is
+    the whole point of a diagnostic - so they cannot assume the server has
+    already run the migration. Without this, the first command after a pull
+    that adds a column dies on "column does not exist" and reads as data
+    loss rather than a pending migration. init_db() is idempotent.
+    """
+    from server.db import init_db
+    init_db()
+
+
 def check(name, ok, detail=""):
     _results.append((PASS if ok else FAIL, name, detail))
 
@@ -118,6 +131,7 @@ def _entries(v3) -> list:
 
 
 def main():
+    _migrate_first()
     ap = argparse.ArgumentParser()
     ap.add_argument("--id")
     ap.add_argument("--latest", action="store_true")
