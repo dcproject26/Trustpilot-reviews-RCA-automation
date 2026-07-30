@@ -1077,6 +1077,47 @@ async def process_review(review_id: str, force_candidates: bool = False):
                         "no booking found — untraceable")),
                 })
 
+        # ── 5b. PERSIST THE MATCH NOW, before anything else can fail ─────────
+        # The draft row used to be created only at the final save step, so a
+        # confirmed Tier 1 booking sat in local variables through Zendesk,
+        # classification, insights, DSS, the RCA and the response draft. Any
+        # exception in those steps discarded the match, and the review then
+        # showed up as Untraceable - a review whose BID we had matched
+        # perfectly, presented as one we could not identify at all. Matching is
+        # the expensive, load-bearing part; it gets written the moment it is
+        # done. The final save updates the same row.
+        try:
+            _d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
+            if not _d:
+                _d = RcaDraft(id=f"draft_{review_id}", review_id=review_id)
+                db.add(_d)
+            _m = (booking or {}).get("_match", {})
+            _d.booking            = {k: v for k, v in (booking or {}).items()
+                                     if k != "_match"}
+            _d.match_tier         = match_tier or _m.get("tier")
+            _d.match_confidence   = _m.get("confidence")
+            _d.match_method       = _m.get("method") or narrowing_path
+            _d.candidates_list    = candidates
+            _d.candidate_state    = candidate_state
+            _d.confidence_trail   = confidence_trail
+            _d.bid_source         = bid_source
+            _d.extracted_signals  = extracted_sigs or {}
+            _d.narrowing_attempts = narrowing_attempts or []
+            for _c in ("booking", "candidates_list", "confidence_trail",
+                       "extracted_signals", "narrowing_attempts"):
+                try:
+                    flag_modified(_d, _c)
+                except Exception:
+                    pass
+            db.commit()
+            log.info(f"[pipeline] match persisted early: tier={_d.match_tier} "
+                     f"bid={(_d.booking or {}).get('id') or '-'} "
+                     f"candidates={len(candidates or [])}")
+        except Exception as e:
+            # Never let the safety net itself sink the run.
+            db.rollback()
+            log.exception(f"[pipeline] early match persist failed: {e}")
+
         _progress(review_id, 2, "fetching Zendesk timeline")
         # ── 6. Zendesk timeline ──────────────────────────────────────────────
         timeline      = []
