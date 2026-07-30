@@ -408,14 +408,17 @@ async def generate_rca_v3(
     review_id: str = None,
     timeline_raw: list = None,
     ticket_facts: dict = None,
+    scenarios_routed: list = None,
 ) -> dict:
     """
     Returns the RCA v3 shape:
-      {tldr, wwr_chain, prevention, evidence,
-       issue_specific_answers, checklist_answers}
+      {tldr {our_mistake, our_fix}, what_went_wrong (5 headings),
+       booking_logs, flags (failures only), support_interaction,
+       sp_interaction, sop_compliance, issue_specific_answers, prevention}
 
     checklist: {"general": ..., "ce": [...], "ro": [...], "scenarios": {...}}
     timeline_raw: raw Zendesk ticket comment bodies.
+    scenarios_routed: primary + overlay scenario names for the checklist run.
 
     Mock synthesis (Brief v7.1):
       - Known fixture IDs → return plausible stub.
@@ -426,23 +429,32 @@ async def generate_rca_v3(
     is_manual  = review_id and review_id not in MOCK_RCA_FIELDS
 
     if is_fixture and not is_live("anthropic"):
-        # Known demo fixture — return plausible static stub
-        legacy = MOCK_RCA_FIELDS.get(review_id, {})
+        # Known demo fixture — plausible static stub in the new shape
         return {
-            "tldr": f"Guest reported {l2 or 'an issue'} on a {l1 or 'classified'} booking; resolution offered.",
-            "wwr_chain": [
-                {"step": 1, "what": "Booking completed", "why": "Guest selected experience and paid."},
-                {"step": 2, "what": "Issue arose on day of experience", "why": "Operational or SP-side gap."},
-                {"step": 3, "what": "Guest contacted CE and we responded", "why": "Standard support flow after guest raised the issue."},
-                {"step": 4, "what": "Guest posted review", "why": "Dissatisfied despite interaction."},
-            ],
-            "prevention": "Review pre-visit communications for this experience type; ensure CE SLA is met.",
-            "evidence": [
-                f"[review] {review_text[:120]}",
-                f"[booking] {legacy.get('whatWentWrong', 'No booking detail in mock data.')[:120]}",
-            ],
+            "tldr": {"our_mistake": f"Gap led to {l2 or 'an issue'} on a {l1 or 'classified'} booking.",
+                     "our_fix": "Resolution offered; prevention routed to the owning team."},
+            "what_went_wrong": {
+                "guest_issues": [{"issue": l2 or "reported issue",
+                                  "claim_accuracy": "Unknown",
+                                  "evidence": "[zendesk] mock fixture"}],
+                "what_happened": {"root_causes": [{"issue": l2 or "issue",
+                                                   "cause": "Operational or SP-side gap.",
+                                                   "classification": "Operational + HO"}],
+                                  "operational_failure": None, "sop_gap": None,
+                                  "pattern": "one-off - mock data"},
+                "sp_escalation": {"escalated": "N/A", "detail": "mock fixture"},
+                "fixes": {"teams": ["CE"], "actions": ["Resolution offered."],
+                          "prevention": "Review pre-visit communications.", "owner": None},
+            },
+            "booking_logs": [],
+            "flags": [],
+            "support_interaction": [],
+            "sp_interaction": {"possible": False, "reason_if_not": "mock fixture",
+                               "raised": "N/A", "detail": "", "zd_ref": ""},
+            "sop_compliance": {"dss_available": False, "expected": "", "actual": "",
+                               "verdict": "unknown", "detail": "mock fixture", "zd_ref": ""},
             "issue_specific_answers": {"tickets_sent_on_time": "Yes", "guest_arrived_on_time": "Unknown"},
-            "checklist_answers": [],
+            "prevention": "Review pre-visit communications for this experience type; ensure CE SLA is met.",
         }
 
     # Unknown review (manual test) OR live mode: run the real prompt
@@ -450,7 +462,8 @@ async def generate_rca_v3(
         prompts.rca_v3_prompt(
             review_text, booking, timeline, insights, dss_rec,
             l1, l2, sub_theme, support_summary, checklist, review_id or "",
-            timeline_raw=timeline_raw, ticket_facts=ticket_facts),
+            timeline_raw=timeline_raw, ticket_facts=ticket_facts,
+            scenarios_routed=scenarios_routed),
         max_tokens=6000,
     )
     try:

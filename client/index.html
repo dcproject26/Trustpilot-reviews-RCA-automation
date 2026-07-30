@@ -1759,6 +1759,8 @@
   /* ── RCA v3 styles ────────────────────────────────────────────────── */
   .tldr-banner { cursor: text; border-radius: 4px; }
   .tldr-banner:focus { outline: 1px solid var(--accent); background: var(--bg-elev-2); }
+  .wwr5-h { font-size: 11px; font-weight: 600; letter-spacing: .04em;
+            text-transform: uppercase; color: var(--text-mute); margin-bottom: 4px; }
   .wwr-stepper { display: flex; flex-direction: column; gap: 0; }
   .wwr-step {
     display: flex; align-items: flex-start; gap: 10px;
@@ -1942,7 +1944,7 @@ async function fetchInbox() {
           areaOfImproving: '',
           actionsTaken: {sp:[],customer:[],business:[],product:[],ce:[]},
           resolution: '',
-          tldr: '', wwrChain: [], wwrScenarios: [], prevention: '',
+          tldr: '', v3: {}, wwrChain: [], wwrScenarios: [], prevention: '',
           evidence: [], issueSpecificAnswers: {}, checklistAnswers: [],
           checks: [], reply: '', reasoning: '',
           primaryScenario: '', templateName: '',
@@ -2031,6 +2033,7 @@ async function loadDraftOverlays() {
       r.rca.issueL2   = draft.l2        || r.rca.issueL2  || '';
       r.rca.subTheme  = draft.sub_theme || r.rca.subTheme || null;
       r.rca.tldr      = draft.tldr      || '';
+      r.rca.v3        = draft.rca_v3    || {};
       r.rca.wwrChain  = draft.wwr_chain || [];
       r.rca.prevention= draft.prevention|| '';
       r.rca.evidence  = draft.evidence  || [];
@@ -3032,7 +3035,36 @@ function renderRcaCol() {
 
   const rca = r.rca;
   const actions = rca.actionsTaken[state.actionTab] || [];
-  const sup = rca.supportInteraction.length === 0
+
+  // v3 new-shape data + shared helpers (used by interactions and v3 sections)
+  const v3d = rca.v3 || {};
+  const _zdB = (r.zendeskSubdomain || 'headout');
+  const zdLink = ref => {
+    const id = String(ref || '').replace(/^ZD-?/i, '').trim();
+    if (!id) return '';
+    return `<a class="tl-tid" href="https://${_zdB}.zendesk.com/agent/tickets/${id}" target="_blank" rel="noopener" title="open ZD-${id}">ZD-${id}</a>`;
+  };
+  const esc = s => String(s == null ? '' : s).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  const supV3 = v3d.support_interaction || [];
+  const sup = supV3.length > 0
+    ? `<div class="interactions">
+        ${supV3.map((s, i) => `
+          <div class="convo-frame open">
+            <div class="convo-frame-head" style="cursor:default">
+              <span class="convo-num">${i + 1}</span>
+              <span class="convo-type-pill">${esc(s.channel || '')}</span>
+              <span class="convo-time">${esc(s.time || '')}</span>
+              <span style="margin-left:auto">${s.zd_ref ? zdLink(s.zd_ref) : ''}</span>
+            </div>
+            <div class="convo-body">
+              <div class="convo-line"><span class="v">${esc(s.summary)}</span></div>
+              ${s.ce_miss ? `<div class="convo-gap">⚠ CE miss: ${esc(s.ce_miss)}</div>` : ''}
+            </div>
+          </div>
+        `).join('')}
+      </div>`
+    : rca.supportInteraction.length === 0
     ? `<div class="interactions"><div class="interactions-empty">No support interactions on this booking</div></div>`
     : `<div class="interactions">
         ${rca.supportInteraction.map((s, i) => `
@@ -3056,8 +3088,23 @@ function renderRcaCol() {
         <div class="interaction-summary-line editable-text" contenteditable="true" spellcheck="false">${rca.supportSummary}</div>
       </div>`;
 
-  // SP Interaction — separate frame
-  const spInter = rca.spInteraction && rca.spInteraction.length > 0
+  // SP Interaction — separate frame. v3 shape is one verdict object, not
+  // frames: possible? raised? what came back, with its ticket link.
+  const spV3 = v3d.sp_interaction || null;
+  const spInter = (spV3 && (spV3.detail || spV3.reason_if_not || spV3.raised))
+    ? `<div class="interactions">
+        <div class="sp-frame">
+          <div class="sp-frame-head">
+            <span class="convo-num sp">SP</span>
+            <span class="convo-label">escalation possible: ${spV3.possible === true ? 'yes' : spV3.possible === false ? 'no' : '—'} · raised: ${esc(spV3.raised || '—')}</span>
+            <span style="margin-left:auto">${spV3.zd_ref ? zdLink(spV3.zd_ref) : ''}</span>
+          </div>
+          <div class="sp-frame-body">
+            <div class="sp-frame-summary">${esc(spV3.detail || spV3.reason_if_not || '')}</div>
+          </div>
+        </div>
+      </div>`
+    : rca.spInteraction && rca.spInteraction.length > 0
     ? `<div class="interactions">
         ${rca.spInteraction.map((s, i) => `
           <div class="sp-frame">
@@ -3088,7 +3135,31 @@ function renderRcaCol() {
     let cls = 'Issue: ' + l1 + ' / ' + l2 + (sub ? ' / ' + sub : '');
     if (scenAll.length) cls += nl + 'Scenarios: ' + scenAll.join(', ');
     const wwrParts = [];
-    for (const sc of (rca.wwrScenarios || [])) {
+    const _w = (rca.v3 || {}).what_went_wrong;
+    if (_w) {
+      // The 5 mandated headings, verbatim structure — this block posts as-is.
+      const gi = (_w.guest_issues || []);
+      wwrParts.push('1. Guest issue' + nl + gi.map(g => '• ' + (g.issue || '')).join(nl));
+      wwrParts.push("2. Is the guest's claim accurate?" + nl +
+        gi.map(g => '• ' + (g.claim_accuracy || '—') + ' — ' + (g.evidence || '')).join(nl));
+      const wh = _w.what_happened || {};
+      const whLines = (wh.root_causes || []).map(c =>
+        '• [' + (c.classification || '?') + '] ' + (c.issue ? c.issue + ': ' : '') + (c.cause || ''));
+      if (wh.operational_failure) whLines.push('• Operational failure: ' + wh.operational_failure);
+      if (wh.sop_gap) whLines.push('• SOP gap: ' + wh.sop_gap);
+      if (wh.pattern) whLines.push('• Pattern: ' + wh.pattern);
+      wwrParts.push('3. What actually happened?' + nl + whLines.join(nl));
+      const sx = _w.sp_escalation || {};
+      wwrParts.push('4. Supply Partner escalation' + nl +
+        '• ' + (sx.escalated || '—') + (sx.detail ? ' — ' + sx.detail : ''));
+      const fx = _w.fixes || {};
+      const fxLines = [];
+      if ((fx.teams || []).length) fxLines.push('• Teams: ' + fx.teams.join(', ') + (fx.owner ? ' · owner: ' + fx.owner : ''));
+      for (const a of (fx.actions || [])) fxLines.push('• ' + a);
+      if (fx.prevention) fxLines.push('• Prevention: ' + fx.prevention);
+      wwrParts.push('5. Fixes' + nl + fxLines.join(nl));
+    }
+    for (const sc of (_w ? [] : (rca.wwrScenarios || []))) {
       const tag = sc.is_primary ? 'PRIMARY' : 'overlay';
       wwrParts.push('[' + tag + '] ' + (sc.scenario_name || '') + nl +
         '• Accurate? ' + (sc.accuracy || '—') + ' — ' + (sc.accuracy_explanation || '') + nl +
@@ -3125,8 +3196,11 @@ function renderRcaCol() {
       }
     }
     const actionsText = actionLines.join(nl) || '—';
+    const _v3flags = ((rca.v3 || {}).flags || []).map(f =>
+      '• [' + String(f.team || 'other').toUpperCase() + '] ' + (f.flag || '') +
+      (f.evidence ? ' — ' + f.evidence : '') + (f.zd_ref ? ' (' + f.zd_ref + ')' : ''));
     const flaggedChk = (rca.checklistAnswers || []).filter(c => String(c.answer || '').trim().toLowerCase() === 'no');
-    const auditLines = flaggedChk.map(c => {
+    const auditLines = _v3flags.length ? _v3flags : flaggedChk.map(c => {
       const zd = c.zd_ref || c.zd_id || '';
       return '• [' + String(c.section || '').toUpperCase() + '] ' + (c.item || c.check || '') +
         (c.evidence ? ' — ' + c.evidence : '') + (zd ? ' (' + zd + ')' : '');
@@ -3155,8 +3229,99 @@ function renderRcaCol() {
     </div>
   `;
 
-  // ── v3 sections (gated on tldr presence) ──────────────────────────────────
-  const v3Block = (rca.tldr || (rca.wwrScenarios || []).length) ? `
+  // ── v3 new-shape sections (5-heading WWR, flags, booking logs, SOP) ──────
+  const newShapeBlock = (v3d.what_went_wrong || v3d.flags || v3d.sop_compliance) ? (() => {
+    const t = (typeof v3d.tldr === 'object' && v3d.tldr) ? v3d.tldr : null;
+    const tldrHtml = t ? `
+    <div class="section" id="rca-tldr-section">
+      <div class="section-label"><span class="marker"></span>TL;DR<span class="ai-tag-inline">AI</span></div>
+      <div class="field-block" style="display:grid;grid-template-columns:92px 1fr;gap:4px 10px;font-size:12.5px">
+        <span style="color:var(--text-mute)">Our mistake</span><span class="editable-text" contenteditable="true" spellcheck="false">${esc(t.our_mistake)}</span>
+        <span style="color:var(--text-mute)">Our fix</span><span class="editable-text" contenteditable="true" spellcheck="false">${esc(t.our_fix)}</span>
+      </div>
+    </div>` : '';
+
+    const w = v3d.what_went_wrong || {};
+    const issues = (w.guest_issues || []).map(gi => `
+        <div class="chk-row">
+          <span class="chk-mark">•</span>
+          <div class="chk-item">${esc(gi.issue)}
+            <div class="chk-ev"><strong>${esc(gi.claim_accuracy || '—')}</strong> — ${esc(gi.evidence)}</div>
+          </div>
+        </div>`).join('');
+    const wh = w.what_happened || {};
+    const causes = (wh.root_causes || []).map(rc => `
+        <div class="chk-row">
+          <span class="chk-mark">→</span>
+          <div class="chk-item">${esc(rc.issue)}
+            <div class="chk-ev">[${esc(rc.classification || '?')}] ${esc(rc.cause)}</div>
+          </div>
+        </div>`).join('');
+    const spx = w.sp_escalation || {};
+    const fx  = w.fixes || {};
+    const wwrHtml = v3d.what_went_wrong ? `
+    <div class="section" id="rca-wwr5-section">
+      <div class="section-label"><span class="marker"></span>What Went Wrong<span class="ai-tag-inline">AI</span></div>
+      <div class="field-block" style="display:flex;flex-direction:column;gap:10px;font-size:12.5px">
+        <div><div class="wwr5-h">1. Guest issue &amp; 2. Claim accuracy</div>${issues || '<div class="chk-ev">—</div>'}</div>
+        <div><div class="wwr5-h">3. What actually happened</div>${causes || '<div class="chk-ev">—</div>'}
+          ${wh.operational_failure ? `<div class="chk-ev" style="margin-top:4px"><strong>Operational failure:</strong> ${esc(wh.operational_failure)}</div>` : ''}
+          ${wh.sop_gap ? `<div class="chk-ev"><strong>SOP gap:</strong> ${esc(wh.sop_gap)}</div>` : ''}
+          ${wh.pattern ? `<div class="chk-ev"><strong>Pattern:</strong> ${esc(wh.pattern)}</div>` : ''}
+        </div>
+        <div><div class="wwr5-h">4. SP escalation</div>
+          <div class="chk-ev"><strong>${esc(spx.escalated || '—')}</strong> — ${esc(spx.detail || '')}</div>
+        </div>
+        <div><div class="wwr5-h">5. Fixes</div>
+          ${(fx.teams || []).length ? `<div class="chk-ev"><strong>Teams:</strong> ${esc((fx.teams || []).join(', '))}${fx.owner ? ' · owner: ' + esc(fx.owner) : ''}</div>` : ''}
+          ${(fx.actions || []).map(a => `<div class="chk-ev">• ${esc(a)}</div>`).join('')}
+          ${fx.prevention ? `<div class="chk-ev"><strong>Prevention:</strong> ${esc(fx.prevention)}</div>` : ''}
+        </div>
+      </div>
+    </div>` : '';
+
+    const logsHtml = (v3d.booking_logs || []).length ? `
+    <div class="section" id="rca-booking-logs-section">
+      <div class="section-label"><span class="marker"></span>Booking Logs<span class="ai-tag-inline">AI</span></div>
+      <div class="field-block" style="font-size:12px;line-height:1.7;color:var(--text)">
+        ${v3d.booking_logs.map(l => `<div>${esc(l)}</div>`).join('')}
+      </div>
+    </div>` : '';
+
+    const flags = v3d.flags || [];
+    const flagsHtml = `
+    <div class="section" id="rca-flags-section">
+      <div class="section-label"><span class="marker"></span>Flags<span class="ai-tag-inline">AI</span></div>
+      ${flags.length === 0
+        ? `<div class="field-block" style="font-size:12px;color:var(--text-mute)">✓ Checklist ran clean — no flags.</div>`
+        : `<div class="chk-groups">${flags.map(f => `
+            <div class="chk-row chk-flag">
+              <span class="chk-mark">⚠</span>
+              <div class="chk-item">[${esc(String(f.team || 'other').toUpperCase())}] ${esc(f.flag)}
+                <div class="chk-ev">${esc(f.evidence)}${f.zd_ref ? ' · ' + zdLink(f.zd_ref) : ''}</div>
+              </div>
+            </div>`).join('')}</div>`}
+    </div>`;
+
+    const sop = v3d.sop_compliance || null;
+    const sopHtml = sop ? `
+    <div class="section" id="rca-sop-section">
+      <div class="section-label"><span class="marker"></span>SOP Compliance<span class="ai-tag-inline">AI</span></div>
+      <div class="field-block" style="font-size:12.5px;display:flex;flex-direction:column;gap:4px">
+        <div><span class="chk-pill ${sop.verdict === 'followed' ? 'pass' : sop.verdict === 'deviated' ? 'flag' : 'na'}">${esc(sop.verdict || 'unknown')}</span>
+          <span style="color:var(--text-mute);font-size:11px;margin-left:6px">${sop.dss_available ? 'DSS needle used' : 'DSS needle unavailable — judged on standing policy'}</span>
+          ${sop.zd_ref ? ' · ' + zdLink(sop.zd_ref) : ''}</div>
+        ${sop.expected ? `<div class="chk-ev"><strong>Expected:</strong> ${esc(sop.expected)}</div>` : ''}
+        ${sop.actual ? `<div class="chk-ev"><strong>Actual:</strong> ${esc(sop.actual)}</div>` : ''}
+        ${sop.detail ? `<div class="chk-ev">${esc(sop.detail)}</div>` : ''}
+      </div>
+    </div>` : '';
+
+    return tldrHtml + wwrHtml + logsHtml + flagsHtml + sopHtml;
+  })() : '';
+
+  // ── v3 sections (legacy shape, gated on tldr presence) ────────────────────
+  const v3Block = newShapeBlock ? newShapeBlock : (rca.tldr || (rca.wwrScenarios || []).length) ? `
     <div class="section" id="rca-wwr-section">
       <div class="section-label"><span class="marker"></span>What Went Wrong<span class="ai-tag-inline">AI</span></div>
       ${(rca.wwrScenarios || []).length ? `
@@ -3226,54 +3391,23 @@ function renderRcaCol() {
     </div>` : ''}
 
     ${(rca.checklistAnswers || []).length > 0 ? (() => {
-        const cas  = rca.checklistAnswers;
+        // Legacy drafts only. The checklist runs silently now - render just
+        // the failures, same as the new-shape Flags panel; a re-run replaces
+        // this with rca_v3.flags.
         const norm = a => (a || '').toString().trim().toLowerCase();
-        const passed  = cas.filter(c => norm(c.answer) === 'yes').length;
-        const flagged = cas.filter(c => norm(c.answer) === 'no');
-        const na      = cas.length - passed - flagged.length;
-        const groups = {};
-        cas.forEach(c => {
-          const sec = (c.section || 'general').toString().toUpperCase();
-          if (!groups[sec]) groups[sec] = [];
-          groups[sec].push(c);
-        });
-        const groupOrder = ['CE','RO','SCENARIO','GENERAL'];
-        const sortedSecs = Object.keys(groups).sort((a, b) => {
-          const ia = groupOrder.indexOf(a), ib = groupOrder.indexOf(b);
-          return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
-        });
-        const row = c => {
-          const k = norm(c.answer) === 'no' ? 'flag' : norm(c.answer) === 'yes' ? 'pass' : 'na';
-          const mark = k === 'flag' ? '⚠' : k === 'pass' ? '✓' : '○';
-          const ev = c.evidence || c.note || '';
-          const zd = c.zd_ref || c.zd_id || '';
-          return `<div class="chk-row chk-${k}">
-              <span class="chk-mark">${mark}</span>
-              <div class="chk-item">${c.item || c.check || ''}${ev ? `<div class="chk-ev">${ev}${zd ? ` · <span class="chk-zd">${zd}</span>` : ''}</div>` : ''}</div>
-              <span class="chk-ans">${c.answer || '—'}</span>
-            </div>`;
-        };
-        const groupHtml = sortedSecs.map(sec => {
-          const items = groups[sec];
-          const secFlags = items.filter(c => norm(c.answer) === 'no').length;
-          return `<div class="chk-group ${secFlags > 0 ? 'has-flags open' : ''}" data-chk-section="${sec}">
-            <div class="chk-group-head" data-chk-group-toggle>
-              <span class="chk-chevron">▸</span>
-              <span>${sec}</span>
-              <span class="chk-gtag">${items.length} checks${secFlags ? ' · ' + secFlags + ' flagged' : ''}</span>
-            </div>
-            <div class="chk-group-body">${items.map(row).join('')}</div>
-          </div>`;
-        }).join('');
+        const flagged = rca.checklistAnswers.filter(c => norm(c.answer) === 'no');
         return `
-    <div class="section" id="rca-checklist-section">
-      <div class="section-label"><span class="marker"></span>RCA Checklist<span class="ai-tag-inline">AI</span></div>
-      <div class="chk-bar">
-        <span class="chk-pill pass">✓ ${passed}</span>
-        <span class="chk-pill flag">⚠ ${flagged.length}</span>
-        <span class="chk-pill na">○ ${na}</span>
-      </div>
-      <div class="chk-groups">${groupHtml}</div>
+    <div class="section" id="rca-flags-section">
+      <div class="section-label"><span class="marker"></span>Flags<span class="ai-tag-inline">AI</span></div>
+      ${flagged.length === 0
+        ? `<div class="field-block" style="font-size:12px;color:var(--text-mute)">✓ Checklist ran clean — no flags.</div>`
+        : `<div class="chk-groups">${flagged.map(c => `
+            <div class="chk-row chk-flag">
+              <span class="chk-mark">⚠</span>
+              <div class="chk-item">[${(c.section || 'general').toString().toUpperCase()}] ${c.item || c.check || ''}
+                <div class="chk-ev">${c.evidence || c.note || ''}${(c.zd_ref || c.zd_id) ? ` · <span class="chk-zd">${c.zd_ref || c.zd_id}</span>` : ''}</div>
+              </div>
+            </div>`).join('')}</div>`}
     </div>`;
       })() : ''}
   ` : '';

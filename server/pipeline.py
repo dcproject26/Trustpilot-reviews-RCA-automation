@@ -1314,6 +1314,8 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 review_id=review_id,
                 timeline_raw=zd_meta.get("timeline_raw", []),
                 ticket_facts=ticket_facts,
+                scenarios_routed=[s for s in ([primary_scenario] + overlay_scenarios)
+                                  if s],
             )
         except Exception as e:
             log.exception(f"RCA v3 generation failed: {e}")
@@ -1399,12 +1401,23 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # v3 fields — always assign so flag_modified never fires on an unset
         # attribute (empty dict when RCA generation failed or returned nothing)
         _v3 = rca_v3 or {}
-        draft.tldr                    = _v3.get("tldr") or draft.tldr
+        # The whole new-shape object (what_went_wrong 5 headings, booking_logs,
+        # flags, interactions, sop_compliance) lives in rca_fields; a failed
+        # generation keeps the previous one rather than wiping it.
+        draft.rca_fields              = _v3 or draft.rca_fields or {}
+        _tldr = _v3.get("tldr")
+        if isinstance(_tldr, dict):
+            draft.tldr = (f"Our mistake: {_tldr.get('our_mistake', '')} "
+                          f"Our fix: {_tldr.get('our_fix', '')}").strip()
+        else:
+            draft.tldr = _tldr or draft.tldr
         draft.wwr_chain               = _v3.get("wwr_chain") or []
         draft.prevention              = _v3.get("prevention") or draft.prevention
         draft.evidence                = _v3.get("evidence") or []
         draft.issue_specific_answers  = _v3.get("issue_specific_answers") or {}
-        draft.checklist_answers       = _v3.get("checklist_answers") or []
+        # The checklist runs silently now — only failures ship, as
+        # rca_fields["flags"]. Nothing renders the full answer wall anymore.
+        draft.checklist_answers       = []
 
         draft.ticket_facts                = ticket_facts or None
         draft.suggested_response          = response_draft
@@ -1422,7 +1435,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
             "support_interaction_frames", "sp_interaction_frames",
             "area_of_improving", "actions_taken", "overlay_scenarios", "wwr_scenarios",
             "wwr_chain", "evidence", "issue_specific_answers", "checklist_answers",
-            "ticket_facts",
+            "ticket_facts", "rca_fields",
         ):
             try:
                 flag_modified(draft, _col)

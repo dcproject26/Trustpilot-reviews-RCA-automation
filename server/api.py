@@ -183,6 +183,7 @@ def _draft_dict(d: RcaDraft) -> dict:
         "flag_to_biz_message":         d.flag_to_biz_message,
 
         "tldr":                        d.tldr,
+        "rca_v3":                      d.rca_fields or {},
         "wwr_chain":                   d.wwr_chain or [],
         "prevention":                  d.prevention,
         "evidence":                    d.evidence or [],

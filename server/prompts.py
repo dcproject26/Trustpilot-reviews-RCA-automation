@@ -781,187 +781,309 @@ def rca_v3_prompt(
     review_id: str = "",
     timeline_raw: list = None,
     ticket_facts: dict = None,
+    scenarios_routed: list = None,
 ) -> str:
     """
-    Generates RCA v3 shape: tldr, wwr_chain, prevention, evidence,
-    issue_specific_answers, checklist_answers.
+    Generates the RCA v3 shape: tldr {our_mistake, our_fix}, what_went_wrong
+    (the 5 mandated headings), booking_logs, flags (checklist run silently,
+    failures only), support_interaction / sp_interaction / sop_compliance
+    (each carrying zd_ref), issue_specific_answers, prevention.
 
-    ticket_facts: structured facts already extracted from the Zendesk tickets
-    (guest_full_name, booking_status, refund {...}, ce_actions, resolution_summary,
-    primary_issue, sla_breached, ticket_email_seen, evidence, ...). These are
-    PRE-VERIFIED — prefer them over re-deriving the same facts from raw bodies.
+    Benched against a real draft in tools/try_rca_prompt.py before shipping;
+    that file carries the same template - edit there first, ship here after
+    the audit passes.
 
-    checklist: {"general": GENERAL_GUIDELINES, "ce": CE_ERROR_CHECKS,
-                "ro": RO_ERROR_CHECKS, "scenarios": SCENARIO_CHECKS}
-    timeline_raw: parallel list of raw Zendesk ticket comment bodies.
-
-    Embedded rules (do NOT edit — verbatim from spec):
-    • No fabrication. Every claim must be citeable from timeline/booking/review.
-      Unknown → Unknown. No evidence → "not present in ticket or booking data".
-    • GENERAL_GUIDELINES["rca_output"] rules folded into writing rules below.
-    • Run ALL CE Error and RO Error checks every time.
-    • From Scenario checklists, run ONLY the scenario(s) that fit the review.
-    • Each check → Yes/No/Unknown/N/A + cite evidence (ticket id + line, or booking field).
-    • checklist_answers item shape: {section, check, answer, evidence}.
+    ticket_facts: PRE-VERIFIED structured facts - prefer over re-deriving.
+    checklist: {"general", "ce", "ro", "scenarios"}.
+    scenarios_routed: primary + overlay scenario names; only their checklists
+    go into the prompt (the flags section says "every routed scenario").
     """
-    tl_text = json.dumps(timeline[:30], indent=2) if timeline else "[]"
-    bk_text = json.dumps({k: v for k, v in (booking or {}).items() if k != "_match"})
-    in_text = json.dumps(insights or {})
-    ds_text = json.dumps(dss_rec or {})
+    bk = {k: v for k, v in (booking or {}).items()
+          if k not in ("_match", "timeline_raw")}
 
-    # Zendesk raw ticket bodies
-    if timeline_raw:
-        zd_raw_lines = []
-        for i, body in enumerate(timeline_raw[:20]):
-            if body and body.strip():
-                zd_raw_lines.append(f"[ticket_{i+1}] {body[:600]}")
-        zendesk_raw_block = "\n".join(zd_raw_lines) if zd_raw_lines else "(no raw ticket bodies)"
-    else:
-        zendesk_raw_block = "(no raw ticket bodies)"
+    raw_lines = []
+    for i, body in enumerate((timeline_raw or [])[:20]):
+        if body and str(body).strip():
+            raw_lines.append(f"[ticket_{i+1}] {str(body)[:600]}")
 
-    # Pre-extracted structured ticket facts (verified upstream)
     _tf = {k: v for k, v in (ticket_facts or {}).items()
            if v not in (None, "", [], {}, "Unknown")}
-    ticket_facts_block = json.dumps(_tf, indent=2) if _tf else "(no structured facts extracted)"
 
-    # General guidelines → writing rules
-    general = (checklist or {}).get("general", {})
-    rca_output_rules = general.get("rca_output", [])
-    writing_rules_block = ""
-    if rca_output_rules:
-        writing_rules_block = (
-            "\n━━ RCA OUTPUT RULES (non-negotiable) ━━\n"
-            + "\n".join(f"• {r}" for r in rca_output_rules)
-            + "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        )
+    def _block(title, items):
+        if not items:
+            return ""
+        return ("\n━━ " + title + " ━━\n"
+                + "\n".join(f"{i+1}. {c}" for i, c in enumerate(items))
+                + "\n" + "━" * 40)
 
-    # "What went wrong" mandated writing structure (Headout ORM guideline).
-    wwr_structure = general.get("what_went_wrong_structure", [])
-    wwr_structure_block = ""
-    if wwr_structure:
-        wwr_structure_block = (
-            "\n━━ \"WHAT WENT WRONG\" — REQUIRED WRITING STRUCTURE ━━\n"
-            "Structure the what-went-wrong content (the wwr_chain steps) to cover these\n"
-            "5 sections in order. Headings 1–5 are mandatory; the (a)/(b)/(c) sub-points\n"
-            "are indicative — use only those relevant. Be concise and focus on the\n"
-            "OPERATIONAL failure; do NOT restate the review.\n"
-            + "\n".join(f"{r}" for r in wwr_structure)
-            + "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        )
-
-    # CE and RO error check lists
-    ce_checks = (checklist or {}).get("ce", [])
-    ro_checks = (checklist or {}).get("ro", [])
-    scenarios = (checklist or {}).get("scenarios", {})
-
-    ce_block = ""
-    if ce_checks:
-        ce_block = (
-            "\n━━ CE ERROR CHECKS — run ALL every time ━━\n"
-            + "\n".join(f"{i+1}. {c}" for i, c in enumerate(ce_checks))
-            + "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        )
-
-    ro_block = ""
-    if ro_checks:
-        ro_block = (
-            "\n━━ RO ERROR CHECKS — run ALL every time ━━\n"
-            + "\n".join(f"{i+1}. {c}" for i, c in enumerate(ro_checks))
-            + "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        )
-
+    routed = [s for s in (scenarios_routed or [])
+              if s in (checklist or {}).get("scenarios", {})]
+    sc_lines = []
+    for name in routed:
+        sc_lines.append(f"[{name}]")
+        sc_lines.extend(f"  {i+1}. {it}" for i, it
+                        in enumerate(checklist["scenarios"][name]))
     scenario_block = ""
-    if scenarios:
-        sc_lines = ["━━ SCENARIO CHECKS — run ONLY the scenario(s) that fit this review ━━"]
-        for name, items in scenarios.items():
-            sc_lines.append(f"\n[{name}]")
-            for i, item in enumerate(items):
-                sc_lines.append(f"  {i+1}. {item}")
-        sc_lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        scenario_block = "\n" + "\n".join(sc_lines)
+    if sc_lines:
+        scenario_block = ("\n━━ SCENARIO CHECKS - every routed scenario, run all ━━\n"
+                          + "\n".join(sc_lines) + "\n" + "━" * 40)
 
-    return f"""You are an ORM analyst writing an internal Root-Cause Analysis (RCA).
+    out = RCA_V3_TEMPLATE
+    for token, value in {
+        "<<REVIEW_ID>>":        review_id,
+        "<<L1>>":               l1 or "",
+        "<<L2>>":               l2 or "",
+        "<<SUB_THEME>>":        sub_theme or "",
+        "<<SCENARIOS_ROUTED>>": ", ".join(routed) or "(none routed)",
+        "<<REVIEW_TEXT>>":      review_text or "",
+        "<<BOOKING>>":          json.dumps(bk, default=str),
+        "<<TIMELINE>>":         json.dumps((timeline or [])[:30], indent=2, default=str),
+        "<<ZENDESK_RAW>>":      "\n".join(raw_lines) or "(no raw ticket bodies)",
+        "<<TICKET_FACTS>>":     (json.dumps(_tf, indent=2, default=str)
+                                 if _tf else "(no structured facts extracted)"),
+        "<<INSIGHTS>>":         json.dumps(insights or {}, default=str),
+        "<<DSS>>":              json.dumps(dss_rec or {}, default=str),
+        "<<SUPPORT_SUMMARY>>":  support_summary or "(none)",
+        "<<CE_BLOCK>>":         _block("CE ERROR CHECKS - run ALL every time",
+                                       (checklist or {}).get("ce", [])),
+        "<<RO_BLOCK>>":         _block("RO ERROR CHECKS - run ALL every time",
+                                       (checklist or {}).get("ro", [])),
+        "<<SCENARIO_BLOCK>>":   scenario_block,
+    }.items():
+        out = out.replace(token, str(value))
+    return out
 
-REVIEW ID:      {review_id}
-CLASSIFICATION: L1={l1}  L2={l2}  Sub-theme={sub_theme}
+
+# Data blocks are injected by token replacement (<<BOOKING>> etc.), not
+# str.format - the output shape below is full of JSON braces and doubling
+# every one of them is exactly how a template stops matching its bench copy.
+RCA_V3_TEMPLATE = """You are an ORM analyst at Headout writing an internal Root-Cause Analysis.
+
+WHO READS THIS: CX leadership in a Slack thread, at Varun's bar. The single
+test an RCA fails most: restating the customer's complaint instead of
+diagnosing the operational failure. "Guest couldn't find the guide" is a
+symptom. "The MP field still showed the old point" is a root cause. Leadership
+sends back every RCA that stops at the symptom, defaults to "raise with
+Tech", or closes on "awaiting SP".
+
+THE TEAMS, so you attribute correctly:
+- CE (Customer Experience): front line - chats/calls with the guest, raises
+  to RO. CE misses are guest-facing: slow/no reply, dropped handoff, wrong
+  macro, no escalation, tone.
+- RO (Reservation Ops): back line - fulfilment, SP escalations, vendor
+  issues. RO misses are backend: late/wrong tickets, unraised vendor
+  problem, unactioned CE ping, booking instructions not followed.
+- SP (Supply Partner): the vendor. Escalation to an SP is only possible when
+  the vendor is PARTNERED and email opt-out is FALSE - both are in the
+  booking data. A blocked escalation is a fact to state, not a miss.
+
+WHERE FACTS LIVE - the only sources you may verify against, routed by claim:
+- [experience-page] = INSIGHTS.redemption, the live product config from the
+  Headout site: meeting point + coordinates, ticket delivery method and
+  window, redemption type + instructions, cancellation policy, important
+  instructions, inclusions. Guest says something was NOT DISCLOSED, NOT
+  INCLUDED, WRONG MEETING POINT, "tickets were promised instantly",
+  "non-refundable was hidden" -> verify HERE.
+- [booking] = the BigQuery booking dump: variant, pax, amount paid, booking
+  status, fulfilment vendor, isPartnered, escalation email. Guest claims
+  about what was bought, paid, cancelled -> verify HERE.
+- [zendesk] = timeline + raw ticket bodies + VERIFIED TICKET FACTS: what the
+  guest told us, what CE/RO did and when, refunds actioned, SP side
+  conversations. Claims about support conduct -> verify HERE.
+- [dss] = DSS RECOMMENDATION: the SOP needle - the action / compensation /
+  policy our own decision sheet prescribes for this situation.
+Every verdict NAMES its source in square brackets. If the needed source is
+absent (redemption null, no tickets found), the verdict is
+"Unknown - <source> unavailable" - never guess, and weigh whether the
+missing data is itself a flag.
+
+REVIEW ID:      <<REVIEW_ID>>
+CLASSIFICATION: L1=<<L1>>  L2=<<L2>>  Sub-theme=<<SUB_THEME>>
+ROUTED SCENARIOS: <<SCENARIOS_ROUTED>>
 
 REVIEW TEXT:
-{review_text}
+<<REVIEW_TEXT>>
 
 BOOKING:
-{bk_text}
+<<BOOKING>>
 
 ZENDESK TIMELINE (structured):
-{tl_text}
+<<TIMELINE>>
 
-=== ZENDESK TICKETS FOR THIS BOOKING (matched by booking_id + guest name) ===
-{zendesk_raw_block}
+=== ZENDESK TICKETS FOR THIS BOOKING (raw bodies) ===
+<<ZENDESK_RAW>>
 
-=== VERIFIED TICKET FACTS (pre-extracted — trust these over re-deriving) ===
-{ticket_facts_block}
+=== VERIFIED TICKET FACTS (pre-extracted - trust these over re-deriving) ===
+<<TICKET_FACTS>>
 
-INSIGHTS:
-{in_text}
+INSIGHTS (incl. experience-page redemption data, similar-review and
+similar-support counts, completion rates, and the window they cover):
+<<INSIGHTS>>
 
-DSS RECOMMENDATION:
-{ds_text}
+DSS RECOMMENDATION (SOP needle; {} or match_score 0 = needle unavailable):
+<<DSS>>
 
 SUPPORT SUMMARY:
-{support_summary or "(none)"}
-{writing_rules_block}
-{wwr_structure_block}
+<<SUPPORT_SUMMARY>>
+<<CE_BLOCK>>
+<<RO_BLOCK>>
+<<SCENARIO_BLOCK>>
 
-━━ CORE RULES (non-negotiable) ━━
-1. NO FABRICATION. Every claim in wwr_chain, evidence, checklist_answers must be
-   citeable from the timeline, booking, or review_text above. If unknown → "Unknown".
-   No evidence → write "not present in ticket or booking data".
-2. NEUTRAL TONE. Facts only. Do not adopt or defend the guest's narrative.
-3. tldr ≤ 25 words, one sentence, factual. Format: "what happened + what we're doing."
-4. wwr_chain: follow the "WHAT WENT WRONG" required writing structure above —
-   cover guest issue → claim accuracy (Yes/Partially True/No) → what actually
-   happened (root cause / operational failure / SOP gap) → SP escalation (did CE
-   escalate; if not, why) → fixes (teams tagged + corrective actions). Keep it
-   causal and concise, not a restatement of the review. Up to ~6 steps.
-   Each step: {{"step": N, "what": "...", "why": "..."}}.
-5. prevention: ORM-ownable actions only. Pre-visit comms first. If cross-team action
-   needed, label explicitly (e.g. "Product team:").
-6. evidence: prefix each item with its source in square brackets: [timeline], [review],
-   [booking], [insights]. Use verbatim quotes where possible.
-7. issue_specific_answers: answer Yes/No/Unknown for checks relevant to L1={l1}.
-   Short parenthetical (≤60 chars) only if timeline directly supports.
-8. Support-failure supersedes: if an external event occurred BUT CE mishandled the
-   guest contact, the root cause is the CE failure, not the external event.
-9. No invented handles, timestamps, or comp amounts. Use [placeholder] if unknown.
-10. VERIFIED TICKET FACTS above are already extracted and checked. When a fact you
-    need (guest name, booking status, refund status/amount, CE actions, resolution,
-    SLA breach, primary issue) is present there, USE IT — do not contradict it or
-    re-derive a different value from the raw bodies. Raw bodies are for detail the
-    facts block does not already cover.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━ CORE RULES ━━
+1. NO FABRICATION. Every claim citeable from the data above, with its source
+   named. Unknown -> "Unknown". No evidence -> "not in ticket or booking data".
+2. EVERY ISSUE. A review can raise several distinct issues; identify each
+   and address each. Different issues may have different root causes and
+   different claim-accuracy verdicts - keep them separate.
+3. DIAGNOSE, DON'T DESCRIBE. Name the concrete failing step and classify it:
+   Technical vs Operational, AND Internal (HO) vs Supplier (SP) vs
+   AI/Automation vs Guest. Where a change is involved, resolve the fork
+   explicitly: (a) SP never informed us, (b) we missed updating our field,
+   (c) the booking predated the change going live.
+   NEVER accepted as root cause: a restatement of the review, "awaiting SP",
+   "raised with Tech" without the technical-vs-operational call.
+4. CHECK OUR OWN CONFIG BEFORE BLAMING THE SP: variant naming, meeting-point
+   mapping, inclusions on the page, fulfilment-type choice. Often we are the
+   root cause. Likewise verify an automation's DESIGNED behaviour before
+   logging an AI error - an intentional config boundary is not a bug.
+5. VERIFY EVERY GUEST CLAIM AT ITS SOURCE. Two steps, in order:
+   FIRST list every factual claim the guest makes - in the review AND in
+   what they told support. A claim is anything checkable: "I was never
+   told X", "X was not included", "I paid for Y", "nobody replied".
+   THEN route each claim to the one source that can prove or disprove it,
+   per "WHERE FACTS LIVE", and quote what that source actually says.
+   Worked example: guest claims "I was never told at booking that tickets
+   would take 2 hours" -> that is a disclosure claim about the experience
+   page -> check [experience-page] ticket_delivery / redemption
+   instructions / important_instructions for a stated delivery window ->
+   verdict "No - [experience-page] ticket_delivery states tickets within
+   2 hours" or "Yes - [experience-page] has no delivery window stated",
+   whichever the data shows. The verdict quotes the source, never what
+   seems plausible. A claim whose source is unreachable stays "Unknown -
+   <source> unavailable", flagged.
+6. SOP NEEDLE. Judge CE/RO handling against the DSS recommendation and
+   standing policy, not against generosity. STANDING POLICY: an out-of-policy
+   cancellation/modification request is DENIED first - a correct denial is
+   never a CE miss. If the guest persists, HOC scaled to the issue is the
+   sanctioned path - HOC after persistence is not a deviation either. Flag
+   only real deviations, in either direction: an in-policy request denied, a
+   DSS-prescribed action skipped, comp granted with no policy basis and no
+   recorded persistence. Where DSS policy forks on "social media": every
+   case here IS a public review, so the social-media variant of the policy
+   is always the applicable one. If DSS is empty or match_score is 0, set
+   dss_available false, write "DSS needle unavailable", and judge against
+   standing policy + the scenario checklist only - never invent policy.
+7. SUPPORT-FAILURE SUPERSEDES: if an external event occurred but CE or RO
+   mishandled the contact, the root cause is the mishandling. What did the
+   agent DO after acknowledging - escalated, or dropped?
+8. SCOPE EVERY FINDING: one-off or pattern? Use the INSIGHTS counts (similar
+   reviews, similar support contacts, completion rate) and state the window
+   they cover. A structural fix without sizing gets rejected.
+9. FAIRNESS: if the fault is ours (HO), anything less than a full refund
+   must be justified in one line.
+10. TELEGRAPH STYLE. Bullets and phrases. No paragraph restates the review.
+11. Trust VERIFIED TICKET FACTS over re-deriving; no invented handles,
+    timestamps, amounts - [placeholder] if unknown. ZD_REF DISCIPLINE: every
+    flag, every support_interaction row, and the sp_interaction and
+    sop_compliance objects carry the Zendesk ticket id their evidence comes
+    from, as "ZD-<id>" - the dashboard renders it as a link to the ticket.
+    "" only when no ticket is involved (booking-data evidence).
 
-=== DIAGNOSTIC CHECKS — VERIFY, DON'T GUESS ===
-- Run ALL CE Error and RO Error checks, every time.
-- From the Scenario checklists, run ONLY the scenario(s) that fit this review + classification.
-- Each check → Yes / No / Unknown / N/A AND cite the evidence: ticket id + the line, or the
-  booking field. No evidence → "not present in ticket or booking data". Never guess.
-{ce_block}
-{ro_block}
-{scenario_block}
+━━ OUTPUT ━━
 
-checklist_answers item shape:
-{{"section": "ce" | "ro" | "<scenario name>", "check": "...", "answer": "Yes|No|Unknown|N/A", "evidence": "...", "zd_ref": "ZD-<ticket id> or ''"}}
-zd_ref: the Zendesk ticket id the evidence comes from (e.g. "ZD-31055921").
-Empty string when the evidence is from booking data or no ticket applies.
+"tldr" - Varun's two lines, verbatim shape:
+    {"our_mistake": "<one line: what Headout did wrong - or 'none: <who/what>' >",
+     "our_fix":     "<one line: what we are doing about it>"}
 
-Return ONLY valid JSON (no markdown fences) matching this exact shape:
-{{
-  "tldr":                    "<≤25 words, one sentence>",
-  "wwr_chain":               [{{"step": 1, "what": "...", "why": "..."}}, ...],
-  "prevention":              "<1-2 sentences>",
-  "evidence":                ["[source] quote", ...],
-  "issue_specific_answers":  {{"<key>": "Yes|No|Unknown (<optional note>)", ...}},
-  "checklist_answers":       [{{"section": "ce|ro|<scenario>", "item": "<question>", "answer": "Yes|No|Unknown|N/A", "evidence": "<cite or not present in ticket or booking data>", "zd_ref": "ZD-... or ''"}}, ...]
-}}"""
+"what_went_wrong" - EXACTLY five headings; this block posts to Slack as-is.
+Sub-points only where relevant.
+  1. Guest issue - 1-2 concise pointers PER issue raised.
+  2. Is the guest's claim accurate? - Yes / Partially True / No.
+     Per issue when verdicts differ - and one entry per CLAIM when a
+     single issue carries several checkable claims. Each verdict cites
+     its deciding evidence WITH its source tag ([experience-page] /
+     [booking] / [zendesk] / [dss]).
+  3. What actually happened?
+     a. Root cause per issue - the concrete failing step, classified
+        (Technical|Operational + HO|SP|AI|Guest)
+     b. Operational failure, if any - name the team, CE or RO
+     c. SOP/process gap, if any - the missing safeguard: why wasn't this
+        caught before the guest was affected
+     d. Pattern check - one-off or recurring, with the insight counts and
+        their window
+  4. Supply Partner escalation
+     a. Did CE/RO escalate to SP? Yes / No / N/A
+     b. If No: why - not partnered / email opt-out / SP on DND / not
+        warranted. If the SP has failed to respond or repeatedly failed us,
+        say whether BDM escalation is raised. "Awaiting SP" is never the
+        end state.
+  5. Fixes
+     a. Team(s)/stakeholder(s) to evaluate the gaps - CE / RO / Content /
+        Product / Biz / Tech / Escalations, from the evidence
+     b. Corrective actions taken or proposed, briefly
+     c. Durable prevention where warranted - PSI, checkout content, ticket
+        checker, config change - with an owner. Scope by ROI, not blanket.
+
+"booking_logs" - numbered, one line per meaningful event, telegraph style,
+  chronological: "1. 22 Jul 15:22 - booking-in-progress email; tickets
+  promised in 2h". Machinery only where it explains the failure.
+
+"flags" - run ALL CE checks, ALL RO checks, and the checklist(s) for EVERY
+  routed scenario, silently. Return ONLY failures and items warranting
+  attention: {"flag", "team": "CE|RO|SP|content|tech|other", "evidence",
+  "zd_ref"}. A clean run returns []. Never return passing checks. A correct
+  out-of-policy denial is NOT a flag (rule 6).
+
+"support_interaction" - CE's half: each guest touchpoint with when, channel,
+  what happened, any CE miss flagged inline, and the ticket it lives on.
+  State explicitly if no guest contact was found.
+
+"sp_interaction" - RO's half, from the side conversations: was the guest's
+  issue raised with the SP, when, what came back, response time. If none:
+  state first whether escalation was possible (partnered + opt-out) before
+  calling it a gap.
+
+"sop_compliance" - the needle check, one object:
+  expected = what DSS/standing policy prescribed for this situation;
+  actual = what CE/RO actually did per the timeline;
+  verdict = followed | deviated | unknown. detail carries the one-line
+  story - including denial -> persistence -> HOC when that is what happened,
+  which is FOLLOWED, not a deviation.
+
+"issue_specific_answers" - ONLY questions about the guest's experience
+  issue itself, drawn from the issue-type diagnostics (e.g. Meeting Point:
+  did we know the MP changed / voucher MP vs variant name vs true MP;
+  Tickets: delivery window disclosed at checkout, technical vs operational
+  non-delivery; Guide: why absent, working SP contact on file). NOTHING
+  about how the team handled it - handling lives in flags,
+  support_interaction and sop_compliance. Each answer Yes/No/Unknown +
+  source-tagged evidence.
+
+"prevention" - ORM-ownable first; cross-team labelled with the team.
+
+Return ONLY valid JSON:
+{
+  "tldr": {"our_mistake": "...", "our_fix": "..."},
+  "what_went_wrong": {
+    "guest_issues":  [{"issue": "...", "claim_accuracy": "Yes|Partially True|No", "evidence": "[source] ..."}],
+    "what_happened": {"root_causes": [{"issue": "...", "cause": "...",
+                       "classification": "Technical|Operational + HO|SP|AI|Guest"}],
+                      "operational_failure": "...|null", "sop_gap": "...|null",
+                      "pattern": "<one-off|recurring - counts + window>"},
+    "sp_escalation": {"escalated": "Yes|No|N/A", "detail": "..."},
+    "fixes":         {"teams": ["..."], "actions": ["..."],
+                      "prevention": "...", "owner": "...|null"}
+  },
+  "booking_logs":         ["1. <time> - <event>; <outcome>", ...],
+  "flags":                [{"flag": "...", "team": "...", "evidence": "...", "zd_ref": "ZD-... or ''"}],
+  "support_interaction":  [{"time": "...", "channel": "...", "summary": "...", "ce_miss": "...|null", "zd_ref": "ZD-... or ''"}],
+  "sp_interaction":       {"possible": true|false, "reason_if_not": "...",
+                           "raised": "Yes|No|N/A", "detail": "...", "zd_ref": "ZD-... or ''"},
+  "sop_compliance":       {"dss_available": true|false, "expected": "...", "actual": "...",
+                           "verdict": "followed|deviated|unknown", "detail": "...", "zd_ref": "ZD-... or ''"},
+  "issue_specific_answers": {"<experience question>": "Yes|No|Unknown ([source] <evidence>)"},
+  "prevention": "..."
+}"""
 
 
 # ─── 9b. WWR analysis — stacked scenario blocks (Task #13 §3) ───────────────
