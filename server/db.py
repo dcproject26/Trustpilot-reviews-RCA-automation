@@ -75,8 +75,14 @@ class RcaDraft(Base):
         "sp": [], "customer": [], "business": [], "product": [], "ce": []
     })
     resolution                  = Column(Text, nullable=True)
-    sub_theme                   = Column(String, nullable=True)
-    primary_scenario            = Column(String, nullable=True)   # Task #13 scenario routing
+    # A case can sit under more than one sub-theme and more than one
+    # scenario. The scalars below stay in step with element 0 of each list so
+    # every existing consumer - the prompt, DSS routing, the Slack post -
+    # keeps working unchanged; the lists are what the dashboard edits.
+    sub_theme                   = Column(String, nullable=True)   # = sub_themes[0]
+    sub_themes                  = Column(JSON, default=list)
+    primary_scenario            = Column(String, nullable=True)   # = scenarios[0]
+    scenarios                   = Column(JSON, default=list)
     overlay_scenarios           = Column(JSON, default=list)      # scenario overlays
     wwr_scenarios               = Column(JSON, default=list)      # stacked WWR blocks (per scenario)
 
@@ -125,7 +131,8 @@ class RcaDraft(Base):
     suggested_response = Column(Text, nullable=True)
     final_response     = Column(Text, nullable=True)
 
-    generated_at = Column(DateTime, nullable=True)
+    generated_at   = Column(DateTime, nullable=True)
+    rca_posted_at  = Column(DateTime, nullable=True)  # RCA posted to the Slack thread
     sent_at      = Column(DateTime, nullable=True)
     review       = relationship("Review", back_populates="draft")
 
@@ -176,6 +183,9 @@ def _ensure_columns():
     is_pg = engine.dialect.name == "postgresql"
     wanted = {
         "primary_scenario":       "VARCHAR",
+        "sub_themes":             "JSONB" if is_pg else "JSON",
+        "scenarios":              "JSONB" if is_pg else "JSON",
+        "rca_posted_at":          "TIMESTAMP",
         "overlay_scenarios":      "JSONB" if is_pg else "JSON",
         "wwr_scenarios":          "JSONB" if is_pg else "JSON",
         "ticket_facts":           "JSONB" if is_pg else "JSON",

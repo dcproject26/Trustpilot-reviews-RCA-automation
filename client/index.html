@@ -461,6 +461,7 @@
     outline: none; border-radius: 4px; padding: 1px 4px; margin: -1px -4px;
     cursor: text; display: inline-block; min-width: 40px;
   }
+  .editable-text.is-placeholder { color: var(--empty); font-style: italic; }
   .editable-text:hover { background: var(--accent-bg); }
   .editable-text:focus { background: var(--accent-bg); box-shadow: 0 0 0 2px var(--accent); }
   .rca-wrap, .editable-text.rca-wrap { display: block; overflow-wrap: anywhere; }
@@ -1190,6 +1191,9 @@ async function loadDraftOverlays() {
       r.rca.issueL1   = draft.l1        || r.rca.issueL1  || '';
       r.rca.issueL2   = draft.l2        || r.rca.issueL2  || '';
       r.rca.subTheme  = draft.sub_theme || r.rca.subTheme || null;
+      r.rca.subThemes = draft.sub_themes || (draft.sub_theme ? [draft.sub_theme] : []);
+      r.rca.scenarios = draft.scenarios ||
+        [draft.primary_scenario, ...(draft.overlay_scenarios || [])].filter(Boolean);
       r.rca.tldr      = draft.tldr      || '';
       r.rca.v3        = draft.rca_v3    || {};
       r.insightsRaw   = draft.insights  || {};
@@ -2074,10 +2078,10 @@ function renderReviewCol() {
             </select>
           </label>
         </div>
-        ${chipRow('Sub-themes', rc.subTheme ? [rc.subTheme] : [], 'data-subtheme-select', subOpts, 'data-subtheme-remove')}
-        ${chipRow('Scenarios', rc.primaryScenario ? [rc.primaryScenario] : [], 'data-scenario-select', SCENARIO_OPTIONS, 'data-scenario-remove')}
+        ${chipRow('Sub-themes', rc.subThemes || [], 'data-subtheme-add', subOpts, 'data-subtheme-remove')}
+        ${chipRow('Scenarios', rc.scenarios || [], 'data-scenario-add', SCENARIO_OPTIONS, 'data-scenario-remove')}
         ${chipRow('Overlays', rc.overlayScenarios || [], 'data-overlay-add',
-                  SCENARIO_OPTIONS.filter(o => o !== rc.primaryScenario), 'data-overlay-remove')}
+                  SCENARIO_OPTIONS.filter(o => !(rc.scenarios || []).includes(o)), 'data-overlay-remove')}
         <span data-scenario-regen-status style="font-size:11px;color:var(--muted-2)"></span>
       </div>`;
     })()}
@@ -2364,8 +2368,15 @@ function renderRcaCol() {
   // Editable variants. Every fact in the RCA must be correctable in place -
   // the person signing it owns the words, not the model. data-v3p is a dot
   // path into rca.v3; one delegated blur handler persists all of them.
-  const edSpan = (path, text, ph = 'click to write') =>
-    `<span class="editable-text" contenteditable="true" spellcheck="false" data-v3p="${path}">${esc(text) || ph}</span>`;
+  // An empty field renders its placeholder AS the text, so focusing and
+  // blurring it without typing would otherwise save "click to write" as the
+  // value. data-ph carries the placeholder so the saver can tell the two
+  // apart, and the class greys it so it does not read as content.
+  const edSpan = (path, text, ph = 'click to write') => {
+    const empty = !String(text == null ? '' : text).trim();
+    return `<span class="editable-text${empty ? ' is-placeholder' : ''}" contenteditable="true"
+      spellcheck="false" data-v3p="${path}"${empty ? ` data-ph="${esc(ph)}"` : ''}>${empty ? esc(ph) : esc(text)}</span>`;
+  };
   const edPoints = (path, v, cls = 'chk-ev') => asPoints(v)
     .map((p, i) => `<div class="${cls}">• ${edSpan(`${path}.${i}`, p)}</div>`).join('');
 
@@ -2500,10 +2511,15 @@ function renderRcaCol() {
         gi.map(g => '• ' + (g.issue || '')).join(nl));
       wwrParts.push("2. Is the guest's claim accurate?" + nl +
         gi.map(g => ['• ' + (g.issue || '') + ': ' + (g.claim_accuracy || '—'),
+                     g.claim ? '   - guest\u2019s words: \u201c' + g.claim + '\u201d' : '',
                      sub(g.evidence)].filter(Boolean).join(nl)).join(nl));
       const wh = _w.what_happened || {};
-      const whLines = (wh.root_causes || []).map(c =>
-        '• [' + (c.classification || '?') + '] ' + (c.issue ? c.issue + ': ' : '') + (c.cause || ''));
+      // Root cause lives on its issue now; older drafts keep a parallel list,
+      // so both render - dropping either blanks the section for one of them.
+      const whLines = gi.filter(g => g.root_cause)
+        .map(g => '• [' + (g.owner || '?') + '] ' + (g.issue || '') + ': ' + g.root_cause)
+        .concat((wh.root_causes || []).map(c =>
+          '• [' + (c.classification || '?') + '] ' + (c.issue ? c.issue + ': ' : '') + (c.cause || '')));
       if (asPoints(wh.operational_failure).length)
         whLines.push('• Operational failure' + nl + sub(wh.operational_failure));
       if (asPoints(wh.sop_gap).length)
@@ -2776,15 +2792,28 @@ function renderRcaCol() {
       return t.startsWith('yes') || t.startsWith('accur') ? 'ok'
            : t.startsWith('no') ? 'no'
            : t ? 'part' : ''; };
+    // Root cause, claim and owner now live ON each issue. Drafts written
+    // before that carry a parallel root_causes list instead, so issue i
+    // falls back to root_causes[i]; the claim falls back to the issue text,
+    // and the owner to that cause's classification. Any cause with no issue
+    // to sit on still renders as its own row, so nothing is dropped.
     const causesList = wh.root_causes || [];
     const gIssues = w.guest_issues || [];
-    const rowCount = Math.max(gIssues.length, causesList.length);
+    const legacyPaired = gIssues.some(g => !g.root_cause && !g.owner);
+    const rowCount = Math.max(gIssues.length, legacyPaired ? causesList.length : 0);
     const wwrRows = Array.from({length: rowCount}, (_, i) => {
       const gi = gIssues[i] || {};
-      const rc = causesList[i] || {};
+      const rcLegacy = causesList[i] || {};
       const open = state.wwrOpen[i] !== false;
-      const title = gi.issue || rc.issue || 'Untitled issue';
+      const title = gi.issue || rcLegacy.issue || 'Untitled issue';
       const evidence = asPoints(gi.evidence);
+      const hasOwnCause = !!gi.root_cause;
+      const causeText  = hasOwnCause ? gi.root_cause : (rcLegacy.cause || '');
+      const causePath  = hasOwnCause
+        ? `what_went_wrong.guest_issues.${i}.root_cause`
+        : `what_went_wrong.what_happened.root_causes.${i}.cause`;
+      const owner = gi.owner || rcLegacy.classification || '';
+      const claim = gi.claim || '';
       return `
       <div class="wwr-issue">
         <div class="wwr-issue-head" data-wwr-toggle="${i}">
@@ -2797,8 +2826,10 @@ function renderRcaCol() {
         <div class="wwr-issue-body">
           <div class="wwr-blk">
             <span class="wwr-blk-label">Claim</span>
-            <div class="wwr-claim">${gi.issue ? '“' + edSpan(`what_went_wrong.guest_issues.${i}.issue`, gi.issue) + '”'
-                                               : '<span class="rca-empty">No claim recorded.</span>'}</div>
+            ${claim
+              ? `<div class="wwr-claim">“${edSpan(`what_went_wrong.guest_issues.${i}.claim`, claim)}”</div>`
+              : `<div class="rca-empty">The review does not state this in the guest's own words — click to quote it.</div>
+                 <div class="wwr-claim" style="margin-top:2px">“${edSpan(`what_went_wrong.guest_issues.${i}.claim`, '')}”</div>`}
           </div>
           <div class="wwr-blk">
             <span class="wwr-blk-label">Evidence</span>
@@ -2813,27 +2844,47 @@ function renderRcaCol() {
             <div class="wwr-analysis">
               <div class="wwr-analysis-head">
                 ${gi.claim_accuracy ? `<span class="chip-acc ${accClass(gi.claim_accuracy)}">${esc(gi.claim_accuracy)}</span>` : ''}
-                ${rc.classification ? `<span class="chip-owner">owner · ${esc(rc.classification)}</span>` : ''}
+                <span class="chip-owner">owner · ${owner
+                  ? edSpan(`what_went_wrong.guest_issues.${i}.owner`, owner)
+                  : edSpan(`what_went_wrong.guest_issues.${i}.owner`, '', 'unassigned')}</span>
               </div>
               <span class="rca-wrap"><span class="wwr-cause-label">Root cause:</span> ${
-                rc.cause ? edSpan(`what_went_wrong.what_happened.root_causes.${i}.cause`, rc.cause)
-                         : '<span class="rca-empty">Not recorded.</span>'}</span>
+                causeText ? edSpan(causePath, causeText)
+                          : edSpan(`what_went_wrong.guest_issues.${i}.root_cause`, '', 'click to write the failing step')}</span>
             </div>
           </div>
         </div>` : ''}
       </div>`;
     }).join('');
 
+    // A systemic cause that belongs to no single issue keeps its own row.
+    const orphanCauses = legacyPaired ? [] : causesList;
+    const orphanHtml = orphanCauses.length ? `
+      <div class="wwr-blk" style="margin-top:10px">
+        <span class="wwr-blk-label">Cross-cutting root causes</span>
+        ${orphanCauses.map((rc, i) => `
+          <div class="chk-row">
+            <span class="chk-mark">→</span>
+            <div class="chk-item">${edSpan(`what_went_wrong.what_happened.root_causes.${i}.issue`, rc.issue)}
+              <div class="chk-ev">${edSpan(`what_went_wrong.what_happened.root_causes.${i}.cause`, rc.cause)}</div>
+            </div>
+          </div>`).join('')}
+      </div>` : '';
+
     const wwrOpenAll = rowCount > 0 && Array.from({length: rowCount}, (_, i) => state.wwrOpen[i] !== false).every(Boolean);
     const wwrHtml = v3d.what_went_wrong ? `
     <div class="section" id="rca-wwr5-section">
       <div class="section-label">
         <span>What went wrong</span>
-        <span class="hint">${rowCount} issue${rowCount === 1 ? '' : 's'} · ${causesList.length} root cause${causesList.length === 1 ? '' : 's'}</span>
+        <span class="hint">${rowCount} issue${rowCount === 1 ? '' : 's'} · ${
+          (legacyPaired ? causesList.length
+                        : gIssues.filter(g => g.root_cause).length + causesList.length)
+        } root cause${((legacyPaired ? causesList.length : gIssues.filter(g => g.root_cause).length + causesList.length)) === 1 ? '' : 's'}</span>
         <button class="btn" style="margin-left:auto;font-size:11px;padding:2px 9px" data-wwr-all>${wwrOpenAll ? 'Collapse all' : 'Expand all'}</button>
         <span class="section-chev">▾</span>
       </div>
       ${wwrRows || '<div class="rca-empty">No guest issues were identified — re-run the RCA if the review names one.</div>'}
+      ${orphanHtml}
       ${(asPoints(wh.operational_failure).length || asPoints(wh.sop_gap).length || wh.pattern) ? `
       <div class="wwr-blk" style="margin-top:10px">
         ${asPoints(wh.operational_failure).length ? `<span class="wwr-blk-label">Operational failure</span>${edPoints('what_went_wrong.what_happened.operational_failure', wh.operational_failure)}` : ''}
@@ -3337,7 +3388,8 @@ function renderRcaCol() {
   if (wwrIssueAdd) wwrIssueAdd.addEventListener('click', async () => {
     const w = rca.v3.what_went_wrong = rca.v3.what_went_wrong || {};
     w.guest_issues = [...(w.guest_issues || []),
-      {issue: 'New issue — click to edit', claim_accuracy: '', evidence: []}];
+      {issue: 'New issue — click to edit', claim: '', claim_accuracy: '',
+       owner: '', root_cause: '', evidence: []}];
     await persistV3(); renderRcaCol();
   });
 
@@ -3363,6 +3415,25 @@ function renderRcaCol() {
     try { await navigator.clipboard.writeText(replyArea.value); } catch (_) {}
     replyCopy.textContent = '✓ Copied';
     setTimeout(() => { replyCopy.textContent = '⧉ Copy'; }, 1500);
+  });
+
+  // Post the RCA into the review's own Slack thread. Separate from Send,
+  // which also closes the review - the RCA usually goes to the team while
+  // the guest reply is still being edited.
+  const slackPostBtn = col.querySelector('[data-slack-post]');
+  if (slackPostBtn) slackPostBtn.addEventListener('click', async () => {
+    const orig = slackPostBtn.textContent;
+    slackPostBtn.disabled = true; slackPostBtn.textContent = 'posting…';
+    try {
+      const resp = await fetch(`/api/reviews/${r.id}/post-rca`, {method: 'POST'});
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.detail || 'post failed');
+      slackPostBtn.textContent = '✓ Posted to thread';
+      setTimeout(() => { slackPostBtn.disabled = false; slackPostBtn.textContent = orig; }, 2500);
+    } catch (e) {
+      slackPostBtn.textContent = String(e.message || e).slice(0, 70);
+      setTimeout(() => { slackPostBtn.disabled = false; slackPostBtn.textContent = orig; }, 4000);
+    }
   });
 
   const rcaOnly = col.querySelector('[data-rca-only-regen]');
@@ -3439,9 +3510,26 @@ function renderRcaCol() {
   // Any scenario change (primary or overlays) re-runs the RCA against the
   // corrected checklists - the whole point of the field being editable.
   const regenStatus = col.querySelector('[data-scenario-regen-status]');
+  // Persist the routing lists, then re-run the RCA against them. Saving
+  // first matters: if generation fails the chips still reflect what the
+  // person chose, instead of snapping back on the next render.
+  const saveRouting = async () => {
+    try {
+      await fetch(`/api/reviews/${r.id}/draft-v2`, {
+        method: 'PATCH', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          sub_themes: rca.subThemes || [],
+          scenarios:  rca.scenarios || [],
+          overlay_scenarios: rca.overlayScenarios || [],
+        }),
+      });
+    } catch (_) { /* keep the local edit; the next change retries */ }
+  };
   const regenRca = async () => {
-    const scenarios = [rca.primaryScenario, ...(rca.overlayScenarios || [])].filter(Boolean);
-    if (!scenarios.length) return;
+    const scenarios = [...(rca.scenarios || []), ...(rca.overlayScenarios || [])].filter(Boolean);
+    rca.primaryScenario = scenarios[0] || '';
+    await saveRouting();
+    if (!scenarios.length) { renderReviewCol(); return; }
     if (regenStatus) regenStatus.textContent = '⟳ re-running RCA for new scenarios…';
     try {
       const resp = await fetch(`/api/reviews/${r.id}/regenerate-rca`, {
@@ -3458,7 +3546,8 @@ function renderRcaCol() {
       rca.checklistAnswers = [];
       rca.primaryScenario = data.primary_scenario || rca.primaryScenario;
       rca.overlayScenarios = data.overlay_scenarios || rca.overlayScenarios;
-      renderRcaCol();
+      if (regenStatus) regenStatus.textContent = '';
+      renderReviewCol(); renderRcaCol();
     } catch (e) {
       if (regenStatus) regenStatus.textContent = '✗ RCA re-run failed — scenario saved, try again';
       // Persist the routing itself even when generation failed
@@ -3471,27 +3560,43 @@ function renderRcaCol() {
     }
   };
 
-  const scenarioSel = document.querySelector('[data-scenario-select]');
-  if (scenarioSel) {
-    scenarioSel.addEventListener('change', () => {
-      rca.primaryScenario = scenarioSel.value || '';
-      regenRca();
-    });
-  }
-  const overlayAdd = document.querySelector('[data-overlay-add]');
-  if (overlayAdd) {
-    overlayAdd.addEventListener('change', () => {
-      const val = overlayAdd.value;
+  // Sub-themes, scenarios and overlays are all multi-value. Adding or
+  // removing any of them saves the list and re-runs the RCA, because the
+  // routing decides which scenario checklists and issue questions the model
+  // answers - a chip that changed nothing downstream would be decoration.
+  const bindChips = (addAttr, removeAttr, key) => {
+    const add = document.querySelector(`[${addAttr}]`);
+    if (add) add.addEventListener('change', () => {
+      const val = add.value;
       if (!val) return;
-      rca.overlayScenarios = [...(rca.overlayScenarios || []), val];
+      rca[key] = [...(rca[key] || []), val];
       regenRca();
     });
-  }
-  document.querySelectorAll('[data-overlay-remove]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const idx = parseInt(btn.dataset.overlayRemove);
-      rca.overlayScenarios = (rca.overlayScenarios || []).filter((_, i) => i !== idx);
-      regenRca();
+    document.querySelectorAll(`[${removeAttr}]`).forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset[removeAttr.replace(/^data-/, '')
+          .replace(/-([a-z])/g, (_, c) => c.toUpperCase())]);
+        rca[key] = (rca[key] || []).filter((_, i) => i !== idx);
+        regenRca();
+      });
+    });
+  };
+  bindChips('data-scenario-add', 'data-scenario-remove', 'scenarios');
+  bindChips('data-overlay-add',  'data-overlay-remove',  'overlayScenarios');
+  // Sub-themes do not change the checklists, so they save without a re-run.
+  const stAdd = document.querySelector('[data-subtheme-add]');
+  if (stAdd) stAdd.addEventListener('change', async () => {
+    if (!stAdd.value) return;
+    rca.subThemes = [...(rca.subThemes || []), stAdd.value];
+    rca.subTheme = rca.subThemes[0];
+    await saveRouting(); renderReviewCol();
+  });
+  document.querySelectorAll('[data-subtheme-remove]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const idx = parseInt(btn.dataset.subthemeRemove);
+      rca.subThemes = (rca.subThemes || []).filter((_, i) => i !== idx);
+      rca.subTheme = rca.subThemes[0] || null;
+      await saveRouting(); renderReviewCol();
     });
   });
 
@@ -3593,7 +3698,12 @@ function renderRcaCol() {
         obj = obj[key];
       }
       const last = parts[parts.length - 1];
-      obj[/^\d+$/.test(last) ? parseInt(last) : last] = el.textContent.trim();
+      const txt = el.textContent.trim();
+      // Untouched placeholder is not a value.
+      if (el.dataset.ph && txt === el.dataset.ph) return;
+      obj[/^\d+$/.test(last) ? parseInt(last) : last] = txt;
+      el.classList.remove('is-placeholder');
+      delete el.dataset.ph;
       await persistV3(el);
     });
   });

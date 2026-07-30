@@ -1031,15 +1031,25 @@ that turned out fine is silence - never a line in the output.
 
 "what_went_wrong" - EXACTLY five headings; this block posts to Slack as-is.
 Sub-points only where relevant.
-  1. Guest issue - 1-2 concise pointers PER issue raised.
-  2. Is the guest's claim accurate? - Yes / Partially True / No.
-     Per issue when verdicts differ - and one entry per CLAIM when a
-     single issue carries several checkable claims. Each verdict cites
-     its deciding evidence WITH its source tag ([experience-page] /
-     [booking] / [zendesk] / [dss]).
+  1. Guest issue - one entry per issue raised, each carrying:
+     a. "issue"  - the issue in your words, one short sentence.
+     b. "claim"  - the guest's OWN words, quoted from the review, that
+        raise this issue. Copy the sentence; do not paraphrase, do not add
+        quotation marks, do not translate unless the review was translated
+        (then quote the English). "" only when the review never states it
+        and you inferred the issue from the data.
+     c. "owner"  - the ONE team that owns the root cause of this issue:
+        CE / RO / Content / Product / Tech / SP / Biz / Guest. This is who
+        the RCA hands the issue to, so name a team, never a person.
+     d. "root_cause" - the concrete failing step behind THIS issue, one
+        short sentence. Each issue carries its own; do not pool them.
+  2. Is the guest's claim accurate? - Yes / Partially True / No, in
+     "claim_accuracy". Each verdict cites its deciding evidence WITH its
+     source tag ([experience-page] / [booking] / [zendesk] / [dss]).
   3. What actually happened?
-     a. Root cause per issue - the concrete failing step, classified
-        (Technical|Operational + HO|SP|AI|Guest)
+     a. Root causes live on their issues (1d). "root_causes" here is ONLY
+        for a cause that belongs to no single issue - a systemic failure
+        behind several of them. Usually [].
      b. Operational failure, if any - name the team, CE or RO
      c. SOP/process gap, if any - the missing safeguard: why wasn't this
         caught before the guest was affected
@@ -1137,7 +1147,10 @@ Return ONLY valid JSON:
 {
   "tldr": {"our_mistake": "...", "our_fix": "..."},
   "what_went_wrong": {
-    "guest_issues":  [{"issue": "<pointer>", "claim_accuracy": "Yes|Partially True|No",
+    "guest_issues":  [{"issue": "<pointer>", "claim": "<the guest's own words>",
+                       "claim_accuracy": "Yes|Partially True|No",
+                       "owner": "CE|RO|Content|Product|Tech|SP|Biz|Guest",
+                       "root_cause": "<pointer - the failing step behind THIS issue>",
                        "evidence": ["[source] <pointer>", "..."]}],
     "what_happened": {"root_causes": [{"issue": "...", "cause": "<pointer>",
                        "classification": "Technical|Operational + HO|SP|AI|Guest"}],

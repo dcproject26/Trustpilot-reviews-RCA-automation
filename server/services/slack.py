@@ -662,14 +662,21 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
         acc = []
         for g in gi:
             acc.append(f"• {g.get('issue', '')}: {g.get('claim_accuracy', '—')}")
+            if g.get("claim"):
+                acc.append(f"   - guest's words: \u201c{g['claim']}\u201d")
             ev = sub_lines(g.get("evidence"))
             if ev:
                 acc.append(ev)
         parts.append("2. Is the guest's claim accurate?" + nl + nl.join(acc))
         wh = w.get("what_happened") or {}
-        wl = [f"• [{c.get('classification', '?')}] "
-              f"{(c.get('issue') + ': ') if c.get('issue') else ''}{c.get('cause', '')}"
-              for c in (wh.get("root_causes") or [])]
+        # Root cause now lives on its issue, with the owning team beside it.
+        # Older drafts keep theirs in what_happened.root_causes, so both are
+        # rendered - dropping either would blank the section for one of them.
+        wl = [f"• [{g.get('owner', '?')}] {g.get('issue', '')}: {g['root_cause']}"
+              for g in gi if g.get("root_cause")]
+        wl += [f"• [{c.get('classification', '?')}] "
+               f"{(c.get('issue') + ': ') if c.get('issue') else ''}{c.get('cause', '')}"
+               for c in (wh.get("root_causes") or [])]
         if _points(wh.get("operational_failure")):
             wl.append("• Operational failure" + nl + sub_lines(wh.get("operational_failure")))
         if _points(wh.get("sop_gap")):
