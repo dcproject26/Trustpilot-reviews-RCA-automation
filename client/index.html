@@ -1774,6 +1774,24 @@
   /* ── RCA v3 styles ────────────────────────────────────────────────── */
   .tldr-banner { cursor: text; border-radius: 4px; }
   .tldr-banner:focus { outline: 1px solid var(--accent); background: var(--bg-elev-2); }
+  /* Collapsible sections. The RCA column runs to a dozen sections on a
+     complex case, so every section head is a toggle. State lives in
+     state.collapsed keyed by label text, so it survives re-renders. */
+  .section-label { cursor: pointer; user-select: none; }
+  .section-chev { display:inline-block; margin-left:auto; font-size:9px;
+                  color: var(--text-mute); transition: transform .12s ease; }
+  .section.is-collapsed .section-chev { transform: rotate(-90deg); }
+  .section.is-collapsed > *:not(.section-label) { display: none; }
+  .sec-count { font-size:10px; color:var(--text-mute); margin-left:6px;
+               font-family:'JetBrains Mono', monospace; }
+  .row-del { background:none; border:none; color:var(--text-mute); cursor:pointer;
+             font-size:13px; line-height:1; padding:0 2px; flex:none; opacity:.5; }
+  .row-del:hover { opacity:1; color:#e5534b; }
+  .row-add { margin-top:5px; font-size:11px; padding:2px 8px; cursor:pointer;
+             background:transparent; border:1px dashed var(--border);
+             border-radius:10px; color:var(--text-mute);
+             font-family:'JetBrains Mono', monospace; }
+  .row-add:hover { color:var(--text); border-color:var(--accent); }
   .wwr5-h { font-size: 11px; font-weight: 600; letter-spacing: .04em;
             text-transform: uppercase; color: var(--text-mute); margin-bottom: 4px; }
   .wwr-stepper { display: flex; flex-direction: column; gap: 0; }
@@ -2258,6 +2276,8 @@ const state = {
   // Which RCA sections go into the Slack thread post. All on by default;
   // unticking one drops it from the generated text.
   slackSections: {},
+  // Section open/closed state, keyed by section label text.
+  collapsed: {},
   // Machinery is hidden by default - it was ~8 of 14 events on a real
   // review, and an associate writing an RCA should not be scrolling past
   // Selenium runs to find the two events that matter.
@@ -3370,6 +3390,20 @@ function renderRcaCol() {
     </div>` : ''}
   `;
 
+  // Legacy evidence appendix. The v3 shape attaches evidence to each claim
+  // and each flag instead, so this is only ever non-empty on a draft from
+  // before that change - shown when present rather than deleted, because it
+  // is the sourced proof someone already collected.
+  const evidenceBlock = (rca.evidence || []).length ? `
+    <div class="section" id="rca-evidence-section">
+      <div class="section-label"><span class="marker"></span>Evidence<span class="ai-tag-inline">AI</span>
+        <span class="sec-count">${rca.evidence.length} · legacy</span>
+      </div>
+      <div class="field-block" style="display:flex;flex-direction:column;gap:3px">
+        ${rca.evidence.map(e => `<div class="chk-ev">• ${esc(e)}</div>`).join('')}
+      </div>
+    </div>` : '';
+
   const preventionBlock = (rca.prevention || '').trim() ? `
     <div class="section" id="rca-prevention-section">
       <div class="section-label"><span class="marker"></span>Prevention<span class="ai-tag-inline">AI</span></div>
@@ -3473,26 +3507,61 @@ function renderRcaCol() {
           <div class="wwr-step">
             <div class="wwr-step-num">${i + 1}</div>
             <div class="wwr-step-body">
-              <div class="wwr-what">${l.time ? `<span style="color:var(--text-mute);font-weight:400;margin-right:6px">${esc(l.time)}</span>` : ''}<strong>${esc(l.what)}</strong></div>
-              ${l.detail ? `<div class="wwr-why" style="color:var(--text-mute)">${esc(l.detail)}</div>` : ''}
+              <div class="wwr-what">${l.time ? `<span class="editable-text" contenteditable="true" spellcheck="false" data-log-idx="${i}" data-log-field="time" style="color:var(--text-mute);font-weight:400;margin-right:6px">${esc(l.time)}</span>` : ''}<strong class="editable-text" contenteditable="true" spellcheck="false" data-log-idx="${i}" data-log-field="what">${esc(l.what)}</strong></div>
+              <div class="wwr-why editable-text" contenteditable="true" spellcheck="false"
+                   data-log-idx="${i}" data-log-field="detail"
+                   style="color:var(--text-mute)">${esc(l.detail)}</div>
             </div>
+            <button class="row-del" data-log-del="${i}" title="Remove event">×</button>
           </div>`).join('<div class="wwr-connector"></div>')}
       </div>
+      <button class="row-add" data-log-add>+ Add event</button>
     </div>` : '';
 
     const flags = v3d.flags || [];
+    // Grouped by owning team with counts, because a flat list of a dozen
+    // flags on a complex case gives a reader no idea who has to act. Each
+    // group collapses; each row is editable and removable, since a flag the
+    // AI got wrong must be correctable by the person signing the RCA.
+    const flagGroups = {};
+    flags.forEach((f, i) => {
+      const t = String(f.team || 'other').toUpperCase();
+      (flagGroups[t] = flagGroups[t] || []).push({...f, _i: i});
+    });
+    const flagOrder = ['CE','RO','SP','CONTENT','TECH','OTHER'];
+    const flagSecs = Object.keys(flagGroups).sort((a, b) => {
+      const ia = flagOrder.indexOf(a), ib = flagOrder.indexOf(b);
+      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    });
     const flagsHtml = `
     <div class="section" id="rca-flags-section">
-      <div class="section-label"><span class="marker"></span>Flags<span class="ai-tag-inline">AI</span></div>
+      <div class="section-label"><span class="marker"></span>Flags<span class="ai-tag-inline">AI</span>
+        ${flags.length ? `<span class="sec-count">${flagSecs.map(t => flagGroups[t].length + ' ' + t).join(' · ')}</span>` : ''}
+      </div>
       ${flags.length === 0
         ? `<div class="field-block" style="font-size:12px;color:var(--text-mute)">✓ Checklist ran clean — no flags.</div>`
-        : `<div class="chk-groups">${flags.map(f => `
-            <div class="chk-row chk-flag">
-              <span class="chk-mark">⚠</span>
-              <div class="chk-item">[${esc(String(f.team || 'other').toUpperCase())}] ${esc(f.flag)}
-                <div class="chk-ev">${esc(f.evidence)}${f.zd_ref ? ' · ' + zdLink(f.zd_ref) : ''}</div>
+        : `<div class="chk-groups">${flagSecs.map(t => `
+            <div class="chk-group has-flags open" data-chk-section="${t}">
+              <div class="chk-group-head" data-chk-group-toggle>
+                <span class="chk-chevron">▸</span>
+                <span>${t}</span>
+                <span class="chk-gtag">${flagGroups[t].length} flag${flagGroups[t].length === 1 ? '' : 's'}</span>
+              </div>
+              <div class="chk-group-body">
+                ${flagGroups[t].map(f => `
+                  <div class="chk-row chk-flag">
+                    <span class="chk-mark">⚠</span>
+                    <div class="chk-item">
+                      <span class="editable-text" contenteditable="true" spellcheck="false"
+                            data-flag-idx="${f._i}" data-flag-field="flag">${esc(f.flag)}</span>
+                      <div class="chk-ev"><span class="editable-text" contenteditable="true" spellcheck="false"
+                            data-flag-idx="${f._i}" data-flag-field="evidence">${esc(f.evidence)}</span>${f.zd_ref ? ' · ' + zdLink(f.zd_ref) : ''}</div>
+                    </div>
+                    <button class="row-del" data-flag-del="${f._i}" title="Remove flag">×</button>
+                  </div>`).join('')}
               </div>
             </div>`).join('')}</div>`}
+      <button class="row-add" data-flag-add>+ Add flag</button>
     </div>`;
 
     const sop = v3d.sop_compliance || null;
@@ -3542,7 +3611,10 @@ function renderRcaCol() {
         `).join('')}
       </div>` : `
       <div class="wwr-stepper">
-        ${(rca.wwrChain || []).map((step, i) => `
+        ${/* Legacy chain. Suppressed when v3 booking_logs exist: both render as
+             the same numbered stepper, so a part-migrated draft showed two
+             "what happened" narratives back to back. */
+          ((v3d.booking_logs || []).length ? [] : (rca.wwrChain || [])).map((step, i) => `
           <div class="wwr-step" data-step="${i}">
             <div class="wwr-step-num">${step.step || (i + 1)}</div>
             <div class="wwr-step-body">
@@ -3676,19 +3748,25 @@ function renderRcaCol() {
               <span style="color:var(--text-mute)">•</span>
               <span class="editable-text" contenteditable="true" spellcheck="false"
                     data-aoi-idx="${i}" style="flex:1;min-width:0">${esc(a)}</span>
+              <button class="row-del" data-aoi-del="${i}" title="Remove">×</button>
             </div>`).join('')
           : `<div style="font-size:12px;color:var(--text-mute)">—</div>`}
+        <button class="row-add" data-aoi-add>+ Add point</button>
       </div>
     </div>
 
     ${preventionBlock}
+    ${evidenceBlock}
 
     ${v3d.takedown ? `
     <div class="section">
       <div class="section-label"><span class="marker"></span>Review Takedown<span class="ai-tag-inline">AI</span></div>
       <div class="field-block" style="font-size:12.5px;display:flex;flex-direction:column;gap:4px">
-        <div><span class="chk-pill ${v3d.takedown.recommended ? 'flag' : 'na'}">${v3d.takedown.recommended ? 'Recommended' : 'Not recommended'}</span></div>
-        <div class="chk-ev">${esc(v3d.takedown.reason || '')}</div>
+        <div><select class="classify-select" style="font-size:11px;width:150px" data-takedown-rec>
+          ${['Recommended','Not recommended'].map(o => `<option${(v3d.takedown.recommended ? 'Recommended' : 'Not recommended') === o ? ' selected' : ''}>${o}</option>`).join('')}
+        </select></div>
+        <div class="chk-ev editable-text" contenteditable="true" spellcheck="false"
+             data-takedown-reason>${esc(v3d.takedown.reason || '')}</div>
       </div>
     </div>` : ''}
 
@@ -3996,6 +4074,97 @@ function renderRcaCol() {
     });
   });
 
+  // ── v3 object edits (flags, booking logs, takedown) ─────────────────────
+  // These live inside rca_v3, not in columns of their own, so every edit
+  // writes the whole object back. Re-render only on structural change
+  // (add/delete); a text edit must NOT re-render or the caret is lost.
+  const persistV3 = async () => {
+    try {
+      await fetch(`/api/reviews/${r.id}/draft-v2`, {
+        method: 'PATCH', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({rca_v3: rca.v3}),
+      });
+    } catch (_) { /* keep the local edit; next change retries */ }
+  };
+
+  col.querySelectorAll('[data-flag-idx]').forEach(el => {
+    el.addEventListener('blur', async () => {
+      const f = (rca.v3.flags || [])[parseInt(el.dataset.flagIdx)];
+      if (!f) return;
+      f[el.dataset.flagField] = el.textContent.trim();
+      await persistV3();
+    });
+  });
+  col.querySelectorAll('[data-flag-del]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      rca.v3.flags = (rca.v3.flags || []).filter((_, i) => i !== parseInt(btn.dataset.flagDel));
+      await persistV3(); renderRcaCol();
+    });
+  });
+  const flagAdd = col.querySelector('[data-flag-add]');
+  if (flagAdd) flagAdd.addEventListener('click', async () => {
+    rca.v3.flags = [...(rca.v3.flags || []),
+      {flag: 'New flag — click to edit', team: 'other', evidence: '', zd_ref: ''}];
+    await persistV3(); renderRcaCol();
+  });
+
+  col.querySelectorAll('[data-log-idx]').forEach(el => {
+    el.addEventListener('blur', async () => {
+      const l = (rca.v3.booking_logs || [])[parseInt(el.dataset.logIdx)];
+      if (!l || typeof l === 'string') return;
+      l[el.dataset.logField] = el.textContent.trim();
+      await persistV3();
+    });
+  });
+  col.querySelectorAll('[data-log-del]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      rca.v3.booking_logs = (rca.v3.booking_logs || [])
+        .filter((_, i) => i !== parseInt(btn.dataset.logDel));
+      await persistV3(); renderRcaCol();
+    });
+  });
+  const logAdd = col.querySelector('[data-log-add]');
+  if (logAdd) logAdd.addEventListener('click', async () => {
+    rca.v3.booking_logs = [...(rca.v3.booking_logs || []),
+      {time: '', what: 'New event', detail: ''}];
+    await persistV3(); renderRcaCol();
+  });
+
+  const tdRec = col.querySelector('[data-takedown-rec]');
+  if (tdRec) tdRec.addEventListener('change', async () => {
+    rca.v3.takedown = {...(rca.v3.takedown || {}),
+                       recommended: tdRec.value === 'Recommended'};
+    await persistV3(); renderRcaCol();
+  });
+  const tdReason = col.querySelector('[data-takedown-reason]');
+  if (tdReason) tdReason.addEventListener('blur', async () => {
+    rca.v3.takedown = {...(rca.v3.takedown || {}), reason: tdReason.textContent.trim()};
+    await persistV3();
+  });
+
+  // ── Collapsible sections ────────────────────────────────────────────────
+  // Applied after render rather than in each template, so every section gets
+  // it and none can be forgotten. Keyed by label text so the open/closed
+  // state survives re-renders and review switches.
+  col.querySelectorAll('.section').forEach(sec => {
+    const label = sec.querySelector('.section-label');
+    if (!label || label.querySelector('.section-chev')) return;
+    const key = (label.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!key) return;
+    const chev = document.createElement('span');
+    chev.className = 'section-chev';
+    chev.textContent = '▾';
+    label.appendChild(chev);
+    if (state.collapsed[key]) sec.classList.add('is-collapsed');
+    label.addEventListener('click', ev => {
+      // Never swallow a click meant for a control inside the head.
+      if (ev.target.closest('input, select, button, [contenteditable="true"], a')) return;
+      const now = !sec.classList.contains('is-collapsed');
+      sec.classList.toggle('is-collapsed', now);
+      state.collapsed[key] = now;
+    });
+  });
+
   // Issue-answer evidence edits: recombine verdict + evidence and save.
   col.querySelectorAll('[data-isa-evidence]').forEach(el => {
     el.addEventListener('blur', async () => {
@@ -4013,6 +4182,28 @@ function renderRcaCol() {
         });
       } catch (_) { /* keep local edit */ }
     });
+  });
+
+  const persistAoi = async (list) => {
+    rca.areaOfImproving = list;
+    try {
+      await fetch(`/api/reviews/${r.id}/draft-v2`, {
+        method: 'PATCH', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({area_of_improving: list}),
+      });
+    } catch (_) { /* keep local edit */ }
+  };
+  col.querySelectorAll('[data-aoi-del]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const idx = parseInt(btn.dataset.aoiDel);
+      await persistAoi(asPoints(rca.areaOfImproving).filter((_, i) => i !== idx));
+      renderRcaCol();
+    });
+  });
+  const aoiAdd = col.querySelector('[data-aoi-add]');
+  if (aoiAdd) aoiAdd.addEventListener('click', async () => {
+    await persistAoi([...asPoints(rca.areaOfImproving), 'New point — click to edit']);
+    renderRcaCol();
   });
 
   // AOI pointers: save the whole list on blur.

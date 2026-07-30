@@ -81,6 +81,9 @@ class DraftPatchV2(BaseModel):
     issue_specific_answers:     dict | None = None
     checklist_answers:          list | None = None
     slack_thread_override:      str  | None = None
+    # The dashboard edits flags / booking logs / takedown in place, and those
+    # live inside the rca_v3 object rather than in columns of their own.
+    rca_v3:                     dict | None = None
 
 
 class CandidateSelect(BaseModel):
@@ -566,10 +569,17 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
         "actions_taken", "resolution", "final_response",
         "tldr", "wwr_chain", "wwr_scenarios", "prevention", "evidence",
         "issue_specific_answers", "checklist_answers", "slack_thread_override",
+        "rca_v3",
     ):
         val = getattr(patch, field, None)
         if val is not None:
             setattr(d, field, val)
+            # JSON columns do not track in-place mutation; a dict assigned with
+            # the same identity as the old one would not be written at all.
+            try:
+                flag_modified(d, field)
+            except Exception:
+                pass
             edits += 1
 
     m = db.query(ReviewMetric).filter(ReviewMetric.review_id == review_id).first()

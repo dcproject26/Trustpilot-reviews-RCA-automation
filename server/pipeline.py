@@ -1421,7 +1421,10 @@ async def process_review(review_id: str, force_candidates: bool = False):
         _aoi = _v3.get("area_of_improving")
         if _aoi:
             draft.area_of_improving   = _aoi if isinstance(_aoi, list) else [_aoi]
-        draft.evidence                = _v3.get("evidence") or []
+        # The v3 shape carries evidence ON each claim and each flag, not as a
+        # flat top-level list, so it never returns this key. Assigning [] here
+        # deleted the evidence appendix a legacy draft had collected.
+        draft.evidence                = _v3.get("evidence") or draft.evidence or []
         draft.issue_specific_answers  = _v3.get("issue_specific_answers") or {}
         # The checklist runs silently now — only failures ship, as
         # rca_fields["flags"]. Nothing renders the full answer wall anymore.
