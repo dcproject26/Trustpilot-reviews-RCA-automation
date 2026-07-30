@@ -40,7 +40,14 @@ MP_ROWS = [
 ]
 
 SP_ROWS = [
-    {"scenarios": "Venue was closed.", "dss": "venue-closed policy"},
+    # Escalations variants FIRST for the same tie-break reason as above:
+    # if the CE/RO-only filter is dropped, one of these wins and a test fails.
+    {"scenarios": "Venue was closed - ES",
+     "dss": "ESCALATIONS venue policy - must never be chosen"},
+    {"scenarios": "Venue was closed.", "team": "Escalations",
+     "dss": "ESCALATIONS-team venue policy - must never be chosen"},
+    {"scenarios": "Venue was closed.", "team": "RO_CE",
+     "dss": "venue-closed policy"},
     {"scenarios": "Tickets are not accepted at the venue.",
      "dss": "tickets-not-accepted policy"},
 ]
@@ -116,6 +123,16 @@ def test_sp_routes_by_l1():
              review_text="the venue was closed when we arrived")
     assert r["dss_type"] == "supplyPartnerIssue"
     assert r["action"] == "venue-closed policy"
+
+
+def test_escalations_rows_never_win():
+    # Same scenario exists as "- ES" selector variant AND as an
+    # Escalations-team row - both must lose to the CE/RO row even though
+    # they sit first in the tab and score identically.
+    r = _rec(booking={}, l1="Venue Related Issue", l2="Venue closed",
+             review_text="venue was closed")
+    assert "ESCALATIONS" not in r["action"]
+    assert r["coverage"] == "CE/RO"
 
 
 def test_delay_fulfilment_value_fork():

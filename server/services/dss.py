@@ -16,6 +16,9 @@ sheet. The inputs the app takes from a human or its booking query, we take
 from the pipeline's booking dict:
 
     For_Social_Media  = "Yes" always - every case here is a public review.
+    team              = CE/RO always - the Escalations variants (rows routed
+                      "Escalations", and the "- ES" scenario duplicates) are
+                      a different desk's playbook and never apply here.
     is_Partenered     from booking.isPartnered (fulfilling vendor).
     is_value_greater  from booking.amountUSD > 125 (the app reads
                       PRICE_PAYABLE_USD and forks on the same threshold).
@@ -88,6 +91,21 @@ def _yn(value) -> str | None:
     if v in ("no", "false", "0", "n"):
         return "no"
     return None
+
+
+# The SP tab carries each scenario twice - a CE/RO row and an Escalations
+# variant whose selector ends in "- ES" (e.g. "Venue was closed - ES"). The
+# app also routes on an RO_CE vs Escalations selector. Both spellings of the
+# same fact: this row belongs to the Escalations desk, not to CE/RO.
+_ES_SELECTOR_RE = re.compile(r"[-–—]\s*ES\s*\.?\s*$")
+
+
+def _is_escalation_row(row: dict, selector_col: str) -> bool:
+    for col, val in row.items():
+        if "team" in col or col in ("ro_ce", "routing", "coverage", "desk"):
+            if "escalat" in str(val).lower():
+                return True
+    return bool(_ES_SELECTOR_RE.search(row.get(selector_col, "")))
 
 
 def _row_passes(row: dict, col: str, ours: str | None) -> bool:
@@ -198,9 +216,13 @@ async def get_recommendation(
     candidates = ([(dss_type, r) for r in tabs.get(dss_type, [])] if dss_type
                   else [(t, r) for t, rs in tabs.items() for r in rs])
 
-    # The app's hard filters. For_Social_Media is constant: public review.
+    # The app's hard filters. Two are constant for this pipeline:
+    # For_Social_Media = Yes (public review) and team = CE/RO (never the
+    # Escalations desk's variant of the same scenario).
     filtered = []
     for tab, row in candidates:
+        if _is_escalation_row(row, TABS[tab]):
+            continue
         if not _row_passes(row, "for_social_media", "yes"):
             continue
         if tab == "cancelation" and not _row_passes(row, "is_partenered", is_partnered):
@@ -241,7 +263,7 @@ async def get_recommendation(
         "action":           row.get("dss", ""),
         "policy":           "",
         "compensation":     "",
-        "coverage":         "DSS All-in-One",
+        "coverage":         "CE/RO",
         "dss_type":         tab,
         "type_reason":      type_reason,
         "matched_selector": row.get(TABS[tab], ""),
