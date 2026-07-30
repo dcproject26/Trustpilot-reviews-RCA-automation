@@ -177,6 +177,7 @@ def _draft_dict(d: RcaDraft) -> dict:
         # element 0 and stay in step for every existing consumer.
         "sub_themes":                  d.sub_themes or ([d.sub_theme] if d.sub_theme else []),
         "rca_posted_at":               d.rca_posted_at.isoformat() if d.rca_posted_at else None,
+        "rca_v3_edited_at":            d.rca_v3_edited_at.isoformat() if d.rca_v3_edited_at else None,
         "primary_scenario":            d.primary_scenario or "",
         "scenarios":                   d.scenarios or ([d.primary_scenario] if d.primary_scenario else []),
         "overlay_scenarios":           d.overlay_scenarios or [],
@@ -707,6 +708,13 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
     if patch.primary_scenario is not None and patch.scenarios is None:
         d.scenarios = [s for s in ([patch.primary_scenario] + (d.overlay_scenarios or [])) if s]
 
+    # Mark the RCA body as human-touched, but ONLY for a real rca_v3 patch.
+    # Routing changes and clearing the Slack override also come through here
+    # and are not content edits; marking those would over-protect and make a
+    # bulk re-run skip nearly everything.
+    if patch.rca_v3 is not None:
+        d.rca_v3_edited_at = datetime.utcnow()
+
     m = db.query(ReviewMetric).filter(ReviewMetric.review_id == review_id).first()
     if m and edits:
         m.edit_count = (m.edit_count or 0) + edits
@@ -905,6 +913,11 @@ def _bulk_targets(db, scope: str, limit: int) -> list[str]:
         elif scope == "untraceable" and not (tier is None and not cand):
             continue
         elif scope == "possible_matches" and not cand:
+            continue
+        # No scope may overwrite an RCA a person has edited by hand. The
+        # "incomplete" scope already excludes these (they have an rca_v3),
+        # but the tab-scoped runs would have rewritten them.
+        if d is not None and d.rca_v3_edited_at is not None:
             continue
         elif scope == "bid" and tier != 1:
             continue
