@@ -788,7 +788,7 @@ def rca_v3_prompt(
     Generates the RCA v3 shape: tldr {our_mistake, our_fix}, what_went_wrong
     (the 5 mandated headings), booking_logs, flags (checklist run silently,
     failures only), support_interaction / sp_interaction / sop_compliance
-    (each carrying zd_ref), issue_specific_answers, prevention.
+    (each carrying zd_ref), issue_specific_answers, takedown.
 
     Benched against a real draft in tools/try_rca_prompt.py before shipping;
     that file carries the same template - edit there first, ship here after
@@ -992,22 +992,24 @@ that turned out fine is silence - never a line in the output.
    they cover. A structural fix without sizing gets rejected.
 9. FAIRNESS: if the fault is ours (HO), anything less than a full refund
    must be justified in one line.
-10. POINT FORM, FULL SENTENCES. Every entry is a COMPLETE sentence -
-    subject, verb, full stop - not a fragment. "Selenium FF, no disclosure"
-    is not acceptable; "The experience page did not state the two-hour
-    delivery window before checkout." is.
-    Concise and to the point, no fluff: cut lead-ins ("It appears that",
-    "The guest's claim that", "It is worth noting"), cut adjectives that
-    carry no fact, and never restate the review. One idea per sentence -
-    if you need "however" or "; although", write a second entry instead.
-    Aim for 15-30 words per entry; 40 is the ceiling.
-    These entries are read in TWO places, so they must work for both: the
-    dashboard, where an investigator wants the sentence that explains WHY,
-    and the Slack thread, where the same text is scanned by leadership. Say
-    the whole thing once, plainly, and it serves both.
+10. POINT FORM, SHORT SENTENCES, FINDINGS ONLY. Every entry is one short
+    complete sentence - subject, verb, full stop. Target 8-16 words;
+    25 is the hard ceiling. "Selenium FF, no disclosure" is too clipped;
+    "The page did not state the two-hour delivery window." is right.
+    Cut lead-ins ("It appears that", "It is worth noting"), cut adjectives
+    that carry no fact, never restate the review. One idea per sentence -
+    if you need "however" or a semicolon, write a second entry instead.
+    A FINDING IS A FACT FROM THE DATA, NOT A JUDGEMENT. Write what the
+    data shows, then the root cause. Never write advice, policy sermons,
+    process proposals or verdict prose ("structurally impossible",
+    "purely defamatory", "meets the threshold", "the workflow should").
+    Proposals live in fixes.actions ONLY, one line each. Plain words a
+    new team member understands - no legalese, no jargon.
+    NEVER begin an entry with "•", "-" or a number: the dashboard and the
+    Slack post add their own bullets, and a bullet inside the text
+    double-bullets every line.
     SCALE BY COUNT, NOT LENGTH: a simple case yields fewer entries; a
-    complex case yields MORE entries, each still one sentence. That is how
-    a big case stays readable.
+    complex case yields MORE entries, each still one short sentence.
 11. Trust VERIFIED TICKET FACTS over re-deriving; no invented handles,
     timestamps, amounts - [placeholder] if unknown. ZD_REF DISCIPLINE: every
     flag, every support_interaction row, and the sp_interaction and
@@ -1046,9 +1048,7 @@ Sub-points only where relevant.
   5. Fixes
      a. Team(s)/stakeholder(s) to evaluate the gaps - CE / RO / Content /
         Product / Biz / Tech / Escalations, from the evidence
-     b. Corrective actions taken or proposed, briefly
-     c. Durable prevention where warranted - PSI, checkout content, ticket
-        checker, config change - with an owner. Scope by ROI, not blanket.
+     b. Corrective actions taken or proposed - one line each, no essays
 
 "booking_logs" - what actually happened, in order: one entry per meaningful
   event, each {"time", "what", "detail"}.
@@ -1079,6 +1079,10 @@ Sub-points only where relevant.
   missed follow-ups", "refund inside policy") - a QA area that passed is
   silence, not a flag. A correct out-of-policy denial is not a flag (rule 6).
   If a flag reads as a compliment or as "no issue found", delete it.
+  WRITE EACH FLAG IN PLAIN WORDS: what went wrong and who should look at
+  it, in one short sentence a new team member understands on first read.
+  "First reply quoted 24 hours after tickets were already sent." - not
+  process language about workflows, thresholds or compliance surfaces.
   Shape: {"flag", "team": "CE|RO|SP|content|tech|other", "evidence", "zd_ref"}.
   Nothing to raise returns [].
 
@@ -1086,10 +1090,15 @@ Sub-points only where relevant.
   what happened, any CE miss flagged inline, and the ticket it lives on.
   State explicitly if no guest contact was found.
 
-"sp_interaction" - RO's half, from the side conversations: was the guest's
-  issue raised with the SP, when, what came back, response time. If none:
-  state first whether escalation was possible (partnered + opt-out) before
-  calling it a gap.
+"sp_interaction" - RO's half, SAME FRAME STYLE as support_interaction: one
+  record per actual SP touchpoint found in the side conversations - when,
+  what was said, what came back, the ticket it lives on. "raised" is
+  Yes / No / N/A: Yes when we contacted the SP about this guest's issue,
+  No when the case needed SP input (guest was told we would check with the
+  partner and revert) and no contact is on record, N/A when SP involvement
+  was never applicable (not partnered, automated fulfilment, guest-side
+  issue). Report the records and the raised state - no essays about
+  whether escalation was "possible", no verdicts.
 
 "sop_compliance" - the needle check, one object:
   expected = what DSS/standing policy prescribed for this situation;
@@ -1109,13 +1118,10 @@ Sub-points only where relevant.
 "area_of_improving" - point form, what WE should do better, one line each.
   Ownable and specific; no restating the review, no praise.
 
-"takedown" - should this review be pursued for takedown?
-  {"recommended": true|false, "reason": "<one line>"}. Recommend it only
-  when the review is factually false or breaches platform policy - a review
-  that is accurate, even partially, is not a takedown candidate, and the
-  reason must say which.
-
-"prevention" - ORM-ownable first; cross-team labelled with the team.
+"takedown" - {"verdict": "Yes|No|Untraceable"}. One word, nothing else.
+  Yes only when the review is factually false or breaches platform policy;
+  a review that is accurate, even partially, is No. Untraceable when no
+  booking or contact record exists to check the claims against.
 
 Return ONLY valid JSON:
 {
@@ -1129,20 +1135,18 @@ Return ONLY valid JSON:
                       "sop_gap": ["<pointer>", "..."],
                       "pattern": "<one-off|recurring - counts + window>"},
     "sp_escalation": {"escalated": "Yes|No|N/A", "detail": ["<pointer>", "..."]},
-    "fixes":         {"teams": ["..."], "actions": ["<pointer>", "..."],
-                      "prevention": ["<pointer>", "..."], "owner": "...|null"}
+    "fixes":         {"teams": ["..."], "actions": ["<pointer>", "..."], "owner": "...|null"}
   },
   "booking_logs":         [{"time": "...", "what": "...", "detail": "..."}, ...],
   "flags":                [{"flag": "...", "team": "...", "evidence": "...", "zd_ref": "ZD-... or ''"}],
   "support_interaction":  [{"time": "...", "channel": "...", "summary": "...", "ce_miss": "...|null", "zd_ref": "ZD-... or ''"}],
-  "sp_interaction":       {"possible": true|false, "reason_if_not": "...",
-                           "raised": "Yes|No|N/A", "detail": "...", "zd_ref": "ZD-... or ''"},
+  "sp_interaction":       {"raised": "Yes|No|N/A",
+                           "records": [{"time": "...", "summary": "...", "zd_ref": "ZD-... or ''"}]},
   "sop_compliance":       {"dss_available": true|false, "expected": "...", "actual": "...",
                            "verdict": "followed|deviated|unknown", "detail": "...", "zd_ref": "ZD-... or ''"},
   "issue_specific_answers": {"<question verbatim>": "Yes|No|Unknown|<short fact> ([source] <evidence>)"},
   "area_of_improving":    ["<pointer>", "..."],
-  "takedown":             {"recommended": true|false, "reason": "<one line>"},
-  "prevention":           ["<pointer>", "..."]
+  "takedown":             {"verdict": "Yes|No|Untraceable"}
 }"""
 
 

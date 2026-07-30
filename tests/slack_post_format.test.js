@@ -48,7 +48,7 @@ const v3d = {
     sp_escalation: {escalated: 'N/A', detail: ['Vendor not partnered', 'No escalation email on file']},
     fixes: {teams: ['Content','Product'], owner: 'Content',
             actions: ['Audit TGID 22238 delivery window'],
-            prevention: ['Add checkout callout for Selenium same-day']}
+            owner: null}
   },
   booking_logs: [
     {time: '22 Jul 15:22', what: 'Booking-in-progress email sent', detail: 'tickets promised in 2h'},
@@ -57,10 +57,11 @@ const v3d = {
   flags: [{team: 'content', flag: 'Delivery window not on page', evidence: 'redemption null', zd_ref: 'ZD-34011333'}],
   support_interaction: [{time: '15:41', channel: 'chat', summary: 'guest asked for tickets',
                          ce_miss: 'no agent reply for 9 min', zd_ref: 'ZD-34011401'}],
-  sp_interaction: {possible: false, reason_if_not: 'not partnered', raised: 'N/A', detail: [], zd_ref: ''},
+  sp_interaction: {raised: 'Yes', records: [
+    {time: '11 Mar 09:20', summary: 'Asked the SP to reissue the tickets for the booked date.', zd_ref: 'ZD-30994882'}]},
   sop_compliance: {dss_available: true, verdict: 'followed', expected: 'resend or refund',
                    actual: 'refund issued', detail: 'denial then persistence then refund', zd_ref: 'ZD-34011333'},
-  takedown: {recommended: false, reason: 'claim partially accurate'},
+  takedown: {verdict: 'No'},
   area_of_improving: ['Surface delivery window at checkout']
 };
 const spV3 = v3d.sp_interaction;

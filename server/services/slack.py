@@ -688,8 +688,6 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
             fl.append("• Teams: " + ", ".join(fx["teams"]) +
                       (f" · owner: {fx['owner']}" if fx.get("owner") else ""))
         fl += [f"• {a}" for a in _points(fx.get("actions"))]
-        if _points(fx.get("prevention")):
-            fl.append("• Prevention" + nl + sub_lines(fx.get("prevention")))
         parts.append("5. Fixes" + nl + nl.join(fl))
         sections.append(("What went wrong", (nl + nl).join(parts)))
 
@@ -739,13 +737,17 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
 
     sp = v3.get("sp_interaction") or {}
     if sp:
-        possible = ("yes" if sp.get("possible") is True
-                    else "no" if sp.get("possible") is False else "—")
-        rows = [f"• escalation possible: {possible} · raised: {sp.get('raised', '—')}"
-                + (f" ({sp['zd_ref']})" if sp.get("zd_ref") else "")]
-        rows += [f"• {d}" for d in _points(sp.get("detail"))]
-        if not _points(sp.get("detail")) and sp.get("reason_if_not"):
-            rows.append(f"• {sp['reason_if_not']}")
+        # New shape: raised + records, same frame style as CE. Old drafts
+        # carry {possible, reason_if_not, detail} - render what they have.
+        rows = [f"• raised with SP: {sp.get('raised', '—')}"]
+        for rec in (sp.get("records") or []):
+            t = f"{rec.get('time', '')} — " if rec.get("time") else ""
+            zd = f" ({rec['zd_ref']})" if rec.get("zd_ref") else ""
+            rows.append(f"• {t}{rec.get('summary', '')}{zd}")
+        if not sp.get("records"):
+            rows += [f"• {d}" for d in _points(sp.get("detail"))]
+            if not _points(sp.get("detail")) and sp.get("reason_if_not"):
+                rows.append(f"• {sp['reason_if_not']}")
         sections.append(("SP interaction", nl.join(rows)))
 
     aoi = _points(v3.get("area_of_improving")) or _points(draft.area_of_improving)
@@ -765,9 +767,9 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
 
     td = v3.get("takedown") or {}
     if td:
-        sections.append(("Review takedown",
-                         "• " + ("Recommended" if td.get("recommended") else "Not recommended")
-                         + (f" — {td['reason']}" if td.get("reason") else "")))
+        # New shape is one word; old drafts carry {recommended, reason}.
+        verdict = td.get("verdict") or ("Yes" if td.get("recommended") else "No")
+        sections.append(("Review takedown", f"• {verdict}"))
 
     ins = draft.insights or {}
     wd = ins.get("_window_days")

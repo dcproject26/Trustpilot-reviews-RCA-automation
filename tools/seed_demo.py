@@ -49,8 +49,6 @@ RCA_FULL = {
             "owner": "Content ops",
             "actions": ["Full refund issued on 12 March.",
                         "Delivery window added to the page template backlog."],
-            "prevention": ["State the fulfilment window on every automated-delivery experience page.",
-                           "Replace the generic delay macro with one that reads the fulfilment log."],
         },
     },
     "booking_logs": [
@@ -78,7 +76,7 @@ RCA_FULL = {
         {"channel": "chat", "who": "guest", "summary": "Asked where the tickets were, eleven minutes before they arrived.", "zd_ref": "30994882"},
         {"channel": "chat", "who": "agent", "summary": "Quoted a generic 24-hour delivery window.", "zd_ref": "30994882"},
     ],
-    "sp_interaction": [],
+    "sp_interaction": {"raised": "N/A", "records": []},
     "issue_specific_answers": {
         "Was the delivery window stated at checkout?": "No. The page template has no field for it.",
         "Were the tickets valid for the booked date?": "Yes. The tickets matched the 12 March slot.",
@@ -87,8 +85,7 @@ RCA_FULL = {
         "State the fulfilment window on the experience page for every automated-delivery product.",
         "Give associates a macro that reads the fulfilment log instead of quoting a fixed wait.",
     ],
-    "takedown": {"eligible": False, "reason": "The review describes a genuine gap in our content; it does not breach Trustpilot guidelines."},
-    "prevention": ["Add a fulfilment-window field to the experience page template."],
+    "takedown": {"verdict": "No"},
     "evidence": ["Booking record: tickets issued 10 Mar 10:48.", "Live experience page carries no delivery timing."],
 }
 

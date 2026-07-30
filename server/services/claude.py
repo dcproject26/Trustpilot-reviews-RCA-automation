@@ -456,7 +456,7 @@ async def generate_rca_v3(
     Returns the RCA v3 shape:
       {tldr {our_mistake, our_fix}, what_went_wrong (5 headings),
        booking_logs, flags (failures only), support_interaction,
-       sp_interaction, sop_compliance, issue_specific_answers, prevention}
+       sp_interaction, sop_compliance, issue_specific_answers, takedown}
 
     checklist: {"general": ..., "ce": [...], "ro": [...], "scenarios": {...}}
     timeline_raw: raw Zendesk ticket comment bodies.
@@ -474,7 +474,7 @@ async def generate_rca_v3(
         # Known demo fixture — plausible static stub in the new shape
         return {
             "tldr": {"our_mistake": f"Gap led to {l2 or 'an issue'} on a {l1 or 'classified'} booking.",
-                     "our_fix": "Resolution offered; prevention routed to the owning team."},
+                     "our_fix": "Resolution offered; gap routed to the owning team."},
             "what_went_wrong": {
                 "guest_issues": [{"issue": l2 or "reported issue",
                                   "claim_accuracy": "Unknown",
@@ -485,24 +485,22 @@ async def generate_rca_v3(
                                   "operational_failure": None, "sop_gap": None,
                                   "pattern": "one-off - mock data"},
                 "sp_escalation": {"escalated": "N/A", "detail": "mock fixture"},
-                "fixes": {"teams": ["CE"], "actions": ["Resolution offered."],
-                          "prevention": "Review pre-visit communications.", "owner": None},
+                "fixes": {"teams": ["CE"], "actions": ["Resolution offered."], "owner": None},
             },
             "booking_logs": [],
             "flags": [],
             "support_interaction": [],
-            "sp_interaction": {"possible": False, "reason_if_not": "mock fixture",
-                               "raised": "N/A", "detail": "", "zd_ref": ""},
+            "sp_interaction": {"raised": "N/A", "records": []},
             "sop_compliance": {"dss_available": False, "expected": "", "actual": "",
                                "verdict": "unknown", "detail": "mock fixture", "zd_ref": ""},
             "issue_specific_answers": {"tickets_sent_on_time": "Yes", "guest_arrived_on_time": "Unknown"},
-            "prevention": "Review pre-visit communications for this experience type; ensure CE SLA is met.",
+            "takedown": {"verdict": "No"},
         }
 
     # Unknown review (manual test) OR live mode: run the real prompt
     # 6000 was sized for the old shape. The v3 answer carries five WWR
     # headings, booking logs, flags, both interaction blocks, SOP compliance,
-    # the fixed question bank, area-of-improving, takedown and prevention - a
+    # the fixed question bank, area-of-improving and takedown - a
     # complex case runs past 6000 and the JSON comes back cut mid-string.
     raw = await _call(
         prompts.rca_v3_prompt(
