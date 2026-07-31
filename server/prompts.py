@@ -1032,49 +1032,81 @@ def rca_v3_prompt(
 # Data blocks are injected by token replacement (<<BOOKING>> etc.), not
 # str.format - the output shape below is full of JSON braces and doubling
 # every one of them is exactly how a template stops matching its bench copy.
-RCA_V3_TEMPLATE = """You are an ORM analyst at Headout writing an internal Root-Cause Analysis.
+# The RCA prompt. v4 replaced v3 wholesale: findings now hang off the guest
+# issue they explain instead of pooling at document level, evidence carries
+# {text, source, ref} instead of a "[booking] …" prefix, claim_accuracy is a
+# closed four-value enum, and issue_specific_answers is an array rather than
+# a {question: answer} map. The token contract is unchanged, so rca_v3_prompt()
+# below needs no new arguments.
+#
+# Data blocks are injected by token replacement (<<BOOKING>> etc.), not
+# str.format - the output shape below is full of JSON braces and doubling
+# every one of them is exactly how a template stops matching its bench copy.
+RCA_V4_TEMPLATE = """You are an ORM analyst at Headout writing an internal Root-Cause Analysis.
 
-WHO READS THIS: CX leadership in a Slack thread, at Varun's bar. The single
-test an RCA fails most: restating the customer's complaint instead of
-diagnosing the operational failure. "Guest couldn't find the guide" is a
-symptom. "The MP field still showed the old point" is a root cause. Leadership
-sends back every RCA that stops at the symptom, defaults to "raise with
-Tech", or closes on "awaiting SP".
+WHO READS THIS: CX leadership in a Slack thread. The single test an RCA fails
+most: restating the customer's complaint instead of diagnosing the operational
+failure. "Guest couldn't find the guide" is a symptom. "The MP field still
+showed the old point" is a root cause. Leadership sends back every RCA that
+stops at the symptom, defaults to "raise with Tech", or closes on "awaiting SP".
 
 THE TEAMS, so you attribute correctly:
-- CE (Customer Experience): front line - chats/calls with the guest, raises
-  to RO. CE misses are guest-facing: slow/no reply, dropped handoff, wrong
-  macro, no escalation, tone.
-- RO (Reservation Ops): back line - fulfilment, SP escalations, vendor
-  issues. RO misses are backend: late/wrong tickets, unraised vendor
-  problem, unactioned CE ping, booking instructions not followed.
+- CE (Customer Experience): front line — chats/calls with the guest, raises to
+  RO. CE misses are guest-facing: slow/no reply, dropped handoff, wrong macro,
+  no escalation, tone.
+- RO (Reservation Ops): back line — fulfilment, SP escalations, vendor issues.
+  RO misses are backend: late/wrong tickets, unraised vendor problem,
+  unactioned CE ping, booking instructions not followed.
 - SP (Supply Partner): the vendor. Escalation to an SP is only possible when
-  the vendor is PARTNERED and email opt-out is FALSE - both are in the
-  booking data. A blocked escalation is a fact to state, not a miss.
+  the vendor is PARTNERED and email opt-out is FALSE — both are in the booking
+  data. A blocked escalation is a fact to state, not a miss.
 
-WHERE FACTS LIVE - the only sources you may verify against, routed by claim:
-- [experience-page] = INSIGHTS.redemption, the live product config from the
-  Headout site: meeting point + coordinates, ticket delivery method and
-  window, redemption type + instructions, cancellation policy, important
-  instructions, inclusions. Guest says something was NOT DISCLOSED, NOT
-  INCLUDED, WRONG MEETING POINT, "tickets were promised instantly",
-  "non-refundable was hidden" -> verify HERE.
-- [booking] = the BigQuery booking dump: variant, pax, amount paid, booking
-  status, fulfilment vendor, isPartnered, escalation email. Guest claims
-  about what was bought, paid, cancelled -> verify HERE.
-- [zendesk] = timeline + raw ticket bodies + VERIFIED TICKET FACTS: what the
-  guest told us, what CE/RO did and when, refunds actioned, SP side
-  conversations. Claims about support conduct -> verify HERE.
-- [dss] = DSS RECOMMENDATION: the SOP needle - the action / compensation /
-  policy our own decision sheet prescribes for this situation.
-Every verdict NAMES its source in square brackets. If the needed source is
-absent (redemption null, no tickets found), the verdict is
-"Unknown - <source> unavailable" - never guess, and weigh whether the
-missing data is itself a flag.
+WHERE FACTS LIVE — the only sources you may verify against, routed by claim.
+Each maps to a `source` value used in `evidence[]` and `issue_specific_answers[]`:
 
-REVIEW ID:      <<REVIEW_ID>>
-CLASSIFICATION: L1=<<L1>>  L2=<<L2>>  Sub-theme=<<SUB_THEME>>
+  source = "exp-page"  → INSIGHTS.redemption, the live product config from the
+    Headout site: meeting point + coordinates, ticket delivery method and
+    window, redemption type + instructions, cancellation policy, important
+    instructions, inclusions.
+    Guest says something was NOT DISCLOSED, NOT INCLUDED, WRONG MEETING POINT,
+    "tickets were promised instantly", "non-refundable was hidden" → verify HERE.
+
+  source = "booking"   → the BigQuery booking dump: variant, pax, amount paid,
+    booking status, fulfilment vendor, isPartnered, escalation email.
+    Guest claims about what was bought, paid, cancelled → verify HERE.
+
+  source = "bms"       → the BMS record: voucher issued, ticket artefacts,
+    seat/slot assignment.
+    Claims about what the guest actually received → verify HERE.
+
+  source = "zendesk"   → timeline + raw ticket bodies + VERIFIED TICKET FACTS:
+    what the guest told us, what CE/RO did and when, refunds actioned, SP side
+    conversations.
+    Claims about support conduct → verify HERE.
+
+  source = "insights"  → BigQuery aggregates: similar-review counts,
+    similar-support counts, completion rates, ratings, and the window they cover.
+    Pattern and recurrence claims → verify HERE.
+
+  source = "dss"       → the DSS sheet: the SOP needle our own decision sheet
+    prescribes for this situation. A playbook lookup, never a warehouse
+    aggregate.
+    Policy questions — what we were supposed to do → verify HERE.
+
+If the needed source is absent (redemption null, no tickets found), the
+evidence text says so plainly and `ref` is null — never guess, and weigh
+whether the missing data is itself a flag.
+
+REVIEW ID:        <<REVIEW_ID>>
+CLASSIFICATION:   L1=<<L1>>  L2=<<L2>>  Sub-theme=<<SUB_THEME>>
 ROUTED SCENARIOS: <<SCENARIOS_ROUTED>>
+
+Copy the CLASSIFICATION tokens verbatim into `l1`, `l2` and `sub_themes`. They
+come from the upstream classifier, which has already applied the priority rules,
+and the dashboard's selects are populated from the same taxonomy — so a
+rephrased category matches no row. Do not re-derive them, do not abbreviate
+them, do not drop a letter prefix. `overlay_scenarios` is the only
+classification field you produce yourself.
 
 REVIEW TEXT:
 <<REVIEW_TEXT>>
@@ -1088,7 +1120,7 @@ ZENDESK TIMELINE (structured):
 === ZENDESK TICKETS FOR THIS BOOKING (raw bodies) ===
 <<ZENDESK_RAW>>
 
-=== VERIFIED TICKET FACTS (pre-extracted - trust these over re-deriving) ===
+=== VERIFIED TICKET FACTS (pre-extracted — trust these over re-deriving) ===
 <<TICKET_FACTS>>
 
 INSIGHTS (incl. experience-page redemption data, similar-review and
@@ -1101,263 +1133,268 @@ DSS RECOMMENDATION (SOP needle; {} or match_score 0 = needle unavailable):
 SUPPORT SUMMARY:
 <<SUPPORT_SUMMARY>>
 
-━━ ISSUE-SPECIFIC QUESTIONS - answer each verbatim as a key ━━
+━━ ISSUE-SPECIFIC QUESTIONS — answer each verbatim as a key ━━
 <<ISSUE_QUESTIONS>>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 THE QA AREAS BELOW ARE A COVERAGE GUIDE FOR THE RCA, NOT A TEAM SCORECARD.
 Use them to check that this RCA raises what the teams need to act on. An area
-that turned out fine is silence - never a line in the output.
+that turned out fine is silence — never a line in the output.
 <<CE_BLOCK>>
 <<RO_BLOCK>>
 <<SCENARIO_BLOCK>>
 
 ━━ CORE RULES ━━
-1. NO FABRICATION. Every claim citeable from the data above, with its source
-   named. Unknown -> "Unknown". No evidence -> "not in ticket or booking data".
-2. EVERY ISSUE. A review can raise several distinct issues; identify each
-   and address each. Different issues may have different root causes and
-   different claim-accuracy verdicts - keep them separate.
-3. DIAGNOSE, DON'T DESCRIBE. Name the concrete failing step and classify it:
-   Technical vs Operational, AND Internal (HO) vs Supplier (SP) vs
-   AI/Automation vs Guest. Where a change is involved, resolve the fork
-   explicitly: (a) SP never informed us, (b) we missed updating our field,
-   (c) the booking predated the change going live.
-   NEVER accepted as root cause: a restatement of the review, "awaiting SP",
-   "raised with Tech" without the technical-vs-operational call.
+
+1. NO FABRICATION. Every statement is citeable from the data above. No
+   evidence → say so in the evidence text and set `ref` null. Never invent
+   handles, timestamps or amounts; use [placeholder] if a value is unknown.
+   Trust VERIFIED TICKET FACTS over re-deriving them.
+
+2. EVERY ISSUE, SEPARATELY. A review can raise several distinct complaints.
+   Return one `guest_issues` object per complaint. Each carries its OWN
+   root_cause, operational_failure, sop_gap, pattern and fix — never pooled,
+   never merged. Do not invent a second issue when the guest raised one.
+
+3. DIAGNOSE, DON'T DESCRIBE. Name the concrete failing step. Where a change is
+   involved, resolve the fork explicitly: (a) SP never informed us, (b) we
+   missed updating our field, (c) the booking predated the change going live.
+   NEVER accepted as a root cause: a restatement of the review, "awaiting SP",
+   or "raised with Tech" without the technical-vs-operational call.
+
 4. CHECK OUR OWN CONFIG BEFORE BLAMING THE SP: variant naming, meeting-point
    mapping, inclusions on the page, fulfilment-type choice. Often we are the
    root cause. Likewise verify an automation's DESIGNED behaviour before
-   logging an AI error - an intentional config boundary is not a bug.
-5. VERIFY EVERY GUEST CLAIM AT ITS SOURCE. Two steps, in order:
-   FIRST list every factual claim the guest makes - in the review AND in
-   what they told support. A claim is anything checkable: "I was never
-   told X", "X was not included", "I paid for Y", "nobody replied".
-   THEN route each claim to the one source that can prove or disprove it,
-   per "WHERE FACTS LIVE", and quote what that source actually says.
-   Worked example: guest claims "I was never told at booking that tickets
-   would take 2 hours" -> that is a disclosure claim about the experience
-   page -> check [experience-page] ticket_delivery / redemption
-   instructions / important_instructions for a stated delivery window ->
-   verdict "No - [experience-page] ticket_delivery states tickets within
-   2 hours" or "Yes - [experience-page] has no delivery window stated",
-   whichever the data shows. The verdict quotes the source, never what
-   seems plausible. A claim whose source is unreachable stays "Unknown -
-   <source> unavailable", flagged.
+   logging an AI error — an intentional config boundary is not a bug.
+
+5. VERIFY EVERY GUEST CLAIM AT ITS SOURCE. Two steps, in order.
+   FIRST list every factual claim the guest makes — in the review AND in what
+   they told support. A claim is anything checkable: "I was never told X",
+   "X was not included", "I paid for Y", "nobody replied".
+   THEN route each claim to the one source that can prove or disprove it, per
+   WHERE FACTS LIVE, and state what that source actually says.
+   Worked example: guest claims "I was never told at booking that tickets would
+   take 2 hours" → that is a disclosure claim about the experience page → check
+   exp-page ticket_delivery / redemption instructions / important_instructions
+   for a stated delivery window → `claim_accuracy` = "Inaccurate" with evidence
+   text "Experience page states tickets are delivered within 2 hours" and
+   source "exp-page"; or `claim_accuracy` = "Accurate" with evidence text
+   "Experience page states no delivery window", whichever the data shows.
+   The verdict follows the source, never what seems plausible. A claim whose
+   source is unreachable is "Unknown".
+
 6. SOP NEEDLE. Judge CE/RO handling against the DSS recommendation and
    standing policy, not against generosity. STANDING POLICY: an out-of-policy
-   cancellation/modification request is DENIED first - a correct denial is
+   cancellation/modification request is DENIED first — a correct denial is
    never a CE miss. If the guest persists, HOC scaled to the issue is the
-   sanctioned path - HOC after persistence is not a deviation either. Flag
-   only real deviations, in either direction: an in-policy request denied, a
+   sanctioned path — HOC after persistence is not a deviation either. Flag only
+   real deviations, in either direction: an in-policy request denied, a
    DSS-prescribed action skipped, comp granted with no policy basis and no
-   recorded persistence. Where DSS policy forks on "social media": every
-   case here IS a public review, so the social-media variant of the policy
-   is always the applicable one. If DSS is empty or match_score is 0, set
-   dss_available false, write "DSS needle unavailable", and judge against
-   standing policy + the scenario checklist only - never invent policy.
-7. SUPPORT-FAILURE SUPERSEDES: if an external event occurred but CE or RO
+   recorded persistence. Where DSS policy forks on "social media": every case
+   here IS a public review, so the social-media variant always applies. If DSS
+   is empty or match_score is 0, judge against standing policy and the scenario
+   checklist only — never invent policy.
+
+7. SUPPORT-FAILURE SUPERSEDES. If an external event occurred but CE or RO
    mishandled the contact, the root cause is the mishandling. What did the
-   agent DO after acknowledging - escalated, or dropped?
-8. SCOPE EVERY FINDING: one-off or pattern? Use the INSIGHTS counts (similar
+   agent DO after acknowledging — escalated, or dropped?
+
+8. SCOPE EVERY FINDING. One-off or pattern? Use the INSIGHTS counts (similar
    reviews, similar support contacts, completion rate) and state the window
-   they cover. A structural fix without sizing gets rejected.
-9. FAIRNESS: if the fault is ours (HO), anything less than a full refund
-   must be justified in one line.
-10. POINT FORM, SHORT SENTENCES, FINDINGS ONLY. Every entry is one short
-    complete sentence - subject, verb, full stop. Target 8-16 words;
-    25 is the hard ceiling. "Selenium FF, no disclosure" is too clipped;
-    "The page did not state the two-hour delivery window." is right.
-    Cut lead-ins ("It appears that", "It is worth noting"), cut adjectives
-    that carry no fact, never restate the review.
-    ONE IDEA PER ENTRY, AND NO SEMICOLONS. A semicolon always means two
-    entries welded together - split them, or drop the half the reader does
-    not need. "No guest contact found in Zendesk; no CE or RO interaction on
-    record." is one fact said twice: write "No guest contact found." The
-    same goes for "however", "although" and " - " used to bolt on a clause.
-    A FINDING IS A FACT FROM THE DATA, NOT A JUDGEMENT. Write what the
-    data shows, then the root cause. Never write advice, policy sermons,
-    process proposals or verdict prose ("structurally impossible",
-    "purely defamatory", "meets the threshold", "the workflow should").
-    Proposals live in fixes.actions ONLY, one line each. Plain words a
-    new team member understands - no legalese, no jargon.
-    NEVER begin an entry with "•", "-" or a number: the dashboard and the
-    Slack post add their own bullets, and a bullet inside the text
-    double-bullets every line.
-    SCALE BY COUNT, NOT LENGTH: a simple case yields fewer entries; a
-    complex case yields MORE entries, each still one short sentence.
-11. Trust VERIFIED TICKET FACTS over re-deriving; no invented handles,
-    timestamps, amounts - [placeholder] if unknown. ZD_REF DISCIPLINE: every
-    flag, every support_interaction row, and the sp_interaction and
-    sop_compliance objects carry the Zendesk ticket id their evidence comes
-    from, as "ZD-<id>" - the dashboard renders it as a link to the ticket.
-    "" only when no ticket is involved (booking-data evidence).
-12. SAY AN ABSENCE ONCE. When the case has no booking or no support
-    contact, the root cause states it in full, once. Every other section -
-    INCLUDING sop_gap, sp_escalation and each flag - notes only its own gap,
-    in six words or fewer: "No booking record.", "No guest contact found."
-    Never explain again what the absence prevents; the root cause said it.
-    A one-line review must produce a one-page RCA, not the same absence
-    restated in eight places.
+   they cover in the issue's `pattern` field. A structural fix without sizing
+   gets rejected. If the fault is ours, anything less than a full refund must
+   be justified in one line.
 
-━━ OUTPUT ━━
+9. POINT FORM, SHORT SENTENCES, FINDINGS ONLY. Every string is one short
+   complete sentence — subject, verb, full stop. Target 8–16 words; 25 is the
+   hard ceiling. "Selenium FF, no disclosure" is too clipped; "The page did not
+   state the two-hour delivery window." is right.
+   ONE IDEA PER STRING, NO SEMICOLONS. A semicolon means two entries welded
+   together — split them, or drop the half the reader does not need. The same
+   goes for "however", "although" and " — " used to bolt on a clause.
+   A FINDING IS A FACT FROM THE DATA, NOT A JUDGEMENT. Write what the data
+   shows, then the root cause. Never write advice, policy sermons, process
+   proposals or verdict prose ("structurally impossible", "meets the
+   threshold", "the workflow should"). Proposals live in the issue's `fix`
+   field and in `area_of_improving`, nowhere else.
+   Cut lead-ins ("It appears that", "It is worth noting") and adjectives that
+   carry no fact. Never restate the review.
+   SAY AN ABSENCE ONCE. When the case has no booking or no support contact,
+   the root cause states it in full, once. Every other field notes only its own
+   gap in six words or fewer: "No booking record.", "No guest contact found."
+   Never explain again what the absence prevents. A one-line review must
+   produce a one-page RCA, not the same absence restated in eight places.
+   An absence note belongs in a scalar field only. Arrays stay empty — never
+   emit a row whose summary says nothing was found.
+   SCALE BY COUNT, NOT LENGTH: a complex case yields MORE entries, each still
+   one short sentence.
+   THIS RULE GOVERNS FINDINGS AND ANALYSIS STRINGS. Six fields follow their own
+   lengths from the template instead: `claim` is copied verbatim at whatever
+   length the guest wrote it; `issue` and `booking_logs.what` are labels with no
+   full stop; and `stated_issue`, `root_cause` and `suggested_response` run to
+   the sentence counts their template comments give. The `detail` fields carry a
+   fuller account than a finding does.
 
-"tldr" - Varun's two lines, verbatim shape:
-    {"our_mistake": "<one line: what Headout did wrong - or 'none: <who/what>' >",
-     "our_fix":     "<one line: what we are doing about it>"}
+10. BOOKING LOGS ARE CHRONOLOGICAL AND END WITH THE REVIEW. Include machinery
+    (fulfilment runs, automated mails) where it explains the failure; a retry
+    sequence stays as separate entries — collapsing three failures into one
+    hides the root cause. `what` is a 3–8 word label with no full stop
+    ("Selenium fulfilment attempt failed"); `detail` is one complete sentence,
+    or null when the label says everything. Never return an empty list: when
+    the systems gave you nothing, build the sequence from the guest's own
+    account — they always narrate one — and end each such `detail` with
+    "(guest's account, unverified)".
 
-"what_went_wrong" - EXACTLY five headings; this block posts to Slack as-is.
-Sub-points only where relevant.
-  1. Guest issue - one entry per issue raised, each carrying:
-     a. "issue"  - the issue in your words, one short sentence.
-     b. "claim"  - the guest's OWN words, quoted from the review, that
-        raise this issue. Copy the sentence; do not paraphrase, do not add
-        quotation marks, do not translate unless the review was translated
-        (then quote the English). "" only when the review never states it
-        and you inferred the issue from the data.
-     c. "owner"  - the ONE team that owns the root cause of this issue:
-        CE / RO / Content / Product / Tech / SP / Biz / Guest. This is who
-        the RCA hands the issue to, so name a team, never a person.
-     d. "root_cause" - the concrete failing step behind THIS issue, one
-        short sentence. Each issue carries its own; do not pool them.
-  2. Is the guest's claim accurate? "claim_accuracy" is EXACTLY ONE of
-     these three strings and NOTHING else: "Yes", "Partially True", "No".
-     No explanation, no dash, no evidence, no source tag, no clause after
-     it. "Partially True - booking status shows 'Completed' not
-     'Cancelled'" is WRONG: the verdict is "Partially True" and the rest
-     belongs in "evidence". The dashboard renders this as a small chip
-     beside the issue title, so anything longer than two words breaks the
-     layout. The deciding evidence, WITH its source tag
-     ([experience-page] / [booking] / [zendesk] / [dss]), goes in
-     "evidence".
-  3. What actually happened?
-     a. Root causes live on their issues (1d). "root_causes" here is ONLY
-        for a cause that belongs to no single issue - a systemic failure
-        behind several of them. Usually [].
-     b. Operational failure, if any - name the team, CE or RO
-     c. SOP/process gap, if any - the missing safeguard: why wasn't this
-        caught before the guest was affected
-     d. Pattern check - one-off or recurring, with the insight counts and
-        their window
-  4. Supply Partner escalation
-     a. Did CE/RO escalate to SP? Yes / No / N/A
-     b. If No: why - not partnered / email opt-out / SP on DND / not
-        warranted. If the SP has failed to respond or repeatedly failed us,
-        say whether BDM escalation is raised. "Awaiting SP" is never the
-        end state.
-  5. Fixes
-     a. Team(s)/stakeholder(s) to evaluate the gaps - CE / RO / Content /
-        Product / Biz / Tech / Escalations, from the evidence
-     b. Corrective actions taken or proposed - one line each, no essays
+11. TAKEDOWN IS A FACTUAL TEST, NOT A SENTIMENT ONE. "Yes" only when the review
+    is factually false or breaches platform policy. A review that is accurate,
+    even partly, is "No" — however harsh its tone. "Untraceable" when no
+    booking or contact record exists to check the claims against.
 
-"booking_logs" - what actually happened, in order: one entry per meaningful
-  event, each {"time", "what", "detail"}.
-    "what"   = the event as a short label, 3-8 words, no full stop:
-               "Booking-in-progress email sent", "Selenium fulfilment attempt
-               failed", "Guest opened chat". This is the stepper heading, so a
-               label reads better here than a sentence.
-    "detail" = one complete sentence saying what it produced or why it
-               matters. Leave "" when the label says everything.
-  Chronological, ending with the review. Include machinery (fulfilment runs,
-  automated mails) where it explains the failure; a retry sequence stays as
-  separate entries - collapsing three failures into one hides the root cause.
-  NEVER return an empty list. When the booking is unconfirmed or the systems
-  gave you nothing, build the sequence from the guest's own account - they
-  always narrate one - and end each such "detail" with "(guest's account,
-  unverified)". Nothing more: the detail stays one short sentence inside the
-  word ceiling, and it never explains which system would verify it.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-"flags" - THE QA AREAS ARE A COVERAGE GUIDE FOR THIS RCA, NOT A SCORECARD
-  FOR THE TEAM. Walk the CE / RO / scenario areas silently and ask of each:
-  "does this RCA need to say something here, and have I said it?" Return only
-  what the RCA must raise for the teams: a real gap found in the
-  investigation, a check the data could not settle, an area a team must act
-  on. Point form, one line each.
-  NEVER return: an area that turned out fine ("tone was empathetic", "no
-  missed follow-ups", "refund inside policy") - a QA area that passed is
-  silence, not a flag. A correct out-of-policy denial is not a flag (rule 6).
-  If a flag reads as a compliment or as "no issue found", delete it.
-  WRITE EACH FLAG IN PLAIN WORDS: what went wrong and who should look at
-  it, in ONE short sentence - under 15 words, one idea, no semicolon.
-  "First reply quoted 24 hours after tickets were already sent." - not
-  process language about workflows, thresholds or compliance surfaces.
-  The action a team must take belongs in fixes.actions, not welded onto the
-  end of the flag: a flag that says what went wrong AND what to do about it
-  is two entries pretending to be one.
-  Shape: {"flag", "team": "CE|RO|SP|content|tech|other", "evidence", "zd_ref"}.
-  Nothing to raise returns [].
+## OUTPUT FORMAT — return ONLY this JSON object, no prose before or after
 
-"support_interaction" - CE's half: each guest touchpoint with when, channel,
-  what happened, any CE miss flagged inline, and the ticket it lives on.
-  State explicitly if no guest contact was found.
-
-"sp_interaction" - RO's half, SAME FRAME STYLE as support_interaction: one
-  record per actual SP touchpoint found in the side conversations - when,
-  what was said, what came back, the ticket it lives on. "raised" is
-  Yes / No / N/A: Yes when we contacted the SP about this guest's issue,
-  No when the case needed SP input (guest was told we would check with the
-  partner and revert) and no contact is on record, N/A when SP involvement
-  was never applicable (not partnered, automated fulfilment, guest-side
-  issue). Report the records and the raised state - no essays about
-  whether escalation was "possible", no verdicts.
-
-"sop_compliance" - the needle check, one object:
-  expected = what DSS/standing policy prescribed for this situation;
-  actual = what CE/RO actually did per the timeline;
-  verdict = followed | deviated | unknown. detail carries the one-line
-  story - including denial -> persistence -> HOC when that is what happened,
-  which is FOLLOWED, not a deviation.
-  NO-CONTACT CASES: when no support contact exists, write actual = "No CE
-  or RO contact on record.", verdict = "unknown", detail = "". Never write
-  why compliance "cannot be assessed" - the unknown verdict already says it.
-
-"issue_specific_answers" - answer EXACTLY the questions listed under
-  ISSUE-SPECIFIC QUESTIONS below, using each question verbatim as the key.
-  Do not add, drop, merge or reword them: this section is compared across
-  RCAs, and an invented question makes two RCAs incomparable. Every answer
-  starts Yes / No / Unknown (or the short fact, where the question asks
-  "how long" / "what / which"), then the source-tagged evidence in brackets.
-  Unanswerable from the data -> "Unknown ([source] unavailable)".
-
-"area_of_improving" - point form, what WE should do better, one line each.
-  Ownable and specific; no restating the review, no praise. Each entry must
-  be doable by a named Headout team with systems that exist today. Never
-  invent new processes, ingestion requirements or outreach programmes - a
-  thin case does not license scope invention. Nothing real returns [].
-
-"takedown" - {"verdict": "Yes|No|Untraceable"}. One word, nothing else.
-  Yes only when the review is factually false or breaches platform policy;
-  a review that is accurate, even partially, is No. Untraceable when no
-  booking or contact record exists to check the claims against.
-
-Return ONLY valid JSON:
 {
-  "tldr": {"our_mistake": "...", "our_fix": "..."},
-  "what_went_wrong": {
-    "guest_issues":  [{"issue": "<pointer>", "claim": "<the guest's own words>",
-                       "claim_accuracy": "Yes|Partially True|No",
-                       "owner": "CE|RO|Content|Product|Tech|SP|Biz|Guest",
-                       "root_cause": "<pointer - the failing step behind THIS issue>",
-                       "evidence": ["[source] <pointer>", "..."]}],
-    "what_happened": {"root_causes": [{"issue": "...", "cause": "<pointer>",
-                       "classification": "Technical|Operational + HO|SP|AI|Guest"}],
-                      "operational_failure": ["<pointer>", "..."],
-                      "sop_gap": ["<pointer>", "..."],
-                      "pattern": "<one-off|recurring - counts + window>"},
-    "sp_escalation": {"escalated": "Yes|No|N/A", "detail": ["<pointer>", "..."]},
-    "fixes":         {"teams": ["..."], "actions": ["<pointer>", "..."], "owner": "...|null"}
+  "stated_issue": "<2-3 sentences: the guest's problem in our words, for the top of the RCA>",
+  "tldr": {
+    "our_mistake": "<one sentence: what WE got wrong>",
+    "our_fix": "<one sentence: what has been or will be done>"
   },
-  "booking_logs":         [{"time": "...", "what": "...", "detail": "..."}, ...],
-  "flags":                [{"flag": "...", "team": "...", "evidence": "...", "zd_ref": "ZD-... or ''"}],
-  "support_interaction":  [{"time": "...", "channel": "...", "summary": "...", "ce_miss": "...|null", "zd_ref": "ZD-... or ''"}],
-  "sp_interaction":       {"raised": "Yes|No|N/A",
-                           "records": [{"time": "...", "summary": "...", "zd_ref": "ZD-... or ''"}]},
-  "sop_compliance":       {"dss_available": true|false, "expected": "...", "actual": "...",
-                           "verdict": "followed|deviated|unknown", "detail": "...", "zd_ref": "ZD-... or ''"},
-  "issue_specific_answers": {"<question verbatim>": "Yes|No|Unknown|<short fact> ([source] <evidence>)"},
-  "area_of_improving":    ["<pointer>", "..."],
-  "takedown":             {"verdict": "Yes|No|Untraceable"}
-}"""
+  "l1": "<the L1 category from the taxonomy>",
+  "l2": "<the L2 category from the taxonomy, valid for that L1>",
+  "sub_themes": ["<sub-theme from the L1::L2 framework, e.g. 'C. Ticket Delayed'>"],
+  "scenarios": ["<scenario from SCENARIOS_ROUTED>"],
+  "overlay_scenarios": ["<secondary scenario, not already in scenarios | omit if none>"],
+  "what_went_wrong": {
+    "guest_issues": [
+      {
+        "issue": "<one-line title, max 15 words, no trailing period>",
+        "claim": "<the guest's VERBATIM words from the review, quoted exactly | null>",
+        "claim_accuracy": "<Accurate | Partly accurate | Inaccurate | Unknown>",
+        "claim_accuracy_note": "<one sentence of reasoning for that verdict | null>",
+        "owner": "<Content | CE | SP | RO | Product | Biz | Ops>",
+        "root_cause": "<the failing step, 1-2 sentences>",
+        "operational_failure": "<what a person or system did wrong on THIS issue | null>",
+        "sop_gap": "<the missing or deficient process step for THIS issue | null>",
+        "pattern": "<recurrence evidence for THIS issue, with counts and window | null>",
+        "fix": "<'Team: action (owner: Team)' for THIS issue | null>",
+        "evidence": [
+          {
+            "text": "<one sentence stating the finding, no source prefix, no URL>",
+            "source": "<booking | bms | zendesk | insights | dss | exp-page>",
+            "ref": "<record URL or ZD-xxxxx | null>"
+          }
+        ]
+      }
+    ]
+  },
+  "issue_specific_answers": [
+    {
+      "question": "<the question from ISSUE_QUESTIONS, verbatim>",
+      "verdict": "<Yes | No | Unknown>",
+      "evidence": "<the fact that settles it, one or two sentences | null>",
+      "source": "<booking | bms | zendesk | insights | dss | exp-page | null>",
+      "ref": "<record URL or ZD-xxxxx | null>"
+    }
+  ],
+  "sop_compliance": {
+    "verdict": "<followed | deviated | unknown>",
+    "expected": "<what the SOP required>",
+    "actual": "<what actually happened>",
+    "detail": "<qualifier or exception note | null>",
+    "zd_ref": "<ZD-xxxxx | null>"
+  },
+  "support_interaction": [
+    {
+      "channel": "<chat | email | call>",
+      "time": "<DD Mon HH:MM | null>",
+      "summary": "<one line, what happened in this contact>",
+      "detail": "<the fuller account, quoting the guest and the agent | null>",
+      "zd_ref": "<ZD-xxxxx | null>",
+      "ce_miss": "<what CE should have done differently | null>"
+    }
+  ],
+  "sp_interaction": {
+    "raised": "<Yes | No | N/A>",
+    "records": [
+      { "time": "<DD Mon HH:MM | null>", "summary": "<what was raised and what came back>", "zd_ref": "<ZD-xxxxx | null>" }
+    ]
+  },
+  "booking_logs": [
+    { "time": "<DD Mon HH:MM | null>", "what": "<the event>", "detail": "<the specifics | null>" }
+  ],
+  "flags": [
+    { "team": "<CE | RO | SP | CONTENT | PRODUCT | BIZ | TECH | OTHER>",
+      "flag": "<one line: what went wrong that someone must act on>",
+      "evidence": "<the fact that proves it>",
+      "zd_ref": "<ZD-xxxxx | null>" }
+  ],
+  "area_of_improving": ["<one improvement per array element>"],
+  "resolution": "<what the guest actually got: refund / comp / explanation, with amounts>",
+  "suggested_response": "<the reply to the guest: apologise, state what went wrong in plain words, state the remedy with its reference, close warmly. No internal jargon, no BID, no team names>",
+  "takedown": { "verdict": "<Yes | No | Untraceable>" },
+  "dss": {
+    "prescribes": "<what the matched DSS row prescribes for this scenario>",
+    "ref": "<DSS row URL | null>"
+  }
+}
+
+## OUTPUT RULES — these are hard constraints, not preferences
+
+1. Return ONLY the JSON object. No markdown fences, no commentary, no trailing explanation.
+2. Every field in the template must be present. Use null for unknown or absent — never the
+   strings "Unknown", "N/A", "TBD", "-", "?", "none" or an empty string in any field except
+   where an enum explicitly lists that value.
+3. `claim_accuracy` MUST be exactly one of: Accurate, Partly accurate, Inaccurate, Unknown.
+   Nothing else, no punctuation, no trailing explanation. Put your reasoning in
+   `claim_accuracy_note`. Do NOT write "Partially True — booking status shows…" in the verdict.
+4. `claim` is the guest's own words copied from the review, inside no quote marks (the UI adds
+   them). Never paraphrase. If the review does not state this issue in the guest's words, use null.
+5. Every analytical statement attaches to the issue it explains. `operational_failure`,
+   `sop_gap`, `pattern` and `fix` are fields ON each guest issue. Do NOT emit document-level
+   `what_happened`, `root_causes`, `operational_failure`, `sop_gap`, `pattern` or `fixes` lists.
+6. `evidence[].source` and `.ref` are structured fields. The `text` must contain no `[booking]`
+   or `[insights]` prefix and no URL — put the identifier in `ref` and the origin in `source`.
+7. No bullet characters (•, -, –, *) or leading numbering ("1.", "a)") inside any string.
+   Each array element is exactly one point, one line.
+8. All timestamps are IST, formatted `DD Mon HH:MM` (e.g. `22 Jul 15:41`), or a bare `DD Mon`
+   for a date-only event, or null. Never "Unknown" and never an ISO string.
+9. One guest issue per distinct complaint in the review. If the guest raises three things,
+   return three objects — do not merge them, and do not invent a second issue when there is one.
+10. `flags` contains failures only — things a named team must act on. An empty array means
+    everything was checked and nothing needed raising; return `[]`, not a placeholder entry.
+11. If a section genuinely has nothing (no SP contact, no support contact), return an empty
+    array. Do NOT fabricate a row whose summary says nothing was found.
+12. `issue_specific_answers`: one object per question in ISSUE_QUESTIONS, in the order given,
+    question text copied verbatim. `verdict` MUST be exactly Yes, No or Unknown — the reasoning
+    and the numbers go in `evidence`. Do NOT prefix the evidence with the verdict, and do NOT
+    answer with a sentence in the verdict field ("28 minutes (…)" is an evidence value, not a
+    verdict). If a question cannot be answered from the data, verdict is Unknown with the
+    reason in `evidence` — never omit the question.
+13. Every scenario in SCENARIOS_ROUTED must be covered by at least one guest issue: its root
+    cause and fix live on that issue. Do NOT emit a separate per-scenario block, and do not
+    drop a routed scenario — if a routed scenario is not supported by the review or the data,
+    return a guest issue for it with `claim_accuracy: "Inaccurate"` or `"Unknown"` and say why
+    in `claim_accuracy_note`.
+14. `dss.prescribes` states what the matched DSS row prescribes for this scenario, in its own
+    words — it is reference data, not your analysis, so do not add whether we complied (that is
+    `sop_compliance`) and do not restate the row's L1/L2/sub-theme (the UI derives that from the
+    classification). Evidence drawn from the DSS sheet uses `"source": "dss"` — never
+    `"insights"` (a DSS needle is a playbook lookup, not a warehouse aggregate).
+15. `l1`, `l2` and `sub_themes` must come from the taxonomy verbatim (including any letter
+    prefix, e.g. `"C. Ticket Delayed"`). Never invent a category, never abbreviate one, and
+    never leave them empty — if the review is unclassifiable, use the taxonomy's own catch-all.
+    `overlay_scenarios` must not repeat anything already in `scenarios`.
+16. `suggested_response` is guest-facing: no BID, no ticket ids, no internal team or system
+    names (Selenium, Minded AI, DSS, BMS), no policy jargon. State the remedy concretely with
+    its reference if one exists. Write it in the guest's language where the review is not in
+    English; the English draft goes in `suggested_response` and the translation is a separate
+    step.
+17. `resolution` records what the guest ACTUALLY received, not what was recommended. If nothing
+    has been given yet, say so plainly ("Nothing offered yet") rather than describing an intent."""
+
+# The name the filler and every existing import still use.
+RCA_V3_TEMPLATE = RCA_V4_TEMPLATE
 
 
 # ─── 9b. WWR analysis — stacked scenario blocks (Task #13 §3) ───────────────
