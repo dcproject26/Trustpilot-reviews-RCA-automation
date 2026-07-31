@@ -100,7 +100,8 @@ class ActionPatch(BaseModel):
 
 
 class FlagToBiz(BaseModel):
-    channel: str    | None = None  # Slack channel (default: from env)
+    # No channel. This always goes into the review's own Slack thread, the
+    # same thread the RCA goes into.
     tag: str        | None = None  # who to tag
     message: str    | None = None  # editable draft
     send: bool = False             # False = save draft; True = send now
@@ -1137,14 +1138,17 @@ async def flag_to_biz(review_id: str, body: FlagToBiz,
     # reach, and anyone trusting it would assume the Biz team had been told.
     # One resolver, called by both steps, so the promise and the delivery
     # cannot drift apart.
+    # There is one destination: the review's own Slack thread, the same thread
+    # the RCA goes into. #biz-supply-ops was invented as a fallback here and
+    # does not exist in the workspace, so a message sent to it went nowhere
+    # while the UI reported success.
     thread_ch = (getattr(r, "slack_channel", "") or "")
     thread_ts = (getattr(r, "slack_ts", "") or "")
-    if thread_ch and thread_ts:
-        dest_channel, dest_parent = thread_ch, thread_ts
-        dest_label = f"the review's Slack thread in #{thread_ch.lstrip('#')}"
-    else:
-        dest_channel, dest_parent = (body.channel or "#biz-supply-ops"), None
-        dest_label = dest_channel
+    if not (thread_ch and thread_ts) or thread_ch == "C_MANUAL":
+        raise HTTPException(400, "This review has no Slack thread, so there is "
+                                 "nowhere to flag it. Copy the message instead.")
+    dest_channel, dest_parent = thread_ch, thread_ts
+    dest_label = f"the review's Slack thread in #{thread_ch.lstrip('#')}"
 
     # Step 1: draft the message if not supplied
     if not body.message:
@@ -1164,7 +1168,7 @@ async def flag_to_biz(review_id: str, body: FlagToBiz,
             "channel": dest_channel,
             "destination": dest_label,
             "in_thread": bool(dest_parent),
-            "tag": body.tag or "[Biz handle placeholder]",
+            "tag": body.tag or "",
         }
 
     # Step 2: send
@@ -1176,9 +1180,6 @@ async def flag_to_biz(review_id: str, body: FlagToBiz,
         channel, parent = dest_channel, dest_parent
         tag = body.tag or ""
         full_msg = f"{tag}\n{body.message}".strip()
-        if not parent:
-            log.warning(f"[flag-to-biz] {review_id} has no slack thread - "
-                        f"posting to {channel} instead")
         try:
             ts = await post_to_thread(channel, parent, full_msg, as_user=False)
             d.flag_to_biz_state = "sent"
