@@ -47,6 +47,45 @@ def zd_key(v) -> str:
     return m.group(0) if m else ""
 
 
+# The queryable columns and where each one reads from inside rca_v3. One list,
+# because two write paths - the pipeline and regenerate-rca - were maintaining
+# separate copies of this projection, and one of them fell behind.
+V4_PROJECTION = {
+    "guest_issues":           ("what_went_wrong", "guest_issues"),
+    "sop_compliance":         ("sop_compliance",),
+    "booking_logs":           ("booking_logs",),
+    "flags":                  ("flags",),
+    "takedown":               ("takedown",),
+    "dss":                    ("dss",),
+    "issue_specific_answers": ("issue_specific_answers",),
+}
+_V4_EMPTY = {"guest_issues": list, "sop_compliance": dict, "booking_logs": list,
+             "flags": list, "takedown": dict, "dss": dict,
+             "issue_specific_answers": list}
+
+
+def project_v4(rca) -> dict:
+    """The column values for one RCA: {column: value}.
+
+    Pure, so the persist paths can be checked by driving this rather than by
+    asserting that `draft.flags =` appears somewhere in pipeline.py. A source
+    assertion of that shape is a spelling check - it passes just as happily
+    against a build where the line it names is unreachable, which is how two
+    guarantees in this very file turned out to be guarding nothing.
+
+    resolution and suggested_response are deliberately absent: they are scalar
+    columns with their own fallbacks at the call site, not projections.
+    """
+    rca = rca if isinstance(rca, dict) else {}
+    out = {}
+    for col, path in V4_PROJECTION.items():
+        node = rca
+        for part in path:
+            node = node.get(part) if isinstance(node, dict) else None
+        out[col] = node if node not in (None, "") else _V4_EMPTY[col]()
+    return out
+
+
 def contact_join_notes(support_frames, sp_frames, rca) -> list:
     """What the contact-note join could not do, as trail lines.
 
@@ -83,6 +122,14 @@ def contact_join_notes(support_frames, sp_frames, rca) -> list:
     if off_zd:
         out.append(f"{len(off_zd)} contact(s) reported with no Zendesk ticket — "
                    f"rendered as the guest's account, unverified")
+    # Grouping frames without a ticket id by time is a judgement, not a fact.
+    # It is a good default, but the reader is entitled to know one was made -
+    # an unannounced guess is how a guessed number becomes a trusted one.
+    untracked = [f for f in list(support_frames or []) + list(sp_frames or [])
+                 if isinstance(f, dict) and not zd_key(f.get("ticket_id"))]
+    if len(untracked) > 1:
+        out.append(f"{len(untracked)} event(s) have no ticket id and were grouped "
+                   f"into contacts by a 30-minute window")
     return out
 
 

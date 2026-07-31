@@ -1825,26 +1825,21 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # flat top-level list, so it never returns this key. Assigning [] here
         # deleted the evidence appendix a legacy draft had collected.
         draft.evidence                = _v3.get("evidence") or draft.evidence or []
-        # v4 answers are a list of {question, verdict, evidence, source, ref};
-        # v3 stored {question: answer}. The validator normalises to the list, so
-        # the empty default is a list too.
-        draft.issue_specific_answers  = _v3.get("issue_specific_answers") or []
         # The checklist runs silently now — only failures ship, as
         # rca_fields["flags"]. Nothing renders the full answer wall anymore.
         draft.checklist_answers       = []
 
         # ── v4 columns ────────────────────────────────────────────────────────
-        # These also live inside rca_v3, which is what the dashboard's editor
-        # writes to and therefore the source of truth for RCA content. The
-        # columns are the queryable copy, written only by the pipeline; that is
-        # why _draft_dict() reads rca_v3 first and falls back to the column,
-        # rather than the other way round.
-        draft.guest_issues            = (_v3.get("what_went_wrong") or {}).get("guest_issues") or []
-        draft.sop_compliance          = _v3.get("sop_compliance") or {}
-        draft.booking_logs            = _v3.get("booking_logs") or []
-        draft.flags                   = _v3.get("flags") or []
-        draft.takedown                = _v3.get("takedown") or {}
-        draft.dss                     = _v3.get("dss") or {}
+        # The queryable copy of what lives inside rca_v3, which is what the
+        # dashboard's editor writes and therefore the source of truth for RCA
+        # content - that is why _draft_dict() reads rca_v3 first and falls back
+        # to the column, not the other way round.
+        #
+        # One shared projection with regenerate-rca. Written out twice, the two
+        # paths drift, and the drift is invisible: both look like working code.
+        from server.services.rca_v4_validate import project_v4
+        for _col, _val in project_v4(_v3).items():
+            setattr(draft, _col, _val)
 
         draft.ticket_facts                = ticket_facts or None
         draft.suggested_response          = response_draft

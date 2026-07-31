@@ -1277,16 +1277,14 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
     _aoi = rca_v3.get("area_of_improving")
     if _aoi:
         d.area_of_improving  = _aoi if isinstance(_aoi, list) else [_aoi]
-    d.issue_specific_answers = rca_v3.get("issue_specific_answers") or []
     d.checklist_answers      = []
     # v4 columns — the queryable copy. Left unwritten, a re-run updated rca_v3
-    # and left these holding the previous run's answer.
-    d.guest_issues    = (rca_v3.get("what_went_wrong") or {}).get("guest_issues") or []
-    d.sop_compliance  = rca_v3.get("sop_compliance") or {}
-    d.booking_logs    = rca_v3.get("booking_logs") or []
-    d.flags           = rca_v3.get("flags") or []
-    d.takedown        = rca_v3.get("takedown") or {}
-    d.dss             = rca_v3.get("dss") or {}
+    # and left these holding the previous run's answer. The SAME projection the
+    # pipeline uses: written out twice, the two paths drift, and the drift is
+    # invisible because both look like working code.
+    from server.services.rca_v4_validate import project_v4
+    for _col, _val in project_v4(rca_v3).items():
+        setattr(d, _col, _val)
     # v4 writes the reply and the resolution as part of the RCA. final_response
     # holds any human edit, so refreshing these does not overwrite one.
     if rca_v3.get("resolution"):

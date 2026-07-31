@@ -136,3 +136,45 @@ def test_the_review_itself_is_never_a_support_contact():
     t = prompts.RCA_V4_TEMPLATE
     assert "The REVIEW ITSELF is" in t
     assert "Trustpilot" in t, "the rule must name the value the model reached for"
+
+
+# ── rules a real David run showed we needed ─────────────────────────────────
+#
+# Asserted on the SUBSTITUTED prompt, not the raw template. For a prompt the
+# text is the behaviour — there is no branch that could be unreachable — but
+# "in the file" and "reaches the model" are still different claims, and only
+# the second one matters.
+
+def test_a_guest_issue_must_trace_to_the_guest():
+    """The model returned "Out-of-policy refund granted without DSS-prescribed
+    compensation path" as guest issue 04 with no claim. The guest never raised
+    it; it renders as a numbered complaint with an empty Claim block, and
+    leadership reads it as something the guest said."""
+    out = _prompt()
+    assert "must trace to something the guest SAID OR IMPLIED" in out
+    assert "go to `flags` and `sop_compliance`" in out
+    assert "Do not repeat in `guest_issues` anything you have already raised in `flags`" in out
+
+
+def test_a_cause_and_its_consequence_are_one_issue():
+    """"we did not disclose the window" and "the window clashed with their
+    schedule" is one complaint split in two — rule 9's "do not invent a second
+    issue when there is one"."""
+    out = _prompt()
+    assert "Splitting a cause from its consequence is inventing one" in out
+    assert "belongs in that issue's `root_cause`" in out
+
+
+def test_the_reply_carries_a_word_ceiling():
+    """198 words under a one-star public review reads as defending ourselves.
+    The ceiling is on the template line too — that is where the model looks
+    while it writes the field, not in a rules block further down."""
+    out = _prompt()
+    assert "120 words MAX" in out.split('"suggested_response"')[1][:200], \
+        "the ceiling is not on the field the model is filling in"
+    assert "Two hard length ceilings" in out
+
+
+def test_the_stated_issue_carries_one_too():
+    out = _prompt()
+    assert "60 words MAX" in out.split('"stated_issue"')[1][:200]

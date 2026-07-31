@@ -65,7 +65,17 @@ def seeded(monkeypatch):
                     author="David"))
     s.add(db.RcaDraft(id="d1", review_id="tp_d", booking={"id": "32908218"},
                       rca_prompt_version="rca_v4", generated_at=datetime(2026, 7, 31),
-                      rca_v3={"l1": "x", "l2": "y", "sub_themes": [], "stated_issue": "z"}))
+                      confidence_trail=[{"mark": "warn",
+                                         "text": "<strong>RCA</strong> — a coercion fired"}],
+                      rca_v3={"l1": "x", "l2": "y", "sub_themes": [], "stated_issue": "z",
+                              "dss": {"prescribes": "refund", "ref": None},
+                              "sp_interaction_notes": {"raised": "N/A", "records": []},
+                              "suggested_response": "word " * 200,
+                              "what_went_wrong": {"guest_issues": [
+                                  {"issue": "the guest complained",
+                                   "claim": "they said so", "root_cause": "we erred"},
+                                  {"issue": "our own process finding",
+                                   "root_cause": "policy gap"}]}}))
     # A review carrying the reference number whose draft never got a booking.
     s.add(db.Review(id="tp_o", slack_ts="2", slack_channel="C1", rating=1,
                     author="Other", reference_number="99999999"))
@@ -115,3 +125,43 @@ def test_the_version_stamp_is_on_the_first_screen(seeded):
 def test_a_stamped_v4_row_gets_no_legacy_banner(seeded):
     _, out = _run(seeded, "--bid", "32908218")
     assert "THIS ROW IS THE OLD v3 SHAPE" not in out
+
+
+# ── the two things the audit has to point at ────────────────────────────────
+
+def test_a_claim_less_issue_is_questioned(seeded):
+    """"Out-of-policy refund granted…" arrived as guest issue 04 with no claim.
+    The guest never raised it. Unflagged, it reads as something they said."""
+    _, out = _run(seeded, "--bid", "32908218")
+    assert "no claim — is this a guest issue" in out
+    assert out.count("no claim") == 1, "the issue WITH a claim was flagged too"
+
+
+def test_detail_prints_what_a_reviewer_asks_for(seeded):
+    """The follow-up questions were all "send me the JSON for X". One flag."""
+    code, out = _run(seeded, "--bid", "32908218", "--detail")
+    assert code == 0, out
+    for section in ("guest issue 1", "guest issue 2", "dss",
+                    "sp_interaction_notes", "confidence trail"):
+        assert f"── {section} ──" in out, f"--detail omits {section}"
+    assert "a coercion fired" in out, "the trail is not printed"
+    assert '"root_cause": "we erred"' in out, "the issue JSON is not printed"
+
+
+def test_detail_measures_the_two_fields_with_ceilings(seeded):
+    """198 words got past review once because nothing counted."""
+    _, out = _run(seeded, "--bid", "32908218", "--detail")
+    assert "/ 120 words   suggested_response" in out
+    assert "200" in out, "a 200-word reply is not reported over its ceiling"
+
+
+def test_a_single_issue_can_be_asked_for(seeded):
+    _, out = _run(seeded, "--bid", "32908218", "--issue", "2")
+    assert "── guest issue 2 ──" in out
+    assert "── guest issue 1 ──" not in out
+
+
+def test_the_short_form_says_detail_exists(seeded):
+    _, out = _run(seeded, "--bid", "32908218")
+    assert "--detail prints these in full" in out
+    assert "── dss ──" not in out
