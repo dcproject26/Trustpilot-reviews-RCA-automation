@@ -158,6 +158,66 @@ def test_it_refuses_to_run_with_nothing_to_anchor_on(bq_with):
     assert runner.calls == [], "no query may be issued with nothing to narrow by"
 
 
+def test_a_name_on_its_own_is_not_enough_to_search_on(bq_with):
+    """"Guests called Sven who contacted support in the last 18 months" is a
+    long list. Returning the most recent eight as candidates dresses noise up
+    as a match, which is worse than saying nothing - the associate has no way
+    to tell the difference."""
+    runner = bq_with([_row("88001", "Sven Bauer")])
+    out = asyncio.run(bq.find_via_support(
+        dict(SVEN, dates_mentioned=[], experience_or_venue=None),
+        author="Sven Bauer"))
+    assert out == []
+    assert runner.calls == [], "a bare name must not reach the query"
+
+
+def test_a_name_with_a_venue_is_enough(bq_with):
+    """Two agreements, even with no date."""
+    runner = bq_with([_row("88001", "Sven Bauer")])
+    out = asyncio.run(bq.find_via_support(
+        dict(SVEN, dates_mentioned=[], experience_or_venue="Wicked"),
+        author="Sven Bauer"))
+    assert out and runner.calls
+
+
+def test_a_venue_that_is_really_a_product_type_is_dropped_and_retried(bq_with,
+                                                                     monkeypatch):
+    """Guests name product types: "musical ticket", "skip-the-line entry".
+    None of those is an experience_name, so ANDing it in turns a search that
+    would have found something into one that finds nothing."""
+    calls = []
+
+    def _runner(sql, params):
+        calls.append({p.name: p.value for p in params})
+        # The venue filter matches nothing; without it there is a booking.
+        return [] if "venue" in calls[-1] else [_row("88001", "Sven Bauer")]
+
+    monkeypatch.setattr(bq, "is_live", lambda name: True)
+    monkeypatch.setattr(bq, "_run_query", _runner)
+    monkeypatch.setattr(bq, "_bqlib", types.SimpleNamespace(
+        ScalarQueryParameter=_Param, ArrayQueryParameter=_Param))
+
+    out = asyncio.run(bq.find_via_support(
+        dict(SVEN, experience_or_venue="musical ticket"), author="Sven Bauer"))
+
+    assert len(calls) == 2, "the venue should have been dropped and retried"
+    assert "venue" in calls[0] and "venue" not in calls[1]
+    assert out and out[0]["id"] == "88001"
+    assert not any("venue" in m for m in out[0]["matched_on"]), \
+        "the result must not claim a venue agreement that was dropped"
+
+
+def test_the_venue_is_not_dropped_when_it_is_holding_the_search_up(bq_with):
+    """With no dates, name+venue IS the anchor. Dropping the venue would leave
+    a bare name, which is exactly what the rule above forbids."""
+    runner = bq_with([])
+    out = asyncio.run(bq.find_via_support(
+        dict(SVEN, dates_mentioned=[], experience_or_venue="Wicked"),
+        author="Sven Bauer"))
+    assert out == []
+    assert len(runner.calls) == 1, "no retry may strip the anchor itself"
+
+
 def test_only_bookings_with_a_contact_are_considered(bq_with):
     """The join to fct_support_queries is the whole point - without it this
     is just a name search over every booking ever made."""
