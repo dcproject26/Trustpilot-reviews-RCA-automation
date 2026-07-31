@@ -1062,6 +1062,26 @@ def _evidence(sig: dict) -> int:
     return len(kinds)
 
 
+def _is_inferred_today(d, indicators: dict, review_date: str | None) -> bool:
+    """Is this date the model's reading of "today" rather than a fact?
+
+    Amanda's review says "I am at the venue" and names no date. Extraction is
+    told to resolve relative dates against the post date, so visit_date_hint
+    came back as the post date - and every booking visiting that day agreed
+    with it. There are hundreds worldwide, so it discriminates nothing while
+    reading on the card as corroboration: five Amandas on five continents,
+    each labelled a match on "visit date 2026-07-30".
+
+    A date the guest actually WROTE is in dates_mentioned; if that is empty
+    and the hint is simply the post date, the hint is an inference.
+    """
+    if not review_date:
+        return False
+    if indicators.get("dates_mentioned"):
+        return False        # the review named dates; the hint is corroborated
+    return str(d)[:10] == str(review_date)[:10]
+
+
 def _dates_agree(a: str, b: str) -> bool:
     """Two dates naming the same day, allowing the year to be off by one.
 
@@ -1125,7 +1145,8 @@ def _date_in_text(iso: str, hay: str) -> bool:
 
 async def shortlist(indicators: dict, author_first, author_last,
                     limit_total: int = 5, since: str | None = None,
-                    notes: list | None = None) -> list[dict]:
+                    notes: list | None = None,
+                    review_date: str | None = None) -> list[dict]:
     """
     The bookings a review's indicators actually point at.
 
@@ -1296,7 +1317,8 @@ async def shortlist(indicators: dict, author_first, author_last,
                 # unrelated Amandas came back in ticket order.
                 _cand_dates = [d for d in ([indicators.get("visit_date_hint")]
                                            + list(indicators.get("dates_mentioned") or []))
-                               if d]
+                               if d and not _is_inferred_today(d, indicators,
+                                                               review_date)]
                 _visit_hit = next(
                     (d for d in _cand_dates
                      if _dates_agree(sig.get("visit_date"), d)), None)
@@ -1333,6 +1355,15 @@ async def shortlist(indicators: dict, author_first, author_last,
                 sig["ticket_id"]  = tid
                 if ok:
                     sig["matched_on"] = used
+                    # "Satisfies every indicator" is vacuous when the review
+                    # gave us one. Amanda's review has a first name and nothing
+                    # else, so every ticket for a guest called Amanda satisfies
+                    # every indicator there is - five different people on five
+                    # continents, each labelled a confident match. One agreement
+                    # is a lead, not an identification, and the card has to say
+                    # which it is.
+                    if _evidence(sig) < 2 and not _visit_hit:
+                        sig["weak"] = True
                     by_bid[bid] = sig
                     weak_by_bid.pop(bid, None)   # promoted: drop the weak reading
                 elif name and name_matches(sig.get("guest_name") or "",
