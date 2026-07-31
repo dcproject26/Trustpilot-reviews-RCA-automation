@@ -395,14 +395,69 @@ def test_a_failed_query_is_reported_not_silently_dropped(zendesk_with):
     assert any(n["kind"] == "failed" for n in notes)
 
 
-def test_the_date_floor_only_bounds_the_broad_queries(zendesk_with):
-    """A floor on the combined queries could only drop a real match; they are
-    already narrow enough not to truncate."""
+def test_every_query_carries_the_date_floor(zendesk_with):
+    """Including the combined ones. "Tom Tom guided tour" and "Tom Tom France"
+    both hit Zendesk's cap on live data - Zendesk ANDs words that appear in
+    almost every ticket, so a combined query is not automatically narrow."""
     qs = _Queries({})
     zendesk_with(qs, {})
-    asyncio.run(zd.shortlist(dict(SVEN, experience_or_venue="Louvre"),
+    asyncio.run(zd.shortlist(dict(SVEN, experience_or_venue="Louvre",
+                                  city_or_country="Paris"),
                              "Sven", "", since="2025-01-01"))
-    combined = [q for q in qs.seen if "Louvre" in q and "requester" not in q]
-    assert combined, f"no combined query ran; got {qs.seen}"
-    assert not any("created>" in q for q in combined), \
-        "the narrow combined query must not carry the floor"
+    assert qs.seen, "no queries ran"
+    unbounded = [q for q in qs.seen if "created>2025-01-01" not in q]
+    assert not unbounded, f"these queries can truncate silently: {unbounded}"
+
+
+def test_a_common_name_and_one_generic_phrase_is_not_a_match(zendesk_with):
+    """Live data: the reviewer "Tom Tom" produced five unrelated guests —
+    James Thomas Hamill, Tom Putzke, Tom Wammes, Tom Maksimov — each returned
+    as a confident match on "no guide found", a phrase in a great many
+    tickets. Presenting those as matches is worse than presenting nothing:
+    the associate cannot see they are unrelated."""
+    t = _ticket("t1", "50001", "Tom Putzke", "Tour", "there was no guide found")
+    qs = _Queries({"Tom": [t]})
+    zendesk_with(qs, {"t1": {"booking_id": "50001", "guest_name": "Tom Putzke"}})
+    ind = dict(SVEN, guest_name="Tom", dates_mentioned=[], visit_date_hint=None,
+               issue_terms=["no guide found", "guided tour not provided"])
+    out = asyncio.run(zd.shortlist(ind, "Tom", ""))
+    assert out, "it should still be offered — as a weak candidate"
+    assert out[0].get("weak") is True, \
+        "a common name plus one generic phrase must not be labelled a match"
+
+
+def test_two_agreements_still_promote(zendesk_with):
+    """The rule is two corroborations, not zero. A ticket naming the problem
+    AND a date the review named is still a real match."""
+    t = _ticket("t1", "50002", "Sven Bauer", "Falscher Voucher",
+                "falsches Datum 20.06.2026 auf dem Voucher")
+    qs = _Queries({"Sven": [t]})
+    zendesk_with(qs, {"t1": {"booking_id": "50002", "guest_name": "Sven Bauer"}})
+    out = asyncio.run(zd.shortlist(SVEN, "Sven", ""))
+    assert out and not out[0].get("weak"), \
+        "problem + date is two independent agreements and must promote"
+
+
+def test_the_visit_date_hint_is_used_for_ranking(zendesk_with, monkeypatch):
+    """Amanda's review says "I am at the venue" and names no date, so
+    dates_mentioned was empty and visit_date_hint held the only date that
+    mattered. Ranking looked at neither and returned five unrelated Amandas
+    in ticket order."""
+    right = _ticket("t1", "51001", "Amanda Lopes", "B", "—")
+    wrong = _ticket("t2", "51002", "Amanda Harris", "B", "—")
+    qs = _Queries({"Amanda": [wrong, right]})
+    zendesk_with(qs, {
+        "t1": {"booking_id": "51001", "guest_name": "Amanda Lopes",
+               "visit_date": "2026-07-30"},
+        "t2": {"booking_id": "51002", "guest_name": "Amanda Harris",
+               "visit_date": "2026-08-22"},
+    })
+    monkeypatch.setattr(zd, "matches_indicators",
+                        lambda sig, ind, f, l: (True, ["name"]))
+    ind = {"guest_name": "Amanda", "experience_or_venue": None,
+           "city_or_country": None, "visit_date_hint": "2026-07-30",
+           "dates_mentioned": [], "issue_terms": []}
+    out = asyncio.run(zd.shortlist(ind, "Amanda", ""))
+    assert out[0]["booking_id"] == "51001", \
+        "the booking on the day she was standing at the venue must rank first"
+    assert any("visit date" in m for m in out[0]["matched_on"])

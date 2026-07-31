@@ -106,15 +106,22 @@ def test_confirming_a_candidate_finds_it_by_the_id_it_was_given():
 
 # ── 3. the searches are bounded, and say when they were not enough ──────────
 
-def test_broad_searches_carry_a_date_floor():
+def test_every_search_carries_a_date_floor():
     """Zendesk returns at most a fixed number of rows and drops the rest with
-    no indication. On a bare name the right booking can fall outside it."""
+    no indication.
+
+    The combined queries were left unbounded on the assumption they could not
+    truncate. Live data disproved it: 'type:ticket Tom Tom guided tour' and
+    'type:ticket Tom Tom France' both hit the cap, because Zendesk ANDs words
+    that appear in almost every ticket. An unbounded query that truncates
+    drops matches arbitrarily, which is worse than a floor dropping old ones.
+    """
     assert "BOUND = f\" created>{since}\" if since else \"\"" in ZD
-    for q in ("f'type:ticket {name}{BOUND}", "f'type:ticket \"{venue}\"{BOUND}"):
-        assert q in ZD, f"the broad query {q} is unbounded"
-    # ...and the narrow combined queries are NOT bounded, since they cannot
-    # truncate and a floor could only drop a real match.
-    assert "f'type:ticket {name} {venue} {ORDER}'" in ZD
+    built = re.findall(r"queries\.append\(\(f'([^']+)'", ZD)
+    built += re.findall(r"issue_queries\.append\(\(f'([^']+)'", ZD)
+    assert built, "no queries found to check"
+    unbounded = [q for q in built if "{BOUND}" not in q]
+    assert not unbounded, f"these queries can truncate silently: {unbounded}"
 
 
 def test_the_pipeline_passes_the_floor_and_reads_the_notes():
