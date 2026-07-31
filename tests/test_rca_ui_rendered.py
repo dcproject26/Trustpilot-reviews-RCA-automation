@@ -101,6 +101,9 @@ s.add(db.Review(id="tp_ui", slack_ts="1", slack_channel="C1", rating=1,
                 received_at=datetime.utcnow()))
 s.add(db.RcaDraft(id="d_ui", review_id="tp_ui", rca_v3=v, booking={{"id": "32908218"}},
                   match_tier=1, rca_prompt_version=RCA_PROMPT_VERSION,
+                  confidence_trail=[
+                    {{"mark": "pass", "text": "<strong>BID extracted</strong> via attachment"}},
+                    {{"mark": "warn", "text": "<strong>RCA</strong> — a coercion fired"}}],
                   generated_at=datetime.utcnow(),
                   support_interaction_frames=json.loads({json.dumps(json.dumps(FRAMES))}),
                   l1=v["l1"], l2=v["l2"], sub_theme="C. Ticket Delayed",
@@ -282,3 +285,86 @@ def test_the_claim_quote_marks_share_a_line_with_the_text(page):
         const ed = q.querySelector('[contenteditable]');
         return ed.getBoundingClientRect().top - q.getBoundingClientRect().top; })""")
     assert got and all(d < 4 for d in got), got
+
+
+# ── defect 5: an exception is never a trail step ────────────────────────────
+
+RAW_ERR = ("(psycopg2.OperationalError) SSL connection has been closed unexpectedly "
+           "[SQL: SELECT rca_drafts.id AS rca_drafts_id, rca_drafts.review_id AS "
+           "rca_drafts_review_id FROM rca_drafts WHERE rca_drafts.review_id = "
+           "%(review_id_1)s LIMIT %(param_1)s]")
+
+
+def _inject_failure(page):
+    page.evaluate("""(raw) => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      r._keepTrail = r.confidenceTrail;
+      r.confidenceTrail = [...(r.confidenceTrail || []), {
+        mark: 'fail', title: 'Run failed — OperationalError',
+        text: '<strong>Run failed</strong> — the database connection dropped mid-run. '
+            + 'Nothing was saved for this step. Re-run the review.',
+        raw: raw}];
+      renderReviewCol(); }""", RAW_ERR)
+
+
+def _restore(page):
+    page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      if (r._keepTrail) r.confidenceTrail = r._keepTrail;
+      state.rawErrOpen = {};
+      renderReviewCol(); }""")
+
+
+def test_a_pipeline_exception_is_not_rendered_inline(page):
+    """"✗ Run failed — OperationalError: (psycopg2…) SSL connection…" with 500
+    characters of SELECT was the deployed build."""
+    _inject_failure(page)
+    got = page.evaluate("""() => {
+      const s = [...document.querySelectorAll('.conf-step.fail')].pop();
+      return {text: s.innerText, toggle: !!s.querySelector('[data-raw-err]')}; }""")
+    _restore(page)
+    assert "SELECT rca_drafts" not in got["text"], "the SQL is inline in the trail"
+    assert "connection dropped mid-run" in got["text"], "no plain-language sentence"
+    assert got["toggle"], "the raw error has nowhere to go"
+
+
+def test_the_raw_error_is_behind_a_toggle_and_capped(page):
+    _inject_failure(page)
+    page.click(".conf-step.fail [data-raw-err]")
+    page.wait_for_timeout(250)
+    got = page.evaluate("""() => {
+      const raw = [...document.querySelectorAll('.err-raw')].pop();
+      if (!raw) return null;
+      const cs = getComputedStyle(raw);
+      return {mono: /mono|Menlo|SFMono|Consolas/i.test(cs.fontFamily),
+              size: cs.fontSize, maxh: cs.maxHeight, overflow: cs.overflowY,
+              wrap: cs.overflowWrap, sql: raw.innerText.includes('SELECT rca_drafts')}; }""")
+    _restore(page)
+    assert got, "the toggle did not reveal the raw error"
+    assert got["mono"] and got["size"] == "10.5px"
+    assert got["maxh"] == "120px" and got["overflow"] == "auto"
+    assert got["wrap"] == "anywhere", "a long SQL line will push the panel apart"
+    assert got["sql"], "the raw error was discarded rather than hidden"
+
+
+def test_a_normal_trail_step_grows_no_toggle(page):
+    """Only a step that carries a raw error gets one."""
+    got = page.evaluate("""() => [...document.querySelectorAll('.conf-step')]
+        .filter(s => !s.classList.contains('fail'))
+        .every(s => !s.querySelector('[data-raw-err]'))""")
+    assert got
+
+
+# ── §14 the RCA header is one row ───────────────────────────────────────────
+
+def test_the_rca_header_is_a_single_baseline_row(page):
+    got = page.evaluate("""() => {
+      const h = document.querySelector('#rca-col .rca-head');
+      const t = h.querySelector('.rca-title'), s = h.querySelector('.rca-sub');
+      return {same_line: Math.abs(t.getBoundingClientRect().top
+                                  - s.getBoundingClientRect().top) < 4,
+              height: Math.round(h.getBoundingClientRect().height),
+              title: h.getAttribute('title') || ''}; }""")
+    assert got["same_line"], "the label and sub-line are still stacked"
+    assert got["height"] < 60, got["height"]
+    assert "paste" in got["title"], "the dropped clause is not in the row's title"
