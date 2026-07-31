@@ -219,3 +219,17 @@ def test_rematch_searches_the_way_the_pipeline_searches():
 def test_rematch_reports_truncation_it_is_told_about():
     for marker in ("hit Zendesk's result", "incomplete search"):
         assert marker in TOOL, f"truncation is collected but not reported ({marker})"
+
+
+def test_rematch_tells_shortlist_the_review_date():
+    """Without it, shortlist cannot tell a date the guest wrote from one the
+    model inferred from "today" — so the tool reported five Amandas on five
+    continents as matches while the pipeline, which does pass it, would not.
+    A diagnostic that omits a parameter is diagnosing something else."""
+    assert TOOL.count("review_date=_review_date(rv)") >= 2, \
+        "both the single-review and batch paths must pass the review date"
+
+
+def test_the_pipeline_tells_shortlist_the_review_date():
+    i = PIPE.find("_short = await zendesk.shortlist(")
+    assert "review_date=" in PIPE[i:i + 400]

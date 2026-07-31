@@ -1389,7 +1389,18 @@ async def shortlist(indicators: dict, author_first, author_last,
                     # independent agreements: two distinct problem phrases, or
                     # a phrase and a date, or a phrase and the ticket's own
                     # visit date landing on a date the review named.
-                    _corroborations = (len(hit_terms) + (1 if hit_dates else 0)
+                    # KINDS of agreement, not phrases. Extraction returns 2-5
+                    # ways of saying the same problem - "guided tour no guide",
+                    # "tour guide not present", "guided tour not provided" -
+                    # and counting each as its own corroboration made one
+                    # complaint look like three. That promoted four bookings in
+                    # Athens and Rome to matches for a review about France,
+                    # because a Tom matched a Thomas and the ticket said the
+                    # guide did not show up. The problem, a date, and the visit
+                    # date are three different kinds of evidence; three
+                    # paraphrases are one.
+                    _corroborations = ((1 if hit_terms else 0)
+                                       + (1 if hit_dates else 0)
                                        + (1 if _visit_hit else 0))
                     if issue_pass and _corroborations >= 2:
                         sig["matched_on"] = ["name"] + (

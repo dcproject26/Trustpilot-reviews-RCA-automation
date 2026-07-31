@@ -27,6 +27,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BAR = "─" * 74
 
 
+def _review_date(rv):
+    """The review's own post date, which tells shortlist whether a date the
+    model produced was stated by the guest or inferred from "today"."""
+    from datetime import datetime
+    return (rv.received_at or datetime.utcnow()).date().isoformat()
+
+
 def _since_for(rv):
     """The date floor the pipeline uses, so this searches what it searches."""
     from datetime import datetime, timedelta
@@ -103,7 +110,8 @@ async def run(review_id: str, write: bool):
         else:
             notes = []
             short = await zd.shortlist(ind, first, last,
-                                       since=_since_for(rv), notes=notes)
+                                       since=_since_for(rv), notes=notes,
+                                       review_date=_review_date(rv))
             for n in notes:
                 if n["kind"] == "truncated":
                     print(f"  [!] the {n['label']} search hit Zendesk's result "
@@ -253,7 +261,8 @@ async def batch(limit: int):
                 try:
                     notes = []
                     after = await zd.shortlist(ind, first, last,
-                                               since=_since_for(rv), notes=notes)
+                                               since=_since_for(rv), notes=notes,
+                                               review_date=_review_date(rv))
                     for n in notes:
                         truncations.append((rv.id, n["kind"], n["label"]))
                 except Exception as e:
