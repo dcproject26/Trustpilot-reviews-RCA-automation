@@ -530,3 +530,42 @@ def test_two_indicators_are_still_a_match(zendesk_with, monkeypatch):
                                    "Sven", ""))
     assert out and not out[0].get("weak"), \
         "name and venue agreeing is an identification"
+
+
+def test_two_paraphrases_of_one_complaint_are_one_agreement(zendesk_with):
+    """Live regression. Extraction returns several ways of saying the same
+    thing — "guided tour no guide", "tour guide not present", "guided tour not
+    provided" — and counting each as its own corroboration made one complaint
+    look like three. Four bookings in Athens and Rome were promoted to matches
+    for a review about France, because a Tom matched a Thomas and the ticket
+    said the guide did not show up."""
+    # "Tom Revell" rather than "Thomas Revell": the real matcher pairs Tom to
+    # Thomas through the nickname table, which is correct and not what this
+    # test is about. The fixture's name stub is a substring test, so a name it
+    # matches keeps the test on the thing it is checking - how corroborations
+    # are counted.
+    t = _ticket("t1", "53001", "Tom Revell", "Tour",
+                "the guided tour had no guide, the tour guide was not present")
+    qs = _Queries({"Tom": [t]})
+    zendesk_with(qs, {"t1": {"booking_id": "53001", "guest_name": "Tom Revell"}})
+    ind = {"guest_name": "Tom", "experience_or_venue": None,
+           "city_or_country": "France", "visit_date_hint": None,
+           "dates_mentioned": [],
+           "issue_terms": ["guided tour no guide", "tour guide not present",
+                           "guided tour not provided"]}
+    out = asyncio.run(zd.shortlist(ind, "Tom", "", review_date="2026-07-30"))
+    assert out, "still a lead"
+    assert out[0].get("weak") is True, (
+        "three phrasings of one complaint are one agreement, not three — "
+        f"got matched_on={out[0]['matched_on']}")
+
+
+def test_a_problem_and_a_date_are_two_different_kinds(zendesk_with):
+    """The rule is kinds, not count. A phrase plus a date the review named is
+    two genuinely independent agreements and still promotes."""
+    t = _ticket("t1", "53002", "Sven Bauer", "Voucher",
+                "falsches Datum 20.06.2026 auf dem Voucher")
+    qs = _Queries({"Sven": [t]})
+    zendesk_with(qs, {"t1": {"booking_id": "53002", "guest_name": "Sven Bauer"}})
+    out = asyncio.run(zd.shortlist(SVEN, "Sven", "", review_date="2026-07-30"))
+    assert out and not out[0].get("weak")
