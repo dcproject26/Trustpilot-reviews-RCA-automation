@@ -156,6 +156,9 @@ def main():
                     help="same, but find the review by author name (newest wins)")
     ap.add_argument("--list", action="store_true",
                     help="list reviews that have extracted indicators, and stop")
+    ap.add_argument("--reextract", action="store_true",
+                    help="re-run extraction with the CURRENT prompt and use that "
+                         "instead of what is stored (does not write anything)")
     args = ap.parse_args()
 
     if args.list:
@@ -205,7 +208,42 @@ def main():
             name = (rv.author or "") or real.get("guest_name") or ""
             print(f"review {rv.id} — author {name!r}")
             print(f"  {(rv.body_english or rv.body_original or '')[:200]}")
-            print(f"  indicators as extracted: {real}\n")
+            print(f"  indicators AS STORED: {real}")
+
+            missing = [f for f in ("issue_terms", "dates_mentioned", "outcome")
+                       if f not in real]
+            if missing and not args.reextract:
+                print(f"\n  [!] stored indicators have no {', '.join(missing)}.")
+                print(f"      This draft was produced by an older build — those")
+                print(f"      fields are what the issue search and the date")
+                print(f"      filter run on, so both are inert for this review.")
+                print(f"      Re-run with --reextract to see what the current")
+                print(f"      prompt produces from the same review text.")
+
+            if args.reextract:
+                import asyncio as _aio
+                from server.services import claude as _cl
+                from server.prompts import match_indicator_prompt
+                body = (rv.body_english or rv.body_original or "")
+                orig = (rv.body_original or "")
+                text = body if orig in body else f"{body}\n{orig}".strip()
+                pub = (rv.received_at.date().isoformat() if rv.received_at else "")
+                print("\n  re-running extraction with the current prompt…")
+                raw = _aio.run(_cl._call(
+                    match_indicator_prompt(text, pub, reviewer_name=rv.author or ""),
+                    max_tokens=400))
+                fresh = _cl._extract_json_object(raw) or {}
+                if not fresh:
+                    print(f"  [FAIL] extraction returned nothing usable:\n{raw[:400]}")
+                    return 1
+                print(f"  indicators NOW: {fresh}\n")
+                for f in ("issue_terms", "dates_mentioned", "outcome"):
+                    got = fresh.get(f)
+                    mark = "ok  " if got else "MISS"
+                    print(f"    [{mark}] {f}: {got!r}")
+                print()
+                ind = dict(fresh)
+                name = (rv.author or "") or fresh.get("guest_name") or ""
         finally:
             db.close()
 

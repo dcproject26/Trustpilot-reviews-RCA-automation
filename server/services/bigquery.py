@@ -231,7 +231,8 @@ def _search_name(raw: str) -> str:
     return parts[0]
 
 
-def support_search_sql(indicators: dict, author: str = "", limit: int = 8):
+def support_search_sql(indicators: dict, author: str = "", limit: int = 8,
+                       use_venue: bool = True):
     """Build the support-anchored query. Returns (sql, params) or (None, None).
 
     Separated from the call so tools/check_support_search.py can dry-run the
@@ -240,10 +241,15 @@ def support_search_sql(indicators: dict, author: str = "", limit: int = 8):
     """
     name  = _search_name(author or indicators.get("guest_name") or "")
     dates = _iso_dates(indicators.get("dates_mentioned"))
-    venue = (indicators.get("experience_or_venue") or "").strip()
-    # Something to anchor on is required. A bare "had a support contact"
-    # query would return the whole table.
-    if not name and not dates:
+    venue = (indicators.get("experience_or_venue") or "").strip() if use_venue else ""
+    # Two independent facts, or nothing. A name on its own is not evidence:
+    # "guests called Sven who contacted support in the last 18 months" is a
+    # long list, and returning the most recent eight of them as candidates
+    # dresses up noise as a match. A date narrows it to something real, and
+    # name+venue is two agreements. Neither available means this path has
+    # nothing to say, and saying so is the correct answer.
+    _venue_for_gate = (indicators.get("experience_or_venue") or "").strip()
+    if not dates and not (name and _venue_for_gate):
         return None, None
 
     # In MOCK_MODE _bqlib is None, but the parameter classes are plain data
@@ -330,12 +336,34 @@ async def find_via_support(indicators: dict, author: str = "",
     sql, params = support_search_sql(indicators, author, limit)
     if sql is None:
         return []
+
+    def _go(_sql, _params):
+        return _run_query(_sql, _params)
+
+    loop = asyncio.get_running_loop()
     try:
-        rows = await asyncio.get_running_loop().run_in_executor(
-            None, lambda: _run_query(sql, params))
+        rows = await loop.run_in_executor(None, lambda: _go(sql, params))
     except Exception as e:
         log.warning(f"[bq] support-anchored search failed: {e}")
         return []
+
+    # experience_or_venue is whatever the guest called it, and guests name
+    # product types: "musical ticket", "skip-the-line entry", "guided tour".
+    # None of those is an experience_name, so ANDing it in turns a search that
+    # would have found something into one that finds nothing. When dates are
+    # carrying the search anyway, drop the venue and ask again.
+    if not rows and venue and dates:
+        sql2, params2 = support_search_sql(indicators, author, limit,
+                                           use_venue=False)
+        if sql2:
+            log.info(f"[bq] support-anchored: 0 rows with venue={venue!r}; "
+                     f"retrying on name and dates alone")
+            try:
+                rows = await loop.run_in_executor(None, lambda: _go(sql2, params2))
+                venue = ""      # so matched_on does not claim a venue agreement
+            except Exception as e:
+                log.warning(f"[bq] support-anchored retry failed: {e}")
+                return []
 
     out = []
     for r in rows:
