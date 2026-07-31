@@ -213,3 +213,43 @@ def test_the_schema_says_what_the_columns_are():
                     if l.strip().startswith(f"{col} ") and "Column(" in l)
         assert "projection of rca_v3" in line, \
             f"{col} does not say it is a projection; it reads as a field of its own"
+
+
+# ── facts and interpretation are different kinds of thing ───────────────────
+
+def test_the_model_cannot_displace_a_zendesk_derived_frame(app_env):
+    """This is not one store with two writers, it is a fact source and an
+    interpretation source. Under a shared key, presence-based reading would let
+    the model's account replace the rows built from real tickets."""
+    db, api = app_env
+    frames = [{"ticket_id": "4491", "time": "22 Jul 15:41", "thread": "email",
+               "guestSaid": "Where are my tickets?", "weDid": "Resent them."}]
+    rid = _seed(db, support_interaction_frames=frames,
+                rca_v3={"support_interaction_notes": [
+                    {"zd_ref": "ZD-4491", "summary": "Guest chased the voucher.",
+                     "ce_miss": "No proactive update after the first failure."}]})
+    out = _load(db, api, rid)[0]
+    assert out["support_interaction"] == frames, \
+        "the model's account replaced the rows built from real tickets"
+    assert out["support_interaction_notes"][0]["ce_miss"], \
+        "the interpretation must still reach the renderer"
+
+
+def test_the_two_keys_never_collide(app_env):
+    """Distinct keys are what makes the precedence structural rather than a
+    rule someone has to remember."""
+    db, api = app_env
+    rid = _seed(db, support_interaction_frames=[{"ticket_id": "1"}], rca_v3={})
+    out = _load(db, api, rid)[0]
+    assert out["support_interaction"] == [{"ticket_id": "1"}]
+    assert out["support_interaction_notes"] == []
+
+
+def test_sp_facts_and_sp_interpretation_are_also_split(app_env):
+    db, api = app_env
+    rid = _seed(db, sp_interaction_frames=[{"ticket_id": "7", "time": "22 Jul 16:02"}],
+                rca_v3={"sp_interaction_notes": {"raised": "Yes", "records": [
+                    {"zd_ref": "ZD-7", "summary": "Operator confirmed the no-show."}]}})
+    out = _load(db, api, rid)[0]
+    assert out["sp_interaction"] == [{"ticket_id": "7", "time": "22 Jul 16:02"}]
+    assert out["sp_interaction_notes"]["raised"] == "Yes"

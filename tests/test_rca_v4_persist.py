@@ -303,3 +303,25 @@ def _find_all(hay: str, needle: str):
     while i >= 0:
         yield i, needle
         i = hay.find(needle, i + 1)
+
+
+# ── provenance: which prompt wrote this ─────────────────────────────────────
+
+def test_a_regenerated_draft_is_stamped_with_the_prompt_version(app_env):
+    """A v3 row read as a v4 checkpoint reports every v3 artefact as a
+    validator failure, and nothing on the row says otherwise. That cost a
+    re-run once; the stamp is what stops it happening twice."""
+    from server.prompts import RCA_PROMPT_VERSION
+    db, api = app_env
+    rid = _seed(db)
+    _regenerate(db, api, rid)
+    assert _reload(db, rid).rca_prompt_version == RCA_PROMPT_VERSION
+
+
+def test_the_pipeline_stamps_only_when_it_produced_an_rca():
+    """A failed generation keeps the previous blob, so it must keep that
+    blob's version too — claiming v4 over v3 content is worse than no stamp."""
+    i = PIPE.find("draft.rca_prompt_version")
+    assert i > 0, "the pipeline never stamps the prompt version"
+    assert "if _v3:" in PIPE[max(0, i - 300):i], \
+        "the stamp is written unconditionally, so a failed RCA is labelled v4"

@@ -288,19 +288,27 @@ def _draft_dict(d: RcaDraft) -> dict:
         "flags":            _v4(d, "flags", "flags", []),
         "takedown":         _v4(d, "takedown", "takedown", {}),
         "dss":              _v4(d, "dss", "dss", {}),
-        # These two are NOT projections like the six above - they are two
-        # different sources for one section. The column holds the frames the
-        # pipeline built from real Zendesk tickets, which it treats as
-        # authoritative; rca_v3 holds the model's account of the same contacts,
-        # which is the one carrying ce_miss and detail. v4 asks for the model's
-        # version, so it wins here - but that reverses the pipeline's own
-        # precedence, and nothing reads these keys yet (the client still reads
-        # support_interaction_frames directly). Settle it when the client is
-        # rebuilt, not by leaving the winner to whichever happens to be present.
-        "support_interaction": _v4(d, "support_interaction_frames",
-                                   "support_interaction", []),
-        "sp_interaction":      _v4(d, "sp_interaction_frames",
-                                   "sp_interaction", {}),
+        # Facts and interpretation, sent separately and merged by the renderer.
+        # These are NOT two copies of one value like the six above, so _v4()
+        # is the wrong tool: presence-based reading would let the model's
+        # account displace Zendesk-derived facts.
+        #
+        #   *_frames  — the pipeline's rows, built from real tickets. Time,
+        #               channel and ticket id are verifiable. This is the row
+        #               list the UI renders.
+        #   *_notes   — the model's summary / detail / ce_miss, joined by
+        #               zd_ref. A note with no matching frame still renders,
+        #               marked unverified: either the guest contacted us off
+        #               Zendesk or the model invented a contact, and both are
+        #               worth seeing rather than silently dropping.
+        #
+        # One frame per timeline EVENT but one note per contact, so the join is
+        # many-frames-to-one-note; the renderer groups by zd_ref rather than
+        # pairing row for row.
+        "support_interaction":       d.support_interaction_frames or [],
+        "support_interaction_notes": (d.rca_v3 or {}).get("support_interaction_notes") or [],
+        "sp_interaction":            d.sp_interaction_frames or [],
+        "sp_interaction_notes":      (d.rca_v3 or {}).get("sp_interaction_notes") or {},
         "wwr_chain":                   d.wwr_chain or [],
         "prevention":                  d.prevention,
         "evidence":                    d.evidence or [],
@@ -1254,6 +1262,8 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
 
     # Same projection the pipeline does on save.
     d.rca_v3 = rca_v3
+    from server.prompts import RCA_PROMPT_VERSION
+    d.rca_prompt_version = RCA_PROMPT_VERSION
     _tldr = rca_v3.get("tldr")
     if isinstance(_tldr, dict):
         d.tldr = (f"Our mistake: {_tldr.get('our_mistake', '')} "

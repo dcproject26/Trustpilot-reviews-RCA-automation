@@ -638,6 +638,27 @@ def _points(v) -> list:
     return [str(v).strip()] if str(v or "").strip() else []
 
 
+def _zd_key(v) -> str:
+    """The digits of a ticket reference, whichever side wrote it.
+
+    The pipeline's frames carry ticket_id "4491"; the model writes zd_ref
+    "ZD-4491". Joining on the raw strings matched nothing, which looks exactly
+    like a model that returned no notes."""
+    import re as _re
+    m = _re.search(r"\d+", str(v or ""))
+    return m.group(0) if m else ""
+
+
+def _note_for(key: str, notes):
+    """The model's note for a ticket, or None."""
+    if not key or not isinstance(notes, list):
+        return None
+    for n in notes:
+        if isinstance(n, dict) and _zd_key(n.get("zd_ref")) == key:
+            return n
+    return None
+
+
 def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
     """The v3 layout, matching the dashboard preview section for section.
     Kept deliberately close to _genSlackText in client/index.html: the two
@@ -665,48 +686,70 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
     if w:
         def sub_lines(v):
             return nl.join(f"   - {x}" for x in _points(v))
-        parts = []
         gi = w.get("guest_issues") or []
-        parts.append("1. Guest issue" + nl +
-                     nl.join(f"• {g.get('issue', '')}" for g in gi))
-        acc = []
-        for g in gi:
-            acc.append(f"• {g.get('issue', '')}: {g.get('claim_accuracy', '—')}")
+        parts = []
+        # v4: one block per distinct complaint, each carrying its own analysis.
+        # The old layout stacked five numbered headings across ALL issues, so
+        # two complaints with different root causes were flattened into one
+        # list and the reader could not tell which cause belonged to which.
+        for n, g in enumerate(gi, 1):
+            head = f"*{n}. {g.get('issue', '(untitled)')}*"
+            meta = [x for x in (g.get("claim_accuracy"), g.get("owner")) if x]
+            if meta:
+                head += "  \u00b7  " + "  \u00b7  ".join(meta)
+            block = [head]
             if g.get("claim"):
-                acc.append(f"   - guest's words: \u201c{g['claim']}\u201d")
-            ev = sub_lines(g.get("evidence"))
-            if ev:
-                acc.append(ev)
-        parts.append("2. Is the guest's claim accurate?" + nl + nl.join(acc))
+                block.append(f"\u2022 Guest: \u201c{g['claim']}\u201d")
+            if g.get("claim_accuracy_note"):
+                block.append(f"\u2022 Why that verdict: {g['claim_accuracy_note']}")
+            # Only the lines this issue actually has. A dash for every absent
+            # field turns a focused block into a form with blanks in it.
+            for key, label in (("root_cause", "Root cause"),
+                               ("operational_failure", "Operational failure"),
+                               ("sop_gap", "SOP gap"),
+                               ("pattern", "Pattern"),
+                               ("fix", "Fix")):
+                if g.get(key):
+                    block.append(f"\u2022 {label}: {g[key]}")
+            for e in (g.get("evidence") or []):
+                if isinstance(e, str):
+                    block.append(f"   - {e}")
+                    continue
+                if not isinstance(e, dict) or not e.get("text"):
+                    continue
+                src = f"[{e['source']}] " if e.get("source") else ""
+                ref = f" ({e['ref']})" if e.get("ref") else ""
+                block.append(f"   - {src}{e['text']}{ref}")
+            parts.append(nl.join(block))
+
+        # Pre-v4 drafts keep their analysis at document level. Rendering both
+        # means an old RCA reposted from the dashboard still says something,
+        # rather than showing a heading with nothing under it.
         wh = w.get("what_happened") or {}
-        # Root cause now lives on its issue, with the owning team beside it.
-        # Older drafts keep theirs in what_happened.root_causes, so both are
-        # rendered - dropping either would blank the section for one of them.
-        wl = [f"• [{g.get('owner', '?')}] {g.get('issue', '')}: {g['root_cause']}"
-              for g in gi if g.get("root_cause")]
-        wl += [f"• [{c.get('classification', '?')}] "
-               f"{(c.get('issue') + ': ') if c.get('issue') else ''}{c.get('cause', '')}"
-               for c in (wh.get("root_causes") or [])]
+        legacy = [f"\u2022 [{c.get('classification', '?')}] "
+                  f"{(c.get('issue') + ': ') if c.get('issue') else ''}{c.get('cause', '')}"
+                  for c in (wh.get("root_causes") or [])]
         if _points(wh.get("operational_failure")):
-            wl.append("• Operational failure" + nl + sub_lines(wh.get("operational_failure")))
+            legacy.append("\u2022 Operational failure" + nl + sub_lines(wh.get("operational_failure")))
         if _points(wh.get("sop_gap")):
-            wl.append("• SOP gap" + nl + sub_lines(wh.get("sop_gap")))
+            legacy.append("\u2022 SOP gap" + nl + sub_lines(wh.get("sop_gap")))
         if wh.get("pattern"):
-            wl.append(f"• Pattern: {wh['pattern']}")
-        parts.append("3. What actually happened?" + nl + nl.join(wl))
+            legacy.append(f"\u2022 Pattern: {wh['pattern']}")
         sx = w.get("sp_escalation") or {}
-        sp_block = [f"• Escalated: {sx.get('escalated', '—')}"]
-        if sub_lines(sx.get("detail")):
-            sp_block.append(sub_lines(sx.get("detail")))
-        parts.append("4. Supply Partner escalation" + nl + nl.join(sp_block))
+        if sx.get("escalated"):
+            legacy.append(f"\u2022 Escalated to SP: {sx['escalated']}")
+        if _points(sx.get("detail")):
+            legacy.append(sub_lines(sx.get("detail")))
         fx = w.get("fixes") or {}
-        fl = []
         if fx.get("teams"):
-            fl.append("• Teams: " + ", ".join(fx["teams"]) +
-                      (f" · owner: {fx['owner']}" if fx.get("owner") else ""))
-        fl += [f"• {a}" for a in _points(fx.get("actions"))]
-        parts.append("5. Fixes" + nl + nl.join(fl))
-        sections.append(("What went wrong", (nl + nl).join(parts)))
+            legacy.append("\u2022 Teams: " + ", ".join(fx["teams"]) +
+                          (f" \u00b7 owner: {fx['owner']}" if fx.get("owner") else ""))
+        legacy += [f"\u2022 {a}" for a in _points(fx.get("actions"))]
+        if legacy:
+            parts.append(nl.join(legacy))
+
+        if parts:
+            sections.append(("What went wrong", (nl + nl).join(parts)))
 
     logs = v3.get("booking_logs") or []
     if logs:
@@ -739,32 +782,84 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
             sl.append(f"• {sop['detail']}")
         sections.append(("SOP compliance", nl.join(sl)))
 
-    si = v3.get("support_interaction") or []
-    if si:
-        rows = []
-        for x in si:
-            rows.append(f"• {x.get('time', '?')} · {x.get('channel', '')} — {x.get('summary', '')}"
-                        + (f" ({x['zd_ref']})" if x.get("zd_ref") else ""))
-            if x.get("ce_miss"):
-                rows.append(f"   ⚠ CE miss: {x['ce_miss']}")
-        sections.append(("Customer / CE interactions", nl.join(rows)))
-    else:
-        sections.append(("Customer / CE interactions",
-                         "No guest contact found on this booking"))
+    # Facts and interpretation, merged. The rows come from the pipeline's
+    # Zendesk-derived frames - their time, channel and ticket id are verifiable
+    # - and the model's summary / detail / ce_miss attach to them by zd_ref.
+    # One frame per timeline EVENT but one note per contact, so the join is
+    # many-to-one and a note may light up several rows of the same ticket.
+    si_notes = v3.get("support_interaction_notes")
+    if si_notes is None:
+        si_notes = v3.get("support_interaction")          # pre-split drafts
+    rows, used = [], set()
+    for fr in (draft.support_interaction_frames or []):
+        key = _zd_key(fr.get("ticket_id"))
+        note = _note_for(key, si_notes)
+        if note:
+            used.add(key)
+        said = (fr.get("guestSaid") or (note or {}).get("summary") or "").strip()
+        did  = (fr.get("weDid") or "").strip()
+        ch   = (fr.get("thread") or "").strip()
+        line = f"\u2022 {fr.get('time') or '?'}" + (f" \u00b7 {ch}" if ch else "")
+        if said:
+            line += f" \u2014 {said}"
+        if did:
+            line += f" | we: {did}"
+        if key:
+            line += f" (ZD-{key})"
+        rows.append(line)
+        gap = (fr.get("gap") or "").strip()
+        if gap:
+            rows.append(f"   \u26a0 {gap}")
+        if note and note.get("ce_miss"):
+            rows.append(f"   \u26a0 CE miss: {note['ce_miss']}")
+    # A contact the model reports and Zendesk does not still renders, marked
+    # unverified. Dropping it hides a real gap: either the guest reached us off
+    # Zendesk, or the model invented a contact. Both are worth seeing.
+    for note in (si_notes if isinstance(si_notes, list) else []):
+        if not isinstance(note, dict):
+            continue
+        if _zd_key(note.get("zd_ref")) in used:
+            continue
+        ch = note.get("channel") or ""
+        line = (f"\u2022 {note.get('time') or '?'}" + (f" \u00b7 {ch}" if ch else "")
+                + f" \u2014 {note.get('summary') or ''} (guest's account, unverified)")
+        rows.append(line)
+        if note.get("ce_miss"):
+            rows.append(f"   \u26a0 CE miss: {note['ce_miss']}")
+    sections.append(("Customer / CE interactions",
+                     nl.join(rows) if rows
+                     else "No guest contact found on this booking"))
 
-    sp = v3.get("sp_interaction") or {}
-    if sp:
-        # New shape: raised + records, same frame style as CE. Old drafts
-        # carry {possible, reason_if_not, detail} - render what they have.
-        rows = [f"• raised with SP: {sp.get('raised', '—')}"]
-        for rec in (sp.get("records") or []):
-            t = f"{rec.get('time', '')} — " if rec.get("time") else ""
-            zd = f" ({rec['zd_ref']})" if rec.get("zd_ref") else ""
-            rows.append(f"• {t}{rec.get('summary', '')}{zd}")
-        if not sp.get("records"):
-            rows += [f"• {d}" for d in _points(sp.get("detail"))]
-            if not _points(sp.get("detail")) and sp.get("reason_if_not"):
-                rows.append(f"• {sp['reason_if_not']}")
+    sp_notes = v3.get("sp_interaction_notes")
+    if sp_notes is None:
+        sp_notes = v3.get("sp_interaction")               # pre-split drafts
+    sp_notes = sp_notes if isinstance(sp_notes, dict) else {}
+    sp_frames = draft.sp_interaction_frames or []
+    if sp_frames or sp_notes:
+        rows = ["\u2022 raised with SP: " + str(sp_notes.get("raised") or "\u2014")]
+        recs, used = sp_notes.get("records") or [], set()
+        for fr in sp_frames:
+            key = _zd_key(fr.get("ticket_id"))
+            note = _note_for(key, recs)
+            if note:
+                used.add(key)
+            said = (fr.get("guestSaid") or (note or {}).get("summary") or "").strip()
+            did  = (fr.get("weDid") or "").strip()
+            line = f"\u2022 {fr.get('time') or '?'}" + (f" \u2014 {said}" if said else "")
+            if did:
+                line += f" | back: {did}"
+            if key:
+                line += f" (ZD-{key})"
+            rows.append(line)
+        for rec in (recs if isinstance(recs, list) else []):
+            if not isinstance(rec, dict) or _zd_key(rec.get("zd_ref")) in used:
+                continue
+            t = f"{rec.get('time')} \u2014 " if rec.get("time") else ""
+            rows.append(f"\u2022 {t}{rec.get('summary') or ''} (unverified)")
+        if len(rows) == 1:
+            rows += [f"\u2022 {d}" for d in _points(sp_notes.get("detail"))]
+            if not _points(sp_notes.get("detail")) and sp_notes.get("reason_if_not"):
+                rows.append(f"\u2022 {sp_notes['reason_if_not']}")
         sections.append(("SP interaction", nl.join(rows)))
 
     aoi = _points(v3.get("area_of_improving")) or _points(draft.area_of_improving)

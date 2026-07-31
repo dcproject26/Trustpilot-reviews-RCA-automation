@@ -247,7 +247,12 @@ def validate(rca: dict, scenarios_routed=None) -> tuple[dict, list]:
 
     sop = _obj(rca.get("sop_compliance"))
     dss = _obj(rca.get("dss"))
-    sp  = _obj(rca.get("sp_interaction"))
+    # Accept the pre-split key so a draft written before this change, and a
+    # model still reaching for the old name, both keep their interpretation.
+    sp  = _obj(rca.get("sp_interaction_notes") or rca.get("sp_interaction"))
+    contacts = (rca.get("support_interaction_notes")
+                if isinstance(rca.get("support_interaction_notes"), list)
+                else rca.get("support_interaction"))
 
     return {
         "stated_issue":      _clean(rca.get("stated_issue")),
@@ -268,23 +273,30 @@ def validate(rca: dict, scenarios_routed=None) -> tuple[dict, list]:
             "detail":   _clean(sop.get("detail")),
             "zd_ref":   _clean(sop.get("zd_ref")),
         },
+        # INTERPRETATION, not facts. The rows the UI renders come from the
+        # pipeline's Zendesk-derived frames - their time, channel and ticket id
+        # are verifiable. What the model adds is summary / detail / ce_miss,
+        # joined to a contact by zd_ref. Keeping them under a distinct key is
+        # what stops presence-based reading reversing that precedence: these
+        # can never collide with the frames because they are not the same key.
+        #
         # A "contact" whose only content is that no contact exists must not be
         # dressed as a data row - it renders as a numbered frame with an
         # UNKNOWN channel pill. The empty state says it better.
-        "support_interaction": [
+        "support_interaction_notes": [
             # channel falls back to null, not to a token: the UI then renders
             # no pill at all. "UNKNOWN" dressed as a channel pill is one of the
             # defects the closed vocabulary exists to remove.
-            r for r in _rows(rca.get("support_interaction"),
-                             ("channel", "time", "summary", "detail",
-                              "zd_ref", "ce_miss"), notes,
+            r for r in _rows(contacts,
+                             ("zd_ref", "summary", "detail", "ce_miss",
+                              "channel", "time"), notes,
                              enums={"channel": (CHANNELS, None)})
             if not re.search(r"\bno (guest )?contact\b|never (reached|contacted)",
                              (r.get("summary") or ""), re.I)
         ],
-        "sp_interaction": {
+        "sp_interaction_notes": {
             "raised":  _enum(sp.get("raised"), ("Yes", "No", "N/A"), "N/A"),
-            "records": _rows(sp.get("records"), ("time", "summary", "zd_ref")),
+            "records": _rows(sp.get("records"), ("zd_ref", "summary", "time")),
         },
         "booking_logs":      _rows(rca.get("booking_logs"), ("time", "what", "detail")),
         # team falls back to OTHER, not null: the UI renders it as a

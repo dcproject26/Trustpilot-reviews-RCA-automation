@@ -32,7 +32,8 @@ from server.services.rca_v4_validate import (                 # noqa: E402
 TOP_LEVEL = [
     "stated_issue", "tldr", "l1", "l2", "sub_themes", "scenarios",
     "overlay_scenarios", "what_went_wrong", "issue_specific_answers",
-    "sop_compliance", "support_interaction", "sp_interaction", "booking_logs",
+    "sop_compliance", "support_interaction_notes", "sp_interaction_notes",
+    "booking_logs",
     "flags", "area_of_improving", "resolution", "suggested_response",
     "takedown", "dss",
 ]
@@ -52,6 +53,36 @@ def _count(v):
         return f"{len([k for k, x in v.items() if _filled(x)])}/{len(v)} keys"
     s = str(v).strip()
     return f"{len(s.split())} words"
+
+
+def _v3_markers(rca, d):
+    """Signs the row was written by the pre-v4 prompt.
+
+    A stamped row needs none of this. It exists for the rows written before the
+    stamp, where the only way to tell v3 from v4 is the shape - and where every
+    enum violation is a v3 artefact rather than a validator failure. Reading one
+    as a v4 checkpoint is a wasted re-run at best and a wrong conclusion about
+    the prompt at worst.
+    """
+    m = []
+    if isinstance(rca.get("issue_specific_answers"), dict):
+        m.append("issue_specific_answers is the v3 {question: answer} map")
+    w = rca.get("what_went_wrong") or {}
+    for k in ("what_happened", "fixes", "sp_escalation"):
+        if k in w:
+            m.append(f"what_went_wrong.{k} is a v3 document-level heading")
+    for i in ((w.get("guest_issues") or []) if isinstance(w, dict) else []):
+        if isinstance(i, dict) and any(isinstance(e, str) for e in (i.get("evidence") or [])):
+            m.append("evidence entries are bare strings, not {text, source, ref}")
+            break
+    # v4 always returns these; absent means the model was never asked for them.
+    missing = [k for k in ("l1", "l2", "sub_themes", "stated_issue") if k not in rca]
+    if missing:
+        m.append(f"v4 always returns {', '.join(missing)} — absent here")
+    if getattr(d, "suggested_response", None) and not rca.get("suggested_response"):
+        m.append("the reply is in the column but not in the RCA — the standalone "
+                 "drafter wrote it, and that call no longer exists")
+    return m
 
 
 def _enum_problems(rca):
@@ -84,7 +115,10 @@ def _enum_problems(rca):
     chk("takedown.verdict", (rca.get("takedown") or {}).get("verdict"), TAKEDOWN)
     for n, f in enumerate((rca.get("flags") or []), 1):
         chk(f"flags[{n}].team", (f or {}).get("team"), FLAG_TEAMS)
-    for n, c in enumerate((rca.get("support_interaction") or []), 1):
+    _contacts = (rca.get("support_interaction_notes")
+                 if rca.get("support_interaction_notes") is not None
+                 else rca.get("support_interaction"))
+    for n, c in enumerate((_contacts or []), 1):
         chk(f"support_interaction[{n}].channel", (c or {}).get("channel"), CHANNELS)
     return bad
 
@@ -120,11 +154,23 @@ def main():
         print(f"\nreview   {d.review_id}   {(r.author if r else '') or ''}")
         print(f"booking  {(d.booking or {}).get('bookingId') or '—'}   "
               f"tier {d.match_tier or '—'}")
-        print(f"written  {d.generated_at}")
+        ver = getattr(d, "rca_prompt_version", None)
+        print(f"written  {d.generated_at}   by {ver or '(unstamped — predates the version stamp)'}")
         print(f"class    {d.l1 or '—'} / {d.l2 or '—'}")
         if rca.get("l1_raw"):
             print(f"{RED}         model said {rca['l1_raw']!r}/{rca.get('l2_raw')!r} — "
                   f"not in the taxonomy{OFF}")
+
+        legacy = _v3_markers(rca, d)
+        if legacy and ver != "rca_v4":
+            print(f"\n{RED}{'━' * 68}{OFF}")
+            print(f"{RED}  THIS ROW IS THE OLD v3 SHAPE. It is not a test of v4.{OFF}")
+            print(f"{RED}  Everything below will report v3 artefacts as failures, because")
+            print(f"  nothing that existed when this row was written could validate it.")
+            print(f"  Re-run the review, then read it again.{OFF}")
+            for m in legacy:
+                print(f"{RED}    · {m}{OFF}")
+            print(f"{RED}{'━' * 68}{OFF}")
 
         print(f"\n{DIM}── what the model returned ──{OFF}")
         for k in TOP_LEVEL:
@@ -150,7 +196,12 @@ def main():
 
         bad = _enum_problems(rca)
         print(f"\n{DIM}── vocabulary ──{OFF}")
-        if bad:
+        if bad and legacy:
+            print(f"  {DIM}{len(bad)} value(s) outside their vocabulary — expected on a "
+                  f"v3 row, and not a v4 result:{OFF}")
+            for b in bad:
+                print(f"    {DIM}{b}{OFF}")
+        elif bad:
             print(f"  {RED}{len(bad)} value(s) outside their vocabulary — the validator "
                   f"did not run on whatever wrote this row:{OFF}")
             for b in bad:

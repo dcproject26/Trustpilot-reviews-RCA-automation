@@ -80,16 +80,16 @@ def test_a_malformed_canned_row_does_not_break_the_prompt():
 # ── the rule that makes the token safe ──────────────────────────────────────
 
 def test_the_no_copying_rule_ships_with_the_examples():
-    """Without rule 18 the token is a liability, not a feature. Asserted on
-    the rule's own text, not on a "18." anywhere in the template — the number
-    surviving while the clause is gone is the failure this has to catch."""
+    """Without the no-copying rule the token is a liability, not a feature.
+    Asserted on the rule's own text, not on its number — the number surviving
+    while the clause is gone is the failure this has to catch."""
     t = prompts.RCA_V4_TEMPLATE
-    head = "18. `suggested_response` follows the voice of the APPROVED REPLY VOICE examples"
-    assert head in t, "output rule 18 is missing or reworded"
+    head = "19. `suggested_response` follows the voice of the APPROVED REPLY VOICE examples"
+    assert head in t, "the no-copying output rule is missing or reworded"
     rule = t[t.find(head):]
     for phrase in ("Never copy a sentence", "never carry over a remedy",
                    "never use one as a template"):
-        assert phrase in rule, f"rule 18 lost its {phrase!r} clause"
+        assert phrase in rule, f"the no-copying rule lost its {phrase!r} clause"
     assert "only from this case's evidence" in rule
 
 
@@ -114,3 +114,25 @@ def test_the_examples_are_labelled_as_voice_where_they_appear():
     out = _prompt(canned_list=CANNED)
     i = out.find("I've refunded the full amount today.")
     assert "never content to copy" in out[max(0, i - 600):i]
+
+
+# ── two rules a live v3 row showed we needed ────────────────────────────────
+
+def test_owner_is_never_a_guest():
+    """The model returned owner: "Guest", trying to say no team is at fault.
+    owner means who ACTS, and a guest cannot be assigned work — the answer is
+    null, not a new enum member."""
+    t = prompts.RCA_V4_TEMPLATE
+    assert "`owner` is null — never \"Guest\"" in t, \
+        "nothing tells the model what to do when no internal team owns the issue"
+    assert "Guest" not in t.split('"owner": "<')[1].split(">")[0], \
+        "Guest must not be in the owner enum"
+
+
+def test_the_review_itself_is_never_a_support_contact():
+    """The model wrote channel: "Trustpilot" — counting the review as a
+    contact. Every review would then carry a phantom contact and read as if
+    someone had handled the guest."""
+    t = prompts.RCA_V4_TEMPLATE
+    assert "The REVIEW ITSELF is" in t
+    assert "Trustpilot" in t, "the rule must name the value the model reached for"

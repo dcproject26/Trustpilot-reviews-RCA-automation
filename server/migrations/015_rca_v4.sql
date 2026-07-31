@@ -31,3 +31,10 @@ COMMENT ON COLUMN rca_drafts.guest_issues   IS 'projection of rca_v3.what_went_w
 -- [{question, verdict, evidence, source, ref}]. The column is already JSON so
 -- no DDL is needed, but readers must handle both - a draft written before this
 -- deploy still holds the object form.
+
+-- Provenance, not content: which prompt wrote this RCA. Null means the row
+-- predates the stamp and its shape has to be guessed from its keys - which is
+-- the ambiguity this removes. A v3 draft read as a v4 checkpoint reports every
+-- v3 artefact as a validator failure, with nothing on the row to say otherwise.
+ALTER TABLE rca_drafts ADD COLUMN IF NOT EXISTS rca_prompt_version VARCHAR;
+COMMENT ON COLUMN rca_drafts.rca_prompt_version IS 'prompt that produced rca_v3, e.g. rca_v4; null = predates the stamp';

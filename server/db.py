@@ -138,6 +138,11 @@ class RcaDraft(Base):
     # VS flow still writes, and writing v3 over it destroyed those fields.
     rca_v3             = Column(JSON, default=dict)
 
+    # Which prompt wrote this RCA. Provenance, not content: null means the row
+    # predates the stamp, and its shape has to be guessed from its keys - which
+    # is exactly the ambiguity this removes.
+    rca_prompt_version = Column(String, nullable=True)
+
     # ── RCA v4: projections of rca_v3 ──
     #
     # READ THIS BEFORE ADDING ANOTHER ONE. These are not independent fields.
@@ -246,6 +251,7 @@ def _ensure_columns():
         "takedown":               "JSONB" if is_pg else "JSON",
         "dss":                    "JSONB" if is_pg else "JSON",
         "guest_issues":           "JSONB" if is_pg else "JSON",
+        "rca_prompt_version":     "VARCHAR",
     }
     added, failed = [], []
     for col, coltype in wanted.items():

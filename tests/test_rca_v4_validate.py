@@ -165,14 +165,14 @@ def test_an_empty_contact_is_not_dressed_as_a_data_row():
     out, _ = validate(_ok(support_interaction=[
         {"channel": "Unknown", "time": "Unknown",
          "summary": "No guest contact found on this booking"}]))
-    assert out["support_interaction"] == []
+    assert out["support_interaction_notes"] == []
 
 
 def test_a_real_contact_survives():
     out, _ = validate(_ok(support_interaction=[
         {"channel": "chat", "time": "22 Jul 15:41",
          "summary": "Guest asked where the tickets were.", "ce_miss": None}]))
-    assert len(out["support_interaction"]) == 1
+    assert len(out["support_interaction_notes"]) == 1
 
 
 # ── enums elsewhere ─────────────────────────────────────────────────────────
@@ -230,7 +230,7 @@ def test_a_contact_channel_outside_the_vocabulary_becomes_null():
     out, _ = validate(_ok(support_interaction=[
         {"channel": "whatsapp", "time": "22 Jul 15:41",
          "summary": "Guest asked where the tickets were."}]))
-    row = out["support_interaction"][0]
+    row = out["support_interaction_notes"][0]
     assert row["channel"] is None
     assert row["channel_raw"] == "whatsapp"
     assert row["summary"]
@@ -275,3 +275,44 @@ def test_the_document_level_v3_fields_are_not_carried_forward():
         "what_happened": "old shape", "root_causes": ["old"],
         "guest_issues": [{"issue": "x", "root_cause": "y"}]}))
     assert set(out["what_went_wrong"]) == {"guest_issues"}
+
+
+# ── the model writes interpretation, under its own key ──────────────────────
+
+def test_the_model_output_lands_on_the_notes_key():
+    """Under the frames' key, presence-based reading would reverse the
+    pipeline's precedence. A distinct key makes that structurally impossible."""
+    out, _ = validate(_ok(support_interaction_notes=[
+        {"zd_ref": "ZD-4491", "summary": "Guest chased the voucher.",
+         "ce_miss": "No proactive update after the first failure."}]))
+    assert out["support_interaction_notes"][0]["zd_ref"] == "ZD-4491"
+    assert "support_interaction" not in out, \
+        "the model must not emit anything under the frames' key"
+
+
+def test_the_pre_split_key_is_still_read():
+    """Drafts written before the split, and a model still reaching for the old
+    name, keep their interpretation rather than losing it silently."""
+    out, _ = validate(_ok(support_interaction=[
+        {"zd_ref": "ZD-1", "summary": "Guest asked where the tickets were."}]))
+    assert out["support_interaction_notes"][0]["summary"]
+
+
+def test_an_unverified_contact_keeps_its_channel_and_time():
+    """A contact the model reports and Zendesk does not still renders, marked
+    unverified — either the guest reached us off Zendesk or the model invented
+    the contact, and both are worth seeing."""
+    out, _ = validate(_ok(support_interaction_notes=[
+        {"zd_ref": None, "channel": "call", "time": "22 Jul 14:10",
+         "summary": "Guest says they phoned and got no answer."}]))
+    row = out["support_interaction_notes"][0]
+    assert row["zd_ref"] is None
+    assert (row["channel"], row["time"]) == ("call", "22 Jul 14:10")
+
+
+def test_sp_notes_land_on_their_own_key_too():
+    out, _ = validate(_ok(sp_interaction_notes={
+        "raised": "Yes", "records": [{"zd_ref": "ZD-7", "summary": "Operator confirmed."}]}))
+    assert out["sp_interaction_notes"]["raised"] == "Yes"
+    assert out["sp_interaction_notes"]["records"][0]["zd_ref"] == "ZD-7"
+    assert "sp_interaction" not in out
