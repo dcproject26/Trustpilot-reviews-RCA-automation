@@ -852,6 +852,105 @@
   }
   #build-stamp.is-stale, #build-stamp.is-deploy { display: block; color: var(--amber); }
   [hidden] { display: none !important; }
+
+  /* ── RCA v2: WWR issue internals ───────────────────────────────────────
+     Additive only. Every value comes from a :root token; no new colours.
+     Existing class names are contractual (JS queries them) - these are all
+     new names alongside them. */
+
+  /* §7 density: chrome tightens, nothing text-bearing shrinks. */
+  .wwr-issue-body { gap: 6px; padding-bottom: 10px; }
+
+  /* §1 verdict + owner as chip-SELECTS with a closed vocabulary, recolouring
+     live. The caps are belt-and-braces against a sentence-length verdict -
+     the canonical labels all render in full well inside them. */
+  .chip-sel {
+    font: inherit; font-size: 10.5px; font-weight: 600; line-height: 1.5;
+    border-radius: 999px; padding: 1px 8px; border: 1px solid transparent;
+    background: var(--hover-fill); color: var(--muted);
+    -webkit-appearance: none; appearance: none; cursor: pointer;
+    box-sizing: border-box; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; flex: none;
+  }
+  .chip-sel:focus-visible { outline: 2px solid var(--accent-bd); outline-offset: 1px; }
+  .chip-sel.ok   { background: var(--green-bg); color: var(--green); }
+  .chip-sel.part { background: var(--amber-bg); color: var(--amber); }
+  .chip-sel.bad  { background: var(--red-bg);   color: var(--red); }
+  .chip-sel.unk  { background: var(--hover-fill); color: var(--muted); }
+  .chip-acc-sel   { max-width: 140px; }          /* cap, not a fixed width */
+  .chip-owner-sel { max-width: 26ch; font-size: 10px; }
+  .chip-isa-sel   { width: 82px; }               /* FIXED: five stacked rows
+                                                    need one column width */
+
+  /* §2 the analysis panel: one treatment for every key-value line. */
+  .wwr-analysis-note {
+    font-size: 11.5px; color: var(--muted); margin-top: 2px;
+    overflow-wrap: anywhere;
+  }
+  .wwr-aline {
+    display: flex; align-items: flex-start; gap: 6px; min-width: 0;
+    margin-top: 3px;
+  }
+  .wwr-aline-key {
+    flex: none; font-weight: 650; font-size: 12px; color: var(--body);
+  }
+  .wwr-aline-val { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+  .wwr-addrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+
+  /* One × treatment everywhere. Delete controls never vary in colour
+     between rows or sections. */
+  .x-del {
+    flex: none; width: 16px; text-align: right; cursor: pointer;
+    color: var(--dim); font-size: 12px; line-height: 1.5;
+    background: none; border: none; padding: 0;
+  }
+  .x-del:hover { color: var(--red); }
+
+  /* §2b evidence as a 3-column grid; the source rail is the row marker, so
+     there is no leading em-dash - two markers for one row was the defect. */
+  .ev-row {
+    display: grid; grid-template-columns: 62px 1fr 16px; gap: 8px;
+    align-items: start; min-width: 0; padding: 1px 0;
+  }
+  .ev-src {
+    font-family: var(--mono); font-size: 10px; color: var(--muted);
+    min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; padding-top: 1px;
+  }
+  .ev-src a { color: var(--muted); text-decoration: none; }
+  .ev-src a:hover { color: var(--accent); text-decoration: underline; }
+  .ev-src.none { color: var(--empty); }
+  .ev-text {
+    font-size: 12px; color: var(--body); line-height: 1.55;
+    min-width: 0; overflow-wrap: anywhere;
+  }
+
+  /* §2 claim: quote marks live INSIDE the inline flow (defect 2 - a "
+     and a " on their own lines around a multi-line quote).
+     .editable-text is display:inline-block globally, which makes it one
+     atomic box: as soon as the quote wraps, the box takes the full width and
+     the glyphs are pushed onto lines of their own. Inside the claim it has to
+     be a plain inline so the text and the marks share one flow. Scoped here,
+     not changed globally - the empty-state min-width elsewhere needs the
+     inline-block. */
+  .wwr-claim-row { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+  .wwr-claim-q { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+  .wwr-claim-q .editable-text { display: inline; min-width: 0; }
+
+  /* §2c "+ Add issue": matches the numbered rows it sits under. */
+  .wwr-addissue {
+    display: flex; align-items: center; gap: 10px; padding: 8px 0 2px;
+    background: none; border: none; cursor: pointer; color: var(--muted-2);
+    font: inherit; font-size: 12px;
+  }
+  .wwr-addissue:hover { color: var(--text); }
+  .wwr-addissue-circle {
+    width: 20px; height: 20px; flex: none; border-radius: 50%;
+    border: 1px dashed var(--dashed); display: flex;
+    align-items: center; justify-content: center; font-size: 11px;
+    color: var(--dim);
+  }
+  .wwr-addissue:hover .wwr-addissue-circle { border-color: var(--muted-2); color: var(--muted-2); }
 </style>
 </head>
 <body>
@@ -2858,6 +2957,51 @@ function renderRcaCol() {
     // falls back to root_causes[i]; the claim falls back to the issue text,
     // and the owner to that cause's classification. Any cause with no issue
     // to sit on still renders as its own row, so nothing is dropped.
+    // §1 closed vocabularies. The chip is a select, so the only values that
+    // can reach the screen are these - a sentence-length verdict cannot.
+    const ACC  = ['Accurate', 'Partly accurate', 'Inaccurate', 'Unknown'];
+    const OWNS = ['Content', 'CE', 'SP', 'RO', 'Product', 'Biz', 'Ops'];
+    const accCls = a => { const t = String(a || '').toLowerCase();
+      return t.startsWith('accur') ? 'ok' : t.startsWith('part') ? 'part'
+           : t.startsWith('inacc') ? 'bad' : 'unk'; };
+    // A select renders only its options, so an unrecognised value has to be
+    // mapped onto one - the raw string stays in title, never in the chip.
+    const accCanon = a => {
+      const t = String(a || '').trim().toLowerCase();
+      if (t.startsWith('accur') || t.startsWith('yes') || t.startsWith('true')) return 'Accurate';
+      if (t.startsWith('part')) return 'Partly accurate';
+      if (t.startsWith('inacc') || t.startsWith('no') || t.startsWith('false')) return 'Inaccurate';
+      return 'Unknown';
+    };
+    const chipSel = (path, value, opts, cls, extraCls, raw) => {
+      const v = value || opts[opts.length - 1];
+      return `<select class="chip-sel ${extraCls} ${cls}" data-v3sel="${path}"
+        title="${esc(raw || v)}">${opts.map(o =>
+        `<option value="${esc(o)}"${o === v ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+    };
+    // §2b one evidence row: 62px source rail | text | ×. The rail is the row
+    // marker, so no leading em-dash; a legacy string renders with a "—" rail.
+    const evRow = (i, j, e) => {
+      const o = (e && typeof e === 'object') ? e : {text: e, source: null, ref: null};
+      const src = o.source ? String(o.source) : '';
+      const rail = src
+        ? (o.ref ? `<a href="${esc(o.ref)}" target="_blank" rel="noopener" title="${esc(o.ref)}">${esc(src)}</a>` : esc(src))
+        : '—';
+      return `<div class="ev-row">
+        <span class="ev-src${src ? '' : ' none'}" title="${esc(src || 'no source recorded')}">${rail}</span>
+        <span class="ev-text">${edSpan(`what_went_wrong.guest_issues.${i}.evidence.${j}.text`, o.text || '', 'click to write the finding')}</span>
+        <button class="x-del" data-ev-del="${i}:${j}" title="remove this evidence row">×</button>
+      </div>`;
+    };
+    // §2 the four optional analysis lines. Present ones render as an editable
+    // key-value row with a ×; absent ones become a "+" button in the wrap row.
+    const ALINES = [
+      ['operational_failure', 'Operational failure', 'what a person or system did wrong'],
+      ['sop_gap',             'SOP / process gap',   'the missing or deficient process step'],
+      ['pattern',             'Pattern',             'recurrence evidence, with counts and window'],
+      ['fix',                 'Fix',                 'Team: action (owner: Team)'],
+    ];
+
     const causesList = wh.root_causes || [];
     const gIssues = w.guest_issues || [];
     const legacyPaired = gIssues.some(g => !g.root_cause && !g.owner);
@@ -2867,56 +3011,85 @@ function renderRcaCol() {
       const rcLegacy = causesList[i] || {};
       const open = state.wwrOpen[i] !== false;
       const title = gi.issue || rcLegacy.issue || 'Untitled issue';
-      const evidence = asPoints(gi.evidence);
+      const evidence = Array.isArray(gi.evidence) ? gi.evidence : asPoints(gi.evidence);
       const hasOwnCause = !!gi.root_cause;
       const causeText  = hasOwnCause ? gi.root_cause : (rcLegacy.cause || '');
       const causePath  = hasOwnCause
         ? `what_went_wrong.guest_issues.${i}.root_cause`
         : `what_went_wrong.what_happened.root_causes.${i}.cause`;
       const owner = gi.owner || rcLegacy.classification || '';
-      const claim = gi.claim || '';
+      const claim = gi.claim;
+      const acc   = accCanon(gi.claim_accuracy);
+      // The legacy tail parser is a net, not a path: claim_accuracy_note is a
+      // real field now, and it is what renders when present.
+      const rawAcc = gi.claim_accuracy_raw || gi.claim_accuracy || '';
+      const tail = gi.claim_accuracy_note ||
+        (String(rawAcc).match(/^[^—:-]+[—:-]\s*(.+)$/) || [])[1] || '';
+      const bp = `what_went_wrong.guest_issues.${i}`;
+      const present = ALINES.filter(([k]) => String(gi[k] || '').trim());
+      const absent  = ALINES.filter(([k]) => !String(gi[k] || '').trim());
       return `
       <div class="wwr-issue">
-        <div class="wwr-issue-head" data-wwr-toggle="${i}">
-          <span class="wwr-n">${String(i + 1).padStart(2, '0')}</span>
-          <span class="wwr-issue-title">${esc(title)}</span>
-          ${gi.claim_accuracy ? `<span class="chip-acc ${accClass(gi.claim_accuracy)}" title="${esc(gi.claim_accuracy)}">${esc(accShort(gi.claim_accuracy))}</span>` : ''}
-          <span class="wwr-issue-chev">${open ? '▾' : '▸'}</span>
+        <div class="wwr-issue-head">
+          <span class="wwr-n" data-wwr-toggle="${i}">${String(i + 1).padStart(2, '0')}</span>
+          <span class="wwr-issue-title">${edSpan(`${bp}.issue`, title, 'click to name the issue')}</span>
+          ${chipSel(`${bp}.claim_accuracy`, acc, ACC, accCls(acc), 'chip-acc-sel', rawAcc)}
+          <span class="wwr-issue-chev" data-wwr-toggle="${i}">${open ? '▾' : '▸'}</span>
         </div>
         ${open ? `
         <div class="wwr-issue-body">
           <div class="wwr-blk">
             <span class="wwr-blk-label">Claim</span>
-            ${claim
-              ? `<div class="wwr-claim">“${edSpan(`what_went_wrong.guest_issues.${i}.claim`, claim)}”</div>`
-              : `<div class="rca-empty">The review does not state this in the guest's own words — click to quote it.</div>
-                 <div class="wwr-claim" style="margin-top:2px">“${edSpan(`what_went_wrong.guest_issues.${i}.claim`, '')}”</div>`}
+            ${claim && String(claim).trim() ? `
+              <div class="wwr-claim-row">
+                <span class="wwr-claim wwr-claim-q">“${edSpan(`${bp}.claim`, claim)}”</span>
+                <button class="x-del" data-claim-del="${i}" title="remove the claim">×</button>
+              </div>`
+            /* An absent claim is not a blank quote with quote marks around
+               nothing - that reads as a guest who said "". It is either the
+               review not stating it in their words, or our own finding filed
+               as a complaint, and the empty state says which. */
+            : `<div class="rca-empty">The review does not state this in the guest's own words.</div>
+               <button class="row-add wwr-add" data-claim-add="${i}">+ Claim</button>`}
           </div>
           <div class="wwr-blk">
-            <span class="wwr-blk-label">Evidence</span>
-            ${evidence.length ? evidence.map((e, j) => `
-              <div class="wwr-ev-row"><span class="dash">—</span>${
-                edSpan(`what_went_wrong.guest_issues.${i}.evidence.${j}`, e)}</div>`).join('')
+            <span class="wwr-blk-label">Evidence
+              <button class="row-add wwr-add" data-wwr-ev-add="${i}">+ add</button></span>
+            ${evidence.length ? evidence.map((e, j) => evRow(i, j, e)).join('')
               : '<div class="rca-empty">No evidence recorded.</div>'}
-            <button class="row-add wwr-add" data-wwr-ev-add="${i}">+ Add evidence</button>
           </div>
           <div class="wwr-blk">
-            <span class="wwr-blk-label">Analysis</span>
+            <span class="wwr-blk-label">Analysis — what actually happened?</span>
             <div class="wwr-analysis">
               <div class="wwr-analysis-head">
-                ${gi.claim_accuracy ? `<span class="chip-acc ${accClass(gi.claim_accuracy)}" title="${esc(gi.claim_accuracy)}">${esc(accShort(gi.claim_accuracy))}</span>` : ''}
-                <span class="chip-owner">owner · ${owner
-                  ? edSpan(`what_went_wrong.guest_issues.${i}.owner`, owner)
-                  : edSpan(`what_went_wrong.guest_issues.${i}.owner`, '', 'unassigned')}</span>
+                ${chipSel(`${bp}.claim_accuracy`, acc, ACC, accCls(acc), 'chip-acc-sel', rawAcc)}
+                ${chipSel(`${bp}.owner`, owner, OWNS, 'unk', 'chip-owner-sel', owner || 'unassigned')}
               </div>
-              <span class="rca-wrap"><span class="wwr-cause-label">Root cause:</span> ${
-                causeText ? edSpan(causePath, causeText)
-                          : edSpan(`what_went_wrong.guest_issues.${i}.root_cause`, '', 'click to write the failing step')}</span>
+              ${tail ? `<div class="wwr-analysis-note">${esc(tail)}</div>` : ''}
+              <div class="wwr-aline">
+                <span class="wwr-aline-key">Root cause:</span>
+                <span class="wwr-aline-val">${
+                  causeText ? edSpan(causePath, causeText)
+                            : edSpan(`${bp}.root_cause`, '', 'click to write the failing step')}</span>
+                <!-- no ×: an issue with no root cause is not an RCA -->
+              </div>
+              ${present.map(([k, label]) => `
+              <div class="wwr-aline">
+                <span class="wwr-aline-key">${esc(label)}:</span>
+                <span class="wwr-aline-val">${edSpan(`${bp}.${k}`, gi[k])}</span>
+                <button class="x-del" data-aline-del="${i}:${k}" title="remove this line">×</button>
+              </div>`).join('')}
+              ${absent.length ? `<div class="wwr-addrow">${absent.map(([k, label]) =>
+                `<button class="row-add wwr-add" data-aline-add="${i}:${k}">+ ${esc(label)}</button>`
+              ).join('')}</div>` : ''}
             </div>
           </div>
         </div>` : ''}
       </div>`;
-    }).join('');
+    }).join('') + `
+      <button class="wwr-addissue" data-wwr-issue-add>
+        <span class="wwr-addissue-circle">+</span><span>Add issue</span>
+      </button>`;
 
     // A systemic cause that belongs to no single issue keeps its own row.
     const orphanCauses = legacyPaired ? [] : causesList;
@@ -2930,6 +3103,40 @@ function renderRcaCol() {
               <div class="chk-ev">${edSpan(`what_went_wrong.what_happened.root_causes.${i}.cause`, rc.cause)}</div>
             </div>
           </div>`).join('')}
+      </div>` : '';
+
+    // §2 removes the card-level Operational failure / SOP gap / Pattern /
+    // Fixes blocks - those fields live on the issue they explain now. A draft
+    // written before that still holds them at card level, and dropping them
+    // would delete analysis someone wrote. They render as extra rows under the
+    // LAST issue, at their own v3 paths so an edit still saves where the value
+    // actually lives, and labelled so nobody reads them as issue-scoped.
+    const _legacyRows = [
+      ['what_went_wrong.what_happened.operational_failure', 'Operational failure', wh.operational_failure],
+      ['what_went_wrong.what_happened.sop_gap',             'SOP / process gap',   wh.sop_gap],
+      ['what_went_wrong.what_happened.pattern',             'Pattern',             wh.pattern],
+      ['what_went_wrong.fixes.actions',                     'Fix',                 fx.actions],
+    ].filter(([, , v]) => asPoints(v).length);
+    const _spLegacy = asPoints(spx.detail).length || spx.escalated;
+    const legacyExtras = (_legacyRows.length || _spLegacy) ? `
+      <div class="wwr-blk" style="margin-top:10px">
+        <span class="wwr-blk-label">From an earlier draft — not yet attached to an issue</span>
+        ${_legacyRows.map(([path, label, v]) => asPoints(v).map((pt, n) => `
+          <div class="wwr-aline">
+            <span class="wwr-aline-key">${esc(label)}:</span>
+            <span class="wwr-aline-val">${edSpan(
+              Array.isArray(v) || asPoints(v).length > 1 ? `${path}.${n}` : path, pt)}</span>
+          </div>`).join('')).join('')}
+        ${_spLegacy ? `
+          <div class="wwr-aline">
+            <span class="wwr-aline-key">SP escalation:</span>
+            <span class="wwr-aline-val">${edSpan('what_went_wrong.sp_escalation.escalated', spx.escalated || '—')}</span>
+          </div>
+          ${asPoints(spx.detail).map((d, n) => `
+          <div class="wwr-aline">
+            <span class="wwr-aline-key"></span>
+            <span class="wwr-aline-val">${edSpan(`what_went_wrong.sp_escalation.detail.${n}`, d)}</span>
+          </div>`).join('')}` : ''}
       </div>` : '';
 
     const wwrOpenAll = rowCount > 0 && Array.from({length: rowCount}, (_, i) => state.wwrOpen[i] !== false).every(Boolean);
@@ -2946,22 +3153,7 @@ function renderRcaCol() {
       </div>
       ${wwrRows || '<div class="rca-empty">No guest issues were identified — re-run the RCA if the review names one.</div>'}
       ${orphanHtml}
-      ${(asPoints(wh.operational_failure).length || asPoints(wh.sop_gap).length || wh.pattern) ? `
-      <div class="wwr-blk" style="margin-top:10px">
-        ${asPoints(wh.operational_failure).length ? `<span class="wwr-blk-label">Operational failure</span>${edPoints('what_went_wrong.what_happened.operational_failure', wh.operational_failure)}` : ''}
-        ${asPoints(wh.sop_gap).length ? `<span class="wwr-blk-label">SOP gap</span>${edPoints('what_went_wrong.what_happened.sop_gap', wh.sop_gap)}` : ''}
-        ${wh.pattern ? `<div class="chk-ev"><strong>Pattern:</strong> ${edSpan('what_went_wrong.what_happened.pattern', wh.pattern)}</div>` : ''}
-      </div>` : ''}
-      <div class="wwr-blk" style="margin-top:10px">
-        <span class="wwr-blk-label">Fixes</span>
-        ${(fx.teams || []).length ? `<div class="chk-ev"><strong>Teams:</strong> ${esc((fx.teams || []).join(', '))}${fx.owner ? ' · owner: ' + esc(fx.owner) : ''}</div>` : ''}
-        ${edPoints('what_went_wrong.fixes.actions', fx.actions)}
-        ${asPoints(spx.detail).length || spx.escalated ? `
-        <div class="chk-ev" style="margin-top:6px"><strong>SP escalation:</strong> ${
-          edSpan('what_went_wrong.sp_escalation.escalated', spx.escalated || '—')}</div>
-        ${edPoints('what_went_wrong.sp_escalation.detail', spx.detail)}` : ''}
-      </div>
-      <button class="row-add" style="margin-top:10px" data-wwr-issue-add>+ Add issue</button>
+      ${legacyExtras}
     </div>` : '';
 
     // Numbered stepper, same shape as the WWR chain - a reader follows the
@@ -3425,21 +3617,113 @@ function renderRcaCol() {
     for (let i = 0; i < rows; i++) state.wwrOpen[i] = !allOpen;
     renderRcaCol();
   });
+  // ── WWR issue internals ──────────────────────────────────────────────────
+  // One accessor for every handler below. Nothing here branches on whether a
+  // row came from the model or from a click - that was a real bug class: the
+  // flag team-select once wrote only to operator-added rows, so on the common
+  // case (AI-generated) the choice silently snapped back.
+  const _gi = (i) => {
+    const w = rca.v3.what_went_wrong = rca.v3.what_went_wrong || {};
+    const list = w.guest_issues = w.guest_issues || [];
+    return list[i] || (list[i] = {});
+  };
+  // Evidence is {text, source, ref} now; a legacy string is lifted on touch
+  // rather than being left as a shape the row renderer has to special-case.
+  const _ev = (gi) => {
+    const raw = Array.isArray(gi.evidence) ? gi.evidence : asPoints(gi.evidence);
+    return raw.map(e => (e && typeof e === 'object') ? e
+                                                    : {text: e, source: null, ref: null});
+  };
+
   col.querySelectorAll('[data-wwr-ev-add]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const i = parseInt(btn.dataset.wwrEvAdd);
-      const w = rca.v3.what_went_wrong = rca.v3.what_went_wrong || {};
-      const gi = (w.guest_issues = w.guest_issues || [])[i] || (w.guest_issues[i] = {});
-      gi.evidence = [...asPoints(gi.evidence), 'New evidence — click to edit'];
+      const gi = _gi(parseInt(btn.dataset.wwrEvAdd));
+      // The same field set as an existing row, with placeholder text - never
+      // a bare box. A row you cannot tell from an AI one is the point.
+      gi.evidence = [..._ev(gi), {text: 'New evidence — click to edit',
+                                  source: null, ref: null}];
       await persistV3(); renderRcaCol();
+    });
+  });
+
+  col.querySelectorAll('[data-ev-del]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const [i, j] = btn.dataset.evDel.split(':').map(Number);
+      const gi = _gi(i);
+      gi.evidence = _ev(gi).filter((_, k) => k !== j);
+      await persistV3(); renderRcaCol();
+    });
+  });
+
+  // The claim × persists claim: null immediately - a real removal, not a UI
+  // hide. "+ Claim" recreates the field.
+  col.querySelectorAll('[data-claim-del]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      _gi(parseInt(btn.dataset.claimDel)).claim = null;
+      await persistV3(); renderRcaCol();
+    });
+  });
+  col.querySelectorAll('[data-claim-add]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      _gi(parseInt(btn.dataset.claimAdd)).claim = 'Quote the guest’s own words here';
+      await persistV3(); renderRcaCol();
+    });
+  });
+
+  // The four optional analysis lines. Deleting persists null and restores the
+  // "+" button; adding creates the field with placeholder text.
+  col.querySelectorAll('[data-aline-del]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const [i, k] = btn.dataset.alineDel.split(':');
+      _gi(parseInt(i))[k] = null;
+      await persistV3(); renderRcaCol();
+    });
+  });
+  const _APH = {
+    operational_failure: 'What a person or system did wrong on this issue',
+    sop_gap: 'The missing or deficient process step for this issue',
+    pattern: 'Recurrence evidence for this issue, with counts and window',
+    fix: 'Team: action (owner: Team)',
+  };
+  col.querySelectorAll('[data-aline-add]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const [i, k] = btn.dataset.alineAdd.split(':');
+      _gi(parseInt(i))[k] = _APH[k] || 'Click to edit';
+      await persistV3(); renderRcaCol();
+    });
+  });
+
+  // Every chip-select in the RCA column, by its rca_v3 dot path. One handler,
+  // so a chip can never be rendered and silently unsaved.
+  col.querySelectorAll('select[data-v3sel]').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      const parts = sel.dataset.v3sel.split('.');
+      let obj = rca.v3;
+      for (let n = 0; n < parts.length - 1; n++) {
+        const key = /^\d+$/.test(parts[n]) ? parseInt(parts[n]) : parts[n];
+        const nextIsIdx = /^\d+$/.test(parts[n + 1]);
+        if (obj[key] == null) obj[key] = nextIsIdx ? [] : {};
+        obj = obj[key];
+      }
+      const last = parts[parts.length - 1];
+      obj[/^\d+$/.test(last) ? parseInt(last) : last] = sel.value;
+      await persistV3(sel);
+      renderRcaCol();          // the chip recolours live
     });
   });
   const wwrIssueAdd = col.querySelector('[data-wwr-issue-add]');
   if (wwrIssueAdd) wwrIssueAdd.addEventListener('click', async () => {
     const w = rca.v3.what_went_wrong = rca.v3.what_went_wrong || {};
+    // §2c a FULL skeleton, not a stub: claim, one evidence row and a root
+    // cause, all pre-filled. An added issue must be indistinguishable from an
+    // AI-generated one - empty strings would render the add-buttons instead of
+    // the rows, so the operator gets a different shape for the same thing.
     w.guest_issues = [...(w.guest_issues || []),
-      {issue: 'New issue — click to edit', claim: '', claim_accuracy: '',
-       owner: '', root_cause: '', evidence: []}];
+      {issue: 'New issue — click to edit',
+       claim: 'Quote the guest’s own words here',
+       claim_accuracy: 'Unknown', owner: 'CE',
+       root_cause: 'Click to write the failing step',
+       evidence: [{text: 'New evidence — click to edit', source: null, ref: null}]}];
     await persistV3(); renderRcaCol();
   });
 
