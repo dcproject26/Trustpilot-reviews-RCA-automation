@@ -53,6 +53,15 @@ assertions are acceptable only for:
 
 ## Mutation testing
 
+**Standing order: mutation-run the diff before every push.** Not the suite
+periodically — the diff, every time.
+
+New work is exactly where tests are weakest, because the thing is fresh enough
+that it obviously works. It obviously works *today*, which is not what a test
+is for. Two runs in one week make the point: the first found 3 of 10, the
+second 3 of 10 again, and on both occasions **every survivor was code added in
+that same sitting**. Not one was old.
+
 Run every fix through `tools/mutate.py`, which works on a **copy** of the tree:
 
     python3 tools/mutate.py mutations.json

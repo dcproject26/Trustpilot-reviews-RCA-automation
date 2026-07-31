@@ -19,6 +19,7 @@ model never returns is the thing worth finding now rather than after the UI
 is built against it.
 """
 import argparse
+import html as _html
 import json
 import re as _re
 import sys
@@ -26,6 +27,7 @@ import sys
 sys.path.insert(0, ".")
 
 from server.db import SessionLocal, RcaDraft, Review          # noqa: E402
+from server.prompts import RCA_PROMPT_FAMILY, RCA_PROMPT_VERSION  # noqa: E402
 from server.services.rca_v4_validate import (                 # noqa: E402
     CHANNELS, CLAIM_ACCURACY, FLAG_TEAMS, ISA_VERDICT, OWNERS,
     SOP_VERDICT, SOURCES, TAKEDOWN,
@@ -200,13 +202,21 @@ def main():
               f"tier {d.match_tier or '—'}")
         ver = getattr(d, "rca_prompt_version", None)
         print(f"written  {d.generated_at}   by {ver or '(unstamped — predates the version stamp)'}")
+        # The stamp is content-addressed. A row written by an older prompt body
+        # is the difference between "the new clause did not work" and "this row
+        # predates the clause", and reading timestamps against deploy times is
+        # not an answer.
+        if ver and ver != RCA_PROMPT_VERSION:
+            print(f"{YEL}         the prompt has changed since this row was "
+                  f"written (now {RCA_PROMPT_VERSION}) — re-run before judging "
+                  f"any rule added since{OFF}")
         print(f"class    {d.l1 or '—'} / {d.l2 or '—'}")
         if rca.get("l1_raw"):
             print(f"{RED}         model said {rca['l1_raw']!r}/{rca.get('l2_raw')!r} — "
                   f"not in the taxonomy{OFF}")
 
         legacy = _v3_markers(rca, d)
-        if legacy and ver != "rca_v4":
+        if legacy and not str(ver or "").startswith(RCA_PROMPT_FAMILY):
             print(f"\n{RED}{'━' * 68}{OFF}")
             print(f"{RED}  THIS ROW IS THE OLD v3 SHAPE. It is not a test of v4.{OFF}")
             print(f"{RED}  Everything below will report v3 artefacts as failures, because")
@@ -258,7 +268,7 @@ def main():
         if trail:
             print(f"\n{DIM}── what validation changed ──{OFF}")
             for t in trail:
-                print(f"  {YEL}{t['text'].replace('<strong>RCA</strong> — ', '')}{OFF}")
+                print(f"  {YEL}{_html.unescape(t['text'].replace('<strong>RCA</strong> — ', ''))}{OFF}")
 
         issues = (rca.get("what_went_wrong") or {}).get("guest_issues") or []
         print(f"\n{DIM}── guest issues ({len(issues)}) ──{OFF}")
@@ -305,7 +315,9 @@ def main():
             for t in (d.confidence_trail or []):
                 mark = {"pass": "ok  ", "warn": "WARN", "fail": "FAIL"}.get(
                     t.get("mark"), "?   ")
-                txt = _re.sub(r"<[^>]+>", "", t.get("text") or "")
+                # Escaped for the dashboard, which renders it as HTML.
+                # Printed raw it reads "claim_accuracy &#x27;Unknown&#x27;".
+                txt = _html.unescape(_re.sub(r"<[^>]+>", "", t.get("text") or ""))
                 col = RED if t.get("mark") == "fail" else (
                     YEL if t.get("mark") == "warn" else DIM)
                 print(f"  {col}{mark}{OFF} {txt}")

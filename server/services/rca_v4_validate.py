@@ -214,8 +214,17 @@ def _evidence_rows(raw):
 
 def _issue(raw, notes):
     acc, tail = _accuracy(raw.get("claim_accuracy"))
-    if raw.get("claim_accuracy") and acc == "Unknown":
-        notes.append(f"claim_accuracy {raw.get('claim_accuracy')!r} → Unknown")
+    # Only when the value actually CHANGED. "Unknown" is a legitimate verdict,
+    # and reporting "claim_accuracy 'Unknown' → Unknown" as a coercion puts a
+    # warn on the trail for a model that did exactly what it was asked. That is
+    # the inverse of the silent-failure bug and costs the same thing: a reader
+    # who stops believing the trail.
+    # Case-insensitive, for the same reason team_raw is: "accurate" matching
+    # Accurate is a normalisation, not a change of meaning, and reporting it
+    # would put a line on the trail for every well-formed RCA.
+    _given = raw.get("claim_accuracy")
+    if isinstance(_given, str) and _given.strip() and _given.strip().lower() != acc.lower():
+        notes.append(f"claim_accuracy {_given!r} → {acc}")
     note = _clean(raw.get("claim_accuracy_note")) or tail
     return {
         "issue":                _clean(raw.get("issue")) or "Untitled issue",
@@ -234,6 +243,81 @@ def _issue(raw, notes):
         "fix":                  _clean(raw.get("fix")),
         "evidence":             _evidence_rows(raw.get("evidence")),
     }
+
+
+_STOP = {"the", "a", "an", "of", "to", "for", "and", "or", "in", "on", "was",
+         "were", "is", "are", "not", "with", "as", "that", "this", "by", "at",
+         "per", "no", "without", "after", "before", "its", "it"}
+
+
+def _tokens(s):
+    return {w for w in re.findall(r"[a-z0-9]+", (s or "").lower()) if w not in _STOP}
+
+
+def _overlaps(a, b, ratio=0.6):
+    ta, tb = _tokens(a), _tokens(b)
+    return bool(ta) and len(ta & tb) >= ratio * len(ta)
+
+
+def _demote_findings(issues, flags, notes, routed=None):
+    """Move our own process findings out of guest_issues and into flags.
+
+    A run returned "Out-of-policy refund issued after booking was non-refundable"
+    as numbered guest issue 04. The guest never raised it - it renders as a
+    complaint with an empty Claim block, and leadership reads it as something
+    the guest said. The prompt now forbids it, but the signature is
+    deterministic enough to settle here rather than trusting adherence:
+    no claim, no owner, no operational_failure is a finding about us, not a
+    complaint from them. Three nulls, no semantic matching needed.
+
+    It becomes a flag unless an existing flag already says the same thing, in
+    which case it is dropped - the model tends to raise the same finding twice,
+    once in each section. Either way the move is reported: silently rewriting
+    what the model returned is the thing the trail exists to prevent.
+
+    Rule 13 coverage rows are exempt. A routed scenario the data does not
+    support is REQUIRED to come back as a claim-less issue, and it will often
+    have no owner and no operational failure either - the same three nulls for
+    the opposite reason. Demoting one would delete the audit trail for a
+    scenario the router asked about.
+    """
+    _routed = [str(r).lower() for r in (routed or []) if r]
+    kept, moved = [], []
+    for i in issues:
+        if (i.get("claim") or i.get("owner") or i.get("operational_failure")):
+            kept.append(i)
+            continue
+        _text = f"{i.get('issue') or ''} {i.get('root_cause') or ''}".lower()
+        if any(r in _text or _overlaps(r, _text) for r in _routed):
+            kept.append(i)
+            continue
+        moved.append(i)
+    if not moved:
+        return issues, flags
+
+    flags = list(flags or [])
+    for i in moved:
+        title = i.get("issue") or ""
+        t = _tokens(title) | _tokens(i.get("root_cause"))
+        dupe = next((f for f in flags
+                     if t and len(t & (_tokens(f.get("flag")) | _tokens(f.get("evidence"))))
+                     >= 0.6 * len(t)), None)
+        if dupe:
+            notes.append(f"guest issue {title!r} had no claim, owner or operational "
+                         f"failure and duplicated an existing flag — dropped")
+            continue
+        ev = (i.get("evidence") or [{}])[0]
+        flags.append({
+            "team": "OTHER",
+            "flag": title,
+            "evidence": i.get("root_cause") or (ev.get("text") if isinstance(ev, dict) else None),
+            "zd_ref": ev.get("ref") if isinstance(ev, dict) else None,
+            "team_raw": None,
+        })
+        notes.append(f"guest issue {title!r} had no claim, owner or operational "
+                     f"failure — it is our finding, not the guest's, and was "
+                     f"moved to flags")
+    return kept, flags
 
 
 def _answers(raw, notes):
@@ -346,6 +430,18 @@ def validate(rca: dict, scenarios_routed=None) -> tuple[dict, list]:
         notes.append("suggested_response contains an internal name or id — "
                      "needs human review before send")
 
+    # The ceilings are instructions, and the model overshot the reply by 35%
+    # on a real run. Not truncated - cutting a guest-facing apology mid-sentence
+    # is worse than a long one - but counted and said, so "too long" is a fact
+    # on the trail rather than something a reader has to notice.
+    for _f, _cap in (("suggested_response", 120), ("stated_issue", 60)):
+        _v = rca.get(_f)
+        if isinstance(_v, str):
+            _w = len(_v.split())
+            if _w > _cap:
+                notes.append(f"{_f} is {_w} words, over the {_cap}-word ceiling — "
+                             f"trim before it goes out")
+
     sop = _obj(rca.get("sop_compliance"))
     dss = _obj(rca.get("dss"))
     # Accept the pre-split key so a draft written before this change, and a
@@ -354,6 +450,12 @@ def validate(rca: dict, scenarios_routed=None) -> tuple[dict, list]:
     contacts = (rca.get("support_interaction_notes")
                 if isinstance(rca.get("support_interaction_notes"), list)
                 else rca.get("support_interaction"))
+
+    # Findings about us, wrongly filed as complaints from the guest, move to
+    # flags before anything downstream counts them as guest issues.
+    _flags = _rows(rca.get("flags"), ("team", "flag", "evidence", "zd_ref"),
+                   notes, enums={"team": (FLAG_TEAMS, "OTHER")})
+    issues, _flags = _demote_findings(issues, _flags, notes, scenarios_routed)
 
     return {
         "stated_issue":      _clean(rca.get("stated_issue")),
@@ -388,23 +490,27 @@ def validate(rca: dict, scenarios_routed=None) -> tuple[dict, list]:
             # channel falls back to null, not to a token: the UI then renders
             # no pill at all. "UNKNOWN" dressed as a channel pill is one of the
             # defects the closed vocabulary exists to remove.
+            # No channel or time: those are facts, they live on the frames,
+            # and a field the model must not fill is a field it will fill. On a
+            # real run both came back null while the prose said "chat at 15:41"
+            # - the schema invited the mistake, so the schema is the fix.
             r for r in _rows(contacts,
-                             ("zd_ref", "summary", "detail", "ce_miss",
-                              "channel", "time"), notes,
-                             enums={"channel": (CHANNELS, None)})
+                             ("zd_ref", "summary", "detail", "ce_miss"), notes)
             if not re.search(r"\bno (guest )?contact\b|never (reached|contacted)",
                              (r.get("summary") or ""), re.I)
         ],
         "sp_interaction_notes": {
             "raised":  _enum(sp.get("raised"), ("Yes", "No", "N/A"), "N/A"),
-            "records": _rows(sp.get("records"), ("zd_ref", "summary", "time")),
+            # "N/A" with no records and no reason is indistinguishable from a
+            # section the model skipped. The reason is what makes it an answer.
+            "reason":  _clean(sp.get("reason")),
+            "records": _rows(sp.get("records"), ("zd_ref", "summary")),
         },
         "booking_logs":      _rows(rca.get("booking_logs"), ("time", "what", "detail")),
         # team falls back to OTHER, not null: the UI renders it as a
         # chip-select over the closed list, and a null would either blank the
         # control or add a stray option to it. OTHER is a real member.
-        "flags":             _rows(rca.get("flags"), ("team", "flag", "evidence", "zd_ref"),
-                                   notes, enums={"team": (FLAG_TEAMS, "OTHER")}),
+        "flags":             _flags,
         "area_of_improving": [c for c in (_clean(x) for x in
                                           (rca.get("area_of_improving") if isinstance(rca.get("area_of_improving"), list) else [])) if c],
         "resolution":         _clean(rca.get("resolution")),
