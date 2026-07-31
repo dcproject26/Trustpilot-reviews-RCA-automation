@@ -175,6 +175,58 @@ def test_an_unrelated_number_is_not_read_as_a_date(zendesk_with):
         "nothing in this ticket agrees with the review beyond the name"
 
 
+def test_the_booking_on_the_date_the_guest_named_comes_first(zendesk_with,
+                                                            monkeypatch):
+    """Sven's review named 20.10 and produced two bookings by the same person:
+    High School Musical on the 23rd and Sinatra on the 20th. Both came back as
+    'name, venue' — equally good — with the date he gave us unused. The one
+    whose visit date is the date he named has to be first, and has to say so."""
+    a = _ticket("t1", "32365808", "Sven Lützeler", "Booking", "—")
+    b = _ticket("t2", "32077652", "Sven Luetzeler", "Booking", "—")
+    qs = _Queries({"Sven": [a, b]})
+    zendesk_with(qs, {
+        "t1": {"booking_id": "32365808", "guest_name": "Sven Lützeler",
+               "visit_date": "2026-10-23", "experience": "High School Musical"},
+        "t2": {"booking_id": "32077652", "guest_name": "Sven Luetzeler",
+               "visit_date": "2026-10-20", "experience": "Sinatra The Musical"},
+    })
+    # Both agree on the direct indicators, as they really did.
+    monkeypatch.setattr(zd, "matches_indicators",
+                        lambda sig, ind, f, l: (True, ["name", "venue"]))
+    out = asyncio.run(zd.shortlist(SVEN, "Sven", ""))
+    assert [s["booking_id"] for s in out][0] == "32077652", \
+        "the booking on the date the review named must rank first"
+    assert any("visit date" in m for m in out[0]["matched_on"]), \
+        "and the card must say that is why"
+
+
+def test_ranking_by_date_does_not_change_which_bookings_are_returned(
+        zendesk_with, monkeypatch):
+    """Order and labels only. The matcher decides membership; this decides
+    which of its answers is shown first."""
+    a = _ticket("t1", "111", "Sven A", "Booking", "—")
+    b = _ticket("t2", "222", "Sven B", "Booking", "—")
+    qs = _Queries({"Sven": [a, b]})
+    zendesk_with(qs, {
+        "t1": {"booking_id": "111", "guest_name": "Sven A", "visit_date": "2020-01-01"},
+        "t2": {"booking_id": "222", "guest_name": "Sven B", "visit_date": "2020-02-02"},
+    })
+    monkeypatch.setattr(zd, "matches_indicators",
+                        lambda sig, ind, f, l: (True, ["name", "venue"]))
+    out = asyncio.run(zd.shortlist(SVEN, "Sven", ""))
+    assert sorted(s["booking_id"] for s in out) == ["111", "222"], \
+        "no candidate may be added or dropped by ranking"
+
+
+def test_a_year_out_still_counts_as_the_same_day(zendesk_with):
+    """"20.10." with the year inferred from the post date. The day and month
+    are what the guest wrote."""
+    assert zd._dates_agree("2025-10-20", "2026-10-20") is True
+    assert zd._dates_agree("2026-10-23", "2026-10-20") is False
+    assert zd._dates_agree("2021-10-20", "2026-10-20") is False
+    assert zd._dates_agree("", "2026-10-20") is False
+
+
 # ── the issue path must never disturb a matcher that is already working ─────
 
 def test_issue_search_does_not_run_when_direct_indicators_match(zendesk_with,

@@ -155,6 +155,101 @@ async def run(review_id: str, write: bool):
         db.close()
 
 
+async def batch(limit: int):
+    """Re-run matching across stored reviews and report what would change.
+
+    Every review in the database was matched by an older build, so the case
+    for reprocessing is a number, not a hunch: how many are unmatched today
+    that would match now, and - the risk in the other direction - how many
+    match today that would not.
+
+    Writes nothing.
+    """
+    from server.db import SessionLocal, init_db, Review, RcaDraft
+    from server.services import claude as cl, zendesk as zd, bigquery as bq
+    from server.prompts import match_indicator_prompt
+    from server.config import is_live
+
+    init_db()
+    db = SessionLocal()
+    rows = []
+    try:
+        reviews = (db.query(Review).order_by(Review.received_at.desc())
+                   .limit(limit).all())
+        print(f"re-running {len(reviews)} review(s). Nothing is written.\n")
+        print(f"  {'review':<24} {'author':<16} {'now':>5}  {'after':>5}  what changes")
+        print("  " + "─" * 84)
+
+        for rv in reviews:
+            d = db.query(RcaDraft).filter(RcaDraft.review_id == rv.id).first()
+            stored = len(list(d.candidates_list or [])) if d else 0
+            has_booking = bool((d.booking or {}).get("id")) if d else False
+            now_n = 1 if has_booking else stored
+
+            body = (rv.body_english or rv.body_original or "")
+            orig = (rv.body_original or "")
+            text = body if orig in body else f"{body}\n{orig}".strip()
+            pub = rv.received_at.date().isoformat() if rv.received_at else ""
+            try:
+                raw = await cl._call(
+                    match_indicator_prompt(text, pub, reviewer_name=rv.author or ""),
+                    max_tokens=400)
+                ind = cl._extract_json_object(raw) or {}
+            except Exception as e:
+                print(f"  {rv.id:<24} {(rv.author or '—')[:16]:<16} "
+                      f"extraction failed: {str(e)[:30]}")
+                continue
+
+            parts = (rv.author or "").split()
+            first = parts[0] if parts else ""
+            last  = parts[-1] if len(parts) > 1 else ""
+            after = []
+            if is_live("zendesk"):
+                try:
+                    after = await zd.shortlist(ind, first, last)
+                except Exception as e:
+                    print(f"  {rv.id:<24} shortlist failed: {str(e)[:40]}")
+                    continue
+            if not after and is_live("bigquery"):
+                try:
+                    after = await bq.find_via_support(ind, tgids=[])
+                except Exception:
+                    after = []
+
+            after_n = len(after)
+            if now_n == 0 and after_n > 0:
+                verdict = f"NEWLY MATCHED — {after_n} candidate(s)"
+            elif now_n > 0 and after_n == 0:
+                verdict = "LOST — matches today, would not after"
+            elif now_n != after_n:
+                verdict = f"{now_n} → {after_n} candidate(s)"
+            else:
+                verdict = "same"
+            rows.append((rv.id, verdict))
+            print(f"  {rv.id:<24} {(rv.author or '—')[:16]:<16} "
+                  f"{now_n:>5}  {after_n:>5}  {verdict}")
+
+        gained = sum(1 for _, v in rows if v.startswith("NEWLY"))
+        lost   = sum(1 for _, v in rows if v.startswith("LOST"))
+        moved  = sum(1 for _, v in rows if "→" in v)
+        same   = sum(1 for _, v in rows if v == "same")
+        print("\n  " + "─" * 84)
+        print(f"  {same} unchanged · {gained} newly matched · {moved} different "
+              f"candidate count · {lost} lost")
+        if lost:
+            print(f"\n  {lost} review(s) would STOP matching. Reprocessing is not "
+                  f"safe until that is understood.")
+        elif gained or moved:
+            print(f"\n  Reprocessing would improve {gained + moved} review(s) and "
+                  f"break none.")
+        else:
+            print("\n  Reprocessing would change nothing. The stored results "
+                  "already reflect what matching does now.")
+        return 0
+    finally:
+        db.close()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--review", default="")
@@ -162,7 +257,14 @@ def main():
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--write", action="store_true",
                     help="store the re-extracted indicators on the draft")
+    ap.add_argument("--all", action="store_true",
+                    help="re-run every stored review and report what would change")
+    ap.add_argument("--limit", type=int, default=50,
+                    help="how many reviews --all covers (newest first)")
     args = ap.parse_args()
+
+    if args.all:
+        return asyncio.run(batch(args.limit))
 
     from server.db import SessionLocal, init_db, Review
     init_db()
