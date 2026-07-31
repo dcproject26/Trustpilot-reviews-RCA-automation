@@ -113,12 +113,41 @@ def main():
                     help="execute the query instead of only validating it")
     ap.add_argument("--selftest", action="store_true",
                     help="prove the support->booking join actually joins")
+    ap.add_argument("--review", default="",
+                    help="use a real review's extracted indicators, by review id")
     args = ap.parse_args()
 
     if args.selftest:
         return selftest()
 
     ind = dict(SAMPLE)
+    name = args.name
+
+    # A real review beats the sample: SAMPLE's dates are a reconstruction of
+    # Sven's review, and testing a search against remembered facts proves
+    # nothing about the facts extraction actually produced.
+    if args.review:
+        from server.db import SessionLocal, init_db, RcaDraft, Review
+        init_db()
+        db = SessionLocal()
+        try:
+            d = db.query(RcaDraft).filter(RcaDraft.review_id == args.review).first()
+            rv = db.query(Review).filter(Review.id == args.review).first()
+            if not d:
+                print(f"no draft for review {args.review}")
+                return 1
+            real = (d.extracted_signals or {}).get("match_indicators") or {}
+            if not real:
+                print(f"review {args.review} has no extracted indicators stored — "
+                      f"it was matched by booking id, or predates extraction.")
+                return 1
+            ind = dict(real)
+            name = (rv.author if rv else "") or real.get("guest_name") or ""
+            print(f"review {args.review} — author {name!r}")
+            print(f"  indicators as extracted: {real}\n")
+        finally:
+            db.close()
+
     if args.dates:
         ind["dates_mentioned"] = [d.strip() for d in args.dates.split(",") if d.strip()]
     if args.venue:
@@ -132,7 +161,7 @@ def main():
     print(f"bookings table {BIGQUERY_BOOKINGS_TABLE}")
     print(f"bigquery live  {is_live('bigquery')}\n")
 
-    sql, params = support_search_sql(ind, author=args.name)
+    sql, params = support_search_sql(ind, author=name)
     if sql is None:
         print("Nothing to anchor on (no name and no dates) — the search would "
               "correctly decline to run. Pass --name or --dates.")
@@ -176,7 +205,7 @@ def main():
     if args.run:
         import asyncio
         from server.services.bigquery import find_via_support
-        rows = asyncio.run(find_via_support(ind, author=args.name))
+        rows = asyncio.run(find_via_support(ind, author=name))
         print(f"\n{len(rows)} booking(s):\n")
         for r in rows:
             print(f"  {r['id']:>12}  {r.get('visitDate',''):>10}  "
