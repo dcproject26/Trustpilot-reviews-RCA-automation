@@ -1016,6 +1016,23 @@ _MONTHS = ("january", "february", "march", "april", "may", "june", "july",
            "august", "september", "october", "november", "december")
 
 
+def _dates_agree(a: str, b: str) -> bool:
+    """Two dates naming the same day, allowing the year to be off by one.
+
+    The ticket's visit-date field against a date the review named. Guests
+    write "20.10." and extraction resolves the year from the post date, so the
+    day and month are observed and the year is inferred - the same reason the
+    BigQuery search matches on day and month.
+    """
+    def _parts(s):
+        m = re.search(r"(\d{4})-(\d{2})-(\d{2})", str(s or ""))
+        return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
+    pa, pb = _parts(a), _parts(b)
+    if not pa or not pb:
+        return False
+    return pa[1] == pb[1] and pa[2] == pb[2] and abs(pa[0] - pb[0]) <= 1
+
+
 def _term_in_text(term: str, hay: str) -> bool:
     """Does the ticket describe this problem, in whatever words it used?
 
@@ -1165,6 +1182,24 @@ async def shortlist(indicators: dict, author_first, author_last,
                 if not bid or bid in by_bid:
                     continue
                 ok, used = matches_indicators(sig, indicators, author_first, author_last)
+
+                # Does the ticket's own visit-date field land on a date the
+                # review named? This is a field comparison, not a text search,
+                # and it runs in BOTH passes because it is free and it is the
+                # thing that separates two bookings by one guest.
+                #
+                # It changes ORDER and what the card says, never membership:
+                # the same candidates are returned either way. Sven's review
+                # named 20.10 and produced two bookings by the same person -
+                # High School Musical on the 23rd and Sinatra on the 20th -
+                # shown as equally good, with the date he gave us unused.
+                _visit_hit = next(
+                    (d for d in (indicators.get("dates_mentioned") or [])
+                     if _dates_agree(sig.get("visit_date"), d)), None)
+                if _visit_hit:
+                    used = list(used) + [f"visit date {_visit_hit}"]
+                sig["visit_hit"] = _visit_hit
+
                 # Corroboration is computed only in the issue pass. In the direct
                 # pass these stay empty, so every downstream branch behaves
                 # exactly as it did before this existed.
@@ -1261,7 +1296,10 @@ async def shortlist(indicators: dict, author_first, author_last,
     # In the direct pass every corroboration count is zero, so this is the
     # original "newest first". In the issue pass, a ticket agreeing on name,
     # problem and date outranks one that merely shares a name and is newer.
-    out.sort(key=lambda s: (len(s.get("issue_hits") or []) + len(s.get("date_hits") or []),
+    # A booking whose visit date is a date the review named outranks one that
+    # merely shares a name and a venue, whichever ticket happens to be newer.
+    out.sort(key=lambda s: (1 if s.get("visit_hit") else 0,
+                            len(s.get("issue_hits") or []) + len(s.get("date_hits") or []),
                             s.get("created_at") or ""), reverse=True)
 
     # Pax as a narrowing step: only when it actually separates the candidates.
