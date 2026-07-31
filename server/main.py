@@ -189,6 +189,8 @@ def reporting_page():
 def healthz():
     return {"ok": True}
 
+
+
 if os.path.isdir(os.path.join(CLIENT_DIR, "static")):
     app.mount("/static", StaticFiles(
         directory=os.path.join(CLIENT_DIR, "static")), name="static")
