@@ -191,9 +191,9 @@ def list_reviews():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--name", default="Sven", help="guest name to search for")
+    ap.add_argument("--tgids", default="",
+                    help="comma-separated resolved TGIDs to search")
     ap.add_argument("--dates", default="", help="comma-separated YYYY-MM-DD")
-    ap.add_argument("--venue", default="", help="experience name fragment")
     ap.add_argument("--run", action="store_true",
                     help="execute the query instead of only validating it")
     ap.add_argument("--selftest", action="store_true",
@@ -219,7 +219,7 @@ def main():
         return selftest()
 
     ind = dict(SAMPLE)
-    name = args.name
+    tgids = [t.strip() for t in args.tgids.split(',') if t.strip()]
 
     # A real review beats the sample: SAMPLE's dates are a reconstruction of
     # Sven's review, and testing a search against remembered facts proves
@@ -256,7 +256,6 @@ def main():
                           f"— it was matched by booking id, or predates extraction.")
                     return 1
             ind = dict(real)
-            name = (rv.author or "") or real.get("guest_name") or ""
             print(f"review {rv.id} — author {name!r}")
             print(f"  {(rv.body_english or rv.body_original or '')[:200]}")
             print(f"  indicators AS STORED: {real}")
@@ -294,14 +293,11 @@ def main():
                     print(f"    [{mark}] {f}: {got!r}")
                 print()
                 ind = dict(fresh)
-                name = (rv.author or "") or fresh.get("guest_name") or ""
         finally:
             db.close()
 
     if args.dates:
         ind["dates_mentioned"] = [d.strip() for d in args.dates.split(",") if d.strip()]
-    if args.venue:
-        ind["experience_or_venue"] = args.venue
 
     from server.config import (is_live, BIGQUERY_SUPPORT_TABLE,
                                BIGQUERY_BOOKINGS_TABLE)
@@ -311,10 +307,11 @@ def main():
     print(f"bookings table {BIGQUERY_BOOKINGS_TABLE}")
     print(f"bigquery live  {is_live('bigquery')}\n")
 
-    sql, params = support_search_sql(ind, author=name)
+    sql, params = support_search_sql(ind, tgids=tgids)
     if sql is None:
-        print("Nothing to anchor on (no name and no dates) — the search would "
-              "correctly decline to run. Pass --name or --dates.")
+        print("This path needs BOTH a resolved experience (--tgids) and a\n"
+              "date the review named (--dates). It does not match on the\n"
+              "guest name: primary_guest_name is a PII hash on every row.")
         return 0
 
     as_dict = {}
@@ -361,7 +358,7 @@ def main():
         # only on the retry looks identical to one that never retried.
         logging.basicConfig(level=logging.INFO, format="  [service] %(message)s")
         logging.getLogger("server.services.bigquery").setLevel(logging.INFO)
-        rows = asyncio.run(find_via_support(ind, author=name))
+        rows = asyncio.run(find_via_support(ind, tgids=tgids))
         print(f"\n{len(rows)} booking(s):\n")
         for r in rows:
             print(f"  {r['id']:>12}  {r.get('visitDate',''):>10}  "
@@ -374,7 +371,7 @@ def main():
                 print("\n  Add --why to count rows filter by filter and see "
                       "which one is responsible.")
         if not rows and args.why:
-            why(ind, name)
+            why(ind, tgids)
     return 0
 
 
@@ -412,21 +409,18 @@ def _show_survivors(base: str, clauses: str, params: list, limit: int = 12):
     print()
 
 
-def why(ind: dict, author: str):
+def why(ind: dict, tgids: list):
     """Which filter emptied the result?
 
-    A search returning nothing has several possible causes that look identical
-    from outside: the guest never contacted support, the booking name is not
-    the review name, the dates do not line up, or the venue is a product type
-    that matches no experience. Counting the same query with one filter added
-    at a time separates them.
+    A search returning nothing has causes that look identical from outside:
+    no booking for these experiences, none on the dates the review named, or
+    none whose guest ever contacted support. Counting the same query with one
+    filter added at a time separates them.
     """
     from server.config import BIGQUERY_SUPPORT_TABLE, BIGQUERY_BOOKINGS_TABLE
-    from server.services.bigquery import (_run_query, _search_name, _iso_dates,
-                                          _bqlib, SUPPORT_LOOKBACK_DAYS)
-    name  = _search_name(author or ind.get("guest_name") or "")
+    from server.services.bigquery import (_run_query, _iso_dates, _bqlib,
+                                          _day_month_match, SUPPORT_LOOKBACK_DAYS)
     dates = _iso_dates(ind.get("dates_mentioned"))
-    venue = (ind.get("experience_or_venue") or "").strip()
 
     base = f"""
       FROM `{BIGQUERY_SUPPORT_TABLE}` sq
@@ -436,21 +430,15 @@ def why(ind: dict, author: str):
         AND sq.query_created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(),
                                                  INTERVAL {int(SUPPORT_LOOKBACK_DAYS)} DAY)
     """
-    f_name = "AND LOWER(b.primary_guest_name) LIKE LOWER(CONCAT('%', @name, '%'))"
-    f_date = """AND (
-        EXISTS (SELECT 1 FROM UNNEST(@dates) d
-                WHERE ABS(DATE_DIFF(DATE(b.experience_date), DATE(d), DAY)) <= 1)
-        OR EXISTS (SELECT 1 FROM UNNEST(@dates) d
-                WHERE ABS(DATE_DIFF(DATE(b.created_at), DATE(d), DAY)) <= 1))"""
-    f_venue = "AND LOWER(b.experience_name) LIKE LOWER(CONCAT('%', @venue, '%'))"
+    f_tgid = "AND CAST(b.experience_id AS STRING) IN UNNEST(@tgids)"
+    f_date = f"""AND ({_day_month_match("b.experience_date")}
+                      OR {_day_month_match("b.created_at")})"""
 
-    steps = [("support contacts in window", "")]
-    if name:
-        steps.append((f"+ guest name contains {name!r}", f_name))
+    steps = [("bookings with a support contact", "")]
+    if tgids:
+        steps.append((f"+ one of {len(tgids)} experience(s)", f_tgid))
     if dates:
         steps.append((f"+ a booking date in {dates}", f_date))
-    if venue:
-        steps.append((f"+ experience name contains {venue!r}", f_venue))
 
     print("\n  where the rows go:\n")
     clauses, last, prev_clauses = "", None, ""
@@ -458,12 +446,10 @@ def why(ind: dict, author: str):
         prev_clauses = clauses
         clauses += "\n" + clause
         params = []
-        if "@name" in clauses:
-            params.append(_bqlib.ScalarQueryParameter("name", "STRING", name))
+        if "@tgids" in clauses:
+            params.append(_bqlib.ArrayQueryParameter("tgids", "STRING", tgids))
         if "@dates" in clauses:
             params.append(_bqlib.ArrayQueryParameter("dates", "STRING", dates))
-        if "@venue" in clauses:
-            params.append(_bqlib.ScalarQueryParameter("venue", "STRING", venue))
         try:
             rows = _run_query(f"SELECT COUNT(DISTINCT b.booking_id) AS n {base}{clauses}",
                               params)
@@ -478,12 +464,9 @@ def why(ind: dict, author: str):
             _show_survivors(base, prev_clauses, params)
         last = n
 
-    if name and not any(s[0].startswith("+ guest name") for s in steps):
-        return
-    print(f"\n  If the guest-name step is where it goes to zero, the booking is "
-          f"not\n  under {name!r} — Trustpilot display names are frequently not "
-          f"booking names,\n  and this path cannot find a booking whose name it "
-          f"does not know.")
+    print("\n  This path does not use the guest name. primary_guest_name is a\n"
+          "  PII hash on every booking behind a support contact, so it can only\n"
+          "  ever exclude everything. Experience and date are what it has.")
 
 
 if __name__ == "__main__":
