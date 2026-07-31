@@ -280,25 +280,28 @@ def _day_month_match(col: str) -> str:
                           - EXTRACT(YEAR FROM DATE(d))) <= 1)"""
 
 
-def support_search_sql(indicators: dict, author: str = "", limit: int = 8,
-                       use_venue: bool = True):
+def support_search_sql(indicators: dict, tgids: list | None = None,
+                       limit: int = 8):
     """Build the support-anchored query. Returns (sql, params) or (None, None).
 
     Separated from the call so tools/check_support_search.py can dry-run the
     exact query this service issues, rather than a hand-copied lookalike that
     drifts.
     """
-    name  = _search_name(author or indicators.get("guest_name") or "")
     dates = _iso_dates(indicators.get("dates_mentioned"))
-    venue = (indicators.get("experience_or_venue") or "").strip() if use_venue else ""
-    # Two independent facts, or nothing. A name on its own is not evidence:
-    # "guests called Sven who contacted support in the last 18 months" is a
-    # long list, and returning the most recent eight of them as candidates
-    # dresses up noise as a match. A date narrows it to something real, and
-    # name+venue is two agreements. Neither available means this path has
-    # nothing to say, and saying so is the correct answer.
-    _venue_for_gate = (indicators.get("experience_or_venue") or "").strip()
-    if not dates and not (name and _venue_for_gate):
+    tgids = [str(t).strip() for t in (tgids or []) if str(t).strip()]
+
+    # The guest name is not usable here and never was. Measured over every
+    # booking behind a support contact in the window: 639,109 rows, 639,109 of
+    # them carrying a PII hash in primary_guest_name, none carrying a name.
+    # A name filter against that column cannot match - it can only ever
+    # exclude everything - so this path is anchored on the two facts BigQuery
+    # really holds: which experience was booked, and when.
+    #
+    # Both are required. Experiences the review points at, with a booking on a
+    # date it named, whose guest then contacted support, is a small and honest
+    # set. Either one alone is not.
+    if not (dates and tgids):
         return None, None
 
     # In MOCK_MODE _bqlib is None, but the parameter classes are plain data
@@ -309,15 +312,13 @@ def support_search_sql(indicators: dict, author: str = "", limit: int = 8,
         from server.services import bq_connector as _P
 
     where, params = ["sq.booking_id IS NOT NULL"], []
-    if name:
-        # Whole word, and never against a hash. A substring LIKE returned
-        # 'ab24TSVenneb4T3CkHFUFaGM' - a PII hash with the letters SVen inside
-        # it - as the match for a guest called Sven, and with it a Barcelona
-        # walking tour as the booking behind a review about a musical.
-        where.append(NOT_A_HASH_SQL)
-        where.append("REGEXP_CONTAINS(LOWER(b.primary_guest_name), "
-                     "CONCAT(r'(^|[^a-z])', LOWER(@name), r'([^a-z]|$)'))")
-        params.append(_P.ScalarQueryParameter("name", "STRING", name))
+    if tgids:
+        # Resolved TGIDs, not a LIKE on the experience name. The pipeline has
+        # already turned whatever the guest called the place into real ids, and
+        # guests name product types - "musical ticket", "skip-the-line entry" -
+        # which match no experience_name at all.
+        where.append("CAST(b.experience_id AS STRING) IN UNNEST(@tgids)")
+        params.append(_P.ArrayQueryParameter("tgids", "STRING", tgids))
     if dates:
         # A date the review named may be the visit date OR the date the guest
         # meant to book - both are on the booking, so both are checked, with a
@@ -336,10 +337,6 @@ def support_search_sql(indicators: dict, author: str = "", limit: int = 8,
             OR {_day_month_match("b.created_at")}
         )""")
         params.append(_P.ArrayQueryParameter("dates", "STRING", dates))
-    if venue:
-        where.append("LOWER(b.experience_name) LIKE LOWER(CONCAT('%', @venue, '%'))")
-        params.append(_P.ScalarQueryParameter("venue", "STRING", venue))
-
     sql = f"""
     SELECT
         b.booking_id,
@@ -371,80 +368,58 @@ def support_search_sql(indicators: dict, author: str = "", limit: int = 8,
     return sql, params
 
 
-async def find_via_support(indicators: dict, author: str = "",
+async def find_via_support(indicators: dict, tgids: list | None = None,
                            limit: int = 8) -> list[dict]:
     """
-    Bookings whose guest CONTACTED SUPPORT, narrowed by the review's own facts.
+    Bookings for these experiences, on a date the review named, whose guest
+    then contacted support.
 
     The complement to the Zendesk text search, not a duplicate of it.
     fct_support_queries carries the contact as CATEGORIES - query_tag,
-    query_type, contact_type - not the guest's words, so it cannot be searched
-    for "falsches Datum". What it can do, and Zendesk cannot, is join the
-    contact to the booking and filter on real booking facts: the guest's name
-    as it appears on the booking, the actual experience date, the booking
-    date. A review naming a date is therefore matchable here even when the
-    guest's phrasing finds nothing.
+    query_type, contact_type - never the guest's words, so it cannot be
+    searched for "falsches Datum"; that is Zendesk's job. What it adds is the
+    fact of a contact, which turns "bookings for this experience around this
+    date" into "bookings for this experience around this date whose guest then
+    complained" - a far smaller set, and one every member of which has a
+    reason to be in front of an associate.
 
-    Used only as a fallback, on the same terms as the Zendesk issue pass: the
-    direct matcher answers first, and this runs when it has not.
+    It does NOT match on the guest name. primary_guest_name is a PII hash on
+    every row in this table: 639,109 bookings behind a support contact, every
+    one of them hashed. A name comparison there cannot succeed.
+
+    Used only as a fallback: the direct matcher answers first, and this runs
+    when it has not.
     """
     if not is_live("bigquery"):
         return []
-    # The same normalisation the query uses, so what the card says it matched
-    # on is what was actually searched for.
-    name  = _search_name(author or indicators.get("guest_name") or "")
     dates = _iso_dates(indicators.get("dates_mentioned"))
-    venue = (indicators.get("experience_or_venue") or "").strip()
-    sql, params = support_search_sql(indicators, author, limit)
+    sql, params = support_search_sql(indicators, tgids, limit)
     if sql is None:
+        log.info(f"[bq] support-anchored: needs both a resolved experience and "
+                 f"a date (tgids={len(tgids or [])} dates={len(dates)}) - skipped")
         return []
 
-    def _go(_sql, _params):
-        return _run_query(_sql, _params)
-
-    loop = asyncio.get_running_loop()
     try:
-        rows = await loop.run_in_executor(None, lambda: _go(sql, params))
+        rows = await asyncio.get_running_loop().run_in_executor(
+            None, lambda: _run_query(sql, params))
     except Exception as e:
         log.warning(f"[bq] support-anchored search failed: {e}")
         return []
 
-    # experience_or_venue is whatever the guest called it, and guests name
-    # product types: "musical ticket", "skip-the-line entry", "guided tour".
-    # None of those is an experience_name, so ANDing it in turns a search that
-    # would have found something into one that finds nothing. When dates are
-    # carrying the search anyway, drop the venue and ask again.
-    if not rows and venue and dates:
-        sql2, params2 = support_search_sql(indicators, author, limit,
-                                           use_venue=False)
-        if sql2:
-            log.info(f"[bq] support-anchored: 0 rows with venue={venue!r}; "
-                     f"retrying on name and dates alone")
-            try:
-                rows = await loop.run_in_executor(None, lambda: _go(sql2, params2))
-                venue = ""      # so matched_on does not claim a venue agreement
-            except Exception as e:
-                log.warning(f"[bq] support-anchored retry failed: {e}")
-                return []
-
     out = []
     for r in rows:
         d = _row_to_dict(r)
-        # The SQL excludes hashes, but this is the check that decides whether a
-        # booking is put in front of an associate as "matching this guest", so
-        # it is worth making twice. A hash cannot corroborate a name.
-        if name and is_hashed_name(d.get("guestName") or ""):
-            log.info(f"[bq] support-anchored: dropping booking {d.get('id')} - "
-                     f"its guest name is a hash, not a name")
-            continue
+        # The name is a hash, so it must not be shown as though it identified
+        # anyone. The card shows the experience, the date and the contact.
+        if is_hashed_name(d.get("guestName") or ""):
+            d["guestName"] = ""
         d["contact_count"] = getattr(r, "contact_count", 0) or 0
         d["contact_tags"]  = getattr(r, "contact_tags", "") or ""
-        d["matched_on"] = ([f"name:{name}"] if name else []) + \
-                          ([f"date:{dates[0]}"] if dates else []) + \
-                          ["contacted support"]
+        d["matched_on"] = ["venue", f"date:{dates[0]}" if dates else "date",
+                           "contacted support"]
         out.append(d)
-    log.info(f"[bq] support-anchored: name={bool(name)} dates={len(dates)} "
-             f"venue={bool(venue)} -> {len(out)} booking(s)")
+    log.info(f"[bq] support-anchored: tgids={len(tgids or [])} dates={len(dates)} "
+             f"-> {len(out)} booking(s)")
     return out
 
 

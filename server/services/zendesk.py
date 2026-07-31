@@ -1016,6 +1016,24 @@ _MONTHS = ("january", "february", "march", "april", "may", "june", "july",
            "august", "september", "october", "november", "december")
 
 
+def _term_in_text(term: str, hay: str) -> bool:
+    """Does the ticket describe this problem, in whatever words it used?
+
+    A contiguous match on the extracted phrase is too strict for the same
+    reason the quoted query was: "falsches Datum auf Voucher" against a ticket
+    saying "Das Datum auf dem Voucher ist falsch" is the same problem written
+    differently. The content words all have to be present; adjacency and order
+    are not evidence of anything.
+    """
+    term = (term or "").strip().lower()
+    if not term:
+        return False
+    if term in hay:
+        return True
+    words = [w for w in re.findall(r"\w+", term, re.UNICODE) if len(w) >= 4]
+    return bool(words) and all(w in hay for w in words)
+
+
 def _date_in_text(iso: str, hay: str) -> bool:
     """Does this ISO date appear in the text, however the guest wrote it?
 
@@ -1102,12 +1120,20 @@ async def shortlist(indicators: dict, author_first, author_last,
     # searched. The second pass runs only when they produce nothing.
     issue_queries = []
     for term in issue_terms[:3]:
+        # Quotes mean an exact contiguous phrase in Zendesk. Extraction returns
+        # things like "falsches Datum auf Voucher", and the ticket it needs to
+        # find says "Das Datum auf dem Voucher ist falsch" - same problem,
+        # different word order, and the phrase search matches neither. Only
+        # short terms stay quoted; anything longer is left as separate words,
+        # which Zendesk ANDs, so the words must all appear but need not be
+        # adjacent or in order.
+        q_term = f'"{term}"' if len(term.split()) <= 2 else term
         if name:
-            issue_queries.append((f'type:ticket {name} "{term}" {ORDER}', "name+issue"))
+            issue_queries.append((f'type:ticket {name} {q_term} {ORDER}', "name+issue"))
         elif venue:
-            issue_queries.append((f'type:ticket "{venue}" "{term}" {ORDER}', "venue+issue"))
+            issue_queries.append((f'type:ticket "{venue}" {q_term} {ORDER}', "venue+issue"))
         else:
-            issue_queries.append((f'type:ticket "{term}" {ORDER}', "issue"))
+            issue_queries.append((f'type:ticket {q_term} {ORDER}', "issue"))
 
     loop = asyncio.get_running_loop()
     # issue_pass=False reproduces the original behaviour exactly: corroboration
@@ -1153,7 +1179,7 @@ async def shortlist(indicators: dict, author_first, author_last,
                         str(getattr(t, "subject", "") or ""),
                         str(getattr(t, "description", "") or "")[:4000],
                     )).lower()
-                    hit_terms = [term for term in issue_terms if term.lower() in hay]
+                    hit_terms = [term for term in issue_terms if _term_in_text(term, hay)]
                     hit_dates = [d for d in (indicators.get("dates_mentioned") or [])
                                  if _date_in_text(d, hay)]
                     if hit_terms:

@@ -1121,16 +1121,19 @@ async def process_review(review_id: str, force_candidates: bool = False):
                     # review they all gave up on, so a working match can never
                     # be displaced by it.
                     #
-                    # What it adds: fct_support_queries records that a booking's
-                    # guest raised something with support, and joins to the
-                    # booking. It holds the contact's CATEGORY, not the guest's
-                    # words - it cannot be searched for "falsches Datum", which
-                    # is Zendesk's job. What it can do, and Zendesk cannot, is
-                    # filter on the booking's own facts: the name the booking
-                    # sits under and the real experience date. A guest who both
-                    # named a date and contacted support is a far smaller set
-                    # than either signal alone, which is what makes a common
-                    # first name usable here at all.
+                    # What it adds: the fact that a booking's guest CONTACTED
+                    # SUPPORT. 3a and 3b already ask which bookings match the
+                    # venue and a date window; this asks which of those also
+                    # produced a complaint, which is a far smaller set and one
+                    # every member of which has a reason to be here. It is also
+                    # a second bite at the date, matching the day and month the
+                    # review named in any adjacent year rather than a window
+                    # around the post date.
+                    #
+                    # It does NOT use the guest name. primary_guest_name is a
+                    # PII hash on every booking behind a support contact -
+                    # measured, 639,109 of 639,109 - so a name comparison there
+                    # can only ever exclude everything.
                     if not cascade_done:
                         _sup = []
                         # Ask the search itself what it can use, rather than
@@ -1138,22 +1141,19 @@ async def process_review(review_id: str, force_candidates: bool = False):
                         # passes a naive check and then searches nothing, and a
                         # trail line saying nothing matched when nothing was
                         # searched is the failure this codebase keeps hitting.
-                        from server.services.bigquery import _iso_dates, _search_name
-                        _sup_name  = _search_name((review.author or "")
-                                                  or indicators.get("guest_name") or "")
+                        from server.services.bigquery import _iso_dates
                         _sup_dates = _iso_dates(indicators.get("dates_mentioned"))
-                        if _sup_name or _sup_dates:
+                        if _sup_dates and tgids:
                             _ctr["t2_bq_support_attempted"] += 1
                             try:
-                                _sup = await bq.find_via_support(
-                                    indicators,
-                                    author=(review.author or "").strip())
+                                _sup = await bq.find_via_support(indicators,
+                                                                 tgids=tgids)
                             except Exception as e:
                                 log.warning(f"[tier2] support-anchored search failed: {e}")
                                 _sup = []
                             narrowing_attempts.append({
                                 "path": "bq_support_contact",
-                                "params": {"name": _sup_name, "dates": _sup_dates},
+                                "params": {"tgids": len(tgids), "dates": _sup_dates},
                                 "result_count": len(_sup),
                             })
 
