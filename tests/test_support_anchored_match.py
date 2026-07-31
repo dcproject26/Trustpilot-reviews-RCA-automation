@@ -158,6 +158,30 @@ def test_it_refuses_to_run_with_nothing_to_anchor_on(bq_with):
     assert runner.calls == [], "no query may be issued with nothing to narrow by"
 
 
+def test_the_day_and_month_are_matched_not_the_guessed_year(bq_with):
+    """Guests write "20/10", not "20/10/2025". The day and month are facts
+    from the review; the year is what extraction inferred from the post date,
+    and the prompt says so. Pinning the filter to the inferred part while
+    discarding the observed part is what made Sven's search return nothing -
+    sixteen bookings under his name with a support contact, none surviving."""
+    runner = bq_with([_row("88001", "Sven Bauer")])
+    asyncio.run(bq.find_via_support(SVEN, author="Sven Bauer"))
+    sql, _ = runner.calls[0]
+    assert "EXTRACT(MONTH FROM DATE(d))" in sql and "EXTRACT(DAY   FROM DATE(d))" in sql, \
+        "the day and month the guest wrote must be what is compared"
+    assert "SAFE.DATE" in sql, "29 February does not exist in every year"
+    assert "<= 1)" in sql, "the year must still be bounded, not ignored"
+
+
+def test_a_wildly_different_year_is_still_rejected(bq_with):
+    """Loose is not the same as open. A booking on 20 October five years ago
+    is not this review's booking."""
+    runner = bq_with([_row("88001", "Sven Bauer")])
+    asyncio.run(bq.find_via_support(SVEN, author="Sven Bauer"))
+    sql, _ = runner.calls[0]
+    assert "EXTRACT(YEAR FROM DATE(d))) <= 1" in sql
+
+
 def test_a_name_on_its_own_is_not_enough_to_search_on(bq_with):
     """"Guests called Sven who contacted support in the last 18 months" is a
     long list. Returning the most recent eight as candidates dresses noise up

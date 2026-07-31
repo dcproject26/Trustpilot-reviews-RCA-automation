@@ -231,6 +231,26 @@ def _search_name(raw: str) -> str:
     return parts[0]
 
 
+def _day_month_match(col: str) -> str:
+    """SQL: does this booking date fall on a day/month the review named?
+
+    The review's day and month are rebuilt inside the BOOKING's year and then
+    compared, so "20/10" matches a 20 October booking whichever year it is in,
+    while a year more than one out is still rejected. SAFE.DATE because 29
+    February does not exist in every year and a raw DATE() would raise.
+    """
+    return f"""EXISTS (
+                SELECT 1 FROM UNNEST(@dates) d
+                WHERE ABS(DATE_DIFF(
+                        DATE({col}),
+                        SAFE.DATE(EXTRACT(YEAR  FROM DATE({col})),
+                                  EXTRACT(MONTH FROM DATE(d)),
+                                  EXTRACT(DAY   FROM DATE(d))),
+                        DAY)) <= 1
+                  AND ABS(EXTRACT(YEAR FROM DATE({col}))
+                          - EXTRACT(YEAR FROM DATE(d))) <= 1)"""
+
+
 def support_search_sql(indicators: dict, author: str = "", limit: int = 8,
                        use_venue: bool = True):
     """Build the support-anchored query. Returns (sql, params) or (None, None).
@@ -267,11 +287,18 @@ def support_search_sql(indicators: dict, author: str = "", limit: int = 8,
         # A date the review named may be the visit date OR the date the guest
         # meant to book - both are on the booking, so both are checked, with a
         # day of slack for timezone rounding.
-        where.append("""(
-            EXISTS (SELECT 1 FROM UNNEST(@dates) d
-                    WHERE ABS(DATE_DIFF(DATE(b.experience_date), DATE(d), DAY)) <= 1)
-            OR EXISTS (SELECT 1 FROM UNNEST(@dates) d
-                    WHERE ABS(DATE_DIFF(DATE(b.created_at), DATE(d), DAY)) <= 1)
+        #
+        # The year is matched loosely on purpose. Guests write "20/10", not
+        # "20/10/2025", so the day and month are FACTS from the review while
+        # the year is something extraction inferred from the post date - the
+        # prompt says as much. Filtering exactly on the inferred part while
+        # throwing away the observed part is backwards, and it is what made
+        # Sven's search return nothing: sixteen bookings under his name with a
+        # support contact, none surviving a date filter pinned to a guessed
+        # year. Day and month must agree; the year may be off by one.
+        where.append(f"""(
+            {_day_month_match("b.experience_date")}
+            OR {_day_month_match("b.created_at")}
         )""")
         params.append(_P.ArrayQueryParameter("dates", "STRING", dates))
     if venue:

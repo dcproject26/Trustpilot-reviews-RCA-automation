@@ -330,6 +330,40 @@ def main():
     return 0
 
 
+def _show_survivors(base: str, clauses: str, params: list, limit: int = 12):
+    """The rows the killing filter discarded, so a human can see what they are.
+
+    A count going to zero says which filter did it; it does not say whether
+    the filter was right. Seeing the actual bookings answers that in one look
+    - a Sven with the right day and month in the wrong year is a year the
+    model guessed, not a different guest.
+    """
+    from server.services.bigquery import _run_query
+    sql = f"""
+    SELECT DISTINCT b.booking_id, b.primary_guest_name AS guest_name,
+           b.experience_name,
+           DATE(b.experience_date) AS visit_date,
+           DATE(b.created_at)      AS booked_on
+    {base}{clauses}
+    ORDER BY visit_date DESC
+    LIMIT {int(limit)}
+    """
+    try:
+        rows = _run_query(sql, params)
+    except Exception as e:
+        print(f"    (could not list them: {str(e)[:70]})")
+        return
+    for r in rows:
+        print(f"    {str(getattr(r, 'booking_id', '')):>12}  "
+              f"visit {str(getattr(r, 'visit_date', '') or '—'):>10}  "
+              f"booked {str(getattr(r, 'booked_on', '') or '—'):>10}  "
+              f"{str(getattr(r, 'guest_name', '') or '')[:22]:22} "
+              f"{str(getattr(r, 'experience_name', '') or '')[:40]}")
+    if not rows:
+        print("    (none)")
+    print()
+
+
 def why(ind: dict, author: str):
     """Which filter emptied the result?
 
@@ -371,8 +405,9 @@ def why(ind: dict, author: str):
         steps.append((f"+ experience name contains {venue!r}", f_venue))
 
     print("\n  where the rows go:\n")
-    clauses, last = "", None
+    clauses, last, prev_clauses = "", None, ""
     for label, clause in steps:
+        prev_clauses = clauses
         clauses += "\n" + clause
         params = []
         if "@name" in clauses:
@@ -391,7 +426,8 @@ def why(ind: dict, author: str):
         drop = "" if last is None else f"  (was {last:,})"
         print(f"    {label:<44} {n:>9,}{drop}")
         if last and n == 0:
-            print(f"\n  ^ this filter is what empties it.")
+            print(f"\n  ^ this filter is what empties it. What it threw away:\n")
+            _show_survivors(base, prev_clauses, params)
         last = n
 
     if name and not any(s[0].startswith("+ guest name") for s in steps):
