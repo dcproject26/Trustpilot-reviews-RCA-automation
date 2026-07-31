@@ -320,3 +320,89 @@ def test_direct_pass_keeps_the_original_weak_fallback(zendesk_with):
     assert [s["booking_id"] for s in out] == ["77002"]
     assert out[0].get("weak") is True, "the name-only fallback must survive unchanged"
     assert out[0]["matched_on"] == ["name"]
+
+
+# ── the real thing, end to end ──────────────────────────────────────────────
+
+def test_svens_review_end_to_end(zendesk_with, monkeypatch):
+    """Sven's actual review, his actual two bookings, and the two searches
+    that really run. The right booking must come first, say why, and the
+    output must be capped and complete.
+
+    High School Musical on the 23rd and Sinatra on the 20th, both under
+    variants of his name. His review names 20.10. Sinatra is the answer.
+    """
+    hsm = _ticket("t1", "32365808", "Sven Lützeler", "Booking question", "—")
+    sin = _ticket("t2", "32077652", "Sven Luetzeler", "Wrong voucher date",
+                  "Der Voucher enthielt das falsche Datum 20.06.2026")
+    # The name search finds both; the name+venue search finds only Sinatra.
+    qs = _Queries({'requester:"Sven"': [hsm, sin], "Sven Musical": [sin]})
+    zendesk_with(qs, {
+        "t1": {"booking_id": "32365808", "guest_name": "Sven Lützeler",
+               "visit_date": "2026-10-23", "experience": "High School Musical"},
+        "t2": {"booking_id": "32077652", "guest_name": "Sven Luetzeler",
+               "visit_date": "2026-10-20", "experience": "Sinatra The Musical"},
+    })
+    monkeypatch.setattr(zd, "matches_indicators",
+                        lambda sig, ind, f, l: (True, ["name"]))
+
+    ind = dict(SVEN, experience_or_venue="Musical")
+    out = asyncio.run(zd.shortlist(ind, "Sven", ""))
+
+    assert len(out) == 2, "both of his bookings must be offered"
+    assert out[0]["booking_id"] == "32077652", (
+        "Sinatra is on the date his review names and was found by both "
+        f"searches; got {[s['booking_id'] for s in out]}")
+    reasons = out[0]["matched_on"]
+    assert any("visit date" in x for x in reasons), "the card must say why"
+    assert "venue" in reasons, "the venue search also found it — that must show"
+    assert zd._evidence(out[0]) > zd._evidence(out[1]), \
+        "the better-evidenced booking must score higher, not just sort first"
+
+
+def test_a_truncated_search_is_reported(zendesk_with, monkeypatch):
+    """Zendesk drops everything past its cap silently. Five candidates from a
+    truncated search does not mean five exist."""
+    many = [_ticket(f"t{i}", f"6{i:06d}", f"Sven {i}", "B", "—")
+            for i in range(zd._ZD_RESULT_CAP)]
+    qs = _Queries({"Sven": many})
+    zendesk_with(qs, {f"t{i}": {"booking_id": f"6{i:06d}",
+                                "guest_name": f"Sven {i}"}
+                      for i in range(zd._ZD_RESULT_CAP)})
+    monkeypatch.setattr(zd, "matches_indicators",
+                        lambda sig, ind, f, l: (True, ["name"]))
+    notes = []
+    out = asyncio.run(zd.shortlist(SVEN, "Sven", "", notes=notes))
+    assert len(out) == 5, "still capped"
+    assert any(n["kind"] == "truncated" for n in notes), \
+        "a search that hit the cap must be reported, not only logged"
+
+
+def test_a_failed_query_is_reported_not_silently_dropped(zendesk_with):
+    """One query failing while others succeed used to leave no trace, so a
+    partial search looked like a complete one."""
+    class _Boom:
+        seen = []
+
+        def get_for(self, q):
+            self.seen.append(q)
+            raise RuntimeError("Zendesk 503")
+
+    qs = _Boom()
+    zendesk_with(qs, {})
+    notes = []
+    assert asyncio.run(zd.shortlist(SVEN, "Sven", "", notes=notes)) == []
+    assert any(n["kind"] == "failed" for n in notes)
+
+
+def test_the_date_floor_only_bounds_the_broad_queries(zendesk_with):
+    """A floor on the combined queries could only drop a real match; they are
+    already narrow enough not to truncate."""
+    qs = _Queries({})
+    zendesk_with(qs, {})
+    asyncio.run(zd.shortlist(dict(SVEN, experience_or_venue="Louvre"),
+                             "Sven", "", since="2025-01-01"))
+    combined = [q for q in qs.seen if "Louvre" in q and "requester" not in q]
+    assert combined, f"no combined query ran; got {qs.seen}"
+    assert not any("created>" in q for q in combined), \
+        "the narrow combined query must not carry the floor"

@@ -22,7 +22,7 @@ Steps:
   15. Metrics
 """
 import asyncio, logging, re, unicodedata
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -74,6 +74,13 @@ def _is_hashed_name(s: str) -> bool:
     if not s or " " in s:
         return False
     return len(s) >= 16 and bool(re.fullmatch(r"[A-Za-z0-9+/=_\-]+", s))
+
+
+# How far back the broad Zendesk searches look, from the review's own date.
+# Guests review weeks to months after visiting, occasionally a year later;
+# unbounded, a search on a common name returns more than Zendesk will hand
+# back and the right ticket can fall outside what we get.
+SHORTLIST_LOOKBACK_DAYS = 540
 
 
 def _shape_weak_bid(row: dict, why: list) -> dict:
@@ -227,6 +234,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
             "t2_bq_support_attempted":     0,
             "t2_bq_support_candidates":    0,
             "t2_bq_support_no_match":      0,
+            "t2_zendesk_truncated":        0,
         }
 
         # ── 2. BID extraction + source detection ─────────────────────────────
@@ -664,12 +672,37 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 # pass could never run on the reviews it was written for.
                 _issue_terms = [t for t in (indicators.get("issue_terms") or []) if t]
                 if not cascade_done and (name_parseable or venue_hints or _issue_terms):
+                    # A floor for the broad searches. Guests review weeks to
+                    # months after visiting, not years, and an unbounded search
+                    # on a common name returns more than Zendesk will hand back.
+                    _since = ((review.received_at or datetime.utcnow()).date()
+                              - timedelta(days=SHORTLIST_LOOKBACK_DAYS)).isoformat()
+                    _notes = []
                     try:
                         _short = await zendesk.shortlist(
-                            indicators, author_first, author_last)
+                            indicators, author_first, author_last,
+                            since=_since, notes=_notes)
                     except Exception as e:
                         log.warning(f"[tier2] shortlist failed: {e}")
                         _short = []
+
+                    # Say when a search came back incomplete. Zendesk drops
+                    # everything past its result cap without a word, so five
+                    # candidates from a truncated search does not mean five
+                    # exist - and an associate reading the card has no other
+                    # way to know the right booking may never have been in it.
+                    for _n in _notes:
+                        if _n.get("kind") == "truncated":
+                            _ctr["t2_zendesk_truncated"] += 1
+                            confidence_trail.append({"mark": "warn",
+                                "text": f"<strong>Zendesk returned too many results</strong> "
+                                        f"for the {_n['label']} search and dropped the rest. "
+                                        f"Anything below is what came back, not everything "
+                                        f"that matches — the right booking may not be here."})
+                        elif _n.get("kind") == "failed":
+                            confidence_trail.append({"mark": "warn",
+                                "text": f"<strong>Zendesk {_n['label']} search failed</strong> "
+                                        f"— {_n.get('detail', '')}"})
 
                     if _short:
                         candidates = []
