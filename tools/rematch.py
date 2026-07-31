@@ -27,6 +27,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BAR = "─" * 74
 
 
+def _since_for(rv):
+    """The date floor the pipeline uses, so this searches what it searches."""
+    from datetime import datetime, timedelta
+    from server.pipeline import SHORTLIST_LOOKBACK_DAYS
+    base = (rv.received_at or datetime.utcnow()).date()
+    return (base - timedelta(days=SHORTLIST_LOOKBACK_DAYS)).isoformat()
+
+
 def _head(t):
     print(f"\n{BAR}\n{t}\n{BAR}")
 
@@ -93,7 +101,16 @@ async def run(review_id: str, write: bool):
             print("  Zendesk is not live here; skipping.")
             short = []
         else:
-            short = await zd.shortlist(ind, first, last)
+            notes = []
+            short = await zd.shortlist(ind, first, last,
+                                       since=_since_for(rv), notes=notes)
+            for n in notes:
+                if n["kind"] == "truncated":
+                    print(f"  [!] the {n['label']} search hit Zendesk's result "
+                          f"cap — results below are incomplete")
+                    print(f"      {n['detail']}")
+                elif n["kind"] == "failed":
+                    print(f"  [!] the {n['label']} search FAILED: {n['detail']}")
             if short:
                 print(f"  {len(short)} candidate(s):\n")
                 for s in short:
@@ -116,7 +133,21 @@ async def run(review_id: str, write: bool):
         elif not is_live("bigquery"):
             print("  BigQuery is not live here; skipping.")
         else:
-            sup = await bq.find_via_support(ind, author=(rv.author or "").strip())
+            # The pipeline resolves the guest's words into TGIDs before this
+            # step; without them the search correctly declines to run, so the
+            # tool has to do the same resolution or it would always report
+            # nothing and look like a broken path.
+            from server.services import venue_resolver
+            hints = [h for h in (ind.get("experience_or_venue"),
+                                 ind.get("city_or_country")) if h and str(h).strip()]
+            tgids = []
+            if hints:
+                try:
+                    tgids = await venue_resolver.resolve(hints) or []
+                except Exception as e:
+                    print(f"  venue resolution failed: {e}")
+            print(f"  venue hints {hints or '—'} -> {len(tgids)} TGID(s)")
+            sup = await bq.find_via_support(ind, tgids=tgids)
             if sup:
                 for s in sup:
                     print(f"    BID {s.get('id'):<12} {(s.get('guestName') or '—')[:22]:22} "
@@ -186,7 +217,7 @@ async def batch(limit: int):
         print(f"  {'review':<24} {'author':<16} {'now':>5}  {'after':>5}  what changes")
         print("  " + "─" * 84)
 
-        skipped = []
+        skipped, truncations = [], []
         for rv in reviews:
             d = db.query(RcaDraft).filter(RcaDraft.review_id == rv.id).first()
             stored = len(list(d.candidates_list or [])) if d else 0
@@ -220,7 +251,11 @@ async def batch(limit: int):
             after = []
             if is_live("zendesk"):
                 try:
-                    after = await zd.shortlist(ind, first, last)
+                    notes = []
+                    after = await zd.shortlist(ind, first, last,
+                                               since=_since_for(rv), notes=notes)
+                    for n in notes:
+                        truncations.append((rv.id, n["kind"], n["label"]))
                 except Exception as e:
                     print(f"  {rv.id:<24} shortlist failed: {str(e)[:40]}")
                     continue
@@ -248,6 +283,13 @@ async def batch(limit: int):
         print("\n  " + "─" * 84)
         print(f"  compared {len(rows)}: {same} unchanged · {gained} newly matched "
               f"· {moved} different candidate count · {lost} lost")
+        if truncations:
+            print(f"\n  {len(truncations)} incomplete search(es) — Zendesk "
+                  f"returned only part of what matches:")
+            for rid, kind, label in truncations[:12]:
+                print(f"    {rid:<24} {kind:<10} {label}")
+            print("    A review here may have a better booking that was never "
+                  "in the results.")
         if skipped:
             print(f"\n  {len(skipped)} not compared — matched by a later step of "
                   f"the cascade, which this does not re-run:")
