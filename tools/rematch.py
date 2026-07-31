@@ -156,12 +156,18 @@ async def run(review_id: str, write: bool):
 
 
 async def batch(limit: int):
-    """Re-run matching across stored reviews and report what would change.
+    """Re-run the indicator shortlist across stored reviews and report changes.
 
-    Every review in the database was matched by an older build, so the case
-    for reprocessing is a number, not a hunch: how many are unmatched today
-    that would match now, and - the risk in the other direction - how many
-    match today that would not.
+    Scope matters and getting it wrong produces a frightening, meaningless
+    number. This re-runs ONE step - the Zendesk indicator shortlist. The stored
+    result may have come from any step of the cascade: the shortlist, the
+    Zendesk requester lookup after it, or the BigQuery venue+date paths after
+    that. Comparing a full-cascade result against a shortlist-only re-run
+    reports every review matched by a later path as "lost", which is how an
+    earlier version of this reported five losses that had not happened.
+
+    So only reviews whose stored match came from the shortlist are compared.
+    Everything else is listed as not comparable, with the path that found it.
 
     Writes nothing.
     """
@@ -180,11 +186,19 @@ async def batch(limit: int):
         print(f"  {'review':<24} {'author':<16} {'now':>5}  {'after':>5}  what changes")
         print("  " + "─" * 84)
 
+        skipped = []
         for rv in reviews:
             d = db.query(RcaDraft).filter(RcaDraft.review_id == rv.id).first()
             stored = len(list(d.candidates_list or [])) if d else 0
             has_booking = bool((d.booking or {}).get("id")) if d else False
             now_n = 1 if has_booking else stored
+
+            # Only compare like with like. A review matched by the requester
+            # lookup or by BQ venue+date is not evidence about the shortlist.
+            path = (d.match_method or "") if d else ""
+            if now_n and path != "indicator_shortlist":
+                skipped.append((rv.id, rv.author or "—", path or "unknown path"))
+                continue
 
             body = (rv.body_english or rv.body_original or "")
             orig = (rv.body_original or "")
@@ -210,11 +224,9 @@ async def batch(limit: int):
                 except Exception as e:
                     print(f"  {rv.id:<24} shortlist failed: {str(e)[:40]}")
                     continue
-            if not after and is_live("bigquery"):
-                try:
-                    after = await bq.find_via_support(ind, tgids=[])
-                except Exception:
-                    after = []
+            # No BigQuery fallback here on purpose: it needs the resolved TGIDs
+            # the pipeline computes, which this does not, so calling it would
+            # only ever add a zero and make the comparison look worse.
 
             after_n = len(after)
             if now_n == 0 and after_n > 0:
@@ -234,17 +246,24 @@ async def batch(limit: int):
         moved  = sum(1 for _, v in rows if "→" in v)
         same   = sum(1 for _, v in rows if v == "same")
         print("\n  " + "─" * 84)
-        print(f"  {same} unchanged · {gained} newly matched · {moved} different "
-              f"candidate count · {lost} lost")
+        print(f"  compared {len(rows)}: {same} unchanged · {gained} newly matched "
+              f"· {moved} different candidate count · {lost} lost")
+        if skipped:
+            print(f"\n  {len(skipped)} not compared — matched by a later step of "
+                  f"the cascade, which this does not re-run:")
+            for rid, author, path in skipped[:12]:
+                print(f"    {rid:<24} {author[:18]:<18} {path}")
+            if len(skipped) > 12:
+                print(f"    … and {len(skipped) - 12} more")
         if lost:
-            print(f"\n  {lost} review(s) would STOP matching. Reprocessing is not "
-                  f"safe until that is understood.")
+            print(f"\n  {lost} review(s) matched by the shortlist today would not "
+                  f"match now.\n  Reprocessing is not safe until that is "
+                  f"understood — run --review on one to see where it goes.")
         elif gained or moved:
-            print(f"\n  Reprocessing would improve {gained + moved} review(s) and "
-                  f"break none.")
+            print(f"\n  Reprocessing would change {gained + moved} review(s) and "
+                  f"break none of the ones compared.")
         else:
-            print("\n  Reprocessing would change nothing. The stored results "
-                  "already reflect what matching does now.")
+            print("\n  No change among the reviews this can compare.")
         return 0
     finally:
         db.close()

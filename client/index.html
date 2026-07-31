@@ -2279,6 +2279,64 @@ function _insightsWindowLabel(r) {
 // down there is a ReferenceError up here.
 const esc = s => String(s == null ? '' : s).replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+// One save path for every RCA edit.
+//
+// Nine handlers did this inline with `catch (e) { /* keep local edit */ }` and
+// no res.ok check. fetch only rejects on a network failure, so a 400 or a 500
+// resolved and was treated as a successful save: the edit stayed on screen,
+// the tick appeared, and the change was gone on reload with nothing said.
+// Anything that cannot be saved has to say so while the words are still on
+// the screen to copy.
+async function saveDraft(reviewId, patch, el) {
+  try {
+    const res = await fetch(`/api/reviews/${reviewId}/draft-v2`, {
+      method: 'PATCH', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`.slice(0, 200));
+    if (el && typeof el.dataset === 'object') _saveMark(el, true);
+    return true;
+  } catch (e) {
+    console.warn('draft save failed', patch, e);
+    if (el && typeof el.dataset === 'object') _saveMark(el, false);
+    _saveToast(String(e.message || e));
+    return false;
+  }
+}
+
+function _saveMark(el, ok) {
+  const host = el.parentElement || el;
+  if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
+  let tick = host.querySelector(':scope > .save-tick');
+  if (!tick) {
+    tick = document.createElement('span');
+    tick.className = 'save-tick';
+    host.appendChild(tick);
+  }
+  tick.textContent = ok ? '✓ saved' : '✗ not saved';
+  tick.style.color = ok ? '' : '#e5534b';
+  tick.classList.add('on');
+  setTimeout(() => tick.classList.remove('on'), ok ? 1400 : 6000);
+}
+
+// Not every save is tied to an element on screen, and a save that failed with
+// nowhere to show it is the failure mode this is fixing.
+function _saveToast(msg) {
+  let t = document.getElementById('save-toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'save-toast';
+    t.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);'
+      + 'background:#e5534b;color:#fff;padding:9px 14px;border-radius:8px;z-index:9999;'
+      + 'font-size:12.5px;max-width:80vw;box-shadow:0 4px 16px rgba(0,0,0,.25)';
+    document.body.appendChild(t);
+  }
+  t.textContent = 'Not saved — ' + msg;
+  t.style.display = 'block';
+  clearTimeout(t._h);
+  t._h = setTimeout(() => { t.style.display = 'none'; }, 7000);
+}
+
 // "14:02" today, "3 Jul" before that. Used on buttons whose action already
 // happened, so the label says when rather than inviting a repeat.
 function _shortWhen(iso) {
@@ -3307,12 +3365,7 @@ function renderRcaCol() {
       const field = el.dataset.wwrField;
       if (!rca.wwrChain[idx]) return;
       rca.wwrChain[idx][field] = el.textContent.trim();
-      try {
-        await fetch(`/api/reviews/${r.id}/draft-v2`, {
-          method: 'PATCH', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({wwr_chain: rca.wwrChain}),
-        });
-      } catch (e) { /* keep local edit */ }
+      await saveDraft(r.id, {wwr_chain: rca.wwrChain});
     });
   });
 
@@ -3322,12 +3375,7 @@ function renderRcaCol() {
       const idx = parseInt(btn.dataset.wwrDelete);
       rca.wwrChain.splice(idx, 1);
       rca.wwrChain.forEach((s, i) => { s.step = i + 1; });
-      try {
-        await fetch(`/api/reviews/${r.id}/draft-v2`, {
-          method: 'PATCH', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({wwr_chain: rca.wwrChain}),
-        });
-      } catch (e) { /* keep local edit */ }
+      await saveDraft(r.id, {wwr_chain: rca.wwrChain});
       renderRcaCol();
     });
   });
@@ -3337,24 +3385,14 @@ function renderRcaCol() {
   if (wwrAddBtn) {
     wwrAddBtn.addEventListener('click', async () => {
       rca.wwrChain.push({step: rca.wwrChain.length + 1, what: 'New step', why: ''});
-      try {
-        await fetch(`/api/reviews/${r.id}/draft-v2`, {
-          method: 'PATCH', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({wwr_chain: rca.wwrChain}),
-        });
-      } catch (e) { /* keep local edit */ }
+      await saveDraft(r.id, {wwr_chain: rca.wwrChain});
       renderRcaCol();
     });
   }
 
   // WWR scenario blocks — edits persist the whole array
   const persistWwrScenarios = async () => {
-    try {
-      await fetch(`/api/reviews/${r.id}/draft-v2`, {
-        method: 'PATCH', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({wwr_scenarios: rca.wwrScenarios}),
-      });
-    } catch (e) { /* keep local edit */ }
+    await saveDraft(r.id, {wwr_scenarios: rca.wwrScenarios});
   };
   col.querySelectorAll('span[data-scn-idx]').forEach(el => {
     el.addEventListener('blur', async () => {
@@ -3386,12 +3424,7 @@ function renderRcaCol() {
     slackArea.addEventListener('blur', async () => {
       const val = slackArea.value.trim();
       rca.slackThreadOverride = val;
-      try {
-        await fetch(`/api/reviews/${r.id}/draft-v2`, {
-          method: 'PATCH', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({slack_thread_override: val}),
-        });
-      } catch (e) { /* keep local edit */ }
+      await saveDraft(r.id, {slack_thread_override: val});
     });
   }
 
@@ -3405,12 +3438,7 @@ function renderRcaCol() {
   const clearOverrideAndRender = async () => {
     if (rca.slackThreadOverride) {
       rca.slackThreadOverride = '';
-      try {
-        await fetch(`/api/reviews/${r.id}/draft-v2`, {
-          method: 'PATCH', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({slack_thread_override: ''}),
-        });
-      } catch (_) { /* local render still updates */ }
+      await saveDraft(r.id, {slack_thread_override: ''});
     }
     renderRcaCol();
   };
@@ -3432,12 +3460,7 @@ function renderRcaCol() {
       state.slackSections[r.id][cb.dataset.slackSection] = cb.checked;
       if (rca.slackThreadOverride) {
         rca.slackThreadOverride = '';
-        try {
-          await fetch(`/api/reviews/${r.id}/draft-v2`, {
-            method: 'PATCH', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({slack_thread_override: ''}),
-          });
-        } catch (_) { /* local render still updates */ }
+        await saveDraft(r.id, {slack_thread_override: ''});
       }
       renderRcaCol();
     });
@@ -3504,10 +3527,7 @@ function renderRcaCol() {
     try {
       // Save the current English first, so the server translates what is
       // on screen rather than the last thing that happened to persist.
-      await fetch(`/api/reviews/${r.id}/draft-v2`, {
-        method: 'PATCH', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({final_response: replyArea.value}),
-      });
+      await saveDraft(r.id, {final_response: replyArea.value});
       const resp = await fetch(`/api/reviews/${r.id}/translate-reply`, {method: 'POST'});
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(data.detail || 'translation failed');
@@ -3598,12 +3618,7 @@ function renderRcaCol() {
   if (slackRegen) {
     slackRegen.addEventListener('click', async () => {
       rca.slackThreadOverride = '';
-      try {
-        await fetch(`/api/reviews/${r.id}/draft-v2`, {
-          method: 'PATCH', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({slack_thread_override: ''}),
-        });
-      } catch (e) { /* keep local edit */ }
+      await saveDraft(r.id, {slack_thread_override: ''});
       // Re-render the whole column: the post must be rebuilt from the RCA
       // as it stands NOW, including edits saved since the last render. The
       // old handler wrote into a textarea the render then replaced, so
@@ -3622,12 +3637,7 @@ function renderRcaCol() {
       const _rest = sel.dataset.isaRest || '';
       rca.issueSpecificAnswers[sel.dataset.isaKey] =
         _rest ? `${sel.value} ${_rest}` : sel.value;
-      try {
-        await fetch(`/api/reviews/${r.id}/draft-v2`, {
-          method: 'PATCH', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({issue_specific_answers: rca.issueSpecificAnswers}),
-        });
-      } catch (e) { /* keep local edit */ }
+      await saveDraft(r.id, {issue_specific_answers: rca.issueSpecificAnswers});
     });
   });
 
@@ -3636,14 +3646,9 @@ function renderRcaCol() {
     subThemeSel.addEventListener('change', async () => {
       const val = subThemeSel.value || null;
       rca.subTheme = val;
-      try {
-        await fetch(`/api/reviews/${r.id}/draft-v2`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sub_theme: val }),
-        });
+      if (await saveDraft(r.id, { sub_theme: val })) {
         fetchInbox().then(() => { renderInbox(); });
-      } catch (e) { /* keep local edit; server save retried on next change */ }
+      }
     });
   }
 
@@ -3654,16 +3659,11 @@ function renderRcaCol() {
   // first matters: if generation fails the chips still reflect what the
   // person chose, instead of snapping back on the next render.
   const saveRouting = async () => {
-    try {
-      await fetch(`/api/reviews/${r.id}/draft-v2`, {
-        method: 'PATCH', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          sub_themes: rca.subThemes || [],
-          scenarios:  rca.scenarios || [],
-          overlay_scenarios: rca.overlayScenarios || [],
-        }),
-      });
-    } catch (_) { /* keep the local edit; the next change retries */ }
+    await saveDraft(r.id, {
+      sub_themes: rca.subThemes || [],
+      scenarios:  rca.scenarios || [],
+      overlay_scenarios: rca.overlayScenarios || [],
+    });
   };
   const regenRca = async () => {
     const scenarios = [...(rca.scenarios || []), ...(rca.overlayScenarios || [])].filter(Boolean);
@@ -3691,12 +3691,7 @@ function renderRcaCol() {
     } catch (e) {
       if (regenStatus) regenStatus.textContent = '✗ RCA re-run failed — scenario saved, try again';
       // Persist the routing itself even when generation failed
-      try {
-        await fetch(`/api/reviews/${r.id}/draft-v2`, {
-          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ primary_scenario: rca.primaryScenario || null }),
-        });
-      } catch (_) { /* keep local edit */ }
+      await saveDraft(r.id, { primary_scenario: rca.primaryScenario || null });
     }
   };
 
@@ -3953,20 +3948,44 @@ function renderRcaCol() {
     });
   });
 
-  // Persist Actions Taken to the draft (send each tab as plain context strings).
+  // Persist Actions Taken as the objects they are.
+  //
+  // This used to flatten every action in every tab to a single string -
+  // a.context || a.with - and save that. The renderer reads a.with, a.handle,
+  // a.time and a.where, and toItems() blanks all four when it reads a string
+  // back. So adding, editing or deleting ONE action destroyed who every other
+  // action was raised with, when, and its Slack link, across all five tabs,
+  // silently and permanently. The Slack permalink that flag-to-biz writes went
+  // the same way on the next edit.
   const persistActions = async () => {
-    const flat = {};
+    const full = {};
     for (const tab of ['sp', 'customer', 'business', 'ce', 'product']) {
-      flat[tab] = (rca.actionsTaken[tab] || [])
-        .map(a => (a.context || a.with || '').trim())
-        .filter(Boolean);
+      full[tab] = (rca.actionsTaken[tab] || [])
+        .map(a => ({
+          with:    (a.with    || '').trim(),
+          handle:  (a.handle  || '').trim(),
+          time:    (a.time    || '').trim(),
+          context: (a.context || '').trim(),
+          where:   (a.where   || '').trim(),
+        }))
+        .filter(a => a.with || a.context);
     }
     try {
-      await fetch(`/api/reviews/${r.id}/draft-v2`, {
-        method: 'PATCH', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({actions_taken: flat}),
-      });
-    } catch (e) { /* keep local edit */ }
+      const ok = await saveDraft(r.id, {actions_taken: full});
+      if (!ok) throw new Error('rejected');
+    } catch (e) {
+      // A failed save used to be swallowed, so the edit looked saved and was
+      // gone on reload. Say so.
+      console.warn('actions_taken save failed', e);
+      const tabsEl = col.querySelector('.action-tabs');
+      if (tabsEl && !tabsEl.querySelector('.save-failed')) {
+        const w = document.createElement('span');
+        w.className = 'save-failed';
+        w.style.cssText = 'font-size:11px;color:var(--red);margin-left:6px';
+        w.textContent = 'not saved — reload before editing further';
+        tabsEl.appendChild(w);
+      }
+    }
   };
 
   col.querySelectorAll('[data-add-action]').forEach(btn => {
