@@ -4,9 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ORM RCA — Stakeholder Demo</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   /* ═══════════════════════════════════════════════════════════════════════
      Reviews RCA Workbench — light workbench theme.
@@ -462,6 +459,16 @@
     cursor: text; display: inline-block; min-width: 40px;
   }
   .editable-text.is-placeholder { color: var(--empty); font-style: italic; }
+  /* The save confirmation floats. It had NO styling at all, so it was an
+     inline span injected into the parent - it inserted itself between
+     timeline rows and shoved the layout around on every blur. */
+  .save-tick {
+    position: absolute; right: 0; top: 0;
+    font-size: 10.5px; color: var(--green);
+    pointer-events: none; white-space: nowrap;
+    opacity: 0; transition: opacity .15s ease;
+  }
+  .save-tick.on { opacity: 1; }
   .editable-text:hover { background: var(--accent-bg); }
   .editable-text:focus { background: var(--accent-bg); box-shadow: 0 0 0 2px var(--accent); }
   .rca-wrap, .editable-text.rca-wrap { display: block; overflow-wrap: anywhere; }
@@ -507,7 +514,14 @@
     font-size: 10.5px; font-weight: 600; font-family: var(--mono);
     display: flex; align-items: center; justify-content: center;
   }
-  .wwr-issue-title { font-weight: 600; font-size: 12.5px; flex: 1; min-width: 0; }
+  /* The heading owns the row. A long accuracy chip used to claim its full
+     width and crush the title to one character per line, so the chip is
+     capped and truncated instead - the full text is in the analysis panel
+     and in the title attribute. */
+  .wwr-issue-title { font-weight: 600; font-size: 12.5px; flex: 1 1 auto; min-width: 40%; }
+  .wwr-issue-head .chip-acc {
+    max-width: 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .wwr-issue-chev { flex: none; font-size: 10px; color: var(--dim); }
   .wwr-issue-body {
     padding: 2px 0 12px 30px; min-width: 0;
@@ -1407,6 +1421,7 @@ const state = {
   slackSections: {},
   // Section open/closed state, keyed by section label text.
   collapsed: {},
+  replyTranslation: {},   // review id -> guest-language reply
   wwrOpen: {},      // per-issue open state in What went wrong
   ixOpen: {},       // per-contact open state in Guest <-> support
   // Machinery is hidden by default - it was ~8 of 14 events on a real
@@ -1486,6 +1501,26 @@ function renderInbox() {
   });
 }
 
+// The translation belongs on every card, not just the matched ones: the
+// reply goes out in the guest's language, so whoever writes it needs the
+// English beside the original whatever tier the review sits in. Absent
+// English on a foreign review is itself worth saying - it means the
+// translation step never ran, not that the review needs none.
+function translationCard(r) {
+  const foreign = (r.lang || '').toUpperCase() !== 'EN';
+  if (r.english) {
+    return `<div class="translation-card">
+      <div class="translation-label">English translation · AI</div>
+      <div class="translation-body">${esc(r.english)}</div>
+    </div>`;
+  }
+  if (!foreign) return '';
+  return `<div class="translation-card">
+    <div class="translation-label">English translation · AI</div>
+    <div class="rca-empty">Not translated yet — re-run this review to generate it.</div>
+  </div>`;
+}
+
 function renderReviewCol() {
   const r = REVIEWS.find(x => x.id === state.selected);
   if (!r) {
@@ -1506,6 +1541,7 @@ function renderReviewCol() {
         </div>
         <span class="review-stars">${r.stars}</span>
         <div class="review-body-original">${esc(r.original)}</div>
+        ${translationCard(r)}
       </div>
 
       <div class="facts-block">
@@ -1679,7 +1715,7 @@ function renderReviewCol() {
                  text. Matching has no indicators to search on.`);
         return `<div class="section">
          <div class="section-label">Extracted from review<span class="section-chev">▾</span></div>
-         <div class="chk-none" style="font-size:12px;color:${_bidMatched ? 'var(--text-mute)' : 'var(--amber)'}">
+         <div class="chk-none" style="font-size:12px;color:${_bidMatched ? 'var(--muted-2)' : 'var(--amber)'}">
            ${_msg}
          </div>
        </div>`;
@@ -1735,11 +1771,7 @@ function renderReviewCol() {
       </div>
       <span class="review-stars">${r.stars}</span>
       <div class="review-body-original">${esc(r.original)}</div>
-      ${r.english ? `
-        <div class="translation-card">
-          <div class="translation-label">English translation · AI</div>
-          <div class="translation-body">${esc(r.english)}</div>
-        </div>` : ''}
+      ${translationCard(r)}
     </div>
 
     <div class="facts-block">
@@ -2264,10 +2296,14 @@ function renderRcaCol() {
       <div class="untr-wrap">
       <div class="col-label">Untraceable — ask the guest</div>
       <div class="untr-card">
-        <div class="untr-lead">No booking found for <strong>${esc(r.firstName)}</strong>. The standard
-          move is a one-line reply asking for the booking reference; the review stays in
-          this tab until it matches.</div>
-        <div class="untr-template" data-untraceable-template>Hi ${esc(r.firstName)}, thank you for sharing your feedback. We would love to look into this for you — could you share your Headout booking reference number or the email used at the time of booking?</div>
+        <!-- One statement of the situation, not four. The facts pane already
+             carries the trail; repeating "no booking" in three more sentences
+             told the reader nothing they had not just read. -->
+        <div class="untr-lead">No booking matched this review. Ask the guest for a booking
+          reference; it stays in this tab until it matches.</div>
+        <div class="untr-template editable-text" contenteditable="true" spellcheck="false"
+             data-untraceable-template
+             data-ph="Write the reply to send to the guest."></div>
         <div class="untraceable-actions">
           <!-- Copy, not send: this reply is pasted into the Slack thread by
                hand like every other response in this app. -->
@@ -2276,48 +2312,7 @@ function renderRcaCol() {
         </div>
       </div>
 
-      <div class="section">
-        <div class="section-label">Why this flow<span class="section-chev">▾</span></div>
-        <!-- This used to be one hardcoded sentence asserting "no BID, no
-             usable signals" on EVERY untraceable review - including reviews
-             naming a venue, a city and a date. A fixed claim about variable
-             data is worse than no claim: it sent people looking for a guest
-             problem when the search had actually failed or never run. It now
-             states what the pipeline recorded, and what was extracted. -->
-        <div class="field-block">
-          <div style="font-size:12px;line-height:1.6">
-            ${r.untraceableReason
-              ? `<div class="rca-empty err" style="font-style:normal">${esc(r.untraceableReason)}</div>`
-              : `<div class="rca-empty err" style="font-style:normal">No reason was recorded, which means this review predates the check or the run never reached the matching step. Re-run matching below.</div>`}
-            ${(() => {
-              const sig = r.extractedSignals || {};
-              const bits = [];
-              if (sig.venue_hints && sig.venue_hints.length)
-                bits.push(`venue hints: ${esc(sig.venue_hints.join(', '))}`);
-              const mi = sig.match_indicators || {};
-              if (mi.experience_or_venue) bits.push(`venue: ${esc(mi.experience_or_venue)}`);
-              if (mi.city_or_country) bits.push(`city: ${esc(mi.city_or_country)}`);
-              if (mi.visit_date_hint) bits.push(`visit≈ ${esc(mi.visit_date_hint)}`);
-              if (sig.author_first || sig.author_last)
-                bits.push(`name: ${esc([sig.author_first, sig.author_last].filter(Boolean).join(' '))}`);
-              if (sig.review_pub_date) bits.push(`posted: ${esc(sig.review_pub_date)}`);
-              const attempts = (r.narrowingAttempts || []).length;
-              return bits.length || attempts
-                ? `<div style="margin-top:6px;color:var(--text-mute)">
-                     Extracted from this review: ${bits.join(' · ') || '(nothing)'}.
-                     ${attempts} BigQuery search${attempts === 1 ? '' : 'es'} ran.
-                     ${attempts && bits.length ? 'Signals existed and the searches came back empty — that is a matching gap, not a guest one.' : ''}
-                   </div>`
-                : `<div style="margin-top:6px;color:var(--text-mute)">Nothing was extracted and no search ran for this review.</div>`;
-            })()}
-            <div style="margin-top:6px;color:var(--text-mute)">
-              It stays in this tab until it matches — re-run matching after a fix,
-              or ask the guest for a booking reference.
-            </div>
-          </div>
-        </div>
-      </div>
-      </div>
+
     `;
     const vBtn = col.querySelector('[data-copy-untraceable]');
     if (vBtn) {
@@ -2464,7 +2459,7 @@ function renderRcaCol() {
         </div></div>` : ''}
         ${(!spRecords.length && !spLegacyText) ? `
         <div class="sp-frame"><div class="sp-frame-body" style="padding-left:14px">
-          <div class="sp-frame-summary" style="color:var(--text-mute)">No SP contact on record for this case.</div>
+          <div class="sp-frame-summary" style="color:var(--muted-2)">No SP contact on record for this case.</div>
         </div></div>` : ''}
         <button class="row-add" data-sp-rec-add>+ Add SP record</button>
       </div>`
@@ -2771,9 +2766,9 @@ function renderRcaCol() {
     <div class="section" id="rca-tldr-section">
       <div class="section-label">TL;DR<span class="section-chev">▾</span></div>
       ${t ? `<div class="field-block rca-kv">
-        <span style="color:var(--text-mute)">Our mistake</span><span class="editable-text" contenteditable="true" spellcheck="false"
+        <span style="color:var(--muted-2)">Our mistake</span><span class="editable-text" contenteditable="true" spellcheck="false"
               role="textbox" aria-label="TL;DR our mistake" data-v3p="tldr.our_mistake">${esc(t.our_mistake)}</span>
-        <span style="color:var(--text-mute)">Our fix</span><span class="editable-text" contenteditable="true" spellcheck="false"
+        <span style="color:var(--muted-2)">Our fix</span><span class="editable-text" contenteditable="true" spellcheck="false"
               role="textbox" aria-label="TL;DR our fix" data-v3p="tldr.our_fix">${esc(t.our_fix)}</span>
       </div>`
       : `<div class="field-block rca-empty">No TL;DR was returned. Re-run the RCA — if it stays empty the model's answer was cut short.</div>`}
@@ -2788,6 +2783,14 @@ function renderRcaCol() {
     // Analysis. Root causes come back as their own list, so issue i is
     // paired with root_cause i and any surplus causes are appended as
     // unpaired rows rather than dropped.
+    // The chip shows the VERDICT only. A model that returns
+    // "Partially True - booking status shows ..." would otherwise claim the
+    // whole row; the tail is kept in the title attribute, not dropped.
+    const accShort = (a) => {
+      const t = String(a || '').trim();
+      const m = t.match(/^(partially true|partly accurate|accurate|yes|no|unknown|true|false)/i);
+      return m ? m[1] : t.split(/[\s\u2014-]/)[0];
+    };
     const accClass = (a) => { const t = String(a || '').toLowerCase();
       return t.startsWith('yes') || t.startsWith('accur') ? 'ok'
            : t.startsWith('no') ? 'no'
@@ -2819,7 +2822,7 @@ function renderRcaCol() {
         <div class="wwr-issue-head" data-wwr-toggle="${i}">
           <span class="wwr-n">${String(i + 1).padStart(2, '0')}</span>
           <span class="wwr-issue-title">${esc(title)}</span>
-          ${gi.claim_accuracy ? `<span class="chip-acc ${accClass(gi.claim_accuracy)}">${esc(gi.claim_accuracy)}</span>` : ''}
+          ${gi.claim_accuracy ? `<span class="chip-acc ${accClass(gi.claim_accuracy)}" title="${esc(gi.claim_accuracy)}">${esc(accShort(gi.claim_accuracy))}</span>` : ''}
           <span class="wwr-issue-chev">${open ? '▾' : '▸'}</span>
         </div>
         ${open ? `
@@ -2843,7 +2846,7 @@ function renderRcaCol() {
             <span class="wwr-blk-label">Analysis</span>
             <div class="wwr-analysis">
               <div class="wwr-analysis-head">
-                ${gi.claim_accuracy ? `<span class="chip-acc ${accClass(gi.claim_accuracy)}">${esc(gi.claim_accuracy)}</span>` : ''}
+                ${gi.claim_accuracy ? `<span class="chip-acc ${accClass(gi.claim_accuracy)}" title="${esc(gi.claim_accuracy)}">${esc(accShort(gi.claim_accuracy))}</span>` : ''}
                 <span class="chip-owner">owner · ${owner
                   ? edSpan(`what_went_wrong.guest_issues.${i}.owner`, owner)
                   : edSpan(`what_went_wrong.guest_issues.${i}.owner`, '', 'unassigned')}</span>
@@ -2906,9 +2909,16 @@ function renderRcaCol() {
     // Numbered stepper, same shape as the WWR chain - a reader follows the
     // case down the left rail. Strings from older drafts still render: the
     // leading "1." is stripped so the badge does not repeat it.
+    // "Unknown" is the model's way of saying it could not date an event. It
+    // is not a timestamp, so it should not be printed as one - an em-dash
+    // says the same thing without looking like data.
+    const _tlTime = (t) => {
+      const v = String(t || '').trim();
+      return (!v || /^(unknown|n\/?a|none|null|tbd|-)$/i.test(v)) ? '' : v;
+    };
     const logRows = (v3d.booking_logs || []).map(l => (typeof l === 'string'
       ? {time: '', what: l.replace(/^\s*\d+[.)]\s*/, ''), detail: ''}
-      : {time: l.time || '', what: l.what || '', detail: l.detail || ''}));
+      : {time: _tlTime(l.time), what: l.what || '', detail: l.detail || ''}));
     // The section renders even with nothing in it. It used to collapse to ''
     // on an empty list, which took the "+ Add event" button with it - so the
     // one case where a human most needs to write the timeline by hand was the
@@ -2927,8 +2937,10 @@ function renderRcaCol() {
       ${logRows.length ? '' : `<div class="rca-empty">${logsEmptyWhy}</div>`}
       ${logRows.map((l, i) => `
         <div class="tl-row">
-          <span class="tl-time editable-text" contenteditable="true" spellcheck="false"
-                data-log-idx="${i}" data-log-field="time">${esc(l.time)}</span>
+          <span class="tl-time editable-text${l.time ? '' : ' is-placeholder'}"
+                contenteditable="true" spellcheck="false"
+                ${l.time ? '' : 'data-ph="—"'}
+                data-log-idx="${i}" data-log-field="time">${esc(l.time) || '—'}</span>
           <div class="tl-body">
             <span class="tl-what editable-text" contenteditable="true" spellcheck="false"
                   data-log-idx="${i}" data-log-field="what">${esc(l.what)}</span><span class="tl-detail"> — <span
@@ -2996,7 +3008,7 @@ function renderRcaCol() {
         <div><select class="classify-select" style="width:130px;font-size:11.5px" data-sop-verdict>
             ${['followed','deviated','unknown'].map(o => `<option${(sop.verdict || 'unknown') === o ? ' selected' : ''}>${o}</option>`).join('')}
           </select>
-          <span style="color:var(--text-mute);font-size:11px;margin-left:6px">${sop.dss_available ? 'DSS needle used' : 'no DSS row matched'}</span>
+          <span style="color:var(--muted-2);font-size:11px;margin-left:6px">${sop.dss_available ? 'DSS needle used' : 'no DSS row matched'}</span>
           ${sop.zd_ref ? ' · ' + zdLink(sop.zd_ref) : ''}</div>
         <div class="chk-ev"><strong>Expected:</strong> ${edSpan('sop_compliance.expected', sop.expected)}</div>
         <div class="chk-ev"><strong>Actual:</strong> ${edSpan('sop_compliance.actual', sop.actual)}</div>
@@ -3048,7 +3060,7 @@ function renderRcaCol() {
               <div class="wwr-what editable-text" contenteditable="true" spellcheck="false"
                    data-wwr-idx="${i}" data-wwr-field="what"><strong>${step.what || ''}</strong></div>
               <div class="wwr-why editable-text" contenteditable="true" spellcheck="false"
-                   style="color:var(--text-mute)"
+                   style="color:var(--muted-2)"
                    data-wwr-idx="${i}" data-wwr-field="why">${step.why || ''}</div>
             </div>
             <button class="action-delete-btn" data-wwr-delete="${i}" title="Remove step">×</button>
@@ -3192,14 +3204,24 @@ function renderRcaCol() {
         <div class="reply-head-actions">
           <button data-reply-edit>✎ Edit</button>
           <button data-reply-copy>⧉ Copy</button>
+          ${(r.lang || '').toUpperCase() !== 'EN'
+            ? `<button data-reply-translate title="Translate the edited English reply into ${esc(r.lang)} — the language the guest wrote in">🌐 ${esc(r.lang)}</button>` : ''}
         </div>
       </div>
       ${rca.templateName ? `<div class="tpl-name">Template: ${esc(rca.templateName)}</div>` : ''}
       <textarea class="reply-text" placeholder="${(rca.templateName && rca.templateName.indexOf('NO MATCHING') !== -1) ? esc(rca.templateName) : 'AI-drafted response — edit as needed'}">${esc(rca.reply)}</textarea>
       <div class="reply-meta">
-        <span>Editable — review before sending</span>
+        <span>Editable — review before sending${(r.lang || '').toUpperCase() !== 'EN'
+          ? ' · goes out in ' + esc(r.lang) : ''}</span>
         <span>${(rca.reply || '').length} chars</span>
       </div>
+      ${state.replyTranslation[r.id] ? `
+      <div class="translation-card" style="border-top:1px dashed var(--accent-bd)">
+        <div class="translation-label" style="color:var(--accent)">${esc(r.lang)} — what the guest receives</div>
+        <div class="translation-body" id="reply-translated">${esc(state.replyTranslation[r.id])}</div>
+        <button class="btn" style="margin-top:8px;font-size:11px;padding:3px 10px"
+                data-copy-translated>⧉ Copy ${esc(r.lang)} reply</button>
+      </div>` : ''}
     </div>
 
     ${slackPost}
@@ -3410,6 +3432,31 @@ function renderRcaCol() {
     replyArea.focus();
     replyArea.setSelectionRange(replyArea.value.length, replyArea.value.length);
   });
+  // Edit in English, translate on the way out. Translating the EDITED text
+  // (not the original draft) is the point: whatever the reviewer changed is
+  // what the guest receives.
+  const replyTr = col.querySelector('[data-reply-translate]');
+  if (replyTr && replyArea) replyTr.addEventListener('click', async () => {
+    const orig = replyTr.textContent;
+    replyTr.disabled = true; replyTr.textContent = 'translating…';
+    try {
+      // Save the current English first, so the server translates what is
+      // on screen rather than the last thing that happened to persist.
+      await fetch(`/api/reviews/${r.id}/draft-v2`, {
+        method: 'PATCH', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({final_response: replyArea.value}),
+      });
+      const resp = await fetch(`/api/reviews/${r.id}/translate-reply`, {method: 'POST'});
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.detail || 'translation failed');
+      state.replyTranslation[r.id] = data.text || '';
+      renderRcaCol();
+    } catch (e) {
+      replyTr.textContent = String(e.message || e).slice(0, 40);
+      setTimeout(() => { replyTr.disabled = false; replyTr.textContent = orig; }, 3000);
+    }
+  });
+
   const replyCopy = col.querySelector('[data-reply-copy]');
   if (replyCopy && replyArea) replyCopy.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(replyArea.value); } catch (_) {}
@@ -3434,6 +3481,13 @@ function renderRcaCol() {
       slackPostBtn.textContent = String(e.message || e).slice(0, 70);
       setTimeout(() => { slackPostBtn.disabled = false; slackPostBtn.textContent = orig; }, 4000);
     }
+  });
+
+  const copyTr = col.querySelector('[data-copy-translated]');
+  if (copyTr) copyTr.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(state.replyTranslation[r.id] || ''); } catch (_) {}
+    const o = copyTr.textContent; copyTr.textContent = '✓ Copied';
+    setTimeout(() => { copyTr.textContent = o; }, 1500);
   });
 
   const rcaOnly = col.querySelector('[data-rca-only-regen]');
@@ -3605,6 +3659,9 @@ function renderRcaCol() {
   const flashSaved = (el, ok = true) => {
     if (!el) return;
     const host = el.parentElement || el;
+    // The tick is absolutely positioned, so its host must be a containing
+    // block or it escapes to the page corner.
+    if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
     let tick = host.querySelector(':scope > .save-tick');
     if (!tick) {
       tick = document.createElement('span');
@@ -4034,11 +4091,11 @@ function openManualReviewModal() {
             ${[1,2,3,4,5].map(n => `
               <button data-star="${n}" style="
                 background:transparent;border:none;cursor:pointer;
-                font-size:20px;color:var(--text-dim);padding:2px;
+                font-size:20px;color:var(--dim);padding:2px;
                 transition:color 0.1s ease;line-height:1
               ">★</button>
             `).join('')}
-            <span id="mr-stars-label" style="font-size:11px;color:var(--text-mute);margin-left:4px;font-family:'JetBrains Mono',monospace">1 star</span>
+            <span id="mr-stars-label" style="font-size:11px;color:var(--muted-2);margin-left:4px;font-family:var(--mono)">1 star</span>
           </div>
         </div>
         <div id="mr-error" style="display:none;color:var(--red);font-size:11.5px;padding:6px 0"></div>
@@ -4060,7 +4117,7 @@ function openManualReviewModal() {
     starsLabel.textContent = n === 1 ? '1 star' : `${n} stars`;
     starBtns.forEach(b => {
       const v = parseInt(b.dataset.star);
-      b.style.color = v <= n ? 'var(--amber)' : 'var(--text-dim)';
+      b.style.color = v <= n ? 'var(--amber)' : 'var(--dim)';
     });
   }
   setRating(1);
@@ -4068,7 +4125,7 @@ function openManualReviewModal() {
     b.addEventListener('mouseenter', () => {
       starBtns.forEach(x => {
         x.style.color = parseInt(x.dataset.star) <= parseInt(b.dataset.star)
-          ? 'var(--amber)' : 'var(--text-dim)';
+          ? 'var(--amber)' : 'var(--dim)';
       });
     });
     b.addEventListener('mouseleave', () => setRating(selectedRating));

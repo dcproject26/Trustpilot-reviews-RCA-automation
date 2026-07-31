@@ -1048,9 +1048,16 @@ Sub-points only where relevant.
         the RCA hands the issue to, so name a team, never a person.
      d. "root_cause" - the concrete failing step behind THIS issue, one
         short sentence. Each issue carries its own; do not pool them.
-  2. Is the guest's claim accurate? - Yes / Partially True / No, in
-     "claim_accuracy". Each verdict cites its deciding evidence WITH its
-     source tag ([experience-page] / [booking] / [zendesk] / [dss]).
+  2. Is the guest's claim accurate? "claim_accuracy" is EXACTLY ONE of
+     these three strings and NOTHING else: "Yes", "Partially True", "No".
+     No explanation, no dash, no evidence, no source tag, no clause after
+     it. "Partially True - booking status shows 'Completed' not
+     'Cancelled'" is WRONG: the verdict is "Partially True" and the rest
+     belongs in "evidence". The dashboard renders this as a small chip
+     beside the issue title, so anything longer than two words breaks the
+     layout. The deciding evidence, WITH its source tag
+     ([experience-page] / [booking] / [zendesk] / [dss]), goes in
+     "evidence".
   3. What actually happened?
      a. Root causes live on their issues (1d). "root_causes" here is ONLY
         for a cause that belongs to no single issue - a systemic failure
@@ -1572,3 +1579,19 @@ INSTRUCTIONS:
 - No made-up names or handles
 
 Return ONLY the Slack message."""
+
+def reply_translation_prompt(text: str, lang: str) -> str:
+    """Outgoing guest reply, English -> the language the guest wrote in."""
+    return f"""Translate this customer-service reply from English into {lang}.
+
+Rules:
+- Keep the tone: warm, plain, not formal-stiff. Match how a real support
+  agent writes in {lang}, not a literal word-for-word rendering.
+- Booking references, ticket ids, amounts, dates and proper nouns stay
+  EXACTLY as written.
+- Keep the paragraph breaks.
+- Return ONLY the translated reply. No preamble, no notes, no quotes around
+  it.
+
+REPLY:
+{text}"""
