@@ -1802,10 +1802,12 @@ function renderReviewCol() {
       <div class="match-card">
         <div class="match-top">
           <span class="match-tier-badge ${r.matchTier}">${r.tier}</span>
-          <div>
-            <div class="match-title">${r.matchTitle}</div>
-            <div class="match-method">${r.matchMethod}</div>
-          </div>
+          <!-- The method line used to sit here, spelling out "BID extracted
+               via attachment: X · BQ: BID X confirmed · Tier 1 confirmed via
+               attachment" — which is the confidence trail below, rebuilt as
+               one run-on sentence and printed twice on the same card. The
+               trail says it properly, tick by tick. -->
+          <div><div class="match-title">${r.matchTitle}</div></div>
         </div>
         ${signalsBox}
         ${confTrail}
@@ -1879,9 +1881,7 @@ function renderReviewCol() {
           b.escalationEmail
             ? `<a href="mailto:${b.escalationEmail}" style="color:var(--accent)">${b.escalationEmail}</a>`
               + (b.escalationType ? `<span class="tile-n"> · ${b.escalationType}</span>` : '')
-            : `<span class="pill-sm pill-grey">No</span>${b.contactTypes
-                  ? `<span class="tile-n" title="the contact types this vendor does have - none of them is ESCALATIONS"> · has ${b.contactTypes}</span>`
-                  : ''}`}</span></div>
+            : `<span class="pill-sm pill-grey">No</span>`}</span></div>
         <div class="detail-row"><span class="k">Booking status</span><span class="v">${b.status ? `<span class="booking-status-pill status-${b.status}">${b.status}</span>` : '—'}</span></div>
         <div class="detail-row"><span class="k">Lead time</span><span class="v mono">${b.leadTime || '—'}</span></div>
       </div>
