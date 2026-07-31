@@ -55,6 +55,22 @@ def _count(v):
     return f"{len(s.split())} words"
 
 
+def _bid(d) -> str:
+    """The booking id on a draft.
+
+    The warehouse writes it as `id`; nothing writes `bookingId`, which is what
+    this tool looked for. --bid could therefore never match anything, and it
+    said "no draft found" - the same answer it gives for a review that really
+    has no draft. Both keys are read now because a stored booking is whatever
+    the row happens to hold, not whatever the current code writes.
+    """
+    b = d.booking or {}
+    for k in ("id", "bookingId", "booking_id"):
+        if b.get(k):
+            return str(b[k])
+    return ""
+
+
 def _v3_markers(rca, d):
     """Signs the row was written by the pre-v4 prompt.
 
@@ -138,8 +154,28 @@ def main():
         if a.review:
             d = q.filter(RcaDraft.review_id == a.review).first()
         elif a.bid:
-            d = next((x for x in q.all()
-                      if str((x.booking or {}).get("bookingId") or "") == str(a.bid)), None)
+            rows = q.all()
+            d = next((x for x in rows if _bid(x) == str(a.bid)), None)
+            if not d:
+                # Naming what was searched. A bare "no draft found" is the same
+                # answer for "this BID has no draft" and "the lookup is broken",
+                # and this tool has already been the second one.
+                known = sorted({_bid(x) for x in rows if _bid(x)})
+                # The BID may be on the review even when matching left no
+                # booking on the draft, so a near miss is worth pointing at.
+                by_ref = s.query(Review).filter(
+                    Review.reference_number == str(a.bid)).first()
+                msg = [f"no draft has booking {a.bid}",
+                       f"{len(rows)} draft(s) in this database, "
+                       f"{len(known)} with a booking id"]
+                if by_ref:
+                    msg.append(f"review {by_ref.id} carries that reference number "
+                               f"but its draft has no booking — try "
+                               f"--review {by_ref.id}")
+                elif known:
+                    msg.append("known booking ids: " + ", ".join(known[:10])
+                               + (" …" if len(known) > 10 else ""))
+                sys.exit("\n".join(msg))
         else:
             d = q.order_by(RcaDraft.generated_at.desc()).first()
         if not d:
@@ -152,7 +188,7 @@ def main():
 
         r = s.query(Review).filter(Review.id == d.review_id).first()
         print(f"\nreview   {d.review_id}   {(r.author if r else '') or ''}")
-        print(f"booking  {(d.booking or {}).get('bookingId') or '—'}   "
+        print(f"booking  {_bid(d) or '—'}   "
               f"tier {d.match_tier or '—'}")
         ver = getattr(d, "rca_prompt_version", None)
         print(f"written  {d.generated_at}   by {ver or '(unstamped — predates the version stamp)'}")

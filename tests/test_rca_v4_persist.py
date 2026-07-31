@@ -325,3 +325,75 @@ def test_the_pipeline_stamps_only_when_it_produced_an_rca():
     assert i > 0, "the pipeline never stamps the prompt version"
     assert "if _v3:" in PIPE[max(0, i - 300):i], \
         "the stamp is written unconditionally, so a failed RCA is labelled v4"
+
+
+# ── a join that matches nothing must not look like a model that said nothing ─
+#
+# Driven for real rather than asserted at source. The first version of these
+# checked that the message existed in pipeline.py, which passed against a build
+# where the branch producing it was unreachable — the same defect this whole
+# layer exists to catch, committed into its own test.
+
+from server.services.rca_v4_validate import contact_join_notes
+
+FRAMES = [{"ticket_id": "4491", "time": "22 Jul 15:41"}]
+
+
+def test_a_failed_join_is_counted_and_named():
+    """The whole bug class: zd_ref "ZD-9999" against ticket_id "4491" matches
+    nothing, and a silent zero is indistinguishable from no notes at all."""
+    out = contact_join_notes(FRAMES, [], {"support_interaction_notes": [
+        {"zd_ref": "ZD-9999", "summary": "a contact on no known ticket"}]})
+    assert len(out) == 1
+    assert "1 model note(s) could not be joined" in out[0]
+    assert "ZD-9999" in out[0], "the reader cannot chase a count with no reference"
+    assert "not dropped" in out[0], "without this it reads as data loss"
+
+
+def test_an_off_zendesk_contact_is_reported_separately():
+    """A note with no zd_ref is the model doing what rule 11 asks. Counting it
+    with the failed joins would make a working run look faulty."""
+    out = contact_join_notes(FRAMES, [], {"support_interaction_notes": [
+        {"zd_ref": None, "channel": "call", "summary": "guest says they phoned"}]})
+    assert len(out) == 1
+    assert "no Zendesk ticket" in out[0]
+    assert "could not be joined" not in out[0]
+
+
+def test_both_kinds_are_reported_as_two_lines():
+    out = contact_join_notes(FRAMES, [], {"support_interaction_notes": [
+        {"zd_ref": "ZD-9999", "summary": "bad ref"},
+        {"zd_ref": None, "summary": "off zendesk"}]})
+    assert len(out) == 2
+
+
+def test_a_clean_join_says_nothing():
+    """The only case that should be silent."""
+    assert contact_join_notes(FRAMES, [], {"support_interaction_notes": [
+        {"zd_ref": "ZD-4491", "summary": "guest chased it"}]}) == []
+
+
+def test_the_join_normalises_both_sides():
+    """"ZD-4491" against "4491" is the join that matched nothing."""
+    assert contact_join_notes([{"ticket_id": "4491"}], [],
+                              {"support_interaction_notes": [{"zd_ref": "ZD-4491"}]}) == []
+
+
+def test_sp_records_are_joined_too():
+    out = contact_join_notes([], [{"ticket_id": "7"}], {"sp_interaction_notes": {
+        "raised": "Yes", "records": [{"zd_ref": "ZD-8", "summary": "wrong ticket"}]}})
+    assert out and "could not be joined" in out[0]
+
+
+def test_garbage_does_not_raise():
+    for bad in (None, "nope", 42, {"support_interaction_notes": "nope"},
+                {"sp_interaction_notes": []}):
+        assert isinstance(contact_join_notes(None, None, bad), list)
+
+
+def test_the_pipeline_puts_those_lines_in_the_trail():
+    i = PIPE.find("contact_join_notes(support_frames")
+    assert i > 0, "the pipeline never runs the join check"
+    block = PIPE[i:i + 500]
+    assert "confidence_trail.append" in block
+    assert '"mark": "warn"' in block, "a failed join is not a step that succeeded"

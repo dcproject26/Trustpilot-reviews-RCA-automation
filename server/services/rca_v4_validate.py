@@ -32,6 +32,60 @@ _LEAD_BULLET = re.compile(r"^\s*(?:[•\-–*]\s+|\d+[.)]\s+|[a-z][.)]\s+)")
 _INTERNAL    = re.compile(r"\b(selenium|minded|dss|bms|tgid|tid|vid|zd-\d+)\b", re.I)
 
 
+def zd_key(v) -> str:
+    """The digits of a ticket reference, whichever side wrote it.
+
+    The pipeline's frames carry ticket_id "4491"; the model writes zd_ref
+    "ZD-4491". Joining on the raw strings matches nothing, and a join that
+    silently matches nothing is indistinguishable from a model that returned no
+    notes - which is why every caller of this also has to report a miss.
+
+    Lives here rather than in the renderer because the pipeline counts failed
+    joins and Slack performs them, and two copies of a join key drift.
+    """
+    m = re.search(r"\d+", str(v or ""))
+    return m.group(0) if m else ""
+
+
+def contact_join_notes(support_frames, sp_frames, rca) -> list:
+    """What the contact-note join could not do, as trail lines.
+
+    Two different facts, deliberately not one message. A note carrying a
+    zd_ref that matches no frame is a FAILED JOIN - the reference is wrong on
+    one side and the reader should know the row is floating. A note with no
+    zd_ref at all is a deliberate off-Zendesk contact, which is the model doing
+    what rule 11 asks. Merging them would make a working run look faulty.
+
+    Returns [] when everything joined, which is the only case that should be
+    silent: a join that matches nothing looks exactly like a model that
+    returned no notes, and that is the failure this exists to make visible.
+    """
+    keys = {zd_key(f.get("ticket_id"))
+            for f in list(support_frames or []) + list(sp_frames or [])
+            if isinstance(f, dict)}
+    keys.discard("")
+
+    rca = rca if isinstance(rca, dict) else {}
+    notes = [n for n in (rca.get("support_interaction_notes") or [])
+             if isinstance(n, dict)]
+    notes += [r for r in ((rca.get("sp_interaction_notes") or {}).get("records") or [])
+              if isinstance(r, dict)]
+
+    unmatched = [n for n in notes if zd_key(n.get("zd_ref")) and
+                 zd_key(n.get("zd_ref")) not in keys]
+    off_zd = [n for n in notes if not zd_key(n.get("zd_ref"))]
+
+    out = []
+    if unmatched:
+        refs = ", ".join(sorted({str(n.get("zd_ref")) for n in unmatched}))
+        out.append(f"{len(unmatched)} model note(s) could not be joined to a "
+                   f"Zendesk frame ({refs}) — rendered as unmatched, not dropped")
+    if off_zd:
+        out.append(f"{len(off_zd)} contact(s) reported with no Zendesk ticket — "
+                   f"rendered as the guest's account, unverified")
+    return out
+
+
 def _clean(v):
     """A scalar string, or None when it is one of the non-values."""
     if not isinstance(v, str):
