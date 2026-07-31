@@ -590,66 +590,106 @@ Return ONLY valid JSON, no markdown:
 
 
 # ─── 6. Response draft ──────────────────────────────────────────────────────
-# ─── Headout brand voice ────────────────────────────────────────────────────
-# Verbatim from the brand's voice-and-tone doc. Every guest-facing line this
-# app produces goes through here, so the guidance lives in one place rather
-# than being paraphrased differently in each prompt.
-BRAND_VOICE = """\
-━━ HEADOUT VOICE AND TONE - FOLLOW STRICTLY ━━
-INSPIRATIONAL & POSITIVE - optimistic and solution-oriented. Not cringey, not
-  over-effusive.
-    Not: "Book this experience now."
-    Yes: "Ready to head out? Book now and get going!"
-CONVERSATIONAL - friendly and approachable, like a chat with someone familiar.
-  Direct, personal language. Never formal or servile.
-    Not: "We've resolved the issue now. Thank you for your patience."
-    Yes: "Great news: we've resolved the issue now! Thank you for being
-         patient with us, I really appreciate it."
-CLEAR & CONCISE - straightforward, no unnecessary complexity, still warm.
-FACTUALLY ENTERTAINING - an interesting detail where it genuinely fits. Never
-  invent a fact to be charming.
-WITTY, NOT SLAPSTICK - subtle and clever, never disrespectful. On a complaint
-  reply, wit is almost always the wrong instrument: lead with the fix.
+# ─── Guest-facing copy, loaded from content/orm_macros.yaml ────────────────
+# The brand voice, the takedown lines, the untraceable reply and the macro tag
+# vocabulary all live in that file so CX and content can edit them without
+# touching code. Everything below is the fallback: if the file is missing or
+# a YAML edit is malformed, the app keeps running on the last known-good copy
+# rather than shipping a broken or empty reply to a guest.
+import logging as _logging
+import os as _os
 
-HARD RULES
-- American English.
-- Address the guest with "Hey <first name>,".
-- No false information, no invented facts, no unnecessary adjectives, no
-  hyperbole.
-- Cut fluff. Precise, impactful, engaging.
-- Numbered points, never bullet points, if a list is unavoidable.
-- Sign off exactly:
-      Best,
-      [Your Name], Headout
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
+# This module had no logger. _load_macros() below reports a bad edit through
+# one, and without it the FALLBACK PATH ITSELF raised NameError - so a typo in
+# the copy file would take the app down instead of falling back to known-good
+# copy, which is the exact opposite of what the fallback is for.
+log = _logging.getLogger(__name__)
 
-# ─── Takedown macro (ORM macro workbook, "Takedown Macro") ──────────────────
-# One of these goes in immediately BEFORE the sign-off when a takedown is
-# being requested. Copy verbatim - they are approved copy.
-TAKEDOWN_LINES = {
-    "a": "Glad we could make things right. If you have a moment, you can update "
-         "your TP review here: [link]",
-    "b": "Thanks for giving us the chance to fix things. If you're open to it, "
-         "feel free to update your review here: [link]",
-    "c": "Thanks for bearing with us. If you'd like, you can update your TP "
-         "review here: [link]",
+_MACROS_PATH = _os.path.join(
+    _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+    "content", "orm_macros.yaml")
+
+_FALLBACK = {
+    "brand_voice": (
+        "CONVERSATIONAL, clear and concise. American English. Address the "
+        "guest with \"Hey <first name>,\". No invented facts, no hyperbole."),
+    "sign_off": "Best,\n[Your Name], Headout",
+    "takedown": {
+        "lines": {
+            "a": {"text": "Glad we could make things right. If you have a moment, "
+                          "you can update your TP review here: [link]",
+                  "when": "a clean resolution"},
+            "b": {"text": "Thanks for giving us the chance to fix things. If you're "
+                          "open to it, feel free to update your review here: [link]",
+                  "when": "we corrected our own error"},
+            "c": {"text": "Thanks for bearing with us. If you'd like, you can update "
+                          "your TP review here: [link]",
+                  "when": "the guest waited, or the outcome is partial"},
+        },
+        "suppress_when": "The guest's tone is abusive, or the case has been "
+                         "escalated more than once.",
+    },
+    "untraceable_reply": (
+        "Hey {first_name},\n\nI'm sorry things didn't go as planned, and I'd love "
+        "to fix this for you right away. Please share your booking ID (if "
+        "available) or the email address used for your booking at "
+        "https://bit.ly/hedout. Once we have your details, our team will dive "
+        "right in to resolve it ASAP.\n\nThank you so much for your understanding "
+        "and patience. I'll make sure we turn this around for you!"),
+    "fallback_first_name": "there",
+    "honorifics": ["mr", "mrs", "ms", "miss", "dr", "herr", "frau", "monsieur",
+                   "madame", "sr", "sra", "don"],
+    "macro_tags": {"trustpilot": [], "social": [], "twitter": []},
 }
 
-# The fixed reply for a review with no traceable booking. Approved copy, sent
-# unchanged - there is nothing case-specific to say until the guest gives us a
-# reference, so nothing here is generated.
-UNTRACEABLE_REPLY = """Hey {first_name},
 
-I'm sorry things didn't go as planned, and I'd love to fix this for you right away. \
-Please share your booking ID (if available) or the email address used for your booking \
-at https://bit.ly/hedout. Once we have your details, our team will dive right in to \
-resolve it ASAP.
+def _load_macros() -> dict:
+    """Read the copy file, falling back field by field.
 
-Thank you so much for your understanding and patience. I'll make sure we turn this \
-around for you!
+    Field-by-field matters: someone deleting one key while editing should not
+    blank the other four. Anything the file does not define keeps its
+    fallback.
+    """
+    data = {}
+    try:
+        import yaml
+        with open(_MACROS_PATH, encoding="utf-8") as f:
+            loaded = yaml.safe_load(f)
+        if isinstance(loaded, dict):
+            data = loaded
+        else:
+            log.error("[macros] %s did not parse as a mapping - using fallbacks",
+                      _MACROS_PATH)
+    except FileNotFoundError:
+        log.warning("[macros] %s not found - using built-in copy", _MACROS_PATH)
+    except Exception as e:
+        log.error("[macros] %s could not be read (%s) - using built-in copy. "
+                  "Run tools/check_macros.py to see what is wrong.",
+                  _MACROS_PATH, e)
+    merged = dict(_FALLBACK)
+    for k, v in (data or {}).items():
+        if v not in (None, "", [], {}):
+            merged[k] = v
+    return merged
 
-Best,
-[Your Name], Headout"""
+
+MACROS = _load_macros()
+
+BRAND_VOICE = ("━━ HEADOUT VOICE AND TONE - FOLLOW STRICTLY ━━\n"
+               + str(MACROS["brand_voice"]).rstrip() + "\n"
+               + "- Sign off exactly:\n      "
+               + str(MACROS["sign_off"]).rstrip().replace("\n", "\n      ") + "\n"
+               + "━" * 78)
+
+TAKEDOWN_LINES = {k: v["text"] for k, v in MACROS["takedown"]["lines"].items()}
+
+UNTRACEABLE_REPLY = (str(MACROS["untraceable_reply"]).rstrip() + "\n\n"
+                     + str(MACROS["sign_off"]).rstrip())
+
+
+def macro_tags(channel: str = "trustpilot") -> list:
+    """The situation vocabulary the team already uses, for one channel."""
+    return list((MACROS.get("macro_tags") or {}).get(channel) or [])
 
 
 def takedown_block(verdict: str) -> str:
@@ -657,19 +697,20 @@ def takedown_block(verdict: str) -> str:
     if str(verdict or "").strip().lower() != "yes":
         return ("TAKEDOWN: not requested for this review. Do NOT add any line "
                 "asking the guest to update their review.")
-    lines = "\n".join(f'    {k}) "{v}"' for k, v in TAKEDOWN_LINES.items())
+    td = MACROS["takedown"]
+    lines = "\n".join(f'    {k}) "{v["text"]}"'
+                      for k, v in sorted(td["lines"].items()))
+    when = "\n".join(f'    {k}) {v.get("when", "")}'
+                     for k, v in sorted(td["lines"].items()))
     return f"""━━ TAKEDOWN REQUESTED ━━
 Add EXACTLY ONE of these lines, verbatim, as its own paragraph immediately
 BEFORE the sign-off. Do not reword it, do not merge it into another sentence.
 {lines}
 Choose by situation:
-    a) we fixed it and the guest is satisfied - a clean resolution
-    b) we corrected our own error and the guest gave us the chance to
-    c) the guest waited, or the outcome is partial
-DO NOT add any of them if the guest's tone is abusive, or if this case has
-already been escalated more than once - in those cases return the reply with
-no takedown line at all and nothing in its place.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
+{when}
+DO NOT add any of them, and put nothing in their place, when:
+    {str(td.get("suppress_when", "")).strip()}
+{"━" * 78}"""
 
 
 def response_draft_prompt(
