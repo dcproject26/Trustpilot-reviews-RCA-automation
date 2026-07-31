@@ -262,7 +262,11 @@ def _draft_dict(d: RcaDraft) -> dict:
         "support_interaction_frames":  d.support_interaction_frames or [],
         "support_summary":             d.support_summary,
         "sp_interaction_frames":       d.sp_interaction_frames or [],
-        "area_of_improving":           d.area_of_improving or [],
+        # rca_v3 wins by PRESENCE, like every other v4 field: the column is
+        # the pipeline's projection, and an operator who deletes the last
+        # improvement point produces [] - which a truthiness fallback would
+        # lose to the stale column, so the delete would undo itself.
+        "area_of_improving":           _v4(d, "area_of_improving", "area_of_improving", []),
         "actions_taken":               d.actions_taken or {"sp":[],"customer":[],"business":[],"product":[],"ce":[]},
         "resolution":                  d.resolution,
 

@@ -475,7 +475,16 @@
   .rca-wrap, .editable-text.rca-wrap { display: block; overflow-wrap: anywhere; }
   .stated-issue { background: none; border: none; padding: 0; }
   .stated-issue-text { font-size: 13px; line-height: 1.55; }
+  /* §4 exactly two empty-state treatments, and amber is a third meaning.
+     NEUTRAL (the default): absence is unremarkable.
+     AFFIRMATIVE (.affirm): the empty state is itself a positive finding
+       someone verified - regular weight, green tick, because "nothing needed
+       raising" is a result and reading it in the same grey italic as "nothing
+       here" loses that.
+     .err stays reserved for "the pipeline failed / re-run" and must never
+       share styling with either. */
   .rca-empty { font-size: 12px; color: var(--empty); font-style: italic; }
+  .rca-empty.affirm { color: var(--green); font-style: normal; }
   .rca-empty.err { color: var(--amber); font-style: normal; }
   .empty-state, .interactions-empty, .action-empty, .chk-none {
     font-size: 12px; color: var(--empty); font-style: italic; padding: 4px 0;
@@ -1025,6 +1034,22 @@
     min-width: 0; overflow-wrap: anywhere;
   }
   .dss-panel .k { font-weight: 650; }
+
+  /* §6 collapsed by default: one quiet line with a live count. */
+  .slack-sections-summary { font-size: 11.5px; color: var(--muted-2); }
+  .slack-customize {
+    background: none; border: none; padding: 0 0 0 6px; cursor: pointer;
+    font: inherit; font-size: 11.5px; color: var(--accent); text-decoration: underline;
+  }
+  .slack-customize:hover { color: var(--accent-hov); }
+  .slack-sec-chip {
+    border: 1px solid var(--input-bd); border-radius: 999px; padding: 2px 9px;
+    font-size: 11px; color: var(--muted-2); cursor: pointer;
+  }
+  .slack-sec-chip.on {
+    background: var(--accent-bg); color: var(--chip-fg); border-color: var(--accent-bd);
+  }
+  .slack-sec-chip input { display: none; }
 </style>
 </head>
 <body>
@@ -1584,6 +1609,7 @@ const state = {
   // silently carried one review's choices onto the next, so a post could
   // ship without the section the previous analyst had switched off.
   slackSections: {},
+  slackPicker: {},
   // Section open/closed state, keyed by section label text.
   collapsed: {},
   replyTranslation: {},   // review id -> guest-language reply
@@ -2627,6 +2653,15 @@ document.addEventListener('blur', async ev => {
 }, true);
 
 document.addEventListener('click', ev => {
+  const b = ev.target.closest && ev.target.closest('[data-slack-customize]');
+  if (!b) return;
+  const r = REVIEWS.find(x => x.id === state.selected);
+  if (!r) return;
+  state.slackPicker[r.id] = !state.slackPicker[r.id];
+  renderRcaCol();
+});
+
+document.addEventListener('click', ev => {
   const btn = ev.target.closest && ev.target.closest('[data-raw-err]');
   if (!btn) return;
   ev.stopPropagation();
@@ -2872,44 +2907,79 @@ function renderRcaCol() {
         <div class="interactions-empty">No guest contact was found on this booking — the guest never reached support.</div>
         <button class="row-add" data-contact-add>+ Add contact</button></div>`;
 
-  // SP Interaction — separate frame. v3 shape is one verdict object, not
-  // frames: possible? raised? what came back, with its ticket link.
-  const spV3 = v3d.sp_interaction || null;
-  // New shape mirrors the CE frames: raised + one frame per SP touchpoint.
-  // Old drafts carry {possible, reason_if_not, detail} - shown as one frame.
-  const spRecords = spV3 ? (spV3.records || []) : [];
-  const spLegacyText = spV3 && !spRecords.length
+  // SP interaction — the same facts/interpretation split as guest ↔ support.
+  // The records come from the pipeline's sp_interaction_frames; the model's
+  // account joins by zd_ref under sp_interaction_notes. Reading the pre-split
+  // key left this section rendering nothing at all after the rename, which is
+  // exactly the failure mode of a lookup that cannot say it found nothing.
+  const spV3 = v3d.sp_interaction_notes || v3d.sp_interaction || null;
+  const spNoteFor = key => key
+    ? ((spV3 && spV3.records) || []).find(x => x && _zdKey(x.zd_ref) === key) || null : null;
+  const spGroups = _contacts(rca.spFrames);
+  const spUsed = new Set(spGroups.map(g => g.key).filter(k => k && spNoteFor(k)));
+  const spOrphans = ((spV3 && spV3.records) || [])
+    .filter(x => x && !spUsed.has(_zdKey(x.zd_ref)));
+  const spLegacyText = spV3 && !((spV3.records || []).length)
     ? (asPoints(spV3.detail).join(' ') || spV3.reason_if_not || '') : '';
+  const spRowCount = spGroups.length + spOrphans.length;
   const spInter = spV3
     ? `<div class="interactions">
         <div class="sp-frame">
           <div class="sp-frame-head">
             <span class="convo-num sp">SP</span>
             <span class="convo-label">Raised with SP:</span>
-            <select class="classify-select" style="width:84px;font-size:11.5px" data-sp-raised>
+            <select class="chip-sel chip-sop-sel ${spV3.raised === 'Yes' ? 'ok' : spV3.raised === 'No' ? 'bad' : 'unk'}"
+                    data-v3sel="sp_interaction_notes.raised">
               ${['Yes','No','N/A'].map(o => `<option${(spV3.raised || 'N/A') === o ? ' selected' : ''}>${o}</option>`).join('')}
             </select>
           </div>
+          <!-- "N/A" with no records and no reason is indistinguishable from a
+               section that was skipped. A blocked escalation - non-partnered
+               vendor, opted-out contact - is a FACT about this booking, not a
+               miss, and it is worth stating. -->
+          ${spV3.raised !== 'Yes' ? `
+          <div class="sp-frame-body" style="padding-left:14px">
+            <div class="sp-frame-summary">${edSpan('sp_interaction_notes.reason', spV3.reason,
+              'why escalation did not happen')}</div>
+          </div>` : ''}
         </div>
-        ${spRecords.map((rec, i) => `
+        ${spGroups.map((g, i) => {
+          const note = spNoteFor(g.key), first = g.rows[0] || {};
+          const nIdx = ((spV3.records) || []).indexOf(note);
+          return `
         <div class="sp-frame">
           <div class="sp-frame-head">
-            <span class="convo-num sp">${i + 1}</span>
-            <span class="convo-time">${esc(rec.time || '')}</span>
+            <span class="convo-num sp">${String(i + 1).padStart(2, '0')}</span>
+            <span class="convo-time${first.time ? '' : ' dim'}">${esc(first.time || '—')}</span>
+            <span style="margin-left:auto">${g.key ? zdLink(g.key) : ''}</span>
+          </div>
+          <div class="sp-frame-body">
+            <div class="sp-frame-summary">${nIdx >= 0
+              ? edSpan(`sp_interaction_notes.records.${nIdx}.summary`, (note || {}).summary)
+              : esc(first.guestSaid || first.summary || '')}</div>
+          </div>
+        </div>`; }).join('')}
+        ${spOrphans.map((rec) => {
+          const nIdx = ((spV3.records) || []).indexOf(rec);
+          const why = _zdKey(rec.zd_ref) ? 'unmatched ZD reference' : 'unverified';
+          return `
+        <div class="sp-frame">
+          <div class="sp-frame-head">
+            <span class="convo-num sp">${String(spGroups.length + spOrphans.indexOf(rec) + 1).padStart(2, '0')}</span>
+            <span class="convo-time dim">—</span>
+            <span class="convo-unverified">${esc(why)}</span>
             <span style="margin-left:auto">${rec.zd_ref ? zdLink(rec.zd_ref) : ''}</span>
           </div>
           <div class="sp-frame-body">
-            <div class="sp-frame-summary">${edSpan(`sp_interaction.records.${i}.summary`, rec.summary)}</div>
+            <div class="sp-frame-summary">${edSpan(`sp_interaction_notes.records.${nIdx}.summary`, rec.summary)}</div>
           </div>
-        </div>`).join('')}
+        </div>`; }).join('')}
         ${spLegacyText ? `
         <div class="sp-frame"><div class="sp-frame-body" style="padding-left:14px">
           <div class="sp-frame-summary">${esc(spLegacyText)}</div>
         </div></div>` : ''}
-        ${(!spRecords.length && !spLegacyText) ? `
-        <div class="sp-frame"><div class="sp-frame-body" style="padding-left:14px">
-          <div class="sp-frame-summary" style="color:var(--muted-2)">No SP contact on record for this case.</div>
-        </div></div>` : ''}
+        ${(!spRowCount && !spLegacyText && !spV3.reason) ? `
+        <div class="interactions-empty">No SP contact on record for this case.</div>` : ''}
         <button class="row-add" data-sp-rec-add>+ Add SP record</button>
       </div>`
     : rca.spInteraction && rca.spInteraction.length > 0
@@ -3190,6 +3260,10 @@ function renderRcaCol() {
     ['actions', 'Actions'], ['resolution', 'Resolution'],
     ['takedown', 'Takedown'], ['insights', 'Insights'],
   ];
+  // The summary line always states the CURRENT count, so a collapsed picker
+  // never hides the fact that sections are off.
+  const _slackOn = _slackSectionKeys.filter(
+    ([k]) => (state.slackSections[r.id] || {})[k] !== false).length;
   const _slackText = rca.slackThreadOverride || _genSlackText();
   const slackPost = `
     <div class="slack-preview section" id="rca-slack-section">
@@ -3198,13 +3272,22 @@ function renderRcaCol() {
         <button class="slack-regen-btn" data-slack-regen style="margin-left:auto">↻ Regenerate from RCA</button>
         <span class="section-chev">▾</span>
       </div>
-      <div class="slack-sections">
-        <span class="slack-sections-label">include:</span>
-        ${_slackSectionKeys.map(([key, label]) => `
-          <label class="slack-sec-chip">
+      <!-- §6 twelve checkboxes were a wall of clutter above the post itself.
+           Default is one quiet line stating the current count; customize
+           reveals the chips as toggle pills, done collapses them. Persistence
+           is unchanged - the same state.slackSections semantics. -->
+      <div class="slack-sections${state.slackPicker[r.id] ? ' open' : ''}">
+        ${state.slackPicker[r.id] ? '' : `
+          <span class="slack-sections-summary">${_slackOn} of ${_slackSectionKeys.length} sections included</span>
+          <button class="slack-customize" data-slack-customize>customize</button>`}
+        ${state.slackPicker[r.id] ? `
+          <span class="slack-sections-summary">${_slackOn} of ${_slackSectionKeys.length} sections included</span>
+          <button class="slack-customize" data-slack-customize>done</button>` : ''}
+        ${state.slackPicker[r.id] ? _slackSectionKeys.map(([key, label]) => `
+          <label class="slack-sec-chip${(state.slackSections[r.id] || {})[key] === false ? '' : ' on'}">
             <input type="checkbox" data-slack-section="${key}"
                    ${(state.slackSections[r.id] || {})[key] === false ? '' : 'checked'}>${label}
-          </label>`).join('')}
+          </label>`).join('') : ''}
         <span class="slack-sec-actions">
           <button data-slack-sec-all>all</button>
           <button data-slack-sec-none>none</button>
@@ -3491,7 +3574,7 @@ function renderRcaCol() {
         ${flags.length ? `<span class="sec-count">${flagSecs.map(t => flagGroups[t].length + ' ' + t).join(' · ')}</span>` : ''}
       <span class="section-chev">▾</span></div>
       ${flags.length === 0
-        ? `<div class="field-block rca-empty">✓ Every QA area was checked and none needed raising.</div>`
+        ? `<div class="field-block rca-empty affirm">✓ Every QA area was checked and none needed raising.</div>`
         : `<div class="chk-groups">${flagSecs.map(t => `
             <div class="chk-group has-flags open" data-chk-section="${t}">
               <div class="chk-group-head" data-chk-group-toggle>
