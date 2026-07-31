@@ -638,15 +638,9 @@ def _points(v) -> list:
     return [str(v).strip()] if str(v or "").strip() else []
 
 
-def _zd_key(v) -> str:
-    """The digits of a ticket reference, whichever side wrote it.
+from server.services.rca_v4_validate import zd_key as _zd_key
 
-    The pipeline's frames carry ticket_id "4491"; the model writes zd_ref
-    "ZD-4491". Joining on the raw strings matched nothing, which looks exactly
-    like a model that returned no notes."""
-    import re as _re
-    m = _re.search(r"\d+", str(v or ""))
-    return m.group(0) if m else ""
+_CONTACT_GAP_MIN = 30
 
 
 def _note_for(key: str, notes):
@@ -657,6 +651,47 @@ def _note_for(key: str, notes):
         if isinstance(n, dict) and _zd_key(n.get("zd_ref")) == key:
             return n
     return None
+
+
+def _contacts(frames):
+    """Frames grouped into contacts. Returns [(key, [frame, ...]), ...].
+
+    The two columns are deliberately different granularities: the Events
+    timeline is per event, Guest ↔ support is per contact. Rendering one row
+    per frame conflates them, and the "N contacts" count then reports events -
+    which reads as inflated, and a count nobody trusts is worse than none.
+
+    Grouped by ticket. Frames with no ticket id fall back to a time window,
+    because consecutive messages minutes apart are one exchange however they
+    were logged; without the fallback each would become its own contact, which
+    is the same inflation by another route.
+    """
+    from datetime import datetime as _dt
+    out, last_at = [], None
+    for fr in (frames or []):
+        key = _zd_key(fr.get("ticket_id"))
+        if key:
+            for k, group in out:
+                if k == key:
+                    group.append(fr)
+                    break
+            else:
+                out.append((key, [fr]))
+            last_at = None            # a ticketed frame does not extend a window
+            continue
+        at = None
+        raw = fr.get("time_sort") or ""
+        try:
+            at = _dt.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except Exception:
+            at = None
+        near = (at and last_at and abs((at - last_at).total_seconds()) <= _CONTACT_GAP_MIN * 60)
+        if near and out and not out[-1][0]:
+            out[-1][1].append(fr)
+        else:
+            out.append(("", [fr]))
+        last_at = at
+    return out
 
 
 def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
@@ -784,46 +819,74 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
 
     # Facts and interpretation, merged. The rows come from the pipeline's
     # Zendesk-derived frames - their time, channel and ticket id are verifiable
-    # - and the model's summary / detail / ce_miss attach to them by zd_ref.
-    # One frame per timeline EVENT but one note per contact, so the join is
-    # many-to-one and a note may light up several rows of the same ticket.
+    # - and the model's summary / detail / ce_miss attach by zd_ref.
+    #
+    # One row per CONTACT, not per frame. The Events timeline is the per-event
+    # view; this is the per-contact one, and the individual events sit under
+    # their contact rather than beside it. Rendering one row per frame would
+    # make the contact count report events.
     si_notes = v3.get("support_interaction_notes")
     if si_notes is None:
         si_notes = v3.get("support_interaction")          # pre-split drafts
     rows, used = [], set()
-    for fr in (draft.support_interaction_frames or []):
-        key = _zd_key(fr.get("ticket_id"))
+    for n, (key, group) in enumerate(_contacts(draft.support_interaction_frames), 1):
         note = _note_for(key, si_notes)
         if note:
             used.add(key)
-        said = (fr.get("guestSaid") or (note or {}).get("summary") or "").strip()
-        did  = (fr.get("weDid") or "").strip()
-        ch   = (fr.get("thread") or "").strip()
-        line = f"\u2022 {fr.get('time') or '?'}" + (f" \u00b7 {ch}" if ch else "")
-        if said:
-            line += f" \u2014 {said}"
-        if did:
-            line += f" | we: {did}"
+        first = group[0]
+        ch = (first.get("thread") or "").strip()
+        # The contact's own line: what this exchange was, in one line. The
+        # model's summary is about the contact; a frame's guestSaid is about
+        # one message, so it is the fallback rather than the other way round.
+        summary = ((note or {}).get("summary") or first.get("guestSaid") or "").strip()
+        head = f"\u2022 {n:02d}. {first.get('time') or '?'}"
+        if ch:
+            head += f" \u00b7 {ch}"
+        if summary:
+            head += f" \u2014 {summary}"
         if key:
-            line += f" (ZD-{key})"
-        rows.append(line)
-        gap = (fr.get("gap") or "").strip()
-        if gap:
-            rows.append(f"   \u26a0 {gap}")
+            head += f" (ZD-{key})"
+        if len(group) > 1:
+            head += f" [{len(group)} events]"
+        rows.append(head)
+        for fr in group:
+            said = (fr.get("guestSaid") or "").strip()
+            did  = (fr.get("weDid") or "").strip()
+            if not said and not did:
+                continue
+            ev = f"   - {fr.get('time') or '?'}"
+            if said:
+                ev += f" \u2014 {said}"
+            if did:
+                ev += f" | we: {did}"
+            rows.append(ev)
+            gap = (fr.get("gap") or "").strip()
+            if gap:
+                rows.append(f"     \u26a0 {gap}")
         if note and note.get("ce_miss"):
             rows.append(f"   \u26a0 CE miss: {note['ce_miss']}")
-    # A contact the model reports and Zendesk does not still renders, marked
-    # unverified. Dropping it hides a real gap: either the guest reached us off
-    # Zendesk, or the model invented a contact. Both are worth seeing.
+    # A contact the model reports and Zendesk has no frame for still renders,
+    # marked unverified. Either the guest reached us off Zendesk or the model
+    # invented a contact; both are worth seeing, neither worth hiding. A note
+    # carrying a zd_ref that matched nothing is the more serious of the two -
+    # that is a failed join, and the pipeline records it in the trail.
+    n = len(rows) and sum(1 for r in rows if r.startswith("\u2022"))
     for note in (si_notes if isinstance(si_notes, list) else []):
         if not isinstance(note, dict):
             continue
-        if _zd_key(note.get("zd_ref")) in used:
+        nkey = _zd_key(note.get("zd_ref"))
+        if nkey and nkey in used:
             continue
+        n += 1
         ch = note.get("channel") or ""
-        line = (f"\u2022 {note.get('time') or '?'}" + (f" \u00b7 {ch}" if ch else "")
-                + f" \u2014 {note.get('summary') or ''} (guest's account, unverified)")
-        rows.append(line)
+        why = "unmatched ZD reference" if nkey else "guest's account, unverified"
+        head = f"\u2022 {n:02d}. {note.get('time') or '?'}"
+        if ch:
+            head += f" \u00b7 {ch}"
+        head += f" \u2014 {note.get('summary') or ''}"
+        if nkey:
+            head += f" (ZD-{nkey})"
+        rows.append(head + f" ({why})")
         if note.get("ce_miss"):
             rows.append(f"   \u26a0 CE miss: {note['ce_miss']}")
     sections.append(("Customer / CE interactions",

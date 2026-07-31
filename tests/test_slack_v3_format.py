@@ -220,12 +220,47 @@ NOTES  = [{"zd_ref": "ZD-4491", "summary": "Guest chased the voucher.",
            "ce_miss": "No proactive update after the first failure."}]
 
 
-def test_the_rows_come_from_zendesk_and_the_gap_line_from_the_model():
+def test_the_contact_is_the_row_and_its_events_sit_under_it():
+    """The Events timeline is the per-event view; this is the per-contact one.
+    One row per frame would make the contact count report events."""
     d = _v4draft(support_interaction_frames=FRAMES,
                  rca_v3={"support_interaction_notes": NOTES})
     out = format_rca_slack(REVIEW, d)
-    assert "22 Jul 15:41 · chat — Where are my tickets? | we: Resent them. (ZD-4491)" in out
+    assert "• 01. 22 Jul 15:41 · chat — Guest chased the voucher. (ZD-4491)" in out
+    assert "   - 22 Jul 15:41 — Where are my tickets? | we: Resent them." in out
     assert "⚠ CE miss: No proactive update after the first failure." in out
+
+
+def test_several_events_on_one_ticket_are_one_contact():
+    """Three messages on one ticket is one contact, not three."""
+    frames = [dict(FRAMES[0], time=f"22 Jul 15:4{i}", guestSaid=f"msg {i}")
+              for i in range(3)]
+    out = format_rca_slack(REVIEW, _v4draft(support_interaction_frames=frames))
+    assert out.count("• 01.") == 1
+    assert "• 02." not in out
+    assert "[3 events]" in out
+    for i in range(3):
+        assert f"msg {i}" in out, "an event was swallowed by the grouping"
+
+
+def test_untickted_frames_minutes_apart_are_one_contact():
+    """Without the time-window fallback each untracked message becomes its own
+    contact — the same inflation by another route."""
+    frames = [{"time": "22 Jul 15:41", "time_sort": "2026-07-22T15:41:00",
+               "guestSaid": "first"},
+              {"time": "22 Jul 15:49", "time_sort": "2026-07-22T15:49:00",
+               "guestSaid": "second"}]
+    out = format_rca_slack(REVIEW, _v4draft(support_interaction_frames=frames))
+    assert out.count("• 01.") == 1 and "• 02." not in out
+
+
+def test_untickted_frames_hours_apart_are_separate_contacts():
+    frames = [{"time": "22 Jul 09:00", "time_sort": "2026-07-22T09:00:00",
+               "guestSaid": "morning"},
+              {"time": "22 Jul 18:00", "time_sort": "2026-07-22T18:00:00",
+               "guestSaid": "evening"}]
+    out = format_rca_slack(REVIEW, _v4draft(support_interaction_frames=frames))
+    assert "• 01." in out and "• 02." in out
 
 
 def test_the_model_cannot_restate_a_time_the_frame_already_has():
@@ -250,19 +285,28 @@ def test_a_contact_zendesk_does_not_have_still_renders_marked_unverified():
     assert "Guest says they phoned and got no answer. (guest's account, unverified)" in out
 
 
-def test_a_note_without_a_frame_is_not_double_counted():
+def test_a_joined_note_is_not_also_rendered_as_an_orphan():
     d = _v4draft(support_interaction_frames=FRAMES,
                  rca_v3={"support_interaction_notes": NOTES})
     out = format_rca_slack(REVIEW, d)
-    assert out.count("Guest chased the voucher") == 0, \
-        "the note's summary is only a fallback when the frame has none"
-    assert "unverified" not in out
+    assert out.count("Guest chased the voucher") == 1
+    assert "unverified" not in out and "unmatched" not in out
 
 
-def test_the_model_summary_fills_in_when_the_frame_has_none():
-    d = _v4draft(support_interaction_frames=[{"ticket_id": "4491", "time": "22 Jul 15:41"}],
-                 rca_v3={"support_interaction_notes": NOTES})
-    assert "Guest chased the voucher." in format_rca_slack(REVIEW, d)
+def test_the_frame_summary_fills_in_when_the_model_has_no_note():
+    out = format_rca_slack(REVIEW, _v4draft(support_interaction_frames=FRAMES))
+    assert "• 01. 22 Jul 15:41 · chat — Where are my tickets? (ZD-4491)" in out
+
+
+def test_a_note_whose_reference_matched_nothing_says_so():
+    """A silent zero is the failure mode: a join that matches nothing looks
+    exactly like a model that returned no notes. An orphan carrying a zd_ref is
+    a failed join, not an off-Zendesk contact, and reads differently."""
+    d = _v4draft(support_interaction_frames=FRAMES,
+                 rca_v3={"support_interaction_notes": [
+                     {"zd_ref": "ZD-9999", "summary": "A contact on no known ticket."}]})
+    out = format_rca_slack(REVIEW, d)
+    assert "A contact on no known ticket. (ZD-9999) (unmatched ZD reference)" in out
 
 
 def test_sp_rows_are_frames_and_raised_comes_from_the_notes():

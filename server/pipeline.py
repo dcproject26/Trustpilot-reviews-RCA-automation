@@ -1696,6 +1696,20 @@ async def process_review(review_id: str, force_candidates: bool = False):
             except Exception as e:
                 log.exception(f"RCA validation failed, keeping raw output: {e}")
 
+            # The model's contact notes join to the Zendesk frames by zd_ref.
+            # A join that matches nothing looks exactly like a model that
+            # returned no notes, so the miss is counted and said out loud - a
+            # silent zero is the failure mode, not the safe default.
+            try:
+                from server.services.rca_v4_validate import contact_join_notes
+                for _n in contact_join_notes(support_frames, sp_frames, rca_v3):
+                    log.warning(f"[pipeline] {_n}")
+                    confidence_trail.append({
+                        "mark": "warn",
+                        "text": f"<strong>RCA</strong> — {_html.escape(_n)}"})
+            except Exception as e:
+                log.warning(f"[pipeline] contact-note join check skipped: {e}")
+
         # ── 13. Response draft ────────────────────────────────────────────────
         # There is no separate drafting call any more. v4 returns `resolution`
         # and `suggested_response` from the RCA itself, written against the full
