@@ -62,11 +62,43 @@ def test_send_does_not_post_an_rca_that_is_already_in_the_thread():
 
 def test_a_flagged_review_still_reads_as_flagged_after_a_reload():
     """ins.completion.flagged was only ever set in memory by the click
-    handler. A reload cleared it, the button re-armed, and a second click
-    sent another message to #biz-supply-ops."""
+    handler, so a reload cleared it and the button re-armed."""
     assert "r.flagToBizState = draft.flag_to_biz_state" in CLIENT
     assert "r.flagToBizState === 'sent'" in CLIENT, \
         "the flagged button state must come from the server, not only memory"
+
+
+def test_flagging_to_biz_actually_calls_the_server():
+    """The button built a local actions_taken entry, set flagged = true in
+    memory and closed. It said "✓ Flagged · sent to Slack" and never called
+    anything. The endpoint worked the whole time; nothing invoked it."""
+    i = CLIENT.find("#flag-send-btn")
+    handler = CLIENT[i:i + 1600]
+    assert "/flag-to-biz" in handler, \
+        "the Flag to Biz button does not send anything"
+    assert "send: true" in handler
+
+
+def test_there_is_no_invented_slack_channel():
+    """#biz-supply-ops does not exist in the workspace. It was the fallback
+    destination here, so anything routed to it went nowhere while the UI
+    reported success. Everything goes to the review's own thread."""
+    # Comments may name it — explaining why it is gone is the point. Code
+    # must not.
+    code = "\n".join(l for l in API.splitlines()
+                     if not l.lstrip().startswith("#"))
+    assert "biz-supply-ops" not in code, \
+        "the invented channel is still a value in the code, not just a note"
+    assert "flag-channel" not in CLIENT, \
+        "the channel input is back; there is only one destination"
+    assert "channel: str" not in API[API.find("class FlagToBiz"):
+                                      API.find("class FlagToBiz") + 400]
+
+
+def test_flagging_without_a_slack_thread_is_refused_not_redirected():
+    body = _fn(API, "flag_to_biz")
+    assert "has no Slack thread" in body, \
+        "a review with no thread must be told, not silently posted elsewhere"
 
 
 # ── the one candidate the associate is asked to judge ───────────────────────

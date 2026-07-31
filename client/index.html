@@ -4039,7 +4039,11 @@ function renderRcaCol() {
     });
   }
 
-  // ── Send button — marks as sent (no Slack post) ───────────────────────────
+  // ── Send button — marks the review sent, and posts the RCA if nothing has ─
+  // This comment used to say "no Slack post", which was simply untrue: /send
+  // has always posted the RCA into the review's thread. That is why using
+  // "Post to thread" and then Send put the same RCA in the thread twice. The
+  // server now posts here only when rca_posted_at is unset.
   const sendBtn = col.querySelector('.send-btn');
   if (sendBtn) {
     sendBtn.addEventListener('click', async () => {
@@ -4082,23 +4086,18 @@ function openFlagDraftModal(r) {
         <button class="flag-modal-close" data-close-modal>×</button>
       </div>
       <div class="flag-modal-body">
-        <!-- The message goes into the review's own Slack thread. This field
-             used to read "#biz-supply-ops" as though that were the
-             destination, while the server posted to the thread and ignored
-             it - so the modal promised the Biz channel and the Biz channel
-             never got anything. It is a fallback, and it says so. -->
+        <!-- One destination, always: the review's own Slack thread, the same
+             thread the RCA goes into. There was a channel field here defaulting
+             to #biz-supply-ops, a channel that does not exist in the workspace,
+             so anything that ever fell back to it went nowhere while the UI
+             reported success. -->
         <div class="flag-modal-row">
           <label>Goes to</label>
-          <div class="flag-dest">This review's Slack thread</div>
-        </div>
-        <div class="flag-modal-row">
-          <label>Fallback</label>
-          <input type="text" class="flag-input" id="flag-channel" value="#biz-supply-ops" />
-          <div class="flag-hint">Used only if this review has no Slack thread.</div>
+          <div class="flag-dest">This review's Slack thread — same place as the RCA</div>
         </div>
         <div class="flag-modal-row">
           <label>Tag</label>
-          <input type="text" class="flag-input" id="flag-tag" value="[Biz handle placeholder]" />
+          <input type="text" class="flag-input" id="flag-tag" placeholder="who to tag" />
         </div>
         <div class="flag-modal-row">
           <label>Message</label>
@@ -4119,24 +4118,38 @@ function openFlagDraftModal(r) {
   modal.addEventListener('click', (e) => {
     if (e.target === modal) modal.remove();
   });
-  modal.querySelector('#flag-send-btn').addEventListener('click', () => {
-    const channel = modal.querySelector('#flag-channel').value;
+  // This used to build a local actions_taken entry, set flagged = true in
+  // memory and close — without ever calling the server. The button said
+  // "✓ Flagged · sent to Slack" and no Slack message was ever posted by it.
+  // The endpoint existed and worked the whole time; nothing called it.
+  const flagSend = modal.querySelector('#flag-send-btn');
+  flagSend.addEventListener('click', async () => {
     const tag = modal.querySelector('#flag-tag').value;
     const message = modal.querySelector('#flag-message').value;
-    if (!r.rca.actionsTaken.business) r.rca.actionsTaken.business = [];
-    r.rca.actionsTaken.business.push({
-      with: 'Biz team — raise completion to market rate',
-      handle: tag,
-      time: new Date().toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
-      context: message.substring(0, 200) + (message.length > 200 ? '…' : ''),
-      where: `slack.com/${channel.replace('#', '')}/[posted]`,
-    });
-    modal.remove();
-    state.actionTab = 'business';
-    // Mark the completion flag as already-flagged for this case
-    r.insights.completion.flagged = true;
-    renderRcaCol();
-    renderReviewCol();
+    if (!message.trim()) { flagSend.textContent = 'Write a message first'; return; }
+    const orig = flagSend.textContent;
+    flagSend.disabled = true; flagSend.textContent = 'sending…';
+    try {
+      const res = await fetch(`/api/reviews/${r.id}/flag-to-biz`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({tag, message, send: true}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Slack rejected the post');
+      // The server owns this now — actions_taken.business gets its entry
+      // there, so it survives a reload instead of living in this tab.
+      r.flagToBizState = 'sent';
+      modal.remove();
+      state.actionTab = 'business';
+      await fetchInbox();
+      renderRcaCol();
+      renderReviewCol();
+    } catch (e) {
+      flagSend.disabled = false;
+      flagSend.textContent = String(e.message || e).slice(0, 60);
+      setTimeout(() => { flagSend.textContent = orig; }, 4000);
+    }
   });
 }
 
