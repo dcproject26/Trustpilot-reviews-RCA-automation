@@ -1066,94 +1066,121 @@ async def shortlist(indicators: dict, author_first, author_last,
         queries.append((f'type:ticket {name} {ORDER}', "name"))
     if venue and not name:
         queries.append((f'type:ticket "{venue}" {ORDER}', "venue"))
-    # Issue-led queries. Name + problem is the precise one; problem alone is
-    # the last resort and stays quoted so Zendesk treats it as a phrase
-    # rather than a bag of common words.
+    # Issue-led queries are a SECOND PASS, not part of this list. The direct
+    # indicators are the matcher and they stay untouched: when name, venue or
+    # city produce a match, that is the answer and the problem text is never
+    # searched. The second pass runs only when they produce nothing.
+    issue_queries = []
     for term in issue_terms[:3]:
         if name:
-            queries.append((f'type:ticket {name} "{term}" {ORDER}', "name+issue"))
+            issue_queries.append((f'type:ticket {name} "{term}" {ORDER}', "name+issue"))
         elif venue:
-            queries.append((f'type:ticket "{venue}" "{term}" {ORDER}', "venue+issue"))
+            issue_queries.append((f'type:ticket "{venue}" "{term}" {ORDER}', "venue+issue"))
         else:
-            queries.append((f'type:ticket "{term}" {ORDER}', "issue"))
+            issue_queries.append((f'type:ticket "{term}" {ORDER}', "issue"))
 
     loop = asyncio.get_running_loop()
+    # issue_pass=False reproduces the original behaviour exactly: corroboration
+    # is not computed, nothing is promoted, and the weak fallback is the same
+    # name-only fallback it always was.
     seen_tickets, by_bid, weak_by_bid = set(), {}, {}
     # Tickets with no name agreement but whose text matches the problem
     # AND a date the review named. Two independent signals with no name
     # is still worth a human's glance.
     issue_by_bid = {}
-    for q, label in queries:
-        try:
-            hits = await loop.run_in_executor(None, lambda qq=q: _search_with_retry(_z, qq))
-        except Exception as e:
-            log.warning(f"[shortlist] query failed ({label}): {e}")
-            continue
-        for t in hits or []:
-            tid = str(getattr(t, "id", ""))
-            if tid in seen_tickets:
+    async def _scan(qs, issue_pass):
+        for q, label in qs:
+            try:
+                hits = await loop.run_in_executor(None, lambda qq=q: _search_with_retry(_z, qq))
+            except Exception as e:
+                log.warning(f"[shortlist] query failed ({label}): {e}")
                 continue
-            seen_tickets.add(tid)
-            sig = ticket_signals(t)
-            bid = sig.get("booking_id")
-            # Only a bid already accepted as a STRONG match short-circuits.
-            # Skipping one held weakly meant a later ticket that satisfied
-            # every indicator was discarded as a duplicate, leaving the weaker
-            # reading of the same booking in its place.
-            if not bid or bid in by_bid:
-                continue
-            ok, used = matches_indicators(sig, indicators, author_first, author_last)
-            # Did the ticket's own text mention the problem, or a date the
-            # review named? Both are corroboration a name match alone lacks.
-            hay = " ".join(str(sig.get(k) or "") for k in
-                           ("subject", "description", "text")).lower()
-            hit_terms = [t for t in issue_terms if t.lower() in hay]
-            hit_dates = [d for d in (indicators.get("dates_mentioned") or [])
-                         if str(d) and str(d) in hay]
-            if hit_terms:
-                used = list(used) + [f"issue:{hit_terms[0]}"]
-            if hit_dates:
-                used = list(used) + [f"date:{hit_dates[0]}"]
-            sig["issue_hits"] = hit_terms
-            sig["date_hits"]  = hit_dates
-            sig["found_via"]  = label
-            sig["created_at"] = str(getattr(t, "created_at", "") or "")
-            sig["ticket_id"]  = tid
-            if ok:
-                sig["matched_on"] = used
-                by_bid[bid] = sig
-                weak_by_bid.pop(bid, None)   # promoted: drop the weak reading
-            elif name and name_matches(sig.get("guest_name") or "",
-                                       author_first, author_last):
-                # The name matched but another indicator disagreed. That is a
-                # weaker signal, not a refutation - the guest may have written
-                # about one leg of a multi-experience trip, or the ticket may
-                # carry a different experience name than the review's wording.
-                # Held back, and used only if nothing stronger survives:
-                # showing a human two plausible bookings to choose from beats
-                # filing a review with a name, a venue and a city as
-                # unidentifiable.
-                if hit_terms or hit_dates:
-                    # The name matched AND the ticket talks about the same
-                    # problem, or names a date the review named. Two
-                    # independent signals agreeing is a real match, not the
-                    # "name only" fallback.
-                    sig["matched_on"] = ["name"] + (
-                        [f"issue:{hit_terms[0]}"] if hit_terms else []) + (
-                        [f"date:{hit_dates[0]}"] if hit_dates else [])
+            for t in hits or []:
+                tid = str(getattr(t, "id", ""))
+                if tid in seen_tickets:
+                    continue
+                seen_tickets.add(tid)
+                sig = ticket_signals(t)
+                bid = sig.get("booking_id")
+                # Only a bid already accepted as a STRONG match short-circuits.
+                # Skipping one held weakly meant a later ticket that satisfied
+                # every indicator was discarded as a duplicate, leaving the weaker
+                # reading of the same booking in its place.
+                if not bid or bid in by_bid:
+                    continue
+                ok, used = matches_indicators(sig, indicators, author_first, author_last)
+                # Corroboration is computed only in the issue pass. In the direct
+                # pass these stay empty, so every downstream branch behaves
+                # exactly as it did before this existed.
+                hit_terms, hit_dates = [], []
+                if issue_pass:
+                    hay = " ".join(str(sig.get(k) or "") for k in
+                                   ("subject", "description", "text")).lower()
+                    hit_terms = [t for t in issue_terms if t.lower() in hay]
+                    hit_dates = [d for d in (indicators.get("dates_mentioned") or [])
+                                 if str(d) and str(d) in hay]
+                    if hit_terms:
+                        used = list(used) + [f"issue:{hit_terms[0]}"]
+                    if hit_dates:
+                        used = list(used) + [f"date:{hit_dates[0]}"]
+                sig["issue_hits"] = hit_terms
+                sig["date_hits"]  = hit_dates
+                sig["found_via"]  = label
+                sig["created_at"] = str(getattr(t, "created_at", "") or "")
+                sig["ticket_id"]  = tid
+                if ok:
+                    sig["matched_on"] = used
                     by_bid[bid] = sig
-                    weak_by_bid.pop(bid, None)
-                elif bid not in weak_by_bid:
-                    sig["matched_on"] = ["name"]
-                    sig["weak"] = True
-                    weak_by_bid[bid] = sig
-            elif hit_terms and hit_dates and bid not in issue_by_bid:
-                # No name to agree on - an anonymous review, or a ticket
-                # raised under someone else's account. The problem and a date
-                # both lining up is not proof, but it is two independent
-                # agreements, which beats filing the review as untraceable.
-                sig["matched_on"] = [f"issue:{hit_terms[0]}", f"date:{hit_dates[0]}"]
-                issue_by_bid[bid] = sig
+                    weak_by_bid.pop(bid, None)   # promoted: drop the weak reading
+                elif name and name_matches(sig.get("guest_name") or "",
+                                           author_first, author_last):
+                    # The name matched but another indicator disagreed. That is a
+                    # weaker signal, not a refutation - the guest may have written
+                    # about one leg of a multi-experience trip, or the ticket may
+                    # carry a different experience name than the review's wording.
+                    # Held back, and used only if nothing stronger survives:
+                    # showing a human two plausible bookings to choose from beats
+                    # filing a review with a name, a venue and a city as
+                    # unidentifiable.
+                    if issue_pass and (hit_terms or hit_dates):
+                        # The name matched AND the ticket talks about the same
+                        # problem, or names a date the review named. Two
+                        # independent signals agreeing is a real match, not the
+                        # "name only" fallback.
+                        sig["matched_on"] = ["name"] + (
+                            [f"issue:{hit_terms[0]}"] if hit_terms else []) + (
+                            [f"date:{hit_dates[0]}"] if hit_dates else [])
+                        by_bid[bid] = sig
+                        weak_by_bid.pop(bid, None)
+                    elif bid not in weak_by_bid:
+                        sig["matched_on"] = ["name"]
+                        sig["weak"] = True
+                        weak_by_bid[bid] = sig
+                elif issue_pass and hit_terms and hit_dates and bid not in issue_by_bid:
+                    # No name to agree on - an anonymous review, or a ticket
+                    # raised under someone else's account. The problem and a date
+                    # both lining up is not proof, but it is two independent
+                    # agreements, which beats filing the review as untraceable.
+                    sig["matched_on"] = [f"issue:{hit_terms[0]}", f"date:{hit_dates[0]}"]
+                    issue_by_bid[bid] = sig
+
+    # PASS 1 - the direct indicators. Unchanged, and authoritative.
+    await _scan(queries, issue_pass=False)
+
+    # PASS 2 - the problem the guest described. Runs ONLY when the direct
+    # indicators produced nothing to show, so a matcher that is working is
+    # never second-guessed by a text search.
+    if not by_bid and issue_queries:
+        log.info(f"[shortlist] direct indicators found nothing; trying "
+                 f"{len(issue_queries)} issue-led query(s)")
+        # Pass 1 may already have seen the right ticket and set it aside as a
+        # weak name match. The dedupe would then skip it here and its issue
+        # agreement would never be counted, so the ticket that answers the
+        # review stays weak. Clearing the seen set lets pass 2 re-judge those
+        # tickets WITH corroboration; by_bid is empty by definition here, so
+        # nothing already decided can be disturbed.
+        seen_tickets.clear()
+        await _scan(issue_queries, issue_pass=True)
 
     # Preference order: everything agreed > problem and date agreed > only
     # the name agreed. Each step down is a weaker claim, so a stronger tier
@@ -1168,9 +1195,9 @@ async def shortlist(indicators: dict, author_first, author_last,
         out = list(weak_by_bid.values())
         log.info(f"[shortlist] no ticket satisfied every indicator; falling back "
                  f"to {len(out)} name-matching ticket(s) as candidates")
-    # Most corroborated first, then most recent. A ticket agreeing on name,
-    # problem and date should not sit below one that merely shares a name and
-    # happens to be newer.
+    # In the direct pass every corroboration count is zero, so this is the
+    # original "newest first". In the issue pass, a ticket agreeing on name,
+    # problem and date outranks one that merely shares a name and is newer.
     out.sort(key=lambda s: (len(s.get("issue_hits") or []) + len(s.get("date_hits") or []),
                             s.get("created_at") or ""), reverse=True)
 

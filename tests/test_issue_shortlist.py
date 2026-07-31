@@ -140,3 +140,40 @@ def test_issue_only_review_is_not_searched_into_the_void(zendesk_with):
     zendesk_with(qs, {})
     assert asyncio.run(zd.shortlist(empty, "", "")) == []
     assert qs.seen == [], "no query should be issued with nothing to search on"
+
+
+# ── the issue path must never disturb a matcher that is already working ─────
+
+def test_issue_search_does_not_run_when_direct_indicators_match(zendesk_with,
+                                                                monkeypatch):
+    """The direct indicators are the matcher. When name/venue/city produce a
+    match, that IS the answer - the problem text must never be searched, so a
+    working match can never be second-guessed by a text search."""
+    good = _ticket("t1", "77001", "Sven Bauer", "Booking question", "All fine")
+    qs = _Queries({"Sven": [good]})
+    zendesk_with(qs, {"t1": {"booking_id": "77001", "guest_name": "Sven Bauer",
+                             "subject": "Booking question", "description": "All fine"}})
+    # This time the direct indicators DO agree.
+    monkeypatch.setattr(zd, "matches_indicators",
+                        lambda sig, ind, f, l: (True, ["name", "venue"]))
+    out = asyncio.run(zd.shortlist(SVEN, "Sven", ""))
+
+    assert [s["booking_id"] for s in out] == ["77001"]
+    assert out[0]["matched_on"] == ["name", "venue"], \
+        "the direct match must be reported exactly as the old matcher reported it"
+    assert not [q for q in qs.seen if "falsches Datum" in q or "wrong date" in q], \
+        f"no issue query may run once the direct indicators matched; ran {qs.seen}"
+
+
+def test_direct_pass_keeps_the_original_weak_fallback(zendesk_with):
+    """With no issue terms at all, behaviour is the old behaviour: a name-only
+    agreement is still held as a weak candidate rather than discarded."""
+    no_issue = dict(SVEN, issue_terms=[], dates_mentioned=[])
+    t = _ticket("t1", "77002", "Sven Bauer", "Anything", "Nothing relevant")
+    qs = _Queries({"Sven": [t]})
+    zendesk_with(qs, {"t1": {"booking_id": "77002", "guest_name": "Sven Bauer",
+                             "subject": "Anything", "description": "Nothing relevant"}})
+    out = asyncio.run(zd.shortlist(no_issue, "Sven", ""))
+    assert [s["booking_id"] for s in out] == ["77002"]
+    assert out[0].get("weak") is True, "the name-only fallback must survive unchanged"
+    assert out[0]["matched_on"] == ["name"]
