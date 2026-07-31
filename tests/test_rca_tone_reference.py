@@ -165,16 +165,38 @@ def test_a_cause_and_its_consequence_are_one_issue():
     assert "belongs in that issue's `root_cause`" in out
 
 
-def test_the_reply_carries_a_word_ceiling():
-    """198 words under a one-star public review reads as defending ourselves.
-    The ceiling is on the template line too — that is where the model looks
-    while it writes the field, not in a rules block further down."""
+def test_the_reply_length_is_expressed_structurally():
+    """A word ceiling was honoured weakly — the model came back at 162 against
+    120. Sentence counts are followed far more reliably, so the constraint is
+    "4-6 short sentences" with the word count as the gloss. On the template
+    line too: that is where the model looks while it writes the field."""
     out = _prompt()
-    assert "120 words MAX" in out.split('"suggested_response"')[1][:200], \
-        "the ceiling is not on the field the model is filling in"
-    assert "Two hard length ceilings" in out
+    head = out.split('"suggested_response"')[1][:220]
+    assert "4-6 SHORT SENTENCES" in head, \
+        "the constraint is not on the field the model is filling in"
+    assert "120 words" in head, "the word count is still worth stating as a gloss"
+    assert "count the sentences, not the" in out
+    assert "about 90 words" in out, "the approved replies are the length reference"
 
 
 def test_the_stated_issue_carries_one_too():
     out = _prompt()
     assert "60 words MAX" in out.split('"stated_issue"')[1][:200]
+
+
+def test_an_issues_operational_failure_must_match_its_owner():
+    """The tell for a bad split: owner RO with an operational_failure about
+    what CE did means the issue belongs to CE, or is CE's issue already."""
+    out = _prompt()
+    assert "must describe conduct by the team named in" in out
+    assert "restates another issue's finding" in out
+
+
+def test_a_disclosure_claim_triggers_a_sweep_of_all_guest_facing_copy():
+    """Two hours in one email, one day before in another, delivered in 28
+    minutes. Our own copy contradicting itself is a bigger finding than an
+    omission, and the model stopped at the first source that settled it."""
+    out = _prompt()
+    assert "check EVERY piece of guest-facing copy" in out
+    assert "Know Before You Go" in out
+    assert "its own CONTENT flag" in out

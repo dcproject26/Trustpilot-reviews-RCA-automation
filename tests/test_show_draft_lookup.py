@@ -122,6 +122,15 @@ def test_the_version_stamp_is_on_the_first_screen(seeded):
     assert "by rca_v4" in out
 
 
+def test_the_stamp_is_content_addressed():
+    """Two prompt bodies must not share a stamp — that is what made "did the
+    new clause run?" unanswerable."""
+    from server.prompts import RCA_PROMPT_VERSION, RCA_PROMPT_FAMILY, _prompt_digest
+    assert RCA_PROMPT_VERSION.startswith(RCA_PROMPT_FAMILY + "+")
+    assert _prompt_digest("a") != _prompt_digest("b")
+    assert len(RCA_PROMPT_VERSION.split("+")[1]) == 8
+
+
 def test_a_stamped_v4_row_gets_no_legacy_banner(seeded):
     _, out = _run(seeded, "--bid", "32908218")
     assert "THIS ROW IS THE OLD v3 SHAPE" not in out
@@ -165,3 +174,43 @@ def test_the_short_form_says_detail_exists(seeded):
     _, out = _run(seeded, "--bid", "32908218")
     assert "--detail prints these in full" in out
     assert "── dss ──" not in out
+
+
+def test_a_row_from_an_older_prompt_body_is_called_out(seeded):
+    """"rca_v4" was the same stamp before and after a prompt change that added
+    rules, so a finding could not be told from a row that predates the clause.
+    The stamp is content-addressed now."""
+    import server.db as db
+    s = db.SessionLocal()
+    d = s.query(db.RcaDraft).filter(db.RcaDraft.id == "d1").first()
+    d.rca_prompt_version = "rca_v4+deadbeef"
+    s.commit(); s.close()
+    _, out = _run(seeded, "--bid", "32908218")
+    assert "the prompt has changed since this row was written" in out
+    assert "THIS ROW IS THE OLD v3 SHAPE" not in out, \
+        "an older v4 body is not the v3 shape; the two must not read the same"
+
+
+def test_a_current_row_is_not_called_out(seeded):
+    import server.db as db
+    from server.prompts import RCA_PROMPT_VERSION
+    s = db.SessionLocal()
+    d = s.query(db.RcaDraft).filter(db.RcaDraft.id == "d1").first()
+    d.rca_prompt_version = RCA_PROMPT_VERSION
+    s.commit(); s.close()
+    _, out = _run(seeded, "--bid", "32908218")
+    assert "the prompt has changed" not in out
+
+
+def test_the_trail_is_readable_in_a_terminal(seeded):
+    """The trail text is HTML-escaped for the dashboard. Printed raw it read
+    "claim_accuracy &#x27;Unknown&#x27;"."""
+    import server.db as db
+    s = db.SessionLocal()
+    d = s.query(db.RcaDraft).filter(db.RcaDraft.id == "d1").first()
+    d.confidence_trail = [{"mark": "warn",
+                           "text": "<strong>RCA</strong> — claim_accuracy &#x27;X&#x27; → Unknown"}]
+    s.commit(); s.close()
+    _, out = _run(seeded, "--bid", "32908218", "--detail")
+    assert "claim_accuracy 'X' → Unknown" in out
+    assert "&#x27;" not in out

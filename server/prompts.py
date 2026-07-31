@@ -1330,16 +1330,14 @@ that turned out fine is silence — never a line in the output.
       "zd_ref": "<ZD-xxxxx — the ticket this note is about; this is the join key | null>",
       "summary": "<one line, what happened in this contact>",
       "detail": "<the fuller account, quoting the guest and the agent | null>",
-      "ce_miss": "<what CE should have done differently | null>",
-      "channel": "<chat | email | call | null — ONLY for a contact with no ZD ticket>",
-      "time": "<DD Mon HH:MM | null — ONLY for a contact with no ZD ticket>"
+      "ce_miss": "<what CE should have done differently | null>"
     }
   ],
   "sp_interaction_notes": {
     "raised": "<Yes | No | N/A>",
+    "reason": "<why not, when raised is No or N/A: e.g. 'vendor is not a partnered SP' | null>",
     "records": [
-      { "zd_ref": "<ZD-xxxxx — the join key | null>", "summary": "<what was raised and what came back>",
-        "time": "<DD Mon HH:MM | null — ONLY for a record with no ZD ticket>" }
+      { "zd_ref": "<ZD-xxxxx — the join key | null>", "summary": "<what was raised and what came back>" }
     ]
   },
   "booking_logs": [
@@ -1353,7 +1351,7 @@ that turned out fine is silence — never a line in the output.
   ],
   "area_of_improving": ["<one improvement per array element>"],
   "resolution": "<what the guest actually got: refund / comp / explanation, with amounts>",
-  "suggested_response": "<the reply to the guest, 120 words MAX: apologise, state what went wrong in plain words, state the remedy with its reference, close warmly. No internal jargon, no BID, no team names>",
+  "suggested_response": "<the reply to the guest, 4-6 SHORT SENTENCES (~120 words): apologise, state what went wrong in plain words, state the remedy with its reference, close warmly. No internal jargon, no BID, no team names>",
   "takedown": { "verdict": "<Yes | No | Untraceable>" },
   "dss": {
     "prescribes": "<what the matched DSS row prescribes for this scenario>",
@@ -1381,6 +1379,13 @@ that turned out fine is silence — never a line in the output.
    see this RCA on the hook for the fix.
 6. `evidence[].source` and `.ref` are structured fields. The `text` must contain no `[booking]`
    or `[insights]` prefix and no URL — put the identifier in `ref` and the origin in `source`.
+6b. When a disclosure claim is in play — the guest says they were not told something, or were
+   told the wrong thing — check EVERY piece of guest-facing copy in the data, not just the first
+   one that settles it: the experience page, the booking-in-progress email, the confirmation
+   email and its Know Before You Go block. Our own copy contradicting itself is a finding in its
+   own right, and a bigger one than an omission: "the page does not say" is a gap, while "the
+   page says two hours and the confirmation says one day before" is two teams disagreeing in
+   front of the guest. Raise it as its own CONTENT flag with both statements quoted.
 7. No bullet characters (•, -, –, *) or leading numbering ("1.", "a)") inside any string.
    Each array element is exactly one point, one line.
 8. All timestamps are IST, formatted `DD Mon HH:MM` (e.g. `22 Jul 15:41`), or a bare `DD Mon`
@@ -1390,6 +1395,12 @@ that turned out fine is silence — never a line in the output.
    Splitting a cause from its consequence is inventing one: "we did not disclose the delivery
    window" and "the delivery window clashed with their schedule" are one complaint, and the
    consequence belongs in that issue's `root_cause`, not in an issue of its own.
+   Two checks that catch a bad split, both of which you can run on your own draft before
+   returning it. (a) An issue's `operational_failure` must describe conduct by the team named in
+   its `owner`. If you have written owner "RO" and an operational_failure about what CE did, the
+   issue belongs to CE — or it is the same issue as one you have already written for CE, and
+   should be merged into it. (b) If an issue's `root_cause` restates another issue's finding,
+   that issue is the other one's consequence. Merge it.
    Every entry must trace to something the guest SAID OR IMPLIED. Our own process gaps are not
    guest issues however serious — an out-of-policy refund, a missed SOP step, a DSS path not
    followed go to `flags` and `sop_compliance`. `claim` is null only where the review implies
@@ -1433,17 +1444,22 @@ that turned out fine is silence — never a line in the output.
 17. `resolution` records what the guest ACTUALLY received, not what was recommended. If nothing
     has been given yet, say so plainly ("Nothing offered yet") rather than describing an intent.
 17b. Two hard length ceilings, because both fields are read by someone outside this system.
-    `suggested_response` is 120 words MAX — it goes on a public review page, and 200 words under
-    a one-star review reads as defending ourselves rather than apologising. `stated_issue` is
+    `suggested_response` is 4-6 SHORT SENTENCES, about 120 words — count the sentences, not the
+    words, and stop at six. It goes on a public review page, and 200 words under a one-star
+    review reads as defending ourselves rather than apologising. The approved reply voice
+    examples run to about 90 words; match their length as well as their register. `stated_issue` is
     2-3 sentences, 60 words MAX — it is the one-glance summary at the top of the RCA, not a
     retelling of the review. Say less and stop.
 18. `support_interaction_notes` and `sp_interaction_notes` are your INTERPRETATION of contacts
     the system already has as facts. The rows the UI renders come from Zendesk: their time,
-    channel and ticket id are established and are not yours to restate. Your job is `summary`,
-    `detail` and `ce_miss`, joined to a contact by `zd_ref`. Set `channel` and `time` ONLY for a
-    contact you can see in the review or the raw ticket bodies that has NO Zendesk ticket behind
-    it — that row renders marked unverified, so use it for a real gap (the guest says they
-    phoned and no ticket exists), never to restate one that is already there.
+    channel and ticket id are established, are not yours to restate, and have no field here to
+    put them in. Your job is `summary`, `detail` and `ce_miss`, joined to a contact by `zd_ref`.
+    A note with `zd_ref: null` is a contact you can see in the review or the raw ticket bodies
+    that has NO Zendesk ticket behind it; it renders marked unverified, so use it for a real gap
+    (the guest says they phoned and no ticket exists), never to restate one already there.
+    `sp_interaction_notes.reason` says why escalation did not happen when `raised` is No or N/A —
+    a blocked escalation (non-partnered vendor, opted-out contact) is a FACT about this booking,
+    not a miss, and with no reason stated "N/A" is indistinguishable from a section you skipped.
 19. `suggested_response` follows the voice of the APPROVED REPLY VOICE examples — their register,
     warmth and sentence rhythm — and NONE of their content. Never copy a sentence from them,
     never carry over a remedy they mention, and never use one as a template to fill in. The
@@ -1455,9 +1471,21 @@ RCA_V3_TEMPLATE = RCA_V4_TEMPLATE
 # Stamped onto every draft the pipeline writes. Without it a v3 row and a v4
 # row are told apart only by guessing from their shape, which is how a
 # pre-deploy draft got read as a v4 checkpoint: every enum violation in it was
-# a v3 artefact, and nothing on the row said so. Bump this whenever the output
-# SHAPE changes - not for wording.
-RCA_PROMPT_VERSION = "rca_v4"
+# a v3 artefact, and nothing on the row said so.
+#
+# Content-addressed, because "rca_v4" was not enough. Two rows written hours
+# apart carried the same stamp across a prompt change that added rules, so
+# there was no way to tell whether a finding meant "the new clause did not
+# work" or "this row predates the clause" - the same ambiguity one level down.
+# The suffix changes whenever the template text changes, so the question is
+# answerable exactly rather than by reading timestamps against deploy times.
+def _prompt_digest(text: str) -> str:
+    import hashlib
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
+
+
+RCA_PROMPT_FAMILY  = "rca_v4"
+RCA_PROMPT_VERSION = f"{RCA_PROMPT_FAMILY}+{_prompt_digest(RCA_V4_TEMPLATE)}"
 
 
 # ─── 9b. WWR analysis — stacked scenario blocks (Task #13 §3) ───────────────
