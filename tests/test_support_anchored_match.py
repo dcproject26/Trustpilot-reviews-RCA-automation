@@ -80,10 +80,73 @@ def test_name_and_dates_both_reach_the_query(bq_with):
 
     assert out and out[0]["id"] == "88001"
     sql, params = runner.calls[0]
-    assert params["name"] == "Sven Bauer"
+    assert params["name"] == "Bauer", \
+        "the surname is what gets matched — see the display-name tests below"
     assert params["dates"] == ["2026-10-20", "2026-06-20"]
     assert "experience_date" in sql and "created_at" in sql, \
         "a date the review named may be the visit date or the booking date"
+
+
+def test_a_title_is_not_searched_for_as_a_name(bq_with):
+    """"Frau Nicole" is a title and a first name. LIKE '%Frau Nicole%' against
+    a booking name matches nothing, ever - the same trap that produced "No
+    booking found for Frau"."""
+    runner = bq_with([_row("88001", "Nicole Weber")])
+    asyncio.run(bq.find_via_support(SVEN, author="Frau Nicole"))
+    _, params = runner.calls[0]
+    assert params["name"] == "Nicole"
+
+
+def test_an_abbreviated_surname_falls_back_to_the_first_name(bq_with):
+    """Trustpilot shows "Sven B.". A surname of one letter is not searchable,
+    so the first name is used rather than matching on 'B'."""
+    runner = bq_with([_row("88001", "Sven Bauer")])
+    asyncio.run(bq.find_via_support(SVEN, author="Sven B."))
+    _, params = runner.calls[0]
+    assert params["name"] == "Sven"
+
+
+def test_a_date_the_model_did_not_format_is_dropped_not_passed(bq_with):
+    """Dates go into the SQL as DATE(@d). One unparseable value raises inside
+    BigQuery and takes the whole search down, so junk is dropped here."""
+    runner = bq_with([_row("88001", "Sven Bauer")])
+    asyncio.run(bq.find_via_support(
+        dict(SVEN, dates_mentioned=["2026-10-20", "20.06.2026", "sometime in June",
+                                    "2026-13-45", ""]),
+        author="Sven Bauer"))
+    _, params = runner.calls[0]
+    assert params["dates"] == ["2026-10-20"], \
+        "only clean ISO dates may reach the query"
+
+
+def test_a_date_inside_a_longer_answer_is_still_used(bq_with):
+    """The model sometimes annotates: '2026-06-20 (the date on the voucher)'.
+    That is a usable date, not junk."""
+    runner = bq_with([_row("88001", "Sven Bauer")])
+    asyncio.run(bq.find_via_support(
+        dict(SVEN, dates_mentioned=["2026-06-20 (the date on the voucher)"]),
+        author="Sven Bauer"))
+    _, params = runner.calls[0]
+    assert params["dates"] == ["2026-06-20"]
+
+
+def test_the_scan_is_bounded_in_time(bq_with):
+    """Unbounded, this joins every support contact ever recorded to every
+    booking on every unmatched review."""
+    runner = bq_with([_row("88001", "Sven Bauer")])
+    asyncio.run(bq.find_via_support(SVEN, author="Sven Bauer"))
+    sql, _ = runner.calls[0]
+    assert "query_created_at >=" in sql and "INTERVAL" in sql
+
+
+def test_the_join_matches_the_column_types(bq_with):
+    """sq.booking_id is a STRING, b.booking_id an INT64. Casting the bookings
+    side to STRING instead defeats pruning on the larger table, and a
+    non-numeric id would raise rather than simply not match."""
+    runner = bq_with([_row("88001", "Sven Bauer")])
+    asyncio.run(bq.find_via_support(SVEN, author="Sven Bauer"))
+    sql, _ = runner.calls[0]
+    assert "SAFE_CAST(sq.booking_id AS INT64) = b.booking_id" in sql
 
 
 def test_it_refuses_to_run_with_nothing_to_anchor_on(bq_with):
@@ -166,6 +229,28 @@ def test_it_runs_after_every_other_path_and_before_untraceable():
         f"cascade landmark missing: {[s for s, i in zip(order, found) if i < 0]}"
     assert found == sorted(found), \
         "the support-anchored search moved out of its place in the cascade"
+
+
+def test_the_shortlist_step_is_reachable_for_a_review_with_no_name():
+    """shortlist()'s second pass can match on the problem alone, but only if
+    the pipeline calls it. Gating that step on name-or-venue meant an
+    anonymous review skipped it entirely, so the pass could never run on the
+    reviews it was written for."""
+    src = open("server/pipeline.py", encoding="utf-8").read()
+    i = src.find("Step 2: indicator shortlist")
+    gate = src[i:src.find("await zendesk.shortlist(", i)]
+    assert "_issue_terms" in gate, \
+        "the indicator-shortlist step is unreachable for a review with only a problem"
+
+
+def test_the_guest_name_survives_onto_the_candidate():
+    """The associate picks between candidates on the guest name. _row_to_dict
+    calls it guestName and _make_candidate reads primary_guest_name, so the
+    bridge between them is load-bearing, not tidying."""
+    src = open("server/pipeline.py", encoding="utf-8").read()
+    i = src.find('for _r in _sup[:8]:')
+    block = src[i:i + 600]
+    assert "primary_guest_name=" in block and "guestName" in block
 
 
 def test_it_is_guarded_by_cascade_done():

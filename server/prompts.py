@@ -686,6 +686,20 @@ TAKEDOWN_LINES = {k: v["text"] for k, v in MACROS["takedown"]["lines"].items()}
 UNTRACEABLE_REPLY = (str(MACROS["untraceable_reply"]).rstrip() + "\n\n"
                      + str(MACROS["sign_off"]).rstrip())
 
+# Also used by booking matching, not only by the greeting: a Trustpilot display
+# name of "Frau Nicole" must not be searched for as a guest name. One list, in
+# the copy file, so adding a title fixes both places at once.
+HONORIFICS = {str(h).strip().lower().rstrip(".")
+              for h in (MACROS.get("honorifics") or []) if str(h).strip()}
+
+
+def strip_honorifics(name: str) -> str:
+    """A person's name with any leading title removed."""
+    parts = [p for p in str(name or "").replace(",", " ").split() if p]
+    while parts and parts[0].strip().lower().rstrip(".") in HONORIFICS:
+        parts.pop(0)
+    return " ".join(parts)
+
 
 def macro_tags(channel: str = "trustpilot") -> list:
     """The situation vocabulary the team already uses, for one channel."""

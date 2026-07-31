@@ -47,7 +47,14 @@ def zendesk_with(monkeypatch):
         monkeypatch.setattr(zd, "_get_client", lambda: object())
         monkeypatch.setattr(zd, "_search_with_retry",
                             lambda _z, q: tickets_by_query.get_for(q))
-        monkeypatch.setattr(zd, "ticket_signals", lambda t: dict(signals[t.id]))
+        # Shaped like the real ticket_signals(): the booking's FACTS off the
+        # custom fields. It has never returned the subject or the body, and a
+        # fixture that hands them over hides code that expects them to be there.
+        _REAL_KEYS = ("booking_id", "guest_name", "guest_email", "experience",
+                      "city", "visit_date", "pax_raw", "pax", "vendor_name",
+                      "itinerary_id")
+        monkeypatch.setattr(zd, "ticket_signals", lambda t: {
+            k: v for k, v in signals[t.id].items() if k in _REAL_KEYS})
         # Indicator agreement is exercised by its own test module; here the
         # question is only whether the issue-led query runs and is scored.
         monkeypatch.setattr(zd, "matches_indicators",
@@ -89,11 +96,8 @@ def test_name_plus_issue_beats_name_alone(zendesk_with):
                     "Wo kann ich parken?")
     qs = _Queries({"Sven": [right, wrong]})
     zendesk_with(qs, {
-        "t1": {"booking_id": "88001", "guest_name": "Sven Bauer",
-               "subject": "Falscher Voucher",
-               "description": "Der Voucher enthielt das falsche Datum 20.06."},
-        "t2": {"booking_id": "88002", "guest_name": "Sven Meier",
-               "subject": "Frage zum Parken", "description": "Wo kann ich parken?"},
+        "t1": {"booking_id": "88001", "guest_name": "Sven Bauer"},
+        "t2": {"booking_id": "88002", "guest_name": "Sven Meier"},
     })
     out = asyncio.run(zd.shortlist(SVEN, "Sven", ""))
     bids = [s["booking_id"] for s in out]
@@ -108,9 +112,7 @@ def test_a_named_date_corroborates(zendesk_with):
     t = _ticket("t1", "88003", "Sven Bauer", "Voucher",
                 "Datum 2026-06-20 statt 2026-10-20")
     qs = _Queries({"Sven": [t]})
-    zendesk_with(qs, {"t1": {"booking_id": "88003", "guest_name": "Sven Bauer",
-                             "subject": "Voucher",
-                             "description": "Datum 2026-06-20 statt 2026-10-20"}})
+    zendesk_with(qs, {"t1": {"booking_id": "88003", "guest_name": "Sven Bauer"}})
     out = asyncio.run(zd.shortlist(SVEN, "Sven", ""))
     assert out, "a ticket quoting a date the review named must not be dropped"
     assert any("date:" in m for m in out[0]["matched_on"])
@@ -123,9 +125,7 @@ def test_no_name_still_matches_on_issue_and_date_together(zendesk_with):
     t = _ticket("t1", "88004", "Somebody Else", "Falscher Voucher",
                 "falsches Datum, 2026-06-20 statt gebucht")
     qs = _Queries({"falsches Datum": [t]})
-    zendesk_with(qs, {"t1": {"booking_id": "88004", "guest_name": "Somebody Else",
-                             "subject": "Falscher Voucher",
-                             "description": "falsches Datum, 2026-06-20 statt gebucht"}})
+    zendesk_with(qs, {"t1": {"booking_id": "88004", "guest_name": "Somebody Else"}})
     out = asyncio.run(zd.shortlist(anon, "", ""))
     assert out, "issue + date agreement should survive with no name at all"
     assert out[0]["booking_id"] == "88004"
@@ -142,6 +142,39 @@ def test_issue_only_review_is_not_searched_into_the_void(zendesk_with):
     assert qs.seen == [], "no query should be issued with nothing to search on"
 
 
+def test_a_german_guest_writes_the_date_the_german_way(zendesk_with):
+    """Sven's actual ticket says 20.06.2026, not 2026-06-20. Extraction gives
+    ISO, so a literal substring test agreed with nothing outside a fixture -
+    and the reviews this path exists for are precisely the non-English ones."""
+    t = _ticket("t1", "88005", "Sven Bauer", "Falscher Voucher",
+                "Auf dem Voucher steht 20.06.2026 statt 20.10.2026.")
+    qs = _Queries({"Sven": [t]})
+    zendesk_with(qs, {"t1": {"booking_id": "88005", "guest_name": "Sven Bauer"}})
+    out = asyncio.run(zd.shortlist(SVEN, "Sven", ""))
+    assert out, "a ticket naming the date in the guest's own format must count"
+    assert any("date:" in m for m in out[0]["matched_on"])
+
+
+def test_written_month_names_count_too(zendesk_with):
+    t = _ticket("t1", "88006", "Sven Bauer", "Voucher",
+                "the voucher says 20 June but we booked 20 October")
+    qs = _Queries({"Sven": [t]})
+    zendesk_with(qs, {"t1": {"booking_id": "88006", "guest_name": "Sven Bauer"}})
+    out = asyncio.run(zd.shortlist(SVEN, "Sven", ""))
+    assert any("date:" in m for m in out[0]["matched_on"])
+
+
+def test_an_unrelated_number_is_not_read_as_a_date(zendesk_with):
+    """The date forms must not be so loose that any ticket corroborates."""
+    t = _ticket("t1", "88007", "Sven Bauer", "Parken",
+                "Wir waren zu 4 Personen, Rechnung 1234567 vom 03.02.2025.")
+    qs = _Queries({"Sven": [t]})
+    zendesk_with(qs, {"t1": {"booking_id": "88007", "guest_name": "Sven Bauer"}})
+    out = asyncio.run(zd.shortlist(SVEN, "Sven", ""))
+    assert out and out[0].get("weak") is True, \
+        "nothing in this ticket agrees with the review beyond the name"
+
+
 # ── the issue path must never disturb a matcher that is already working ─────
 
 def test_issue_search_does_not_run_when_direct_indicators_match(zendesk_with,
@@ -151,8 +184,7 @@ def test_issue_search_does_not_run_when_direct_indicators_match(zendesk_with,
     working match can never be second-guessed by a text search."""
     good = _ticket("t1", "77001", "Sven Bauer", "Booking question", "All fine")
     qs = _Queries({"Sven": [good]})
-    zendesk_with(qs, {"t1": {"booking_id": "77001", "guest_name": "Sven Bauer",
-                             "subject": "Booking question", "description": "All fine"}})
+    zendesk_with(qs, {"t1": {"booking_id": "77001", "guest_name": "Sven Bauer"}})
     # This time the direct indicators DO agree.
     monkeypatch.setattr(zd, "matches_indicators",
                         lambda sig, ind, f, l: (True, ["name", "venue"]))
@@ -171,8 +203,7 @@ def test_direct_pass_keeps_the_original_weak_fallback(zendesk_with):
     no_issue = dict(SVEN, issue_terms=[], dates_mentioned=[])
     t = _ticket("t1", "77002", "Sven Bauer", "Anything", "Nothing relevant")
     qs = _Queries({"Sven": [t]})
-    zendesk_with(qs, {"t1": {"booking_id": "77002", "guest_name": "Sven Bauer",
-                             "subject": "Anything", "description": "Nothing relevant"}})
+    zendesk_with(qs, {"t1": {"booking_id": "77002", "guest_name": "Sven Bauer"}})
     out = asyncio.run(zd.shortlist(no_issue, "Sven", ""))
     assert [s["booking_id"] for s in out] == ["77002"]
     assert out[0].get("weak") is True, "the name-only fallback must survive unchanged"

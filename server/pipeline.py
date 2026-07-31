@@ -613,7 +613,13 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 # keep only tickets satisfying ALL of them. No BigQuery here --
                 # the booking id and every fact needed to judge a match are on
                 # the ticket; BQ runs when the associate confirms.
-                if not cascade_done and (name_parseable or venue_hints):
+                # issue_terms belongs in this gate: shortlist's second pass can
+                # match on the problem alone, but only if it is called. A review
+                # with no parseable name and no venue - an anonymous one, or a
+                # display name like "J" - skipped this step entirely, so that
+                # pass could never run on the reviews it was written for.
+                _issue_terms = [t for t in (indicators.get("issue_terms") or []) if t]
+                if not cascade_done and (name_parseable or venue_hints or _issue_terms):
                     try:
                         _short = await zendesk.shortlist(
                             indicators, author_first, author_last)
@@ -1083,8 +1089,16 @@ async def process_review(review_id: str, force_candidates: bool = False):
                     # first name usable here at all.
                     if not cascade_done:
                         _sup = []
-                        if (author_first or indicators.get("guest_name")
-                                or indicators.get("dates_mentioned")):
+                        # Ask the search itself what it can use, rather than
+                        # guessing here. "dates_mentioned: ['sometime in June']"
+                        # passes a naive check and then searches nothing, and a
+                        # trail line saying nothing matched when nothing was
+                        # searched is the failure this codebase keeps hitting.
+                        from server.services.bigquery import _iso_dates, _search_name
+                        _sup_name  = _search_name((review.author or "")
+                                                  or indicators.get("guest_name") or "")
+                        _sup_dates = _iso_dates(indicators.get("dates_mentioned"))
+                        if _sup_name or _sup_dates:
                             _ctr["t2_bq_support_attempted"] += 1
                             try:
                                 _sup = await bq.find_via_support(
@@ -1095,14 +1109,19 @@ async def process_review(review_id: str, force_candidates: bool = False):
                                 _sup = []
                             narrowing_attempts.append({
                                 "path": "bq_support_contact",
-                                "params": {"dates": len(indicators.get("dates_mentioned") or []),
-                                           "has_name": bool(author_first or indicators.get("guest_name"))},
+                                "params": {"name": _sup_name, "dates": _sup_dates},
                                 "result_count": len(_sup),
                             })
 
                         if _sup:
                             candidates = []
                             for _r in _sup[:8]:
+                                # _row_to_dict names it guestName; _make_candidate
+                                # reads primary_guest_name. Without this bridge
+                                # every candidate card showed a blank guest — the
+                                # one fact an associate picks between them on.
+                                _r = dict(_r, primary_guest_name=_r.get("guestName") or "",
+                                          vendorName=_r.get("partner") or "")
                                 _c = _make_candidate(_r, "bq_support_contact",
                                                      _r.get("matched_on") or ["contacted support"])
                                 _c["id"] = str(_r.get("id") or "")
