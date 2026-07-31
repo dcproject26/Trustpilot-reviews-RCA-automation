@@ -492,18 +492,47 @@ def test_a_date_the_model_inferred_from_today_is_not_evidence(zendesk_with,
             "a first name and nothing else is a lead, not an identification"
 
 
-def test_a_date_the_guest_actually_wrote_still_counts(zendesk_with, monkeypatch):
-    """The rule is about inference, not about dates. A review that names a
-    date has a fact, and the hint alongside it is corroborated."""
+def test_a_date_other_than_the_review_date_still_counts(zendesk_with,
+                                                       monkeypatch):
+    """The rule is about the post date, not about dates in general. A review
+    posted in July naming a visit in October has given us something that
+    separates bookings, and it still ranks."""
     t = _ticket("t1", "52003", "Sven Bauer", "B", "—")
     qs = _Queries({"Sven": [t]})
     zendesk_with(qs, {"t1": {"booking_id": "52003", "guest_name": "Sven Bauer",
                              "visit_date": "2026-10-20"}})
     monkeypatch.setattr(zd, "matches_indicators",
                         lambda sig, ind, f, l: (True, ["name"]))
-    out = asyncio.run(zd.shortlist(SVEN, "Sven", "", review_date="2026-10-20"))
-    assert any("visit date" in m for m in out[0]["matched_on"]), \
-        "dates_mentioned is populated, so the date is a fact the guest gave"
+    out = asyncio.run(zd.shortlist(SVEN, "Sven", "", review_date="2026-07-30"))
+    assert any("visit date" in m for m in out[0]["matched_on"])
+
+
+def test_the_post_date_is_discounted_however_it_was_extracted(zendesk_with,
+                                                              monkeypatch):
+    """Extraction is not consistent about where it puts the inferred "today".
+    Two runs of Amanda's review put it in visit_date_hint alone, then in
+    dates_mentioned as well. Discounting it only in one field left the second
+    run reporting five continents' worth of matches."""
+    t = _ticket("t1", "52006", "Amanda Rogers", "B", "—")
+    qs = _Queries({"Amanda": [t]})
+    zendesk_with(qs, {"t1": {"booking_id": "52006", "guest_name": "Amanda Rogers",
+                             "visit_date": "2026-07-30"}})
+    monkeypatch.setattr(zd, "matches_indicators",
+                        lambda sig, ind, f, l: (True, ["name"]))
+    for ind in (
+        {"visit_date_hint": "2026-07-30", "dates_mentioned": []},
+        {"visit_date_hint": "2026-07-30", "dates_mentioned": ["2026-07-30"]},
+        {"visit_date_hint": None,         "dates_mentioned": ["2026-07-30"]},
+    ):
+        full = {"guest_name": "Amanda", "experience_or_venue": None,
+                "city_or_country": None, "issue_terms": [], **ind}
+        out = asyncio.run(zd.shortlist(full, "Amanda", "",
+                                       review_date="2026-07-30"))
+        assert out, f"still a lead for {ind}"
+        assert not any("visit date" in m for m in out[0]["matched_on"]), \
+            f"the post date counted as corroboration for {ind}"
+        assert out[0].get("weak") is True, \
+            f"a first name and the post date is a lead, not a match ({ind})"
 
 
 def test_one_indicator_is_a_lead_not_a_match(zendesk_with, monkeypatch):

@@ -1062,24 +1062,27 @@ def _evidence(sig: dict) -> int:
     return len(kinds)
 
 
-def _is_inferred_today(d, indicators: dict, review_date: str | None) -> bool:
-    """Is this date the model's reading of "today" rather than a fact?
+def _is_review_date(d, review_date: str | None) -> bool:
+    """Is this date simply the day the review was written?
 
-    Amanda's review says "I am at the venue" and names no date. Extraction is
-    told to resolve relative dates against the post date, so visit_date_hint
-    came back as the post date - and every booking visiting that day agreed
-    with it. There are hundreds worldwide, so it discriminates nothing while
-    reading on the card as corroboration: five Amandas on five continents,
-    each labelled a match on "visit date 2026-07-30".
+    Such a date is not evidence, wherever it came from. A review posted on the
+    30th agrees with every booking visiting on the 30th - hundreds worldwide -
+    so it discriminates nothing while reading on the card as corroboration.
+    Amanda's review says "I am at the venue" and names no date at all; five
+    Amandas in Glasgow, Singapore, San Diego, Darwin and Modena came back as
+    confident matches on "visit date 2026-07-30".
 
-    A date the guest actually WROTE is in dates_mentioned; if that is empty
-    and the hint is simply the post date, the hint is an inference.
+    An earlier version of this asked where the date came from - it only
+    discounted visit_date_hint, and only when dates_mentioned was empty, on
+    the assumption that a populated dates_mentioned meant the guest had
+    written a date. Extraction disproved that between two runs of the same
+    review: the second put its own inferred "today" into dates_mentioned as
+    well. So the test is the date itself, not its provenance.
+
+    A guest who really did visit the day they reviewed loses nothing worth
+    having: that date agrees with everyone, so it could never separate them.
     """
-    if not review_date:
-        return False
-    if indicators.get("dates_mentioned"):
-        return False        # the review named dates; the hint is corroborated
-    return str(d)[:10] == str(review_date)[:10]
+    return bool(review_date) and str(d)[:10] == str(review_date)[:10]
 
 
 def _dates_agree(a: str, b: str) -> bool:
@@ -1317,8 +1320,7 @@ async def shortlist(indicators: dict, author_first, author_last,
                 # unrelated Amandas came back in ticket order.
                 _cand_dates = [d for d in ([indicators.get("visit_date_hint")]
                                            + list(indicators.get("dates_mentioned") or []))
-                               if d and not _is_inferred_today(d, indicators,
-                                                               review_date)]
+                               if d and not _is_review_date(d, review_date)]
                 _visit_hit = next(
                     (d for d in _cand_dates
                      if _dates_agree(sig.get("visit_date"), d)), None)
