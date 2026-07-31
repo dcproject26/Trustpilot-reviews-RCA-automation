@@ -134,3 +134,98 @@ def test_no_new_colours_were_introduced():
     assert i > 0 and block
     hexes = set(re.findall(r"#[0-9a-fA-F]{3,8}", block))
     assert not hexes, f"new literal colours in the v2 block: {sorted(hexes)}"
+
+
+# ── interactions: facts from Zendesk, interpretation from the model ─────────
+
+def test_contacts_are_grouped_not_one_row_per_event():
+    """The Events timeline is the per-event view. One row per frame here would
+    make the contact count report events, and a count nobody trusts is worse
+    than none."""
+    assert "const _contacts = (frames) => {" in CLIENT
+    assert "30 * 60 * 1000" in CLIENT, "the time-window fallback is gone"
+
+
+def test_the_model_cannot_supply_a_time_or_a_channel_for_a_known_contact():
+    """Those come from the frame. On a real run the model left both null while
+    its prose said "chat at 15:41" — the schema no longer has the fields."""
+    i = CLIENT.find("const _contactRow = (row) => {")
+    assert i > 0
+    body = CLIENT[i:i + 3000]
+    assert "first.thread" in body and "first.time" in body, \
+        "the pill and time are not being read from the Zendesk frame"
+    assert "note.thread" not in body and "note.time" not in body
+
+
+def test_an_orphan_note_still_renders_and_says_why():
+    """Either the guest reached us off Zendesk or the model invented a
+    contact. Both are worth seeing; a zd_ref that matched nothing reads
+    differently from no zd_ref at all."""
+    assert "unmatched ZD reference" in CLIENT
+    assert "guest's account, unverified" in CLIENT
+
+
+def test_an_empty_guest_support_section_is_not_a_numbered_row():
+    """Defect 4: "01 · UNKNOWN · Unknown · No guest contact found" was a
+    nothing-found message dressed as a data row."""
+    i = CLIENT.find("const sup = _rows.length")
+    assert i > 0
+    empty_branch = CLIENT[CLIENT.find("interactions-empty", i):][:400]
+    for dressing in ("convo-num", "convo-type-pill", "convo-time"):
+        assert dressing not in empty_branch, \
+            f"the empty state renders a {dressing} — that is defect 4"
+
+
+# ── §11 issue-specific answers ──────────────────────────────────────────────
+
+def test_the_answer_fallback_pill_is_gone():
+    """Defect 9: a parseable answer got a select and an unparseable one got a
+    grey "answer" pill with the verdict text lost."""
+    assert "esc(verdict || 'answer')" not in CLIENT
+    assert 'data-v3sel="issue_specific_answers.' in CLIENT
+
+
+def test_both_isa_shapes_normalise_to_one():
+    """v4 sends an array; a pre-v4 draft holds {question: answer}. An old
+    answer that opens with a fact keeps its text as evidence."""
+    assert "const _isaRows = Array.isArray(_isaRaw)" in CLIENT
+    i = CLIENT.find("const _isaRows = Array.isArray(_isaRaw)")
+    assert "Object.entries(_isaRaw || {})" in CLIENT[i:i + 1200]
+
+
+def test_the_isa_source_trails_the_evidence():
+    """So evidence starts at the same x on every row regardless of how long
+    the source name is."""
+    i = CLIENT.find('<div class="isa-ev">')
+    assert i > 0
+    body = CLIENT[i:i + 500]
+    assert body.find("isa-evtext") < body.find("isa-src")
+
+
+# ── §9 SOP, §8 flag team, §12 DSS ───────────────────────────────────────────
+
+def test_the_sop_verdict_recolours_like_every_other_verdict():
+    assert 'data-v3sel="sop_compliance.verdict"' in CLIENT
+    assert "chip-sop-sel" in CLIENT
+
+
+def test_the_flag_team_is_a_closed_list():
+    assert 'data-v3sel="flags.${f._i}.team"' in CLIENT
+    for team in ("CE", "RO", "SP", "CONTENT", "PRODUCT", "BIZ", "TECH", "OTHER"):
+        assert f"'{team}'" in CLIENT
+
+
+def test_the_dss_stub_is_gone():
+    """"DSS row: — / —" told the reader nothing and looked broken."""
+    assert "DSS row: ${esc(rca.issueL1" not in CLIENT
+    assert "dss-block" in CLIENT
+    assert "There is no DSS row to look up" in CLIENT or \
+           "there is no DSS row to look up" in CLIENT
+
+
+def test_dss_is_read_only_until_edit():
+    """Reference data, not analysis — an operator reads it to check their
+    resolution against the playbook."""
+    i = CLIENT.find('<div class="dss-panel">')
+    assert i > 0
+    assert "state.dssEdit ? edSpan('dss.prescribes'" in CLIENT

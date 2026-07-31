@@ -951,6 +951,78 @@
     color: var(--dim);
   }
   .wwr-addissue:hover .wwr-addissue-circle { border-color: var(--muted-2); color: var(--muted-2); }
+
+  /* Contacts, not events: the count in the header means contacts, and the
+     individual events sit inside the expanded row. */
+  .convo-count {
+    flex: none; font-size: 10px; color: var(--dim); font-family: var(--mono);
+  }
+  .convo-unverified {
+    flex: none; font-size: 10px; color: var(--amber); background: var(--amber-bg);
+    border-radius: 999px; padding: 1px 7px; white-space: nowrap;
+  }
+  .convo-time.dim { color: var(--empty); }
+  .convo-ev-time {
+    flex: none; width: 88px; font-family: var(--mono); font-size: 10.5px;
+    color: var(--dim);
+  }
+  .convo-ev-body { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+  .convo-ev-we { color: var(--muted); }
+
+  /* Defect 5: a raw exception is not a trail step. Plain-language line, with
+     the traceback and SQL behind a toggle. */
+  .err-raw-toggle {
+    background: none; border: none; padding: 0; cursor: pointer;
+    font: inherit; font-size: 11px; color: var(--muted-2); text-decoration: underline;
+  }
+  .err-raw-toggle:hover { color: var(--text); }
+  .err-raw {
+    font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+    background: var(--inset); border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 8px; margin-top: 6px; max-height: 120px; overflow: auto;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+
+  /* §11 five stacked Q&A pairs need a rule to read as a list, not a gap. */
+  .isa-list { display: flex; flex-direction: column; gap: 0; }
+  .isa-row { padding: 8px 0; border-bottom: 1px solid var(--hairline); min-width: 0; }
+  .isa-row:last-child { border-bottom: none; }
+  .isa-q { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+  .isa-qtext {
+    flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere;
+    font-size: 12.5px; font-weight: 600; color: var(--text);
+  }
+  .isa-ev {
+    margin-top: 3px; font-size: 11.5px; color: var(--muted);
+    min-width: 0; overflow-wrap: anywhere;
+  }
+  /* The source chip TRAILS the text, so evidence starts at the same x on
+     every row regardless of how long the source name is. */
+  .isa-src {
+    font-family: var(--mono); font-size: 10px; color: var(--dim);
+    margin-left: 6px;
+  }
+
+  .chip-sop-sel  { max-width: 130px; font-size: 11px; }
+  .chip-team-sel { max-width: 13ch; font-size: 10px; }
+  .chip-team-sel.part { background: var(--amber-bg); color: var(--amber); }
+
+  /* §12 the DSS block: reference data, read-only until ✎ Edit. */
+  .dss-block { border-top: 1px dashed var(--dashed); margin-top: 10px; padding-top: 8px; }
+  .dss-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .dss-label {
+    font-size: 10.5px; font-weight: 650; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--dim); flex: none;
+  }
+  .dss-src { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .dss-row { flex: 1 1 auto; min-width: 0; font-size: 11.5px; color: var(--muted);
+             overflow-wrap: anywhere; }
+  .dss-panel {
+    margin-top: 6px; background: var(--inset); border-radius: 6px;
+    padding: 8px 10px; font-size: 12px; color: var(--body); line-height: 1.55;
+    min-width: 0; overflow-wrap: anywhere;
+  }
+  .dss-panel .k { font-weight: 650; }
 </style>
 </head>
 <body>
@@ -1286,6 +1358,14 @@ async function loadDraftOverlays() {
       r.rca.checklistAnswers     = draft.checklist_answers      || [];
       r.rca.slackThreadOverride  = draft.slack_thread_override  || '';
       r.rca.supportInteraction   = (draft.support_interaction_frames || []).map(mapSupportFrame);
+      // Facts and interpretation arrive separately and are merged at render:
+      // the frames are Zendesk-derived rows, the notes are the model's account
+      // joined by zd_ref. Keeping the raw frames because grouping needs
+      // ticket_id and time_sort, which mapSupportFrame drops.
+      r.rca.supportFrames        = draft.support_interaction_frames || [];
+      r.rca.supportNotes         = draft.support_interaction_notes  || [];
+      r.rca.spFrames             = draft.sp_interaction_frames      || [];
+      r.rca.spNotes              = draft.sp_interaction_notes       || {};
       r.rca.supportSummary       = draft.support_summary        || '';
       r.rca.spInteraction        = (draft.sp_interaction_frames || []).map(f => ({
         time: f.time || '', label: f.label || '', summary: f.summary || f.weDid || '',
@@ -1465,6 +1545,7 @@ const state = {
   // the unconfirmed match and the untraceable one.
   filter: 'all',
   actionTab: 'sp',
+  dssEdit: false,
   insightsWindow: '90d',
   // Which RCA sections go into the Slack thread post. All on by default;
   // unticking one drops it from the generated text.
@@ -2532,53 +2613,132 @@ function renderRcaCol() {
   const edPoints = (path, v, cls = 'chk-ev') => asPoints(v)
     .map((p, i) => `<div class="${cls}">• ${edSpan(`${path}.${i}`, p)}</div>`).join('');
 
-  const supV3 = v3d.support_interaction || [];
-  // One row per contact: number, channel, time, one-line summary, ticket,
-  // chevron. The full detail lives behind the chevron so a long thread does
-  // not push the rest of the RCA off the screen.
-  const sup = supV3.length > 0
-    ? `<div class="interactions">
-        ${supV3.map((s, i) => `
-          <div class="convo-frame ${state.ixOpen[i] ? 'open' : ''}">
-            <div class="convo-frame-head" data-ix-toggle="${i}">
-              <span class="convo-num">${String(i + 1).padStart(2, '0')}</span>
-              <span class="convo-type-pill">${esc(s.channel || '')}</span>
-              <span class="convo-time">${esc(s.time || '')}</span>
-              <span class="interaction-summary-line">${esc(s.summary || '')}</span>
-              ${s.zd_ref ? zdLink(s.zd_ref) : ''}
-              <span class="convo-chevron">${state.ixOpen[i] ? '▾' : '▸'}</span>
-            </div>
-            <div class="convo-body">
-              <div class="convo-line">${edSpan(`support_interaction.${i}.summary`, s.summary)}</div>
-              ${s.detail ? `<div class="convo-detail">${esc(s.detail)}</div>` : ''}
-              ${s.ce_miss ? `<div class="convo-gap">⚠ CE miss: ${edSpan(`support_interaction.${i}.ce_miss`, s.ce_miss)}</div>` : ''}
-            </div>
+  // §11 v4 sends an array of {question, verdict, evidence, source, ref}; a
+  // draft written before that holds {question: answer}. Both normalise to the
+  // array here so the renderer has one shape - and an old answer that opens
+  // with a fact keeps its text as evidence instead of being lost to a pill.
+  const _isaRaw = rca.issueSpecificAnswers;
+  const _isaRows = Array.isArray(_isaRaw)
+    ? _isaRaw.filter(a => a && a.question).map(a => ({
+        question: a.question,
+        verdict: ['Yes','No','Unknown'].indexOf(a.verdict) >= 0 ? a.verdict : 'Unknown',
+        evidence: a.evidence || '', source: a.source || null, ref: a.ref || null}))
+    : Object.entries(_isaRaw || {}).map(([q, v]) => {
+        const raw = String(v == null ? '' : v);
+        const m = raw.match(/^\s*(Yes|No|Unknown)\b[:\s—-]*/i);
+        return {question: q,
+                verdict: m ? m[1][0].toUpperCase() + m[1].slice(1).toLowerCase() : 'Unknown',
+                evidence: (m ? raw.slice(m[0].length) : raw).trim(),
+                source: null, ref: null};
+      });
+  const _isaNo = _isaRows.filter(a => a.verdict === 'No').length;
+  const _isaCls = v => v === 'Yes' ? 'ok' : v === 'No' ? 'bad' : 'unk';
+
+
+  // ── Guest ↔ support: facts from Zendesk, interpretation from the model ──
+  // The rows are CONTACTS, not events. The Events timeline is the per-event
+  // view; one row per frame here would make the contact count report events,
+  // and a count nobody trusts is worse than none.
+  const _zdKey = v => { const m = String(v == null ? '' : v).match(/\d+/); return m ? m[0] : ''; };
+  const _noteFor = key => key
+    ? (rca.supportNotes || []).find(n => n && _zdKey(n.zd_ref) === key) || null : null;
+  // Frames group by ticket; untracked ones fall back to a 30-minute window,
+  // because consecutive messages minutes apart are one exchange however they
+  // were logged. The grouping is a judgement, and the pipeline says so in the
+  // trail when it fires.
+  const _contacts = (frames) => {
+    const out = []; let lastAt = null;
+    (frames || []).forEach(fr => {
+      const key = _zdKey(fr.ticket_id);
+      if (key) {
+        const hit = out.find(g => g.key === key);
+        if (hit) hit.rows.push(fr); else out.push({key, rows: [fr]});
+        lastAt = null; return;
+      }
+      const at = Date.parse(fr.time_sort || '') || null;
+      const near = at && lastAt && Math.abs(at - lastAt) <= 30 * 60 * 1000;
+      if (near && out.length && !out[out.length - 1].key) out[out.length - 1].rows.push(fr);
+      else out.push({key: '', rows: [fr]});
+      lastAt = at;
+    });
+    return out;
+  };
+
+  const _groups = _contacts(rca.supportFrames);
+  const _used = new Set(_groups.map(g => g.key).filter(Boolean).filter(k => _noteFor(k)));
+  // A note whose ticket has no frame still renders, marked. A zd_ref that
+  // matched nothing is a failed join; no zd_ref at all is an off-Zendesk
+  // contact the model saw. Different facts, so they read differently.
+  const _orphans = (rca.supportNotes || []).filter(n => n && !_used.has(_zdKey(n.zd_ref)));
+  const _rows = [
+    ..._groups.map((g, i) => ({kind: 'frame', g, note: _noteFor(g.key), i})),
+    ..._orphans.map((n, k) => ({kind: 'orphan', note: n, i: _groups.length + k})),
+  ];
+
+  const _contactRow = (row) => {
+    const i = row.i;
+    const open = !!state.ixOpen[i];
+    const note = row.note || {};
+    if (row.kind === 'orphan') {
+      const why = _zdKey(note.zd_ref) ? 'unmatched ZD reference' : "guest's account, unverified";
+      return `
+        <div class="convo-frame ${open ? 'open' : ''}">
+          <div class="convo-frame-head" data-ix-toggle="${i}">
+            <span class="convo-num">${String(i + 1).padStart(2, '0')}</span>
+            <span class="convo-time dim">—</span>
+            <span class="interaction-summary-line">${edSpan(`support_interaction_notes.${_orphans.indexOf(note)}.summary`, note.summary)}</span>
+            <span class="convo-unverified" title="no Zendesk frame backs this contact">${esc(why)}</span>
+            ${note.zd_ref ? zdLink(note.zd_ref) : ''}
+            <span class="convo-chevron">${open ? '▾' : '▸'}</span>
           </div>
-        `).join('')}
-      </div>`
-    : rca.supportInteraction.length === 0
-    ? `<div class="interactions"><div class="interactions-empty">No guest contact was found on this booking — the guest never reached support.</div></div>`
-    : `<div class="interactions">
-        ${rca.supportInteraction.map((s, i) => `
-          <div class="convo-frame ${i === 0 ? 'open' : ''}" data-frame-idx="${i}">
-            <button class="convo-frame-head" data-toggle-frame="${i}">
-              <span class="convo-num">${i + 1}</span>
-              <span class="convo-type-pill ${s.type}">${s.type}</span>
-              <span class="convo-time">${s.time}</span>
-              <span class="convo-label">${s.label}</span>
-              <span class="convo-chevron">▸</span>
-            </button>
-            <div class="convo-body">
-              <div class="convo-line"><span class="k">Guest said</span><span class="v editable-text" contenteditable="true" spellcheck="false">${s.guestSaid}</span></div>
-              <div class="convo-line"><span class="k">We did</span><span class="v editable-text" contenteditable="true" spellcheck="false">${s.weDid}</span></div>
-              <div class="convo-line"><span class="k">Guest reply</span><span class="v editable-text" contenteditable="true" spellcheck="false">${s.guestReply}</span></div>
-              ${s.gap ? `<div class="convo-gap">⚠ ${s.gap}</div>` : ''}
-              ${s.comp ? `<div class="convo-comp">✓ ${s.comp}</div>` : ''}
-            </div>
+          <div class="convo-body">
+            ${note.detail ? `<div class="convo-detail">${edSpan(`support_interaction_notes.${_orphans.indexOf(note)}.detail`, note.detail)}</div>` : ''}
+            ${note.ce_miss ? `<div class="convo-gap">⚠ CE miss: ${edSpan(`support_interaction_notes.${_orphans.indexOf(note)}.ce_miss`, note.ce_miss)}</div>` : ''}
           </div>
-        `).join('')}
-        <div class="interaction-summary-line editable-text" contenteditable="true" spellcheck="false">${rca.supportSummary}</div>
+        </div>`;
+    }
+    const rows = row.g.rows, first = rows[0] || {};
+    const nIdx = (rca.supportNotes || []).indexOf(row.note);
+    const ch = (first.thread || '').trim();
+    const summary = (row.note && row.note.summary) || first.guestSaid || '';
+    return `
+      <div class="convo-frame ${open ? 'open' : ''}">
+        <div class="convo-frame-head" data-ix-toggle="${i}">
+          <span class="convo-num">${String(i + 1).padStart(2, '0')}</span>
+          ${ch ? `<span class="convo-type-pill">${esc(ch)}</span>` : ''}
+          <span class="convo-time${first.time ? '' : ' dim'}">${esc(first.time || '—')}</span>
+          <span class="interaction-summary-line">${nIdx >= 0
+            ? edSpan(`support_interaction_notes.${nIdx}.summary`, summary)
+            : esc(summary)}</span>
+          ${rows.length > 1 ? `<span class="convo-count">${rows.length} events</span>` : ''}
+          ${row.g.key ? zdLink(row.g.key) : ''}
+          <span class="convo-chevron">${open ? '▾' : '▸'}</span>
+        </div>
+        <div class="convo-body">
+          ${rows.map(fr => `
+            <div class="convo-line">
+              <span class="convo-ev-time">${esc(fr.time || '—')}</span>
+              <span class="convo-ev-body">${esc(fr.guestSaid || '')}${
+                fr.weDid ? ` <span class="convo-ev-we">we: ${esc(fr.weDid)}</span>` : ''}</span>
+            </div>
+            ${fr.gap ? `<div class="convo-gap">⚠ ${esc(fr.gap)}</div>` : ''}`).join('')}
+          ${row.note && row.note.detail ? `<div class="convo-detail">${
+            edSpan(`support_interaction_notes.${nIdx}.detail`, row.note.detail)}</div>` : ''}
+          ${row.note && row.note.ce_miss ? `<div class="convo-gap">⚠ CE miss: ${
+            edSpan(`support_interaction_notes.${nIdx}.ce_miss`, row.note.ce_miss)}</div>` : ''}
+        </div>
       </div>`;
+  };
+
+  // Defect 4: "01 · UNKNOWN · Unknown · No guest contact found" was a
+  // nothing-found message dressed as a numbered data row. An absence gets the
+  // neutral empty state - no number, no channel pill, no time.
+  const sup = _rows.length
+    ? `<div class="interactions">${_rows.map(_contactRow).join('')}
+        <button class="row-add" data-contact-add>+ Add contact</button></div>`
+    : `<div class="interactions">
+        <div class="interactions-empty">No guest contact was found on this booking — the guest never reached support.</div>
+        <button class="row-add" data-contact-add>+ Add contact</button></div>`;
 
   // SP Interaction — separate frame. v3 shape is one verdict object, not
   // frames: possible? raised? what came back, with its ticket link.
@@ -2823,37 +2983,34 @@ function renderRcaCol() {
   const isaBlock = `
     ${Object.keys(rca.issueSpecificAnswers || {}).length > 0 ? `
     <div class="section" id="rca-issue-answers-section">
-      <div class="section-label">Issue-Specific Answers<span class="section-chev">▾</span></div>
-      <!-- Verdict + the evidence behind it. The old version rendered a
-           Yes/No/Unknown select only: it threw the evidence away, and an
-           answer that opens with a fact ("28 minutes (...)") matched no
-           option, so the browser displayed "Yes" for an answer that was not
-           Yes. A wrong verdict shown confidently is worse than none. -->
-      <div class="field-block rca-points" style="gap:8px">
-        ${Object.entries(rca.issueSpecificAnswers).map(([key, val]) => {
-          const raw = String(val == null ? '' : val);
-          const m = raw.match(/^\s*(Yes|No|Unknown|N\/A)\b[:\s—-]*/i);
-          const verdict = m ? m[1] : '';
-          const rest = (m ? raw.slice(m[0].length) : raw).trim();
-          const known = ['yes','no','unknown'].indexOf(verdict.toLowerCase()) !== -1;
-          const cls = verdict.toLowerCase() === 'yes' ? 'pass'
-                    : verdict.toLowerCase() === 'no' ? 'flag' : 'na';
-          return `
-            <div class="rca-points" style="gap:2px">
-              <div class="rca-wrap" style="font-size:12.5px;color:var(--text)">${esc(key)}</div>
-              <div class="rca-point">
-                ${known
-                  ? `<select class="classify-select" style="font-size:11px;width:96px;flex:none"
-                             data-isa-key="${esc(key)}" data-isa-rest="${esc(rest)}">
-                       ${['Yes','No','Unknown'].map(o => `<option${verdict.toLowerCase() === o.toLowerCase() ? ' selected' : ''}>${o}</option>`).join('')}
-                     </select>`
-                  : `<span class="chk-pill ${cls}" style="flex:none">${esc(verdict || 'answer')}</span>`}
-                <span class="chk-ev editable-text rca-ptext" contenteditable="true" spellcheck="false"
-                      role="textbox" aria-label="Evidence for: ${esc(key)}"
-                      data-isa-evidence="${esc(key)}">${esc(rest) || 'No evidence recorded for this question.'}</span>
-              </div>
-            </div>`;
-        }).join('')}
+      <div class="section-label">Issue-specific answers
+        <span class="sec-count">${_isaRows.length} question${_isaRows.length === 1 ? '' : 's'}${
+          _isaNo ? ` · ${_isaNo} answered No` : ''}</span>
+      <span class="section-chev">▾</span></div>
+      <!-- §11 the question owns the row; the verdict is a fixed-width
+           chip-select. The deployed build split behaviour: a parseable answer
+           got a <select>, an unparseable one got a grey "answer" pill with the
+           verdict text lost. One closed vocabulary, one treatment - and the
+           evidence is its own line, so it starts at the same x on every row
+           whatever the source name is. -->
+      <div class="field-block isa-list">
+        ${_isaRows.map((a, i) => `
+          <div class="isa-row">
+            <div class="isa-q">
+              <span class="isa-qtext">${esc(a.question)}</span>
+              <select class="chip-sel chip-isa-sel ${_isaCls(a.verdict)}"
+                      data-v3sel="issue_specific_answers.${i}.verdict">
+                ${['Yes','No','Unknown'].map(o =>
+                  `<option${a.verdict === o ? ' selected' : ''}>${o}</option>`).join('')}
+              </select>
+            </div>
+            <div class="isa-ev">
+              <span class="isa-evtext">${edSpan(`issue_specific_answers.${i}.evidence`,
+                a.evidence, 'no evidence recorded for this question')}</span>
+              ${a.source ? `<span class="isa-src">${esc(a.source)}</span>` : ''}
+              ${a.ref ? zdLink(a.ref) : ''}
+            </div>
+          </div>`).join('')}
       </div>
     </div>` : ''}
   `;
@@ -3236,6 +3393,14 @@ function renderRcaCol() {
                   <div class="chk-row chk-flag">
                     <span class="chk-mark">⚠</span>
                     <div class="chk-item">
+                      <!-- §8 the team is a closed list, so an invented value
+                           cannot become a stray option on the control. -->
+                      <select class="chip-sel chip-team-sel part"
+                              data-v3sel="flags.${f._i}.team"
+                              title="${esc(f.team_raw || f.team || 'OTHER')}">
+                        ${['CE','RO','SP','CONTENT','PRODUCT','BIZ','TECH','OTHER'].map(o =>
+                          `<option${String(f.team || 'OTHER').toUpperCase() === o ? ' selected' : ''}>${o}</option>`).join('')}
+                      </select>
                       <span class="editable-text rca-wrap" contenteditable="true" spellcheck="false"
                             role="textbox" aria-label="Flag text"
                             data-flag-idx="${f._i}" data-flag-field="flag">${esc(f.flag)}</span>
@@ -3255,8 +3420,12 @@ function renderRcaCol() {
     <div class="section" id="rca-sop-section">
       <div class="section-label">SOP Compliance<span class="section-chev">▾</span></div>
       <div class="field-block rca-stack">
-        <div><select class="classify-select" style="width:130px;font-size:11.5px" data-sop-verdict>
-            ${['followed','deviated','unknown'].map(o => `<option${(sop.verdict || 'unknown') === o ? ' selected' : ''}>${o}</option>`).join('')}
+        <!-- §9 the same treatment as the WWR accuracy chip: one closed
+             vocabulary, recolouring live. A select styled as a form control
+             read as a setting; the verdict is a finding. -->
+        <div><select class="chip-sel chip-sop-sel ${sop.verdict === 'followed' ? 'ok' : sop.verdict === 'deviated' ? 'bad' : 'unk'}"
+              data-v3sel="sop_compliance.verdict">
+            ${['followed','deviated','unknown'].map(o => `<option value="${o}"${(sop.verdict || 'unknown') === o ? ' selected' : ''}>${o[0].toUpperCase() + o.slice(1)}</option>`).join('')}
           </select>
           <span style="color:var(--muted-2);font-size:11px;margin-left:6px">${sop.dss_available ? 'DSS needle used' : 'no DSS row matched'}</span>
           ${sop.zd_ref ? ' · ' + zdLink(sop.zd_ref) : ''}</div>
@@ -3444,7 +3613,32 @@ function renderRcaCol() {
           </select>
         </label>
       </div>
-      <div class="dss-row-ref" style="margin-top:8px">DSS row: ${esc(rca.issueL1 || '—')} / ${esc(rca.issueL2 || '—')}</div>
+      <!-- §12 DSS has a home instead of the "DSS row: — / —" stub. It is
+           reference data, not analysis - an operator reads it to check their
+           resolution against the playbook - so it is read-only until ✎ Edit.
+           Never render "DSS row: — / —": with no classification there is
+           nothing to look up, and the neutral empty state says that. -->
+      ${(() => {
+        const dss = v3d.dss || {};
+        const row = [rca.issueL1, rca.issueL2, rca.subTheme].filter(Boolean).join(' / ');
+        const src = dss.ref
+          ? `<a class="dss-src" href="${esc(dss.ref)}" target="_blank" rel="noopener">dss</a>`
+          : `<span class="dss-src">dss</span>`;
+        return `<div class="dss-block">
+          <div class="dss-head">
+            <span class="dss-label">DSS</span>${src}
+            <span class="dss-row">${row ? esc(row) : ''}</span>
+            <button class="btn" style="font-size:11px;padding:2px 9px" data-dss-edit>${
+              state.dssEdit ? '✓ Done' : '✎ Edit'}</button>
+          </div>
+          ${row ? `<div class="dss-panel"><span class="k">DSS says:</span> ${
+            dss.prescribes
+              ? (state.dssEdit ? edSpan('dss.prescribes', dss.prescribes) : esc(dss.prescribes))
+              : `<span class="rca-empty">No DSS row was matched for this classification.</span>`
+          }</div>`
+          : `<div class="dss-panel"><span class="rca-empty">The review is not classified yet — there is no DSS row to look up.</span></div>`}
+        </div>`;
+      })()}
     </div>
 
     <div class="reply-block" id="rca-reply-section">
@@ -3728,6 +3922,23 @@ function renderRcaCol() {
   });
 
   // ── Guest <-> support: per-contact expand ──────────────────────────────
+  // "+ Add contact" writes a NOTE, not a frame. Frames are Zendesk-derived
+  // facts the pipeline owns; an operator-added contact is by definition one
+  // the system has no ticket for, so it renders unverified - which is the
+  // honest label for it, not a downgrade.
+  const contactAdd = col.querySelector('[data-contact-add]');
+  if (contactAdd) contactAdd.addEventListener('click', async () => {
+    rca.v3.support_interaction_notes = [...(rca.v3.support_interaction_notes || []),
+      {zd_ref: null, summary: 'New contact — click to edit', detail: null, ce_miss: null}];
+    rca.supportNotes = rca.v3.support_interaction_notes;
+    await persistV3(); renderRcaCol();
+  });
+
+  const dssEdit = col.querySelector('[data-dss-edit]');
+  if (dssEdit) dssEdit.addEventListener('click', () => {
+    state.dssEdit = !state.dssEdit; renderRcaCol();
+  });
+
   col.querySelectorAll('[data-ix-toggle]').forEach(el => {
     el.addEventListener('click', ev => {
       if (ev.target.closest('[contenteditable="true"], button, a')) return;
