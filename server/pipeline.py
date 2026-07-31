@@ -193,6 +193,10 @@ async def process_review(review_id: str, force_candidates: bool = False):
             "t2_bq_venue_date_60_auto":    0,
             "t2_bq_venue_date_60":         0,
             "t2_bq_date_only_loose":       0,
+            # Step 3c — BQ support-contact anchored search
+            "t2_bq_support_attempted":     0,
+            "t2_bq_support_candidates":    0,
+            "t2_bq_support_no_match":      0,
         }
 
         # ── 2. BID extraction + source detection ─────────────────────────────
@@ -1060,6 +1064,68 @@ async def process_review(review_id: str, force_candidates: bool = False):
                             _ctr["t2_bq_venue_date_60"] += 1
                             _ctr["t2_candidates"] += 1
                             cascade_done = True
+
+                    # ── 3c: the guest contacted support about this ────────────
+                    # Last before Untraceable, and deliberately so. Every path
+                    # above is the matcher as it stands; this only ever sees a
+                    # review they all gave up on, so a working match can never
+                    # be displaced by it.
+                    #
+                    # What it adds: fct_support_queries records that a booking's
+                    # guest raised something with support, and joins to the
+                    # booking. It holds the contact's CATEGORY, not the guest's
+                    # words - it cannot be searched for "falsches Datum", which
+                    # is Zendesk's job. What it can do, and Zendesk cannot, is
+                    # filter on the booking's own facts: the name the booking
+                    # sits under and the real experience date. A guest who both
+                    # named a date and contacted support is a far smaller set
+                    # than either signal alone, which is what makes a common
+                    # first name usable here at all.
+                    if not cascade_done:
+                        _sup = []
+                        if (author_first or indicators.get("guest_name")
+                                or indicators.get("dates_mentioned")):
+                            _ctr["t2_bq_support_attempted"] += 1
+                            try:
+                                _sup = await bq.find_via_support(
+                                    indicators,
+                                    author=(review.author or "").strip())
+                            except Exception as e:
+                                log.warning(f"[tier2] support-anchored search failed: {e}")
+                                _sup = []
+                            narrowing_attempts.append({
+                                "path": "bq_support_contact",
+                                "params": {"dates": len(indicators.get("dates_mentioned") or []),
+                                           "has_name": bool(author_first or indicators.get("guest_name"))},
+                                "result_count": len(_sup),
+                            })
+
+                        if _sup:
+                            candidates = []
+                            for _r in _sup[:8]:
+                                _c = _make_candidate(_r, "bq_support_contact",
+                                                     _r.get("matched_on") or ["contacted support"])
+                                _c["id"] = str(_r.get("id") or "")
+                                _c["matched_on"] = _r.get("matched_on") or ["contacted support"]
+                                _c["contact_count"] = _r.get("contact_count", 0)
+                                _c["contact_tags"]  = _r.get("contact_tags", "")
+                                candidates.append(_c)
+                            candidate_state = True
+                            match_tier = 2
+                            narrowing_path = "bq_support_contact"
+                            _ctr["t2_bq_support_candidates"] += 1
+                            _ctr["t2_candidates"] += 1
+                            confidence_trail.append({"mark": "warn",
+                                "text": f"<strong>{len(candidates)} booking(s)</strong> whose guest "
+                                        f"contacted support and whose name or dates match this "
+                                        f"review. Nothing else matched, so these are unconfirmed — "
+                                        f"check the contact before picking one."})
+                            cascade_done = True
+                        elif _ctr["t2_bq_support_attempted"]:
+                            _ctr["t2_bq_support_no_match"] += 1
+                            confidence_trail.append({"mark": "warn",
+                                "text": "<strong>Support contacts:</strong> no booking with a "
+                                        "support contact matches this guest or these dates"})
 
                     if not cascade_done:
                         # Date-only matching removed (approved): bookings that
