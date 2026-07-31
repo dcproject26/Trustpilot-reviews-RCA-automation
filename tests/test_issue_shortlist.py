@@ -218,6 +218,66 @@ def test_ranking_by_date_does_not_change_which_bookings_are_returned(
         "no candidate may be added or dropped by ranking"
 
 
+def test_a_booking_both_searches_found_outranks_one_only_one_found(zendesk_with,
+                                                                   monkeypatch):
+    """The searches run separately - by name, and by name+venue. A booking
+    both of them return has two independent searches agreeing on it. That
+    agreement used to be thrown away: the second sighting was skipped as a
+    duplicate, so the booking looked exactly like one only the name found."""
+    both = _ticket("t1", "70001", "Anna Klein", "Booking", "—")
+    once = _ticket("t2", "70002", "Anna Berg", "Booking", "—")
+    qs = _Queries({'requester:"Anna"': [once, both], "Anna Louvre": [both]})
+    zendesk_with(qs, {
+        "t1": {"booking_id": "70001", "guest_name": "Anna Klein"},
+        "t2": {"booking_id": "70002", "guest_name": "Anna Berg"},
+    })
+    monkeypatch.setattr(zd, "matches_indicators",
+                        lambda sig, ind, f, l: (True, ["name"]))
+    ind = dict(SVEN, guest_name="Anna", experience_or_venue="Louvre",
+               dates_mentioned=[], issue_terms=[])
+    out = asyncio.run(zd.shortlist(ind, "Anna", ""))
+    assert out[0]["booking_id"] == "70001", \
+        "the booking two separate searches agreed on must rank first"
+    assert "venue" in out[0]["matched_on"], \
+        "and the card must show the venue search also found it"
+
+
+def test_at_most_five_candidates_come_back(zendesk_with, monkeypatch):
+    """Thirteen cards is a list to read, not a choice to make. The cap used to
+    apply only when the name was the sole indicator, so a review naming a
+    venue was uncapped."""
+    tickets = [_ticket(f"t{i}", f"9000{i}", f"Anna {i}", "Booking", "—")
+               for i in range(13)]
+    qs = _Queries({"Anna": tickets})
+    zendesk_with(qs, {f"t{i}": {"booking_id": f"9000{i}",
+                                "guest_name": f"Anna {i}"} for i in range(13)})
+    monkeypatch.setattr(zd, "matches_indicators",
+                        lambda sig, ind, f, l: (True, ["name", "venue"]))
+    ind = dict(SVEN, guest_name="Anna", experience_or_venue="Louvre")
+    out = asyncio.run(zd.shortlist(ind, "Anna", ""))
+    assert len(out) == 5, f"expected the total cap of 5, got {len(out)}"
+
+
+def test_the_five_kept_are_the_best_not_the_newest(zendesk_with, monkeypatch):
+    """Capping before ranking would throw away the right booking to keep a
+    newer irrelevant one."""
+    good = _ticket("t9", "80009", "Anna Right", "Booking", "—")
+    others = [_ticket(f"t{i}", f"8000{i}", f"Anna {i}", "Booking", "—")
+              for i in range(8)]
+    qs = _Queries({"Anna": others + [good]})
+    sigs = {f"t{i}": {"booking_id": f"8000{i}", "guest_name": f"Anna {i}"}
+            for i in range(8)}
+    sigs["t9"] = {"booking_id": "80009", "guest_name": "Anna Right",
+                  "visit_date": "2026-10-20"}          # the date the review named
+    zendesk_with(qs, sigs)
+    monkeypatch.setattr(zd, "matches_indicators",
+                        lambda sig, ind, f, l: (True, ["name"]))
+    out = asyncio.run(zd.shortlist(SVEN, "Anna", ""))
+    assert len(out) == 5
+    assert out[0]["booking_id"] == "80009", \
+        "the booking on the date the review named must survive the cap, first"
+
+
 def test_a_year_out_still_counts_as_the_same_day(zendesk_with):
     """"20.10." with the year inferred from the post date. The day and month
     are what the guest wrote."""
