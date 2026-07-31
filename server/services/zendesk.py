@@ -1176,11 +1176,11 @@ async def shortlist(indicators: dict, author_first, author_last,
     BOUND = f" created>{since}" if since else ""
     queries = [] 
     if name:
-        queries.append((f'type:ticket requester:"{name}" {ORDER}', "name"))
+        queries.append((f'type:ticket requester:"{name}"{BOUND} {ORDER}', "name"))
     if name and venue:
-        queries.append((f'type:ticket {name} {venue} {ORDER}', "name+venue"))
+        queries.append((f'type:ticket {name} {venue}{BOUND} {ORDER}', "name+venue"))
     if name and city:
-        queries.append((f'type:ticket {name} {city} {ORDER}', "name+city"))
+        queries.append((f'type:ticket {name} {city}{BOUND} {ORDER}', "name+city"))
     if name and not venue and not city:
         # Name-only review: the requester search alone can miss tickets raised
         # under a different requester, so the free-text name is needed here.
@@ -1202,9 +1202,9 @@ async def shortlist(indicators: dict, author_first, author_last,
         # adjacent or in order.
         q_term = f'"{term}"' if len(term.split()) <= 2 else term
         if name:
-            issue_queries.append((f'type:ticket {name} {q_term} {ORDER}', "name+issue"))
+            issue_queries.append((f'type:ticket {name} {q_term}{BOUND} {ORDER}', "name+issue"))
         elif venue:
-            issue_queries.append((f'type:ticket "{venue}" {q_term} {ORDER}', "venue+issue"))
+            issue_queries.append((f'type:ticket "{venue}" {q_term}{BOUND} {ORDER}', "venue+issue"))
         else:
             issue_queries.append((f'type:ticket {q_term}{BOUND} {ORDER}', "issue"))
 
@@ -1288,8 +1288,17 @@ async def shortlist(indicators: dict, author_first, author_last,
                 # named 20.10 and produced two bookings by the same person -
                 # High School Musical on the 23rd and Sinatra on the 20th -
                 # shown as equally good, with the date he gave us unused.
+                # visit_date_hint belongs here as much as dates_mentioned, and
+                # was being ignored. Amanda's review says "I am at the venue"
+                # and named no date, so dates_mentioned was empty and
+                # visit_date_hint held the one date that mattered - the day she
+                # was standing there. Ranking looked at neither, and five
+                # unrelated Amandas came back in ticket order.
+                _cand_dates = [d for d in ([indicators.get("visit_date_hint")]
+                                           + list(indicators.get("dates_mentioned") or []))
+                               if d]
                 _visit_hit = next(
-                    (d for d in (indicators.get("dates_mentioned") or [])
+                    (d for d in _cand_dates
                      if _dates_agree(sig.get("visit_date"), d)), None)
                 if _visit_hit:
                     used = list(used) + [f"visit date {_visit_hit}"]
@@ -1336,14 +1345,26 @@ async def shortlist(indicators: dict, author_first, author_last,
                     # showing a human two plausible bookings to choose from beats
                     # filing a review with a name, a venue and a city as
                     # unidentifiable.
-                    if issue_pass and (hit_terms or hit_dates):
-                        # The name matched AND the ticket talks about the same
-                        # problem, or names a date the review named. Two
-                        # independent signals agreeing is a real match, not the
-                        # "name only" fallback.
+                    # A common first name plus ONE issue phrase is not a match.
+                    #
+                    # "Tom Tom" against five unrelated guests - James Thomas
+                    # Hamill, Tom Putzke, Tom Wammes, Tom Maksimov - each
+                    # returned as a confident match on "no guide found", a
+                    # phrase that appears in a great many tickets. Presenting
+                    # those as matches is worse than presenting nothing: an
+                    # associate has no way to see they are unrelated.
+                    #
+                    # Promotion out of the weak list needs the name plus TWO
+                    # independent agreements: two distinct problem phrases, or
+                    # a phrase and a date, or a phrase and the ticket's own
+                    # visit date landing on a date the review named.
+                    _corroborations = (len(hit_terms) + (1 if hit_dates else 0)
+                                       + (1 if _visit_hit else 0))
+                    if issue_pass and _corroborations >= 2:
                         sig["matched_on"] = ["name"] + (
                             [f"issue:{hit_terms[0]}"] if hit_terms else []) + (
-                            [f"date:{hit_dates[0]}"] if hit_dates else [])
+                            [f"date:{hit_dates[0]}"] if hit_dates else []) + (
+                            [f"visit date {_visit_hit}"] if _visit_hit else [])
                         by_bid[bid] = sig
                         weak_by_bid.pop(bid, None)
                     elif bid not in weak_by_bid:
