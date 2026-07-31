@@ -52,6 +52,25 @@ async def run(review_id: str, write: bool):
         _head(f"{rv.id}  ·  {rv.author or '—'}  ·  {rv.received_at}")
         print(text[:600])
 
+        # What is on the draft right now, so the re-run can be compared with
+        # it. A match appearing here does not mean anything changed - the
+        # review may always have matched and failed for another reason.
+        d0 = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
+        _head("0. what is stored on this review today")
+        if not d0:
+            print("  no draft — this review has never been processed.")
+        else:
+            stored = list(d0.candidates_list or [])
+            print(f"  bucket           {d0.match_tier and f'tier {d0.match_tier}' or '—'}"
+                  f"  ·  path {d0.match_method or '—'}")
+            print(f"  candidates       {len(stored)}"
+                  + (f"  ({', '.join(str(c.get('id')) for c in stored[:5])})"
+                     if stored else ""))
+            print(f"  confirmed BID    {d0.selected_candidate_bid or '—'}")
+            print(f"  booking          {(d0.booking or {}).get('id') or '—'}")
+            if not stored and not (d0.booking or {}).get("id"):
+                print("  → this review is currently unmatched.")
+
         # ── 1. extraction ────────────────────────────────────────────────────
         _head("1. what the review says, as the current prompt reads it")
         pub = rv.received_at.date().isoformat() if rv.received_at else ""
@@ -82,8 +101,11 @@ async def run(review_id: str, write: bool):
                           f"{(s.get('guest_name') or '—')[:22]:22} "
                           f"{'weak' if s.get('weak') else 'match':5}  "
                           f"{', '.join(s.get('matched_on') or [])}")
-                    print(f"        ticket {s.get('ticket_id')} via {s.get('found_via')}"
-                          f" · {s.get('experience') or '—'}")
+                    # The visit date is what separates two bookings by the same
+                    # guest — which is exactly the case this review produces.
+                    print(f"        visit {s.get('visit_date') or '—':<12}"
+                          f"ticket {s.get('ticket_id')} via {s.get('found_via')}")
+                    print(f"        {s.get('experience') or '—'}")
             else:
                 print("  nothing.")
 
