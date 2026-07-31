@@ -177,3 +177,38 @@ def test_an_unverified_booking_id_never_becomes_the_match():
     assert "match_tier = 2" in block
     # booking must NOT be set on this path
     assert "booking = bq_row" not in block
+
+
+# ── 5. the diagnostic tools must call the code they claim to test ───────────
+
+TOOL = open("tools/rematch.py", encoding="utf-8").read()
+
+
+def test_rematch_calls_find_via_support_with_the_signature_it_has():
+    """The signature changed from author= to tgids= and the tool kept passing
+    author=, which is a TypeError the moment step 3 is reached — on exactly
+    the reviews the tool exists to diagnose."""
+    assert "author=" not in TOOL.split("find_via_support(")[1][:80], \
+        "rematch passes a keyword find_via_support no longer accepts"
+    assert "tgids=tgids" in TOOL
+
+
+def test_rematch_resolves_venues_before_the_support_search():
+    """Without TGIDs the search declines to run, so a tool that does not
+    resolve them would report 'nothing' on every review and look like a
+    broken path rather than an unresolved venue."""
+    assert "venue_resolver.resolve(hints)" in TOOL
+
+
+def test_rematch_searches_the_way_the_pipeline_searches():
+    """A diagnostic that omits the date floor is not testing what runs."""
+    assert "since=_since_for(rv)" in TOOL
+    assert "SHORTLIST_LOOKBACK_DAYS" in TOOL, \
+        "the tool must take the floor from the pipeline, not invent one"
+    assert TOOL.count("notes=notes") >= 2, \
+        "both the single-review and batch paths must read the search notes"
+
+
+def test_rematch_reports_truncation_it_is_told_about():
+    for marker in ("hit Zendesk's result", "incomplete search"):
+        assert marker in TOOL, f"truncation is collected but not reported ({marker})"
