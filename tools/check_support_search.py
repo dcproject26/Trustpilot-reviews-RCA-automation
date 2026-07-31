@@ -104,6 +104,43 @@ def selftest():
     return 0
 
 
+def _reviews_with_indicators(db, author: str = ""):
+    """Reviews whose matching indicators were extracted and stored, newest first."""
+    from server.db import RcaDraft, Review
+    q = db.query(Review)
+    if author:
+        q = q.filter(Review.author.ilike(f"%{author}%"))
+    out = []
+    for rv in q.order_by(Review.received_at.desc()).limit(200).all():
+        d = db.query(RcaDraft).filter(RcaDraft.review_id == rv.id).first()
+        ind = ((d.extracted_signals or {}).get("match_indicators") or {}) if d else {}
+        if ind:
+            out.append((rv, ind))
+    return out
+
+
+def list_reviews():
+    from server.db import SessionLocal, init_db
+    init_db()
+    db = SessionLocal()
+    try:
+        rows = _reviews_with_indicators(db)
+        if not rows:
+            print("No review has stored indicators yet. They are written when a "
+                  "review goes through matching without a booking id.")
+            return 1
+        print(f"{len(rows)} review(s) with extracted indicators, newest first:\n")
+        for rv, ind in rows[:40]:
+            dates = ",".join(ind.get("dates_mentioned") or []) or "—"
+            print(f"  {rv.id:<22} {(rv.author or '—')[:20]:<20} "
+                  f"dates {dates:<24} {(rv.body_english or '')[:44]}")
+        print(f"\nRun one:  python3 tools/check_support_search.py "
+              f"--review {rows[0][0].id} --run")
+        return 0
+    finally:
+        db.close()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--name", default="Sven", help="guest name to search for")
@@ -115,7 +152,14 @@ def main():
                     help="prove the support->booking join actually joins")
     ap.add_argument("--review", default="",
                     help="use a real review's extracted indicators, by review id")
+    ap.add_argument("--author", default="",
+                    help="same, but find the review by author name (newest wins)")
+    ap.add_argument("--list", action="store_true",
+                    help="list reviews that have extracted indicators, and stop")
     args = ap.parse_args()
+
+    if args.list:
+        return list_reviews()
 
     if args.selftest:
         return selftest()
@@ -126,24 +170,41 @@ def main():
     # A real review beats the sample: SAMPLE's dates are a reconstruction of
     # Sven's review, and testing a search against remembered facts proves
     # nothing about the facts extraction actually produced.
-    if args.review:
+    if args.review or args.author:
         from server.db import SessionLocal, init_db, RcaDraft, Review
         init_db()
         db = SessionLocal()
         try:
-            d = db.query(RcaDraft).filter(RcaDraft.review_id == args.review).first()
-            rv = db.query(Review).filter(Review.id == args.review).first()
-            if not d:
-                print(f"no draft for review {args.review}")
-                return 1
-            real = (d.extracted_signals or {}).get("match_indicators") or {}
-            if not real:
-                print(f"review {args.review} has no extracted indicators stored — "
-                      f"it was matched by booking id, or predates extraction.")
-                return 1
+            if args.author:
+                found = _reviews_with_indicators(db, args.author)
+                if not found:
+                    print(f"no review by an author matching {args.author!r} has "
+                          f"stored indicators. Try:  python3 "
+                          f"tools/check_support_search.py --list")
+                    return 1
+                rv, real = found[0]
+                if len(found) > 1:
+                    print(f"{len(found)} reviews match {args.author!r}; using the "
+                          f"newest ({rv.id}). The others:")
+                    for other, _ in found[1:6]:
+                        print(f"    {other.id}  {other.received_at}")
+                    print()
+            else:
+                d = db.query(RcaDraft).filter(RcaDraft.review_id == args.review).first()
+                rv = db.query(Review).filter(Review.id == args.review).first()
+                if not d or not rv:
+                    print(f"no review/draft with id {args.review}. Try:  python3 "
+                          f"tools/check_support_search.py --list")
+                    return 1
+                real = (d.extracted_signals or {}).get("match_indicators") or {}
+                if not real:
+                    print(f"review {args.review} has no extracted indicators stored "
+                          f"— it was matched by booking id, or predates extraction.")
+                    return 1
             ind = dict(real)
-            name = (rv.author if rv else "") or real.get("guest_name") or ""
-            print(f"review {args.review} — author {name!r}")
+            name = (rv.author or "") or real.get("guest_name") or ""
+            print(f"review {rv.id} — author {name!r}")
+            print(f"  {(rv.body_english or rv.body_original or '')[:200]}")
             print(f"  indicators as extracted: {real}\n")
         finally:
             db.close()
