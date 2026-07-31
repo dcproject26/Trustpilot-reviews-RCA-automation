@@ -252,16 +252,60 @@ def test_the_pipeline_validates_before_it_persists():
     assert 0 < i < j, "validation must run before the draft is written"
 
 
-def test_the_pipeline_writes_every_v4_column():
-    """A JSON column assigned but not flagged is invisible to SQLAlchemy on a
-    re-run — the write happens and nothing reaches the database."""
-    i = PIPE.find("for _col in (")
-    assert i > 0
-    flagged = PIPE[i:PIPE.find("):", i)]
-    for col in ("guest_issues", "sop_compliance", "booking_logs",
-                "flags", "takedown", "dss"):
-        assert f"draft.{col} " in PIPE, f"the pipeline never writes {col}"
-        assert f'"{col}"' in flagged, f"{col} is written but never flagged modified"
+def test_the_projection_maps_every_column_to_its_place_in_the_rca():
+    """Driven, not asserted at source. `assert "draft.flags " in PIPE` passes
+    just as happily against a build where the line it names is unreachable —
+    which is how two guarantees in this file turned out to guard nothing."""
+    from server.services.rca_v4_validate import project_v4
+    out = project_v4({
+        "what_went_wrong": {"guest_issues": [{"issue": "x"}]},
+        "sop_compliance": {"verdict": "deviated"},
+        "booking_logs": [{"what": "issued"}],
+        "flags": [{"team": "CE", "flag": "late"}],
+        "takedown": {"verdict": "No"},
+        "dss": {"prescribes": "refund"},
+        "issue_specific_answers": [{"question": "q", "verdict": "Yes"}],
+    })
+    assert out["guest_issues"] == [{"issue": "x"}]
+    assert out["sop_compliance"] == {"verdict": "deviated"}
+    assert out["booking_logs"] == [{"what": "issued"}]
+    assert out["flags"] == [{"team": "CE", "flag": "late"}]
+    assert out["takedown"] == {"verdict": "No"}
+    assert out["dss"] == {"prescribes": "refund"}
+    assert out["issue_specific_answers"] == [{"question": "q", "verdict": "Yes"}]
+
+
+def test_an_absent_section_projects_to_its_empty_type():
+    """A dict where the renderer wants a list renders nothing, silently."""
+    out = __import__("server.services.rca_v4_validate", fromlist=["x"]).project_v4({})
+    assert out["guest_issues"] == [] and out["booking_logs"] == []
+    assert out["flags"] == [] and out["issue_specific_answers"] == []
+    assert out["sop_compliance"] == {} and out["takedown"] == {} and out["dss"] == {}
+
+
+def test_the_projection_never_raises_on_a_malformed_rca():
+    from server.services.rca_v4_validate import project_v4
+    for bad in (None, "nope", 42, [], {"what_went_wrong": "nope"},
+                {"what_went_wrong": {"guest_issues": None}}):
+        assert isinstance(project_v4(bad), dict)
+
+
+def test_both_write_paths_use_the_one_projection():
+    """Written out twice, the two paths drift — and the drift is invisible,
+    because both look like working code. regenerate-rca had already fallen
+    behind the pipeline once."""
+    for src, name in ((PIPE, "pipeline"), (API, "api")):
+        assert "project_v4(" in src, f"{name} still projects the columns by hand"
+    assert "draft.flags " not in PIPE and "d.flags  " not in API
+
+
+def test_the_columns_the_projection_writes_are_the_columns_that_exist():
+    """A key with no column silently does nothing on setattr; a column the
+    projection forgot goes stale on every run."""
+    from server.services.rca_v4_validate import V4_PROJECTION
+    from server.db import RcaDraft
+    for col in V4_PROJECTION:
+        assert hasattr(RcaDraft, col), f"{col} is projected but is not a column"
 
 
 def test_the_pipeline_does_not_also_run_the_standalone_drafter():
@@ -397,3 +441,26 @@ def test_the_pipeline_puts_those_lines_in_the_trail():
     block = PIPE[i:i + 500]
     assert "confidence_trail.append" in block
     assert '"mark": "warn"' in block, "a failed join is not a step that succeeded"
+
+
+def test_grouping_events_by_time_is_announced():
+    """Grouping frames without a ticket id by a 30-minute window is a
+    judgement, not a fact. An unannounced guess is how a guessed number
+    becomes a trusted one."""
+    out = contact_join_notes(
+        [{"ticket_id": None, "time_sort": "2026-07-22T15:41:00"},
+         {"ticket_id": None, "time_sort": "2026-07-22T15:49:00"}], [], {})
+    assert any("30-minute window" in n for n in out)
+    assert any("2 event(s) have no ticket id" in n for n in out)
+
+
+def test_a_single_untracked_event_needs_no_announcement():
+    """One event cannot have been grouped with anything, so saying so would be
+    noise on every run that has one stray frame."""
+    out = contact_join_notes([{"ticket_id": None}], [], {})
+    assert not any("window" in n for n in out)
+
+
+def test_fully_ticketed_frames_are_never_announced_as_grouped():
+    out = contact_join_notes([{"ticket_id": "1"}, {"ticket_id": "2"}], [], {})
+    assert out == []

@@ -1276,7 +1276,7 @@ that turned out fine is silence — never a line in the output.
 ## OUTPUT FORMAT — return ONLY this JSON object, no prose before or after
 
 {
-  "stated_issue": "<2-3 sentences: the guest's problem in our words, for the top of the RCA>",
+  "stated_issue": "<2-3 sentences, 60 words MAX: the guest's problem in our words, for the top of the RCA>",
   "tldr": {
     "our_mistake": "<one sentence: what WE got wrong>",
     "our_fix": "<one sentence: what has been or will be done>"
@@ -1353,7 +1353,7 @@ that turned out fine is silence — never a line in the output.
   ],
   "area_of_improving": ["<one improvement per array element>"],
   "resolution": "<what the guest actually got: refund / comp / explanation, with amounts>",
-  "suggested_response": "<the reply to the guest: apologise, state what went wrong in plain words, state the remedy with its reference, close warmly. No internal jargon, no BID, no team names>",
+  "suggested_response": "<the reply to the guest, 120 words MAX: apologise, state what went wrong in plain words, state the remedy with its reference, close warmly. No internal jargon, no BID, no team names>",
   "takedown": { "verdict": "<Yes | No | Untraceable>" },
   "dss": {
     "prescribes": "<what the matched DSS row prescribes for this scenario>",
@@ -1387,6 +1387,16 @@ that turned out fine is silence — never a line in the output.
    for a date-only event, or null. Never "Unknown" and never an ISO string.
 9. One guest issue per distinct complaint in the review. If the guest raises three things,
    return three objects — do not merge them, and do not invent a second issue when there is one.
+   Splitting a cause from its consequence is inventing one: "we did not disclose the delivery
+   window" and "the delivery window clashed with their schedule" are one complaint, and the
+   consequence belongs in that issue's `root_cause`, not in an issue of its own.
+   Every entry must trace to something the guest SAID OR IMPLIED. Our own process gaps are not
+   guest issues however serious — an out-of-policy refund, a missed SOP step, a DSS path not
+   followed go to `flags` and `sop_compliance`. `claim` is null only where the review implies
+   the issue without words, or on a rule 13 routed-scenario coverage row; a `guest_issues` entry
+   with no claim and no routed scenario behind it renders as a numbered guest complaint with an
+   empty Claim block, and leadership reads it as something the guest said. They did not.
+   Do not repeat in `guest_issues` anything you have already raised in `flags`.
 10. `flags` contains failures only — things a named team must act on. An empty array means
     everything was checked and nothing needed raising; return `[]`, not a placeholder entry.
 11. If a section genuinely has nothing (no SP contact, no support contact), return an empty
@@ -1422,6 +1432,11 @@ that turned out fine is silence — never a line in the output.
     step.
 17. `resolution` records what the guest ACTUALLY received, not what was recommended. If nothing
     has been given yet, say so plainly ("Nothing offered yet") rather than describing an intent.
+17b. Two hard length ceilings, because both fields are read by someone outside this system.
+    `suggested_response` is 120 words MAX — it goes on a public review page, and 200 words under
+    a one-star review reads as defending ourselves rather than apologising. `stated_issue` is
+    2-3 sentences, 60 words MAX — it is the one-glance summary at the top of the RCA, not a
+    retelling of the review. Say less and stop.
 18. `support_interaction_notes` and `sp_interaction_notes` are your INTERPRETATION of contacts
     the system already has as facts. The rows the UI renders come from Zendesk: their time,
     channel and ticket id are established and are not yours to restate. Your job is `summary`,

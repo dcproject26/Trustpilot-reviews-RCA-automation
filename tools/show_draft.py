@@ -10,6 +10,8 @@ as a field the model left empty.
     python3 tools/show_draft.py --review tp_123
     python3 tools/show_draft.py --bid 32908218
     python3 tools/show_draft.py --latest --json       # the raw rca_v3 blob
+    python3 tools/show_draft.py --bid 32908218 --detail   # audit + the JSON worth reading
+    python3 tools/show_draft.py --bid 32908218 --issue 2  # one guest issue in full
 
 Without --json it prints an audit: which v4 fields the model filled, which it
 left empty, and every value that sits outside its vocabulary. A field the
@@ -18,6 +20,7 @@ is built against it.
 """
 import argparse
 import json
+import re as _re
 import sys
 
 sys.path.insert(0, ".")
@@ -146,6 +149,11 @@ def main():
     g.add_argument("--bid", help="booking id")
     g.add_argument("--latest", action="store_true", help="most recently generated draft")
     ap.add_argument("--json", action="store_true", help="print the raw rca_v3 blob and stop")
+    ap.add_argument("--detail", action="store_true",
+                    help="the audit, then the parts worth reading in full: each guest "
+                         "issue's JSON, dss, sp_interaction_notes, and the trail")
+    ap.add_argument("--issue", type=int, metavar="N",
+                    help="print only guest issue N in full (implies --detail)")
     a = ap.parse_args()
 
     s = SessionLocal()
@@ -264,6 +272,48 @@ def main():
                 mark = f"{GREEN}·{OFF}" if _filled(i.get(f)) else f"{YEL}○{OFF}"
                 print(f"     {mark} {f}")
             print(f"     evidence: {len(i.get('evidence') or [])} row(s)")
+            # A claim-less issue is only legitimate on a routed-scenario
+            # coverage row. Otherwise it renders as a numbered guest complaint
+            # with an empty Claim block, and reads as something the guest said.
+            if not _filled(i.get("claim")):
+                print(f"     {RED}no claim — is this a guest issue, or our own "
+                      f"process finding that belongs in flags?{OFF}")
+        print()
+
+        if not (a.detail or a.issue):
+            print(f"{DIM}  --detail prints these in full, with dss, "
+                  f"sp_interaction_notes and the trail{OFF}\n")
+            return
+
+        def _dump(label, obj):
+            print(f"\n{DIM}── {label} ──{OFF}")
+            print(json.dumps(obj, indent=2, ensure_ascii=False, default=str))
+
+        want = [a.issue] if a.issue else range(1, len(issues) + 1)
+        for n in want:
+            if 1 <= n <= len(issues):
+                _dump(f"guest issue {n}", issues[n - 1])
+            else:
+                print(f"{RED}no guest issue {n} (there are {len(issues)}){OFF}")
+        if not a.issue:
+            _dump("flags", rca.get("flags"))
+            _dump("dss", rca.get("dss"))
+            _dump("sop_compliance", rca.get("sop_compliance"))
+            _dump("sp_interaction_notes", rca.get("sp_interaction_notes"))
+            _dump("support_interaction_notes", rca.get("support_interaction_notes"))
+            print(f"\n{DIM}── confidence trail ──{OFF}")
+            for t in (d.confidence_trail or []):
+                mark = {"pass": "ok  ", "warn": "WARN", "fail": "FAIL"}.get(
+                    t.get("mark"), "?   ")
+                txt = _re.sub(r"<[^>]+>", "", t.get("text") or "")
+                col = RED if t.get("mark") == "fail" else (
+                    YEL if t.get("mark") == "warn" else DIM)
+                print(f"  {col}{mark}{OFF} {txt}")
+            print(f"\n{DIM}── lengths (the two with ceilings) ──{OFF}")
+            for k, cap in (("stated_issue", 60), ("suggested_response", 120)):
+                words = len(str(rca.get(k) or "").split())
+                col = RED if words > cap else GREEN
+                print(f"  {col}{words:4d}{OFF} / {cap} words   {k}")
         print()
     finally:
         s.close()
