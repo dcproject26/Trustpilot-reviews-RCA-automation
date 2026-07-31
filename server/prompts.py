@@ -590,13 +590,98 @@ Return ONLY valid JSON, no markdown:
 
 
 # ─── 6. Response draft ──────────────────────────────────────────────────────
+# ─── Headout brand voice ────────────────────────────────────────────────────
+# Verbatim from the brand's voice-and-tone doc. Every guest-facing line this
+# app produces goes through here, so the guidance lives in one place rather
+# than being paraphrased differently in each prompt.
+BRAND_VOICE = """\
+━━ HEADOUT VOICE AND TONE - FOLLOW STRICTLY ━━
+INSPIRATIONAL & POSITIVE - optimistic and solution-oriented. Not cringey, not
+  over-effusive.
+    Not: "Book this experience now."
+    Yes: "Ready to head out? Book now and get going!"
+CONVERSATIONAL - friendly and approachable, like a chat with someone familiar.
+  Direct, personal language. Never formal or servile.
+    Not: "We've resolved the issue now. Thank you for your patience."
+    Yes: "Great news: we've resolved the issue now! Thank you for being
+         patient with us, I really appreciate it."
+CLEAR & CONCISE - straightforward, no unnecessary complexity, still warm.
+FACTUALLY ENTERTAINING - an interesting detail where it genuinely fits. Never
+  invent a fact to be charming.
+WITTY, NOT SLAPSTICK - subtle and clever, never disrespectful. On a complaint
+  reply, wit is almost always the wrong instrument: lead with the fix.
+
+HARD RULES
+- American English.
+- Address the guest with "Hey <first name>,".
+- No false information, no invented facts, no unnecessary adjectives, no
+  hyperbole.
+- Cut fluff. Precise, impactful, engaging.
+- Numbered points, never bullet points, if a list is unavoidable.
+- Sign off exactly:
+      Best,
+      [Your Name], Headout
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
+
+# ─── Takedown macro (ORM macro workbook, "Takedown Macro") ──────────────────
+# One of these goes in immediately BEFORE the sign-off when a takedown is
+# being requested. Copy verbatim - they are approved copy.
+TAKEDOWN_LINES = {
+    "a": "Glad we could make things right. If you have a moment, you can update "
+         "your TP review here: [link]",
+    "b": "Thanks for giving us the chance to fix things. If you're open to it, "
+         "feel free to update your review here: [link]",
+    "c": "Thanks for bearing with us. If you'd like, you can update your TP "
+         "review here: [link]",
+}
+
+# The fixed reply for a review with no traceable booking. Approved copy, sent
+# unchanged - there is nothing case-specific to say until the guest gives us a
+# reference, so nothing here is generated.
+UNTRACEABLE_REPLY = """Hey {first_name},
+
+I'm sorry things didn't go as planned, and I'd love to fix this for you right away. \
+Please share your booking ID (if available) or the email address used for your booking \
+at https://bit.ly/hedout. Once we have your details, our team will dive right in to \
+resolve it ASAP.
+
+Thank you so much for your understanding and patience. I'll make sure we turn this \
+around for you!
+
+Best,
+[Your Name], Headout"""
+
+
+def takedown_block(verdict: str) -> str:
+    """The takedown instruction for the response prompt."""
+    if str(verdict or "").strip().lower() != "yes":
+        return ("TAKEDOWN: not requested for this review. Do NOT add any line "
+                "asking the guest to update their review.")
+    lines = "\n".join(f'    {k}) "{v}"' for k, v in TAKEDOWN_LINES.items())
+    return f"""━━ TAKEDOWN REQUESTED ━━
+Add EXACTLY ONE of these lines, verbatim, as its own paragraph immediately
+BEFORE the sign-off. Do not reword it, do not merge it into another sentence.
+{lines}
+Choose by situation:
+    a) we fixed it and the guest is satisfied - a clean resolution
+    b) we corrected our own error and the guest gave us the chance to
+    c) the guest waited, or the outcome is partial
+DO NOT add any of them if the guest's tone is abusive, or if this case has
+already been escalated more than once - in those cases return the reply with
+no takedown line at all and nothing in its place.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
+
+
 def response_draft_prompt(
     review_text: str, l1: str, l2: str, resolution: str,
     canned_responses: str = "", guest_name: str = "",
     dss_rec: dict | None = None,
     canned_list: list | None = None,
+    takedown_verdict: str = "",
 ) -> str:
-    name_hint = f"The guest's name is {guest_name}." if guest_name else ""
+    name_hint = (f"The guest's first name is {guest_name}. Open with "
+                 f'"Hey {guest_name},".' if guest_name
+                 else 'No name is known - open with "Hey there,".')
 
     # Tone examples — from live canned sheet (preferred) or legacy string block
     if canned_list:
@@ -615,19 +700,9 @@ def response_draft_prompt(
     else:
         tone_block = ""
 
-    brand_voice = """\
-━━ HEADOUT BRAND VOICE ━━
-- Warm and human, not corporate. Address the guest by first name if provided.
-- Own the mistake without excessive apology. One "I'm sorry" is enough.
-- Be specific: name the venue, the date, the concrete action taken/being taken.
-- Never make claims without evidence from the timeline. If we resolved: say what.
-  If we're still resolving: say what next step.
-- Direct language over hedging. No "we sincerely appreciate your patience".
-- Match language complexity to the guest's review — if they wrote 2 sentences,
-  reply in 2-3 sentences. If they wrote a story, engage with the story.
-- End with something the guest can do (link, timeline, contact) — not just "thanks".
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
+    brand_voice = BRAND_VOICE
 
+    takedown_block_text = takedown_block(takedown_verdict)
     return f"""You are drafting a public reply to a Trustpilot review on behalf of Headout's CX team.
 
 REVIEW:
@@ -642,14 +717,22 @@ DSS: {json.dumps(dss_rec or {}, indent=2)}
 
 {brand_voice}
 
+{takedown_block_text}
+
 INSTRUCTIONS:
 1. Tone examples are reference only. Do not copy phrasing.
-2. Reference the guest's SPECIFIC complaint in their own terms.
+2. Reference the guest's SPECIFIC complaint in their own terms. The reply must
+   answer what THIS guest actually raised - a macro that ignores their issue is
+   worse than no macro.
 3. Compensation mentioned must match the resolution string exactly. Do NOT invent amounts.
 4. Non-defensive acknowledgement.
-5. Use guest's name if known; otherwise open warmly. Never leave literal placeholders.
+5. Open with "Hey <first name>," using the name given above. If no name is
+   known, open "Hey there,". Never leave a literal placeholder like <Name>.
 6. 3-5 sentences. No bullets. No headings.
-7. Return ONLY the reply text."""
+7. Sign off on its own two lines, exactly:
+   Best,
+   [Your Name], Headout
+8. Return ONLY the reply text."""
 
 
 # ─── 6b. Support event summarisation (Zendesk timeline → frames) ───────────
