@@ -1050,6 +1050,14 @@
     background: var(--accent-bg); color: var(--chip-fg); border-color: var(--accent-bd);
   }
   .slack-sec-chip input { display: none; }
+
+  /* Amber, because it is the "broken / act on this" meaning - the same role
+     .rca-empty.err has, and deliberately not either empty-state treatment. */
+  .stale-bar {
+    background: var(--amber-bg); color: var(--amber); font-size: 12px;
+    padding: 6px 16px; border-bottom: 1px solid var(--border);
+    overflow-wrap: anywhere;
+  }
 </style>
 </head>
 <body>
@@ -2651,6 +2659,35 @@ document.addEventListener('blur', async ev => {
   l[el.dataset.logField] = el.textContent.trim();
   await saveDraft(r.id, {rca_v3: v3});
 }, true);
+
+// Which build is this page talking to.
+//
+// "The dashboard looks like the previous version" is unanswerable from the
+// browser: a stale page, a server that was never restarted after a pull, and a
+// deploy that silently failed all look identical. /api/version already knows -
+// it compares the running process against what is checked out on disk - so the
+// only thing missing was saying it where the reader is.
+//
+// Quiet when current: the build goes on <body data-build> and into the logo's
+// tooltip. Loud when stale, because that is the case someone has to act on.
+(async () => {
+  try {
+    const v = await (await fetch('/api/version', {cache: 'no-store'})).json();
+    const tag = `${v.short} · ${v.fingerprint} · ${v.environment} · up ${v.uptime_s}s`;
+    document.body.dataset.build = tag;
+    document.body.dataset.stale = v.stale ? 'yes' : 'no';
+    const logo = document.querySelector('.logo, .brand, .topbar-title, .top-bar');
+    if (logo) logo.title = tag;
+    console.info('[build] ' + tag + (v.stale ? '  ← STALE' : ''));
+    if (v.stale) {
+      const bar = document.createElement('div');
+      bar.className = 'stale-bar';
+      bar.textContent = `This page is talking to an older build — running ${v.short}, `
+        + `checked out ${String(v.on_disk).slice(0, 7)}. Restart the server to pick up the pull.`;
+      document.body.prepend(bar);
+    }
+  } catch (_) { document.body.dataset.build = 'unknown'; }
+})();
 
 document.addEventListener('click', ev => {
   const b = ev.target.closest && ev.target.closest('[data-slack-customize]');
