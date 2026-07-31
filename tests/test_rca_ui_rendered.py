@@ -368,3 +368,123 @@ def test_the_rca_header_is_a_single_baseline_row(page):
     assert got["same_line"], "the label and sub-line are still stacked"
     assert got["height"] < 60, got["height"]
     assert "paste" in got["title"], "the dropped clause is not in the row's title"
+
+
+# ── §13 the two timelines trade columns ─────────────────────────────────────
+
+def _col(page, sel):
+    return page.evaluate("""(sel) => { const el = document.querySelector(sel);
+        if (!el) return null;
+        return el.closest('#rca-col') ? 'rca' : 'facts'; }""", sel)
+
+
+def test_the_booking_timeline_is_in_the_facts_column(page):
+    """System-of-record data — created, fulfilment, sent, refunded — which is
+    what the facts column is for."""
+    assert _col(page, "#rca-booking-logs-section") == "facts"
+
+
+def test_the_events_timeline_is_in_the_rca_column(page):
+    """The interpreted guest journey, beside the analysis that cites it."""
+    assert _col(page, "#rca-events-timeline-section") == "rca"
+
+
+def test_the_booking_timeline_keeps_its_rows_and_controls(page):
+    """No treatment change; only position. A move that drops the editable rows
+    or the add button has swapped the section for a picture of it."""
+    got = page.evaluate("""() => {
+      const s = document.querySelector('#rca-booking-logs-section');
+      return {rows: s.querySelectorAll('.tl-row').length,
+              editables: s.querySelectorAll('[contenteditable]').length,
+              dels: s.querySelectorAll('[data-log-del]').length,
+              add: !!s.querySelector('[data-log-add]')}; }""")
+    assert got["rows"] and got["editables"] and got["dels"] and got["add"], got
+
+
+def test_add_event_still_works_from_the_column_it_moved_to(page):
+    """The handlers were bound inside renderRcaCol. Moving the markup without
+    moving them leaves a live-looking button that does nothing."""
+    before = page.evaluate("() => document.querySelectorAll('#rca-booking-logs-section .tl-row').length")
+    page.click("[data-log-add]")
+    page.wait_for_timeout(700)
+    after = page.evaluate("() => document.querySelectorAll('#rca-booking-logs-section .tl-row').length")
+    assert after == before + 1, f"{before} -> {after}"
+    page.click("#rca-booking-logs-section [data-log-del]:last-of-type")
+    page.wait_for_timeout(600)
+
+
+# ── step 6 the Slack post ───────────────────────────────────────────────────
+
+def _post(page):
+    return page.evaluate("""() => { const t = document.querySelector('[data-slack-edit]');
+        return t ? t.value : ''; }""")
+
+
+def test_the_post_has_one_block_per_guest_issue(page):
+    txt = _post(page)
+    i = txt.find("*What went wrong*")
+    assert "*1. Delivery window not disclosed*" in txt, txt[i:i + 400]
+    assert "·  Accurate" in txt and "·  Content" in txt, txt[i:i + 400]
+
+
+def test_a_block_carries_only_the_lines_that_issue_has(page):
+    """A dash for every absent field turns a focused block into a form with
+    blanks in it."""
+    txt = _post(page)
+    block = txt.split("*1. Delivery window not disclosed*")[1].split("\n\n")[0]
+    assert "Root cause:" in block
+    assert "SOP / process gap:" not in block, "an absent line was printed anyway"
+
+
+def test_evidence_keeps_its_source_and_reference_in_the_post(page):
+    assert "- [exp-page] No timeline on the page. (https://www.headout.com/tour/22238)" in _post(page)
+
+
+def test_the_guest_reply_is_never_in_the_post(page):
+    """The RCA thread is internal; the reply goes to Trustpilot by hand. It is
+    a field that would look entirely plausible in the output."""
+    txt = _post(page)
+    reply = page.evaluate(
+        "() => (REVIEWS.find(x=>x.id===state.selected).rca.v3||{}).suggested_response || ''")
+    assert reply, "the fixture has no reply, so this proves nothing"
+    assert reply[:40] not in txt
+    assert "refunded you" not in txt
+
+
+def test_an_unclassified_review_posts_no_issue_line(page):
+    """Defect 6: "Issue: — / —" reached the thread and read as a broken
+    generator rather than as an unclassified review."""
+    txt = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keep = [r.rca.issueL1, r.rca.issueL2, r.rca.subTheme,
+                    r.rca.primaryScenario, r.rca.overlayScenarios, r.rca.slackThreadOverride];
+      r.rca.issueL1 = ''; r.rca.issueL2 = ''; r.rca.subTheme = '';
+      r.rca.primaryScenario = ''; r.rca.overlayScenarios = [];
+      r.rca.slackThreadOverride = '';
+      renderRcaCol();
+      const out = (document.querySelector('[data-slack-edit]') || {}).value || '';
+      [r.rca.issueL1, r.rca.issueL2, r.rca.subTheme,
+       r.rca.primaryScenario, r.rca.overlayScenarios, r.rca.slackThreadOverride] = keep;
+      renderRcaCol();
+      return out; }""")
+    assert "Issue:" not in txt, txt[:300]
+    assert "— / —" not in txt
+
+
+def test_editing_a_booking_log_row_persists(page):
+    """The rows are editable in their new column too. A move that keeps the
+    contenteditable but loses its save handler looks identical on screen —
+    the text stays until you reload."""
+    new_text = "Booking created (edited in a test)"
+    page.evaluate("""(t) => {
+      const el = document.querySelector('#rca-booking-logs-section [data-log-field="what"]');
+      el.focus(); el.textContent = t;
+      el.dispatchEvent(new FocusEvent('blur', {bubbles: true})); }""", new_text)
+    page.wait_for_timeout(900)
+    saved = page.evaluate("""async () => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const res = await fetch('/api/reviews/' + r.id);
+      const d = await res.json();
+      const logs = ((d.draft || {}).rca_v3 || {}).booking_logs || [];
+      return logs.map(l => l && l.what); }""")
+    assert new_text in saved, saved
