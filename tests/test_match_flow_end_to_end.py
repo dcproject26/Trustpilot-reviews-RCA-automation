@@ -233,3 +233,68 @@ def test_rematch_tells_shortlist_the_review_date():
 def test_the_pipeline_tells_shortlist_the_review_date():
     i = PIPE.find("_short = await zendesk.shortlist(")
     assert "review_date=" in PIPE[i:i + 400]
+
+
+# ── 6. the requester path: reasons must belong to the booking they are on ───
+
+def test_requester_candidates_get_their_own_match_reasons():
+    """This path built one reason list from any() over the whole set and put
+    it on every card: one booking with a venue match made all five say
+    "venue", one ticket-text hit made all five say "ticket-text". The card
+    exists to tell an associate why a booking is in front of them, and four
+    out of five were reading a reason that belonged to a different booking.
+
+    It was also the same list object in all five, so anything appending to one
+    would have appended to all."""
+    i = PIPE.find("candidates = [_make_candidate(row, \"zendesk_requester\",")
+    assert i > 0, "the requester candidate build is gone"
+    block = PIPE[i - 1400:i + 400]
+    assert "_reasons_for(bid, row)" in block, \
+        "candidates are not getting per-booking reasons"
+    assert "def _reasons_for(bid, row):" in block
+    # the set-wide version must not come back
+    assert "elif any(_ticket_pts(b) > 0 for b, _ in ranked):" not in PIPE, \
+        "a set-wide any() is deciding a per-candidate reason again"
+
+
+def test_requester_reasons_use_the_same_scorers_as_the_ranking():
+    """A card saying "venue" beside a venue score of 0 is worse than a card
+    saying nothing."""
+    i = PIPE.find("def _reasons_for(bid, row):")
+    block = PIPE[i:i + 700]
+    for scorer in ("_both_pts(bid)", "_venue_pts(row, bid)", "_ticket_pts(bid)"):
+        assert scorer in block, f"{scorer} is not what decides the reason"
+
+
+def test_the_date_only_path_warns_that_it_is_weak():
+    """zendesk_requester_date_only means no venue agreed and the ranking is on
+    visit-date closeness, which proves very little."""
+    i = PIPE.find('narrowing_path = ("zendesk_requester_candidates" if venue_signal')
+    assert i > 0
+    block = PIPE[i:i + 1200]
+    assert "These are weak" in block, "the trail no longer says these are weak"
+    # and the picker must render that warning
+    assert "venueSignal" in CLIENT and "scoreVenue" in CLIENT
+
+
+def test_a_single_requester_bid_is_not_auto_promoted_on_a_weak_name():
+    """Being the only survivor is not evidence. A wrong BID promoted to Tier 1
+    presents as a direct match and the whole RCA is built on another guest's
+    booking."""
+    i = PIPE.find("_conf = _score(bq_row, bid)")
+    block = PIPE[i:i + 300]
+    assert "_conf >= 3.0" in block, "the auto-promote threshold is gone"
+
+
+def test_an_unavailable_model_is_disclosed_like_an_unavailable_warehouse():
+    """Everything after matching is written by the model. With it unavailable
+    the classification, the RCA and the reply all come back empty and the card
+    renders blank — indistinguishable from a review too thin to say anything
+    about. BigQuery being down was already disclosed; this half was not."""
+    assert 'if not is_live("anthropic"):' in PIPE, \
+        "the pipeline never checks whether the model is available"
+    i = PIPE.find('if not is_live("anthropic"):')
+    block = PIPE[i:i + 900]
+    assert "confidence_trail.append" in block, \
+        "it is logged but never shown to the person reading the card"
+    assert "not because there was nothing to say" in block

@@ -1052,17 +1052,36 @@ async def process_review(review_id: str, force_candidates: bool = False):
                         elif n_zd >= 2:
                             ranked = sorted(zd_candidates,
                                             key=lambda t: _score(t[1], t[0]), reverse=True)[:5]
-                            _matched_on = ["name", "zendesk"]
-                            if both_bids:
-                                _matched_on.append("name+venue")
-                            elif venue_signal:
-                                _matched_on.append("venue")
-                            elif any(_ticket_pts(b) > 0 for b, _ in ranked):
-                                _matched_on.append("ticket-text")
-                            else:
-                                _matched_on.append("date-only")
-                            candidates = [_make_candidate(row, "zendesk_requester", _matched_on)
-                                          for _, row in ranked]
+                            # Per candidate, not once for the set.
+                            #
+                            # This used to compute one list from any() over all
+                            # of them and stamp it on every card: one booking
+                            # with a venue match made all five say "venue", one
+                            # ticket-text hit made all five say "ticket-text".
+                            # The card exists to tell an associate why a booking
+                            # is in front of them, and four out of five were
+                            # being told a reason that belonged to a different
+                            # booking. It was also literally the same list object
+                            # in all five, so anything that later appended to one
+                            # would have appended to all.
+                            def _reasons_for(bid, row):
+                                why = ["name", "zendesk"]
+                                # Through the same scorers the ranking uses, so
+                                # the reason on the card and the score beside it
+                                # can never disagree.
+                                if _both_pts(bid) > 0:
+                                    why.append("name+venue")
+                                elif _venue_pts(row, bid) > 0:
+                                    why.append("venue")
+                                elif _ticket_pts(bid) > 0:
+                                    why.append("ticket-text")
+                                else:
+                                    why.append("date-only")
+                                return why
+
+                            candidates = [_make_candidate(row, "zendesk_requester",
+                                                          _reasons_for(bid, row))
+                                          for bid, row in ranked]
                             for i, (bid, row) in enumerate(ranked):
                                 _vp, _dp = _venue_pts(row, bid), _date_pts(row)
                                 _tp, _bp = _ticket_pts(bid), _both_pts(bid)
@@ -1497,6 +1516,22 @@ async def process_review(review_id: str, force_candidates: bool = False):
 
         # ── 9. DSS placeholder — runs after classification (step 11d) ───────────
         dss_rec = {}
+
+        # Everything from here on is written by the model. If it is not
+        # available, the classification, the RCA and the reply all come back
+        # empty and the card renders blank - which is indistinguishable from a
+        # review too thin to say anything about. The BigQuery branch above
+        # already says when the warehouse was unavailable; this is the same
+        # disclosure for the half of the pipeline that writes the analysis.
+        if not is_live("anthropic"):
+            log.error(f"[pipeline] {review_id}: the AI provider is NOT live - "
+                      f"classification, RCA and the reply will be empty")
+            confidence_trail.append({"mark": "warn",
+                "text": "<strong>The AI provider is not available on this "
+                        "server</strong> — the classification, the RCA and the "
+                        "draft reply below are empty because nothing could be "
+                        "generated, not because there was nothing to say. "
+                        "Re-run this review once it is connected."})
 
         # ── 10. Stated Issue ──────────────────────────────────────────────────
         stated_issue = ""
