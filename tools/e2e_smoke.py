@@ -16,6 +16,7 @@ the server rejects, an action that repeats.
 """
 import json
 import sys
+import time
 import urllib.request
 
 import os
@@ -55,6 +56,38 @@ def head(t):
     print(f"\n{'─' * 74}\n{t}\n{'─' * 74}")
 
 
+def wait_for_server(seconds: int = 45) -> None:
+    """Do not start until the app answers.
+
+    Backgrounding uvicorn returns immediately while the app is still starting,
+    so a script that runs straight after it gets connection-refused and then
+    falls over somewhere further down with an error about the shape of a
+    string - which says nothing about what actually went wrong.
+    """
+    deadline = time.time() + seconds
+    last = ""
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(BASE + "/api/health", timeout=3) as r:
+                if r.status == 200:
+                    waited = seconds - int(deadline - time.time())
+                    print(f"server ready at {BASE} after {waited}s\n")
+                    return
+        except Exception as e:
+            last = str(e)
+        time.sleep(1)
+    print(f"\nThe server at {BASE} never came up ({last}).\n\n"
+          f"  Start it first, give it a moment, then run this:\n\n"
+          f"    DATABASE_URL=sqlite:////tmp/e2e.db MOCK_MODE=true \\\n"
+          f"      python3 -m uvicorn server.main:app --port 8091 &\n"
+          f"    sleep 10\n"
+          f"    python3 tools/e2e_smoke.py\n\n"
+          f"  Set E2E_BASE if it is listening somewhere else.")
+    sys.exit(2)
+
+
+wait_for_server()
+
 # ── the inbox ───────────────────────────────────────────────────────────────
 head("1. the inbox")
 st, rows = call("GET", "/api/reviews")
@@ -64,6 +97,12 @@ check("all three seeded reviews are listed", isinstance(rows, list) and len(rows
 buckets = sorted(r.get("bucket") for r in rows) if isinstance(rows, list) else []
 check("all three buckets are represented", buckets == ["candidates", "identified", "untraceable"],
       str(buckets))
+
+if not isinstance(rows, list) or not rows:
+    print(f"\n  /api/reviews returned {rows!r} — seed the database first:\n"
+          f"    DATABASE_URL=sqlite:////tmp/e2e.db MOCK_MODE=true "
+          f"python3 tools/seed_demo.py")
+    sys.exit(2)
 
 RID = next((r["id"] for r in rows if r.get("bucket") == "identified"), None)
 CAND = next((r["id"] for r in rows if r.get("bucket") == "candidates"), None)
