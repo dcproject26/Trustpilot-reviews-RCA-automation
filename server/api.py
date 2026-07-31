@@ -369,6 +369,17 @@ async def add_manual_review(
     return {"ok": True, "review_id": review_id}
 
 
+# Registered BEFORE /api/reviews/{review_id}. FastAPI matches routes in the
+# order they are declared, so while this sat further down the file every call
+# to it was captured by {review_id} with review_id="bulk-status", looked up as
+# a review, and answered 404. The bulk reprocess progress indicator polls this
+# endpoint, so it had never once worked - and nothing said so, because a 404
+# in a background poll is invisible unless you are watching the console.
+@router.get("/api/reviews/bulk-status")
+def bulk_status():
+    return _bulk_public()
+
+
 @router.get("/api/reviews/{review_id}")
 def get_review(review_id: str, db: Session = Depends(get_session)):
     r = db.query(Review).filter(Review.id == review_id).first()
@@ -1036,11 +1047,6 @@ def _bulk_public() -> dict:
     else:
         d["eta_s"] = None
     return d
-
-
-@router.get("/api/reviews/bulk-status")
-def bulk_status():
-    return _bulk_public()
 
 
 @router.post("/api/reviews/bulk-cancel")
