@@ -157,3 +157,19 @@ def test_the_default_tab_matches_the_tab_marked_active():
     assert default == active.group(1), (
         f"the dashboard opens on the '{active.group(1)}' tab but filters to "
         f"'{default}' — reviews in other buckets are invisible")
+
+
+def test_mock_mode_stops_slack_posts_leaving_the_machine():
+    """post_to_thread checked only whether a client object existed, and the
+    tokens are present in any environment configured for real use — so a run
+    started with MOCK_MODE=true posted to the live Slack API. It failed on
+    demo data with an invalid channel and thread_ts; against a real thread it
+    would have posted, from a run whose whole point was that it could not."""
+    slack = open("server/services/slack.py", encoding="utf-8").read()
+    i = slack.find("async def post_to_thread(")
+    assert i > 0
+    body = slack[i:i + 1400]
+    guard = body.find("if MOCK_MODE:")
+    call = body.find("chat_postMessage")
+    assert guard > 0, "post_to_thread does not check MOCK_MODE"
+    assert guard < call, "the MOCK_MODE guard is after the call it should prevent"

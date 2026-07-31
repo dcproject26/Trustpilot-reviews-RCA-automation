@@ -92,7 +92,6 @@
   .status-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
   .status-pill.warn { color: var(--amber); }
   .status-pill.warn .dot { background: #B8860B; }
-  .env-pill { font-family: var(--mono); }
 
   .main {
     display: flex; min-width: 1280px;
@@ -866,20 +865,12 @@
       <div class="brand-sub">Headout · CX</div>
     </div>
     <div class="topbar-status">
-      <!-- Which backend am I looking at? A published deployment and the dev
-           repl each carry their own SQLite file, so two dashboards can show
-           different reviews and no amount of cache clearing changes it. This
-           chip names the environment, the running commit and the database. -->
-      <span class="status-pill env-pill" id="env-pill" title="environment · running commit · database">
-        <span class="dot"></span>…
-      </span>
-      <!-- One chip, filled from /api/health. These were seven hard-coded
-           pills that rendered green whatever the services were actually
-           doing - a health indicator that cannot report ill health is worse
-           than none, and it read as a row of decorations besides. -->
-      <span class="status-pill svc-pill" id="svc-pill" title="service connections">
-        <span class="dot"></span><span id="svc-text">checking…</span>
-      </span>
+      <!-- The environment and service chips were removed on request. They
+           read "dev · b75c5e0 · postgresql:helium/heliumdb · 30 reviews ·
+           8 services live" across the top of a page CX uses all day - a
+           commit hash and a database name are for whoever is deploying,
+           not for whoever is answering a guest. Both are still at
+           /api/health if either is ever wanted back. -->
       <button class="refresh-slack-btn" data-refresh-slack
               title="Pull Trustpilot reviews from Slack that aren't here yet">↻ Refresh from Slack</button>
       <button class="refresh-slack-btn" data-rerun-all
@@ -1001,62 +992,6 @@ function _bidFromReview(row) {
 // Backend identity chip. Stale code or a different database is the single
 // most confusing failure in this app - two dashboards, two answers - so it is
 // on screen rather than in a curl command.
-async function loadEnvPill() {
-  const pill = document.getElementById('env-pill');
-  if (!pill) return;
-  try {
-    const v = await (await fetch('/api/version')).json();
-    const db = v.db || {};
-    const bits = [v.environment || '?', v.short || '?',
-                  `${db.dialect || '?'}:${db.target || '?'}`];
-    if (db.reviews != null) bits.push(`${db.reviews} reviews`);
-    pill.innerHTML = `<span class="dot"></span>${bits.join(' · ')}`;
-    // Amber when the files have moved on but this process has not, or when the
-    // database is a container-local file that another environment cannot see.
-    const warn = v.stale || db.shared === false;
-    pill.classList.toggle('warn', !!warn);
-    pill.title = (v.stale
-        ? `STALE: on disk ${(v.on_disk || '').slice(0, 7)}, running ${v.short}. Restart the server.\n`
-        : '')
-      + (db.shared === false
-        ? 'This database is a file inside this container. A published deployment has its OWN copy, so the two dashboards will not agree. Set DATABASE_URL to a shared Postgres to fix.'
-        : 'Shared database.')
-      + `\nstarted ${v.started_at || '?'}`;
-  } catch (e) {
-    pill.innerHTML = '<span class="dot"></span>version unavailable';
-    pill.classList.add('warn');
-  }
-}
-
-// The service chip. Healthy is deliberately quiet - a grey "7 services live"
-// that nobody has to read. Anything down turns the chip amber and names what
-// is down, because that is the only state worth interrupting someone for.
-async function loadServicePill() {
-  const pill = document.getElementById('svc-pill');
-  const text = document.getElementById('svc-text');
-  if (!pill || !text) return;
-  try {
-    const h = await (await fetch('/api/health')).json();
-    const svc = h.services || {};
-    const names = Object.keys(svc);
-    const down = names.filter(n => !svc[n]);
-    if (h.mock_mode) {
-      text.textContent = 'mock mode — no live services';
-      pill.classList.add('warn');
-    } else if (down.length) {
-      text.textContent = `${names.length - down.length}/${names.length} services · ${down.join(', ')} down`;
-      pill.classList.add('warn');
-    } else {
-      text.textContent = `${names.length} services live`;
-      pill.classList.remove('warn');
-    }
-    pill.title = names.map(n => `${svc[n] ? '● live' : '○ down'}  ${n}`).join('\n');
-  } catch (e) {
-    text.textContent = 'health unavailable';
-    pill.classList.add('warn');
-  }
-}
-
 async function fetchInbox() {
   try {
     const rows = await (await fetch('/api/reviews')).json();
@@ -1453,8 +1388,6 @@ const state = {
 
 // fire once REVIEWS + state exist; fetchInbox merges API rows then loads drafts
 (async () => {
-  await loadEnvPill();
-  loadServicePill();
   pollBulk(false);          // reattach to a bulk run already in flight
   await fetchInbox();
   await loadSubThemeOptions();

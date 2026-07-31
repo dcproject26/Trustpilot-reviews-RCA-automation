@@ -447,6 +447,16 @@ async def fetch_message(channel: str, ts: str) -> dict | None:
 
 async def post_to_thread(channel: str, thread_ts: str, text: str,
                           as_user: bool = True) -> str | None:
+    # MOCK_MODE must mean nothing leaves this machine. This checked only
+    # whether a client object existed, and the tokens are present in any
+    # environment configured for real use - so a run started with
+    # MOCK_MODE=true posted to the live Slack API. It happened to fail on
+    # demo data with an invalid channel and thread_ts; against a real thread
+    # it would have posted, from a run whose whole point was that it could
+    # not.
+    if MOCK_MODE:
+        log.info(f"[MOCK] not posting to {channel}/{thread_ts}: {text[:120]}…")
+        return None
     client = _user if as_user and _user else _bot
     if not client:
         log.info(f"[MOCK] Would post to {channel}/{thread_ts}: {text[:120]}…")

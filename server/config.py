@@ -11,6 +11,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Set to "true" to force all mock data regardless of credentials
+# MOCK_MODE means: is_live() reports every service as down, so the code
+# paths that ask before calling out will not call out. It is NOT a
+# blanket network kill switch, and treating it as one has bitten:
+#
+#   Slack    - post_to_thread checked only whether a client existed, so
+#              a mock run posted to the real API. Fixed; it checks this
+#              flag first now.
+#   Anthropic- claude._call deliberately calls the model on the mock
+#              path, which is how a demo produces a real RCA. Still
+#              true, and intended - but it does mean MOCK_MODE costs
+#              tokens.
+#
 # "1", "yes" and "on" all mean true here. Accepting only the literal
 # string "true" meant MOCK_MODE=1 silently ran against real services -
 # it looks set, the app reports mock_mode false, and the difference only
