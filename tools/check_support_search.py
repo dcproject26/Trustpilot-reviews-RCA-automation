@@ -156,6 +156,9 @@ def main():
                     help="same, but find the review by author name (newest wins)")
     ap.add_argument("--list", action="store_true",
                     help="list reviews that have extracted indicators, and stop")
+    ap.add_argument("--why", action="store_true",
+                    help="on 0 results, count rows filter by filter to show "
+                         "which one is responsible")
     ap.add_argument("--reextract", action="store_true",
                     help="re-run extraction with the CURRENT prompt and use that "
                          "instead of what is stored (does not write anything)")
@@ -303,7 +306,13 @@ def main():
 
     if args.run:
         import asyncio
+        import logging
         from server.services.bigquery import find_via_support
+        # The service drops the venue and retries when the venue finds nothing.
+        # That second query is invisible from out here, so a run that succeeded
+        # only on the retry looks identical to one that never retried.
+        logging.basicConfig(level=logging.INFO, format="  [service] %(message)s")
+        logging.getLogger("server.services.bigquery").setLevel(logging.INFO)
         rows = asyncio.run(find_via_support(ind, author=name))
         print(f"\n{len(rows)} booking(s):\n")
         for r in rows:
@@ -312,9 +321,85 @@ def main():
                   f"{r.get('contact_count', 0)}x  {r.get('contact_tags','')[:40]}")
             print(f"                {(r.get('experienceName') or '')[:60]}")
         if not rows:
-            print("  (none — either no such guest contacted support, or the "
-                  "name/dates need widening)")
+            print("  (none)")
+            if not args.why:
+                print("\n  Add --why to count rows filter by filter and see "
+                      "which one is responsible.")
+        if not rows and args.why:
+            why(ind, name)
     return 0
+
+
+def why(ind: dict, author: str):
+    """Which filter emptied the result?
+
+    A search returning nothing has several possible causes that look identical
+    from outside: the guest never contacted support, the booking name is not
+    the review name, the dates do not line up, or the venue is a product type
+    that matches no experience. Counting the same query with one filter added
+    at a time separates them.
+    """
+    from server.config import BIGQUERY_SUPPORT_TABLE, BIGQUERY_BOOKINGS_TABLE
+    from server.services.bigquery import (_run_query, _search_name, _iso_dates,
+                                          _bqlib, SUPPORT_LOOKBACK_DAYS)
+    name  = _search_name(author or ind.get("guest_name") or "")
+    dates = _iso_dates(ind.get("dates_mentioned"))
+    venue = (ind.get("experience_or_venue") or "").strip()
+
+    base = f"""
+      FROM `{BIGQUERY_SUPPORT_TABLE}` sq
+      JOIN `{BIGQUERY_BOOKINGS_TABLE}` b
+        ON SAFE_CAST(sq.booking_id AS INT64) = b.booking_id
+      WHERE sq.booking_id IS NOT NULL
+        AND sq.query_created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(),
+                                                 INTERVAL {int(SUPPORT_LOOKBACK_DAYS)} DAY)
+    """
+    f_name = "AND LOWER(b.primary_guest_name) LIKE LOWER(CONCAT('%', @name, '%'))"
+    f_date = """AND (
+        EXISTS (SELECT 1 FROM UNNEST(@dates) d
+                WHERE ABS(DATE_DIFF(DATE(b.experience_date), DATE(d), DAY)) <= 1)
+        OR EXISTS (SELECT 1 FROM UNNEST(@dates) d
+                WHERE ABS(DATE_DIFF(DATE(b.created_at), DATE(d), DAY)) <= 1))"""
+    f_venue = "AND LOWER(b.experience_name) LIKE LOWER(CONCAT('%', @venue, '%'))"
+
+    steps = [("support contacts in window", "")]
+    if name:
+        steps.append((f"+ guest name contains {name!r}", f_name))
+    if dates:
+        steps.append((f"+ a booking date in {dates}", f_date))
+    if venue:
+        steps.append((f"+ experience name contains {venue!r}", f_venue))
+
+    print("\n  where the rows go:\n")
+    clauses, last = "", None
+    for label, clause in steps:
+        clauses += "\n" + clause
+        params = []
+        if "@name" in clauses:
+            params.append(_bqlib.ScalarQueryParameter("name", "STRING", name))
+        if "@dates" in clauses:
+            params.append(_bqlib.ArrayQueryParameter("dates", "STRING", dates))
+        if "@venue" in clauses:
+            params.append(_bqlib.ScalarQueryParameter("venue", "STRING", venue))
+        try:
+            rows = _run_query(f"SELECT COUNT(DISTINCT b.booking_id) AS n {base}{clauses}",
+                              params)
+            n = int(getattr(rows[0], "n", 0) or 0) if rows else 0
+        except Exception as e:
+            print(f"    {label:<44} failed: {str(e)[:60]}")
+            continue
+        drop = "" if last is None else f"  (was {last:,})"
+        print(f"    {label:<44} {n:>9,}{drop}")
+        if last and n == 0:
+            print(f"\n  ^ this filter is what empties it.")
+        last = n
+
+    if name and not any(s[0].startswith("+ guest name") for s in steps):
+        return
+    print(f"\n  If the guest-name step is where it goes to zero, the booking is "
+          f"not\n  under {name!r} — Trustpilot display names are frequently not "
+          f"booking names,\n  and this path cannot find a booking whose name it "
+          f"does not know.")
 
 
 if __name__ == "__main__":
