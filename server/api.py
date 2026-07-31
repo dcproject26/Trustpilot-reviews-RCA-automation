@@ -1805,10 +1805,13 @@ async def request_bid(review_id: str, db: Session = Depends(get_session)):
     r = db.query(Review).filter(Review.id == review_id).first()
     if not r:
         raise HTTPException(404, "Review not found")
-    first = (r.author or "there").strip().split()[0] if (r.author or "").strip() else "there"
-    template = (
-        f"Hi {first}, thank you for sharing your feedback. We would love to look "
-        f"into this for you — could you share your Headout booking reference "
-        f"number or the email used at the time of booking?"
-    )
-    return {"ok": True, "posted": False, "template": template}
+    # The copy comes from content/orm_macros.yaml, the file CX edits. This
+    # used to carry its own hardcoded sentence, so there were two versions of
+    # the untraceable reply — the one the dashboard shows and the one this
+    # returns — and editing the copy file only changed the first.
+    from server.prompts import UNTRACEABLE_REPLY, MACROS, strip_honorifics
+    _name = strip_honorifics(r.author or "")
+    first = (_name.split()[0] if _name.split()
+             else str(MACROS.get("fallback_first_name") or "there"))
+    return {"ok": True, "posted": False,
+            "template": UNTRACEABLE_REPLY.format(first_name=first)}

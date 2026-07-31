@@ -1016,6 +1016,47 @@ _MONTHS = ("january", "february", "march", "april", "may", "june", "july",
            "august", "september", "october", "november", "december")
 
 
+_INDICATOR_KINDS = ("name", "venue", "city", "pax", "date")
+
+
+def _merge_via(sig: dict, label: str) -> None:
+    """Record that another search also found this booking.
+
+    The searches run separately - by name, by name+venue, by name+city, by
+    venue - and a booking more than one of them returns has independent
+    agreement behind it. That used to be discarded as a duplicate.
+    """
+    vias = sig.setdefault("found_via_all", [sig.get("found_via")])
+    if label in vias:
+        return
+    vias.append(label)
+    for kind in label.split("+"):
+        if kind in _INDICATOR_KINDS and kind not in (sig.get("matched_on") or []):
+            sig.setdefault("matched_on", []).append(kind)
+
+
+def _evidence(sig: dict) -> int:
+    """How many distinct indicators point at this booking.
+
+    Two sources, unioned. The indicators the TICKET itself satisfied, which
+    matches_indicators reports, and the QUERIES that surfaced it - a booking
+    returned by the name search and again by the venue search has two
+    independent searches agreeing on it, which is not the same as one search
+    liking it twice.
+    """
+    kinds = set()
+    for tok in (sig.get("matched_on") or []):
+        head = str(tok).split(":")[0].strip().lower()
+        head = head.split(" ")[0]
+        if head in _INDICATOR_KINDS:
+            kinds.add(head)
+    for via in (sig.get("found_via_all") or [sig.get("found_via")]):
+        for part in str(via or "").split("+"):
+            if part in _INDICATOR_KINDS:
+                kinds.add(part)
+    return len(kinds)
+
+
 def _dates_agree(a: str, b: str) -> bool:
     """Two dates naming the same day, allowing the year to be off by one.
 
@@ -1078,7 +1119,7 @@ def _date_in_text(iso: str, hay: str) -> bool:
 
 
 async def shortlist(indicators: dict, author_first, author_last,
-                    limit_name_only: int = 5) -> list[dict]:
+                    limit_total: int = 5) -> list[dict]:
     """
     The bookings a review's indicators actually point at.
 
@@ -1087,9 +1128,11 @@ async def shortlist(indicators: dict, author_first, author_last,
     to judge a match are on the ticket itself, and BQ is only needed once an
     associate confirms one.
 
-    When the guest name is the only indicator there is, the filter cannot
-    discriminate beyond the name, so the most recent `limit_name_only` are
-    returned rather than that guest's entire history.
+    At most `limit_total` come back, ranked by how much of the review agrees
+    with each: the indicators the ticket satisfies, whether more than one of
+    the separate searches found it, and whether its visit date is a date the
+    review named. Five bookings is a choice an associate can make; thirteen is
+    a list they have to read.
     """
     if not is_live("zendesk"):
         return []
@@ -1157,6 +1200,7 @@ async def shortlist(indicators: dict, author_first, author_last,
     # is not computed, nothing is promoted, and the weak fallback is the same
     # name-only fallback it always was.
     seen_tickets, by_bid, weak_by_bid = set(), {}, {}
+    ticket_bid = {}          # ticket id -> booking id, for repeat sightings
     # Tickets with no name agreement but whose text matches the problem
     # AND a date the review named. Two independent signals with no name
     # is still worth a human's glance.
@@ -1171,15 +1215,30 @@ async def shortlist(indicators: dict, author_first, author_last,
             for t in hits or []:
                 tid = str(getattr(t, "id", ""))
                 if tid in seen_tickets:
+                    # Same ticket, found again by a different search. That is
+                    # still both indicators locating the same booking, so the
+                    # label is recorded before moving on - skipping outright
+                    # lost the agreement whenever one ticket answered both
+                    # queries, which is the common case.
+                    _b = ticket_bid.get(tid)
+                    if _b and _b in by_bid:
+                        _merge_via(by_bid[_b], label)
                     continue
                 seen_tickets.add(tid)
                 sig = ticket_signals(t)
                 bid = sig.get("booking_id")
-                # Only a bid already accepted as a STRONG match short-circuits.
-                # Skipping one held weakly meant a later ticket that satisfied
-                # every indicator was discarded as a duplicate, leaving the weaker
-                # reading of the same booking in its place.
-                if not bid or bid in by_bid:
+                if not bid:
+                    continue
+                # The same booking, surfaced again by a DIFFERENT query. That
+                # is the strongest thing this function learns and it used to be
+                # thrown away: the name search and the venue search were run
+                # separately, and a booking both of them returned was skipped
+                # the second time as a duplicate. Agreement between two
+                # independent searches is exactly what says which booking best
+                # matches the review, so it is recorded instead of discarded.
+                ticket_bid[tid] = bid
+                if bid in by_bid:
+                    _merge_via(by_bid[bid], label)
                     continue
                 ok, used = matches_indicators(sig, indicators, author_first, author_last)
 
@@ -1224,6 +1283,7 @@ async def shortlist(indicators: dict, author_first, author_last,
                 sig["issue_hits"] = hit_terms
                 sig["date_hits"]  = hit_dates
                 sig["found_via"]  = label
+                sig["found_via_all"] = [label]
                 sig["created_at"] = str(getattr(t, "created_at", "") or "")
                 sig["ticket_id"]  = tid
                 if ok:
@@ -1296,9 +1356,17 @@ async def shortlist(indicators: dict, author_first, author_last,
     # In the direct pass every corroboration count is zero, so this is the
     # original "newest first". In the issue pass, a ticket agreeing on name,
     # problem and date outranks one that merely shares a name and is newer.
-    # A booking whose visit date is a date the review named outranks one that
-    # merely shares a name and a venue, whichever ticket happens to be newer.
-    out.sort(key=lambda s: (1 if s.get("visit_hit") else 0,
+    # Rank by how much of the review each booking actually agrees with, not by
+    # which ticket happens to be newest.
+    #
+    # The searches run separately - by name, by name+venue, by name+city, by
+    # venue - so the same booking coming back from more than one of them is
+    # independent agreement and counts for more than any single search's
+    # opinion. _evidence() counts the distinct indicator kinds behind a
+    # booking, from both the indicators the ticket itself satisfied and the
+    # queries that surfaced it.
+    out.sort(key=lambda s: (_evidence(s),
+                            2 if s.get("visit_hit") else 0,
                             len(s.get("issue_hits") or []) + len(s.get("date_hits") or []),
                             s.get("created_at") or ""), reverse=True)
 
@@ -1311,10 +1379,15 @@ async def shortlist(indicators: dict, author_first, author_last,
             log.info(f"[shortlist] pax={indicators['pax']}: {len(out)} -> {len(exact)}")
             out = exact
 
-    name_only = bool(name) and not venue and not city
-    if name_only and len(out) > limit_name_only:
-        log.info(f"[shortlist] name-only: {len(out)} -> newest {limit_name_only}")
-        out = out[:limit_name_only]
+    # Five, always. The cap used to apply only to name-only reviews, so a
+    # review that named a venue could return thirteen cards - which is a list
+    # to read, not a choice to make. Ranked first, so the five kept are the
+    # five with the most of the review agreeing with them, not the five whose
+    # tickets happen to be newest.
+    if len(out) > limit_total:
+        log.info(f"[shortlist] {len(out)} candidates -> best {limit_total} "
+                 f"(evidence {[_evidence(s) for s in out[:limit_total]]})")
+        out = out[:limit_total]
 
     log.info(f"[shortlist] {len(seen_tickets)} ticket(s) searched -> {len(out)} match "
              f"(indicators: name={bool(name)} venue={bool(venue)} city={bool(city)} "
