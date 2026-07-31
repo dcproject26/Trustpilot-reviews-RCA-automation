@@ -1276,6 +1276,12 @@ async function loadDraftOverlays() {
           creationDate:   c.creationDate || c.bookedOn || '',
           status:         c.status || '',
           leadTime:       c.leadTime || '',
+          // The guest on the booking, and — when the booking was found through
+          // a support contact — what that contact was about. Both are what an
+          // associate actually picks between two candidates on.
+          guestName:      c.primary_guest_name || c.guestName || '',
+          contactCount:   c.contact_count || 0,
+          contactTags:    c.contact_tags || '',
         }));
       }
 
@@ -1801,8 +1807,11 @@ function renderReviewCol() {
             const hasScore = typeof c.score === 'number' && c.score > 0;
             const pct = hasScore ? Math.min(100, Math.round(c.score / 5 * 100)) : 0;
             const metaParts = [
+              c.guestName,
               c.vendorName,
               c.experienceDate,
+              c.contactCount ? `${c.contactCount} support contact${c.contactCount > 1 ? 's' : ''}`
+                             + (c.contactTags ? ` · ${c.contactTags}` : '') : '',
               (c.tgid || c.tid) ? `TGID ${c.tgid || '—'} / TID ${c.tid || '—'}` : '',
               c.leadTime ? `lead ${c.leadTime}` : '',
             ].filter(Boolean);

@@ -1012,6 +1012,36 @@ def matches_indicators(sig: dict, ind: dict, first, last) -> tuple[bool, list]:
     return True, used
 
 
+_MONTHS = ("january", "february", "march", "april", "may", "june", "july",
+           "august", "september", "october", "november", "december")
+
+
+def _date_in_text(iso: str, hay: str) -> bool:
+    """Does this ISO date appear in the text, however the guest wrote it?
+
+    Extraction returns YYYY-MM-DD. Almost nobody writes a date that way in a
+    support ticket, and the reviews this path exists for are the non-English
+    ones - a German guest writes 20.06.2026, so a literal ISO substring test
+    matched nothing outside a test fixture.
+    """
+    try:
+        y, m, d = (int(x) for x in str(iso).strip()[:10].split("-"))
+    except Exception:
+        return False
+    forms = {
+        f"{y:04d}-{m:02d}-{d:02d}",
+        f"{d:02d}.{m:02d}.{y:04d}", f"{d}.{m}.{y}", f"{d:02d}.{m:02d}.{y % 100:02d}",
+        f"{d:02d}/{m:02d}/{y:04d}", f"{d}/{m}/{y}",
+        f"{m:02d}/{d:02d}/{y:04d}", f"{m}/{d}/{y}",       # US ordering
+        f"{d:02d}-{m:02d}-{y:04d}",
+        f"{d:02d}.{m:02d}.", f"{d}.{m}.",                 # day.month, no year
+    }
+    if 1 <= m <= 12:
+        mon = _MONTHS[m - 1]
+        forms |= {f"{d} {mon}", f"{mon} {d}", f"{d} {mon[:3]}", f"{mon[:3]} {d}"}
+    return any(f in hay for f in forms)
+
+
 async def shortlist(indicators: dict, author_first, author_last,
                     limit_name_only: int = 5) -> list[dict]:
     """
@@ -1114,11 +1144,18 @@ async def shortlist(indicators: dict, author_first, author_last,
                 # exactly as it did before this existed.
                 hit_terms, hit_dates = [], []
                 if issue_pass:
-                    hay = " ".join(str(sig.get(k) or "") for k in
-                                   ("subject", "description", "text")).lower()
-                    hit_terms = [t for t in issue_terms if t.lower() in hay]
+                    # Read the ticket's own words. ticket_signals() returns the
+                    # booking's FACTS off the custom fields - booking id, guest,
+                    # experience, city, visit date - and has never carried the
+                    # subject or body. Looking for the guest's problem in there
+                    # found nothing, every time, silently.
+                    hay = " ".join((
+                        str(getattr(t, "subject", "") or ""),
+                        str(getattr(t, "description", "") or "")[:4000],
+                    )).lower()
+                    hit_terms = [term for term in issue_terms if term.lower() in hay]
                     hit_dates = [d for d in (indicators.get("dates_mentioned") or [])
-                                 if str(d) and str(d) in hay]
+                                 if _date_in_text(d, hay)]
                     if hit_terms:
                         used = list(used) + [f"issue:{hit_terms[0]}"]
                     if hit_dates:

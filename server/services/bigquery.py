@@ -179,6 +179,58 @@ async def find_booking(review: dict) -> dict | None:
     return None
 
 
+# How far back the support-anchored search looks. Guests review months after
+# a visit, so this is deliberately generous — but it is bounded, because the
+# alternative is scanning every support contact ever recorded on every run.
+SUPPORT_LOOKBACK_DAYS = 540
+
+
+def _iso_dates(raw) -> list:
+    """The dates a review named, as YYYY-MM-DD, discarding anything else.
+
+    The model is asked for ISO and usually obliges, but it also returns
+    "20.06.2026", "June 20" and "2026-06-20 (the voucher date)". Those reach
+    BigQuery as DATE(@d) inside the query, where one bad value raises and takes
+    the whole search down — so anything that is not a clean date is dropped
+    here rather than trusted.
+    """
+    import re as _re
+    out = []
+    for d in (raw or []):
+        m = _re.search(r"(\d{4})-(\d{2})-(\d{2})", str(d))
+        if not m:
+            continue
+        y, mo, dy = (int(x) for x in m.groups())
+        if not (1 <= mo <= 12 and 1 <= dy <= 31):
+            continue
+        iso = f"{y:04d}-{mo:02d}-{dy:02d}"
+        if iso not in out:
+            out.append(iso)
+    return out[:6]
+
+
+def _search_name(raw: str) -> str:
+    """The part of a display name worth matching a booking against.
+
+    Trustpilot names are not booking names. "Frau Nicole" is a title and a
+    first name; "Sven B." abbreviates the surname. A LIKE on the whole string
+    finds nothing in either case, so the title comes off and — when a surname
+    survives — that alone is used, since it is both the most discriminating
+    token and the one most likely to be spelled identically on the booking.
+    """
+    try:
+        from server.prompts import strip_honorifics
+        cleaned = strip_honorifics(raw)
+    except Exception:
+        cleaned = str(raw or "")
+    parts = [p.strip(".,") for p in cleaned.split() if p.strip(".,")]
+    if not parts:
+        return ""
+    if len(parts) >= 2 and len(parts[-1]) >= 3:
+        return parts[-1]        # surname
+    return parts[0]
+
+
 def support_search_sql(indicators: dict, author: str = "", limit: int = 8):
     """Build the support-anchored query. Returns (sql, params) or (None, None).
 
@@ -186,8 +238,8 @@ def support_search_sql(indicators: dict, author: str = "", limit: int = 8):
     exact query this service issues, rather than a hand-copied lookalike that
     drifts.
     """
-    name  = (author or indicators.get("guest_name") or "").strip()
-    dates = [d for d in (indicators.get("dates_mentioned") or []) if d]
+    name  = _search_name(author or indicators.get("guest_name") or "")
+    dates = _iso_dates(indicators.get("dates_mentioned"))
     venue = (indicators.get("experience_or_venue") or "").strip()
     # Something to anchor on is required. A bare "had a support contact"
     # query would return the whole table.
@@ -227,6 +279,7 @@ def support_search_sql(indicators: dict, author: str = "", limit: int = 8):
         b.experience_id          AS tgid,
         b.tour_id                AS tid,
         b.vendor_id              AS vid,
+        v.vendor_name,
         DATE(b.created_at)       AS booked_on,
         DATE(b.experience_date)  AS visit_date,
         b.primary_guest_name     AS guest_name,
@@ -237,9 +290,13 @@ def support_search_sql(indicators: dict, author: str = "", limit: int = 8):
         MAX(DATE(sq.query_created_at)) AS last_contact
     FROM `{BIGQUERY_SUPPORT_TABLE}` sq
     JOIN `{BIGQUERY_BOOKINGS_TABLE}` b
-      ON CAST(b.booking_id AS STRING) = sq.booking_id
+      ON SAFE_CAST(sq.booking_id AS INT64) = b.booking_id
+    LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
+           ON b.vendor_id = v.vendor_id
     WHERE {" AND ".join(where)}
-    GROUP BY 1,2,3,4,5,6,7,8
+      AND sq.query_created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(),
+                                               INTERVAL {int(SUPPORT_LOOKBACK_DAYS)} DAY)
+    GROUP BY 1,2,3,4,5,6,7,8,9
     ORDER BY last_contact DESC
     LIMIT {int(limit)}
     """
@@ -265,8 +322,10 @@ async def find_via_support(indicators: dict, author: str = "",
     """
     if not is_live("bigquery"):
         return []
-    name  = (author or indicators.get("guest_name") or "").strip()
-    dates = [d for d in (indicators.get("dates_mentioned") or []) if d]
+    # The same normalisation the query uses, so what the card says it matched
+    # on is what was actually searched for.
+    name  = _search_name(author or indicators.get("guest_name") or "")
+    dates = _iso_dates(indicators.get("dates_mentioned"))
     venue = (indicators.get("experience_or_venue") or "").strip()
     sql, params = support_search_sql(indicators, author, limit)
     if sql is None:
