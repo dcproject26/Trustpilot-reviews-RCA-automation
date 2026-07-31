@@ -1016,6 +1016,11 @@ _MONTHS = ("january", "february", "march", "april", "may", "june", "july",
            "august", "september", "october", "november", "december")
 
 
+# Zendesk's search API returns at most this many results and silently drops
+# the rest. Hitting it exactly is the only signal available that a search was
+# truncated - the response says nothing.
+_ZD_RESULT_CAP = 1000
+
 _INDICATOR_KINDS = ("name", "venue", "city", "pax", "date")
 
 
@@ -1119,7 +1124,8 @@ def _date_in_text(iso: str, hay: str) -> bool:
 
 
 async def shortlist(indicators: dict, author_first, author_last,
-                    limit_total: int = 5) -> list[dict]:
+                    limit_total: int = 5, since: str | None = None,
+                    notes: list | None = None) -> list[dict]:
     """
     The bookings a review's indicators actually point at.
 
@@ -1161,6 +1167,13 @@ async def shortlist(indicators: dict, author_first, author_last,
     # used when they are the ONLY indicator available; otherwise the combined
     # queries cover the same ground precisely.
     ORDER = "order_by:created_at sort:desc"
+    # A date floor on the searches that would otherwise match every ticket
+    # naming a common word. Zendesk returns at most _ZD_RESULT_CAP rows and
+    # silently drops the rest, so on a broad query the right booking can fall
+    # outside the window entirely and no amount of ranking gets it back.
+    # Applied ONLY to the broad forms - the combined queries are already
+    # narrow, and bounding them could drop a real match for nothing.
+    BOUND = f" created>{since}" if since else ""
     queries = [] 
     if name:
         queries.append((f'type:ticket requester:"{name}" {ORDER}', "name"))
@@ -1171,9 +1184,9 @@ async def shortlist(indicators: dict, author_first, author_last,
     if name and not venue and not city:
         # Name-only review: the requester search alone can miss tickets raised
         # under a different requester, so the free-text name is needed here.
-        queries.append((f'type:ticket {name} {ORDER}', "name"))
+        queries.append((f'type:ticket {name}{BOUND} {ORDER}', "name"))
     if venue and not name:
-        queries.append((f'type:ticket "{venue}" {ORDER}', "venue"))
+        queries.append((f'type:ticket "{venue}"{BOUND} {ORDER}', "venue"))
     # Issue-led queries are a SECOND PASS, not part of this list. The direct
     # indicators are the matcher and they stay untouched: when name, venue or
     # city produce a match, that is the answer and the problem text is never
@@ -1193,7 +1206,7 @@ async def shortlist(indicators: dict, author_first, author_last,
         elif venue:
             issue_queries.append((f'type:ticket "{venue}" {q_term} {ORDER}', "venue+issue"))
         else:
-            issue_queries.append((f'type:ticket {q_term} {ORDER}', "issue"))
+            issue_queries.append((f'type:ticket {q_term}{BOUND} {ORDER}', "issue"))
 
     loop = asyncio.get_running_loop()
     # issue_pass=False reproduces the original behaviour exactly: corroboration
@@ -1211,7 +1224,22 @@ async def shortlist(indicators: dict, author_first, author_last,
                 hits = await loop.run_in_executor(None, lambda qq=q: _search_with_retry(_z, qq))
             except Exception as e:
                 log.warning(f"[shortlist] query failed ({label}): {e}")
+                if notes is not None:
+                    notes.append({"kind": "failed", "label": label,
+                                  "detail": str(e)[:120]})
                 continue
+            # Zendesk returns at most _ZD_RESULT_CAP results and drops the
+            # rest without saying so in the response. Coming back with exactly
+            # the cap means the search was too broad and the right booking may
+            # never have been in what we got - which the associate has to be
+            # told, because five candidates from a truncated search does not
+            # mean five exist.
+            if len(hits or []) >= _ZD_RESULT_CAP:
+                log.warning(f"[shortlist] query '{label}' hit the Zendesk result "
+                            f"cap ({_ZD_RESULT_CAP}) - results are incomplete")
+                if notes is not None:
+                    notes.append({"kind": "truncated", "label": label,
+                                  "detail": q})
             for t in hits or []:
                 tid = str(getattr(t, "id", ""))
                 if tid in seen_tickets:
@@ -1221,8 +1249,9 @@ async def shortlist(indicators: dict, author_first, author_last,
                     # lost the agreement whenever one ticket answered both
                     # queries, which is the common case.
                     _b = ticket_bid.get(tid)
-                    if _b and _b in by_bid:
-                        _merge_via(by_bid[_b], label)
+                    _prior = (by_bid.get(_b) or weak_by_bid.get(_b)) if _b else None
+                    if _prior is not None:
+                        _merge_via(_prior, label)
                     continue
                 seen_tickets.add(tid)
                 sig = ticket_signals(t)
@@ -1240,6 +1269,13 @@ async def shortlist(indicators: dict, author_first, author_last,
                 if bid in by_bid:
                     _merge_via(by_bid[bid], label)
                     continue
+                # A weak candidate still accumulates evidence. It is judged
+                # again below - a later ticket may satisfy every indicator and
+                # promote it - but the fact that another search also found it
+                # counts either way, and the weak list is what an associate
+                # sees when nothing stronger survives.
+                if bid in weak_by_bid:
+                    _merge_via(weak_by_bid[bid], label)
                 ok, used = matches_indicators(sig, indicators, author_first, author_last)
 
                 # Does the ticket's own visit-date field land on a date the
