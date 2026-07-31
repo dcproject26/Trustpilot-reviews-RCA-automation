@@ -681,7 +681,9 @@ async def process_review(review_id: str, force_candidates: bool = False):
                     try:
                         _short = await zendesk.shortlist(
                             indicators, author_first, author_last,
-                            since=_since, notes=_notes)
+                            since=_since, notes=_notes,
+                            review_date=(review.received_at or datetime.utcnow())
+                                        .date().isoformat())
                     except Exception as e:
                         log.warning(f"[tier2] shortlist failed: {e}")
                         _short = []

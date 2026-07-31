@@ -461,3 +461,72 @@ def test_the_visit_date_hint_is_used_for_ranking(zendesk_with, monkeypatch):
     assert out[0]["booking_id"] == "51001", \
         "the booking on the day she was standing at the venue must rank first"
     assert any("visit date" in m for m in out[0]["matched_on"])
+
+
+def test_a_date_the_model_inferred_from_today_is_not_evidence(zendesk_with,
+                                                              monkeypatch):
+    """Amanda's review says "I am at the venue" and names no date, so
+    extraction resolved visit_date_hint to the post date. Every booking
+    visiting that day then "agreed" — hundreds worldwide — and five Amandas on
+    five continents each came back labelled a match on that date."""
+    a = _ticket("t1", "52001", "Amanda Rogers", "B", "—")
+    b = _ticket("t2", "52002", "Amanda Burgan", "B", "—")
+    qs = _Queries({"Amanda": [a, b]})
+    zendesk_with(qs, {
+        "t1": {"booking_id": "52001", "guest_name": "Amanda Rogers",
+               "visit_date": "2026-07-30"},
+        "t2": {"booking_id": "52002", "guest_name": "Amanda Burgan",
+               "visit_date": "2026-07-30"},
+    })
+    monkeypatch.setattr(zd, "matches_indicators",
+                        lambda sig, ind, f, l: (True, ["name"]))
+    ind = {"guest_name": "Amanda", "experience_or_venue": None,
+           "city_or_country": None, "visit_date_hint": "2026-07-30",
+           "dates_mentioned": [], "issue_terms": []}
+    out = asyncio.run(zd.shortlist(ind, "Amanda", "", review_date="2026-07-30"))
+    assert out, "they are still leads worth showing"
+    for s in out:
+        assert not any("visit date" in m for m in s["matched_on"]), \
+            "the post date is not corroboration — it agrees with everyone"
+        assert s.get("weak") is True, \
+            "a first name and nothing else is a lead, not an identification"
+
+
+def test_a_date_the_guest_actually_wrote_still_counts(zendesk_with, monkeypatch):
+    """The rule is about inference, not about dates. A review that names a
+    date has a fact, and the hint alongside it is corroborated."""
+    t = _ticket("t1", "52003", "Sven Bauer", "B", "—")
+    qs = _Queries({"Sven": [t]})
+    zendesk_with(qs, {"t1": {"booking_id": "52003", "guest_name": "Sven Bauer",
+                             "visit_date": "2026-10-20"}})
+    monkeypatch.setattr(zd, "matches_indicators",
+                        lambda sig, ind, f, l: (True, ["name"]))
+    out = asyncio.run(zd.shortlist(SVEN, "Sven", "", review_date="2026-10-20"))
+    assert any("visit date" in m for m in out[0]["matched_on"]), \
+        "dates_mentioned is populated, so the date is a fact the guest gave"
+
+
+def test_one_indicator_is_a_lead_not_a_match(zendesk_with, monkeypatch):
+    t = _ticket("t1", "52004", "Amanda Bell", "B", "—")
+    qs = _Queries({"Amanda": [t]})
+    zendesk_with(qs, {"t1": {"booking_id": "52004", "guest_name": "Amanda Bell"}})
+    monkeypatch.setattr(zd, "matches_indicators",
+                        lambda sig, ind, f, l: (True, ["name"]))
+    ind = {"guest_name": "Amanda", "experience_or_venue": None,
+           "city_or_country": None, "visit_date_hint": None,
+           "dates_mentioned": [], "issue_terms": []}
+    out = asyncio.run(zd.shortlist(ind, "Amanda", ""))
+    assert out and out[0].get("weak") is True
+
+
+def test_two_indicators_are_still_a_match(zendesk_with, monkeypatch):
+    t = _ticket("t1", "52005", "Sven Bauer", "B", "—")
+    qs = _Queries({"Sven": [t]})
+    zendesk_with(qs, {"t1": {"booking_id": "52005", "guest_name": "Sven Bauer",
+                             "experience": "Sinatra The Musical"}})
+    monkeypatch.setattr(zd, "matches_indicators",
+                        lambda sig, ind, f, l: (True, ["name", "venue"]))
+    out = asyncio.run(zd.shortlist(dict(SVEN, experience_or_venue="Musical"),
+                                   "Sven", ""))
+    assert out and not out[0].get("weak"), \
+        "name and venue agreeing is an identification"
