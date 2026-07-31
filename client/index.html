@@ -1323,6 +1323,14 @@ async function loadDraftOverlays() {
       r.extractedSignals  = draft.extracted_signals || {};
       r.slackMentions     = draft.slack_mentions || [];
 
+      // Actions that already went OUT. The server has recorded all three and
+      // has been sending them all along; nothing read them, so after a reload
+      // every button offered to do it again — and both of these post into a
+      // Slack channel people are reading.
+      r.rcaPostedAt   = draft.rca_posted_at || null;
+      r.flagToBizState = draft.flag_to_biz_state || '';
+      r.sentAt        = draft.sent_at || null;
+
       // ── Match method from confidence trail ────────────────────────────────
       r.matchMethod = draft.match_method
         || (draft.confidence_trail && draft.confidence_trail.length
@@ -2061,7 +2069,10 @@ function renderReviewCol() {
             const _ffv = _li ? _li.ff_vid : null;
             const _crTone = _cr != null && _cr < 0.95 ? 'red' : _cr == null && !_li ? ins.completion.tone : _cr == null ? 'grey' : '';
             const _crFlagToBiz = _ffv ? _ffv.needs_attention : (_cr != null ? _cr < 0.95 : ins.completion.flagToBiz);
-            const _crFlagged = ins.completion.flagged;
+            // The server records this and sends it on every load. Reading it
+            // only out of the in-memory object meant a reload re-armed the
+            // button and a second click sent a duplicate to #biz-supply-ops.
+            const _crFlagged = r.flagToBizState === 'sent' || ins.completion.flagged;
             const _sdi = _li ? _li.sameDaySameVidIssues : ins.sameDayIssues.value;
             const _sdObj = _li ? _li.same_day_same_vid : null;
             const _sdiTone = _li ? (_sdObj && _sdObj.issues > 0 ? 'red' : _sdObj == null ? 'grey' : '') : ins.sameDayIssues.tone;
@@ -2267,6 +2278,18 @@ function _insightsWindowLabel(r) {
 // which returns before the main renderer's locals exist - a helper defined
 // down there is a ReferenceError up here.
 const esc = s => String(s == null ? '' : s).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// "14:02" today, "3 Jul" before that. Used on buttons whose action already
+// happened, so the label says when rather than inviting a repeat.
+function _shortWhen(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const now = new Date();
+  return d.toDateString() === now.toDateString()
+    ? d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})
+    : d.toLocaleDateString([], {day: 'numeric', month: 'short'});
+}
 // Pointer fields are lists in the v3 shape; older drafts hold one string.
 // "Frau Nicole Liebschner" is not called Frau. Taking the first word of the
 // author name put a German honorific into a guest-facing greeting - "Hey
@@ -3507,15 +3530,39 @@ function renderRcaCol() {
   // which also closes the review - the RCA usually goes to the team while
   // the guest reply is still being edited.
   const slackPostBtn = col.querySelector('[data-slack-post]');
+  if (slackPostBtn && r.rcaPostedAt) {
+    // Already in the thread. Say so rather than offering a fresh post — the
+    // second copy is what people actually see, and nothing warned about it.
+    slackPostBtn.textContent = '✓ Posted ' + _shortWhen(r.rcaPostedAt);
+    slackPostBtn.classList.add('posted');
+  }
   if (slackPostBtn) slackPostBtn.addEventListener('click', async () => {
     const orig = slackPostBtn.textContent;
+    if (r.rcaPostedAt && !slackPostBtn.dataset.confirming) {
+      slackPostBtn.dataset.confirming = '1';
+      slackPostBtn.textContent = 'Post a second copy?';
+      setTimeout(() => {
+        delete slackPostBtn.dataset.confirming;
+        slackPostBtn.textContent = orig;
+      }, 4000);
+      return;
+    }
+    const again = !!slackPostBtn.dataset.confirming;
+    delete slackPostBtn.dataset.confirming;
     slackPostBtn.disabled = true; slackPostBtn.textContent = 'posting…';
     try {
-      const resp = await fetch(`/api/reviews/${r.id}/post-rca`, {method: 'POST'});
+      const resp = await fetch(`/api/reviews/${r.id}/post-rca${again ? '?force=true' : ''}`,
+                               {method: 'POST'});
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(data.detail || 'post failed');
-      slackPostBtn.textContent = '✓ Posted to thread';
-      setTimeout(() => { slackPostBtn.disabled = false; slackPostBtn.textContent = orig; }, 2500);
+      r.rcaPostedAt = data.posted_at || new Date().toISOString();
+      slackPostBtn.textContent = data.already_posted
+        ? '✓ Already posted ' + _shortWhen(r.rcaPostedAt)
+        : '✓ Posted to thread';
+      setTimeout(() => {
+        slackPostBtn.disabled = false;
+        slackPostBtn.textContent = '✓ Posted ' + _shortWhen(r.rcaPostedAt);
+      }, 2500);
     } catch (e) {
       slackPostBtn.textContent = String(e.message || e).slice(0, 70);
       setTimeout(() => { slackPostBtn.disabled = false; slackPostBtn.textContent = orig; }, 4000);

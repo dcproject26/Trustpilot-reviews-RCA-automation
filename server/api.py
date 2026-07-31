@@ -1274,9 +1274,15 @@ async def send_review(review_id: str, db: Session = Depends(get_session)):
     d.sent_at = datetime.utcnow()
     r.status  = "sent"
     ts = None
-    if r.slack_channel != "C_MANUAL":
+    # Send posts the RCA as well as closing the review — but "Post to thread"
+    # exists precisely so the RCA can go to the team while the reply is still
+    # being edited, and using both put the same RCA in the thread twice. The
+    # post here is for the case where nobody used that button.
+    if r.slack_channel != "C_MANUAL" and not d.rca_posted_at:
         rca_text = (d.slack_thread_override or "").strip() or format_rca_slack(r, d)
         ts = await post_to_thread(r.slack_channel, r.slack_ts, rca_text, as_user=True)
+        if ts:
+            d.rca_posted_at = datetime.utcnow()
     m = db.query(ReviewMetric).filter(ReviewMetric.review_id == review_id).first()
     if m:
         if r.received_at:
@@ -1315,7 +1321,8 @@ async def translate_reply(review_id: str, db: Session = Depends(get_session)):
 
 
 @router.post("/api/reviews/{review_id}/post-rca")
-async def post_rca_to_thread(review_id: str, db: Session = Depends(get_session)):
+async def post_rca_to_thread(review_id: str, force: bool = False,
+                             db: Session = Depends(get_session)):
     """
     Post the RCA into the review's own Slack thread, without marking the
     review sent.
@@ -1333,6 +1340,13 @@ async def post_rca_to_thread(review_id: str, db: Session = Depends(get_session))
     if r.slack_channel == "C_MANUAL" or not r.slack_ts:
         raise HTTPException(400, "This review was added by hand, so it has no "
                                  "Slack thread to post into. Copy the post instead.")
+    # Posting twice is not a no-op: it drops a second copy of the RCA into a
+    # thread people are reading, and nothing about the button said it had
+    # already gone. A repeat has to be asked for.
+    if d.rca_posted_at and not force:
+        return {"ok": True, "already_posted": True, "ts": None,
+                "posted_at": d.rca_posted_at.isoformat()}
+
     text = (d.slack_thread_override or "").strip() or format_rca_slack(r, d)
     ts = await post_to_thread(r.slack_channel, r.slack_ts, text, as_user=True)
     if ts is None and not MOCK_MODE:
@@ -1340,7 +1354,8 @@ async def post_rca_to_thread(review_id: str, db: Session = Depends(get_session))
                                  "channel membership and scopes.")
     d.rca_posted_at = datetime.utcnow()
     db.commit()
-    return {"ok": True, "ts": ts, "posted_at": d.rca_posted_at.isoformat()}
+    return {"ok": True, "already_posted": False, "ts": ts,
+            "posted_at": d.rca_posted_at.isoformat()}
 
 
 @router.post("/api/reviews/{review_id}/reprocess")

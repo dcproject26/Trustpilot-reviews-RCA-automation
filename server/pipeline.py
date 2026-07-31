@@ -76,6 +76,36 @@ def _is_hashed_name(s: str) -> bool:
     return len(s) >= 16 and bool(re.fullmatch(r"[A-Za-z0-9+/=_\-]+", s))
 
 
+def _shape_weak_bid(row: dict, why: list) -> dict:
+    """A verify_bid row, in the shape the candidate picker reads.
+
+    verify_bid names the dates date_of_visit / date_of_booking and returns no
+    match reasons; the picker reads visitDate / bookedOn / matchReasons. So the
+    one candidate an associate is explicitly being asked to judge - a booking
+    id found in prose that the system could NOT verify - was the one that
+    arrived with no date and no reasons on its card.
+    """
+    out = dict(row)
+    dov = row.get("date_of_visit") or row.get("visitDate") or ""
+    dob = row.get("date_of_booking") or row.get("bookedOn") or ""
+    out.update({
+        "id":             str(row.get("id") or ""),
+        "experience":     row.get("experienceName") or row.get("experience_name") or "",
+        "experienceName": row.get("experienceName") or row.get("experience_name") or "",
+        "visitDate":      dov,
+        "date_of_visit":  dov,
+        "experienceDate": dov,
+        "bookedOn":       dob,
+        "creationDate":   dob,
+        "vendorName":     row.get("vendorName") or row.get("partner") or "",
+        "matched_on":     list(why),
+        "matchReasons":   list(why),
+        "narrowing_path": "regex_bid_unverified",
+        "score":          None,
+    })
+    return out
+
+
 def _venue_token_overlap(review_text: str, exp_name: str) -> bool:
     """
     Robust venue signal: True only when the review and the experience name
@@ -413,7 +443,21 @@ async def process_review(review_id: str, force_candidates: bool = False):
                             # unset: an unverified number must not become the
                             # matched booking.
                             bq_row["low_confidence_bid_match"] = True
-                            candidates = [bq_row]
+                            # verify_bid returns date_of_visit / date_of_booking
+                            # and no match reasons. The picker reads visitDate /
+                            # bookedOn / matchReasons, so this candidate — the
+                            # one case where the associate is being asked to
+                            # judge a number the system does NOT trust — arrived
+                            # with no date and no reasons on the card. Shape it
+                            # like every other candidate and say what is weak.
+                            _why = ["booking id in review text"]
+                            if date_ok:
+                                _why.append("date")
+                            _why.append(f"name {name_conf:.1f}" if pgn
+                                        else "no guest name on booking")
+                            if not venue_ok:
+                                _why.append("no venue match")
+                            candidates = [_shape_weak_bid(bq_row, _why)]
                             match_tier = 2
                             candidate_state = True
                             _ctr["t1_regex_downgraded"] += 1
