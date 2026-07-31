@@ -855,13 +855,39 @@ Return JSON:
 - pax — how many people the booking was for, as a number. Count it from
   whatever the review says: "9 combo tickets" → 9, "my wife and I" → 2,
   "family of four" → 4, "2 adults 1 child" → 3. Null if not inferable.
+- issue_terms — 2 to 5 SHORT search phrases naming the PROBLEM the guest
+  had, the way it would appear in a support ticket. This is how the booking
+  gets found when the review carries no booking id: the guest almost always
+  contacted support about the same problem first, so the problem itself is
+  an identifier.
+  Give each phrase TWICE when the review is not in English - once in the
+  review's own language and once in English - because the support ticket
+  will be in the guest's language.
+  Example, a German review about a voucher showing the wrong date:
+      ["falsches Datum", "wrong date", "Voucher", "voucher", "Musical"]
+  Name the problem, not the emotion: "wrong date on voucher", not
+  "unbelievable". 2-4 words each. Null if the review states no concrete
+  problem.
+- dates_mentioned — EVERY date the review names, as YYYY-MM-DD, in the order
+  they appear. Not just the visit date: a review that says "I bought for
+  20.10 but the voucher said 20.06" names two, and BOTH are searchable - one
+  is the booking the guest wanted, the other is what the system produced.
+  Use the post date {review_date or "unknown"} to resolve a bare "20.10" to a
+  year. Empty list if none.
+- outcome — what the guest says HAPPENED at the end, one of exactly:
+  "refund_denied", "refund_given", "no_response", "unresolved",
+  "resolved", or null. "nothing could be done" is refund_denied.
+  "weeks of chats with no solution" is unresolved.
 
 Return ONLY valid JSON, no markdown:
 {{"guest_name": "<or null>",
   "experience_or_venue": "<or null>",
   "city_or_country": "<or null>",
   "visit_date_hint": "<or null>",
-  "pax": "<number or null>"}}
+  "pax": "<number or null>",
+  "issue_terms": ["<phrase>", "..."],
+  "dates_mentioned": ["YYYY-MM-DD", "..."],
+  "outcome": "<or null>"}}
 
 Every field above is consumed by the matcher:
 1. guest_name — searched in Zendesk as the ticket requester, alongside the
@@ -870,6 +896,14 @@ Every field above is consumed by the matcher:
    significant-word overlap against each candidate's experience name (weight 2x).
 3. visit_date_hint — scored by closeness to each candidate's visit date, falling
    back to the review post date when no hint is present.
+4. issue_terms — searched against the TEXT of support tickets. A guest who
+   describes a problem in a review almost always raised the same problem with
+   support first, so the problem wording finds the ticket, and the ticket
+   carries the booking id. This is the path that matches a review with no
+   booking id and no recognisable venue.
+5. dates_mentioned — matched against the dates on candidate tickets and
+   bookings. A review naming both the intended date and the wrong one gives
+   two chances to match instead of one.
 Highest combined score = best match shown first."""
 
 

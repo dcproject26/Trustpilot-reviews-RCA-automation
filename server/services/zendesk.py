@@ -1035,7 +1035,14 @@ async def shortlist(indicators: dict, author_first, author_last,
     name  = " ".join(x for x in (author_first, author_last) if x).strip()
     venue = (indicators.get("experience_or_venue") or "").strip()
     city  = (indicators.get("city_or_country") or "").split(",")[0].strip()
-    if not (name or venue):
+    # The problem the guest described is an identifier in its own right. A
+    # guest who writes a review almost always contacted support about the
+    # same thing first, so the ticket that carries the booking id is findable
+    # by the problem even when the review has no booking id and names no
+    # venue - which is exactly the case that used to land in Untraceable.
+    issue_terms = [str(t).strip() for t in (indicators.get("issue_terms") or [])
+                   if str(t).strip()][:5]
+    if not (name or venue or issue_terms):
         return []
 
     # Query set is chosen so nothing is broad enough for Zendesk to truncate.
@@ -1059,9 +1066,23 @@ async def shortlist(indicators: dict, author_first, author_last,
         queries.append((f'type:ticket {name} {ORDER}', "name"))
     if venue and not name:
         queries.append((f'type:ticket "{venue}" {ORDER}', "venue"))
+    # Issue-led queries. Name + problem is the precise one; problem alone is
+    # the last resort and stays quoted so Zendesk treats it as a phrase
+    # rather than a bag of common words.
+    for term in issue_terms[:3]:
+        if name:
+            queries.append((f'type:ticket {name} "{term}" {ORDER}', "name+issue"))
+        elif venue:
+            queries.append((f'type:ticket "{venue}" "{term}" {ORDER}', "venue+issue"))
+        else:
+            queries.append((f'type:ticket "{term}" {ORDER}', "issue"))
 
     loop = asyncio.get_running_loop()
     seen_tickets, by_bid, weak_by_bid = set(), {}, {}
+    # Tickets with no name agreement but whose text matches the problem
+    # AND a date the review named. Two independent signals with no name
+    # is still worth a human's glance.
+    issue_by_bid = {}
     for q, label in queries:
         try:
             hits = await loop.run_in_executor(None, lambda qq=q: _search_with_retry(_z, qq))
@@ -1082,6 +1103,19 @@ async def shortlist(indicators: dict, author_first, author_last,
             if not bid or bid in by_bid:
                 continue
             ok, used = matches_indicators(sig, indicators, author_first, author_last)
+            # Did the ticket's own text mention the problem, or a date the
+            # review named? Both are corroboration a name match alone lacks.
+            hay = " ".join(str(sig.get(k) or "") for k in
+                           ("subject", "description", "text")).lower()
+            hit_terms = [t for t in issue_terms if t.lower() in hay]
+            hit_dates = [d for d in (indicators.get("dates_mentioned") or [])
+                         if str(d) and str(d) in hay]
+            if hit_terms:
+                used = list(used) + [f"issue:{hit_terms[0]}"]
+            if hit_dates:
+                used = list(used) + [f"date:{hit_dates[0]}"]
+            sig["issue_hits"] = hit_terms
+            sig["date_hits"]  = hit_dates
             sig["found_via"]  = label
             sig["created_at"] = str(getattr(t, "created_at", "") or "")
             sig["ticket_id"]  = tid
@@ -1099,17 +1133,46 @@ async def shortlist(indicators: dict, author_first, author_last,
                 # showing a human two plausible bookings to choose from beats
                 # filing a review with a name, a venue and a city as
                 # unidentifiable.
-                if bid not in weak_by_bid:
+                if hit_terms or hit_dates:
+                    # The name matched AND the ticket talks about the same
+                    # problem, or names a date the review named. Two
+                    # independent signals agreeing is a real match, not the
+                    # "name only" fallback.
+                    sig["matched_on"] = ["name"] + (
+                        [f"issue:{hit_terms[0]}"] if hit_terms else []) + (
+                        [f"date:{hit_dates[0]}"] if hit_dates else [])
+                    by_bid[bid] = sig
+                    weak_by_bid.pop(bid, None)
+                elif bid not in weak_by_bid:
                     sig["matched_on"] = ["name"]
                     sig["weak"] = True
                     weak_by_bid[bid] = sig
+            elif hit_terms and hit_dates and bid not in issue_by_bid:
+                # No name to agree on - an anonymous review, or a ticket
+                # raised under someone else's account. The problem and a date
+                # both lining up is not proof, but it is two independent
+                # agreements, which beats filing the review as untraceable.
+                sig["matched_on"] = [f"issue:{hit_terms[0]}", f"date:{hit_dates[0]}"]
+                issue_by_bid[bid] = sig
+
+    # Preference order: everything agreed > problem and date agreed > only
+    # the name agreed. Each step down is a weaker claim, so a stronger tier
+    # is never diluted by a weaker one.
+    if not by_bid and issue_by_bid:
+        by_bid = issue_by_bid
+        log.info(f"[shortlist] no name agreement; {len(by_bid)} ticket(s) matched "
+                 f"on problem + date")
 
     out = list(by_bid.values())
     if not out and weak_by_bid:
         out = list(weak_by_bid.values())
         log.info(f"[shortlist] no ticket satisfied every indicator; falling back "
                  f"to {len(out)} name-matching ticket(s) as candidates")
-    out.sort(key=lambda s: s.get("created_at") or "", reverse=True)
+    # Most corroborated first, then most recent. A ticket agreeing on name,
+    # problem and date should not sit below one that merely shares a name and
+    # happens to be newer.
+    out.sort(key=lambda s: (len(s.get("issue_hits") or []) + len(s.get("date_hits") or []),
+                            s.get("created_at") or ""), reverse=True)
 
     # Pax as a narrowing step: only when it actually separates the candidates.
     # If some agree on pax and others do not, keep the agreeing ones. If none
@@ -1127,7 +1190,8 @@ async def shortlist(indicators: dict, author_first, author_last,
 
     log.info(f"[shortlist] {len(seen_tickets)} ticket(s) searched -> {len(out)} match "
              f"(indicators: name={bool(name)} venue={bool(venue)} city={bool(city)} "
-             f"pax={indicators.get('pax')})")
+             f"pax={indicators.get('pax')} issue_terms={len(issue_terms)} "
+             f"dates={len(indicators.get('dates_mentioned') or [])})")
     return out
 
 
