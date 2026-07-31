@@ -29,6 +29,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from server.config import is_live, MOCK_MODE
 from server.db import SessionLocal, Review, RcaDraft, ReviewMetric
 from server.services import claude, bigquery as bq, zendesk, dss, slack as slk
+from server.services.canned import get_canned_responses
 from server.services.insights import get_insights as _get_insights
 from server.taxonomy import DIAGNOSTIC_CHECKS, BID_REGEX
 
@@ -1639,6 +1640,16 @@ async def process_review(review_id: str, force_candidates: bool = False):
             from server.checklist import issue_questions_for
             from server.services.rca_checklist import get_checklist
             checklist = await get_checklist(l1, l2)
+            # Approved replies as a VOICE reference for suggested_response.
+            # This is a sheet lookup, not a model call - the reply is still
+            # written once, inside the RCA, against this case's evidence.
+            # Output rule 18 is what stops the examples becoming content.
+            try:
+                canned_list = await get_canned_responses(
+                    l1, l2, sub_theme, review_text or "")
+            except Exception as e:
+                canned_list = []
+                log.warning(f"[pipeline] canned tone lookup failed: {e}")
             rca_v3 = await claude.generate_rca_v3(
                 review_text=review_text,
                 booking=booking,
@@ -1655,6 +1666,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 ticket_facts=ticket_facts,
                 scenarios_routed=_scenarios_routed,
                 issue_questions=issue_questions_for(_scenarios_routed),
+                canned_list=canned_list,
             )
         except Exception as e:
             log.exception(f"RCA v3 generation failed: {e}")
@@ -1695,7 +1707,6 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # The cost is the canned-response tone reference, which the RCA prompt
         # has no token for. Recovering it means adding one to the prompt body.
         response_draft = (rca_v3 or {}).get("suggested_response") or ""
-        draft_template_name = ""
 
         _progress(review_id, 8, "saving")
         # ── 14. Save ──────────────────────────────────────────────────────────
@@ -1817,7 +1828,6 @@ async def process_review(review_id: str, force_candidates: bool = False):
 
         draft.ticket_facts                = ticket_facts or None
         draft.suggested_response          = response_draft
-        draft.template_name               = draft_template_name
         draft.generated_at                = datetime.utcnow()
         # A review already SENT stays sent. A re-run regenerates the AI half,
         # which is a fine thing to do to an old review - but resetting the

@@ -702,7 +702,6 @@
   }
   .reply-text:focus, .field-textarea:focus { border-color: var(--accent); }
   .reply-meta { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--dim); margin-top: 6px; }
-  .tpl-name, .template-label { font-size: 11px; color: var(--muted-2); margin-bottom: 6px; }
   .template-card { background: var(--inset); border-radius: 8px; padding: 10px 12px; font-size: 12px; }
 
   /* slack thread post */
@@ -1051,7 +1050,7 @@ async function fetchInbox() {
           tldr: '', v3: {}, wwrChain: [], wwrScenarios: [], prevention: '',
           evidence: [], issueSpecificAnswers: {}, checklistAnswers: [],
           checks: [], reply: '', reasoning: '',
-          primaryScenario: '', templateName: '',
+          primaryScenario: '',
           slackThreadOverride: '',
         },
         insights: {
@@ -1166,7 +1165,6 @@ async function loadDraftOverlays() {
       r.rca.reply      = draft.final_response || draft.suggested_response || r.rca.reply || '';
       r.rca.primaryScenario  = draft.primary_scenario || r.rca.primaryScenario || '';
       r.rca.overlayScenarios = draft.overlay_scenarios || [];
-      r.rca.templateName     = draft.template_name    || r.rca.templateName    || '';
       r.rca.wwrScenarios     = draft.wwr_scenarios    || [];
 
       // actions_taken: API returns {sp: [strings], ce: [strings], …}
@@ -3268,8 +3266,13 @@ function renderRcaCol() {
             ? `<button data-reply-translate title="Translate the edited English reply into ${esc(r.lang)} — the language the guest wrote in">🌐 ${esc(r.lang)}</button>` : ''}
         </div>
       </div>
-      ${rca.templateName ? `<div class="tpl-name">Template: ${esc(rca.templateName)}</div>` : ''}
-      <textarea class="reply-text" placeholder="${(rca.templateName && rca.templateName.indexOf('NO MATCHING') !== -1) ? esc(rca.templateName) : 'AI-drafted response — edit as needed'}">${esc(rca.reply)}</textarea>
+      <!-- No "Template: X" line. There is no separate drafting call any more:
+           the reply comes from the RCA, written against this case's evidence,
+           with the approved replies passed in as VOICE only. Naming one of
+           them here would claim the reply was built from it. An old draft
+           still carries a template_name in its column; rendering it would put
+           that stale claim on a reply it had nothing to do with. -->
+      <textarea class="reply-text" placeholder="AI-drafted response — edit as needed">${esc(rca.reply)}</textarea>
       <div class="reply-meta">
         <span>Editable — review before sending${(r.lang || '').toUpperCase() !== 'EN'
           ? ' · goes out in ' + esc(r.lang) : ''}</span>

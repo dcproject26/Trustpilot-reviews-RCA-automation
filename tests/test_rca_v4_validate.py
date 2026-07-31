@@ -207,23 +207,33 @@ def test_a_clean_reply_is_not_flagged():
     assert not any("internal name" in n for n in notes)
 
 
-def test_a_flag_team_outside_the_vocabulary_does_not_reach_the_chip():
-    out, _ = validate(_ok(flags=[
+def test_a_flag_team_outside_the_vocabulary_becomes_other():
+    """The UI renders team as a chip-select over the closed list, so the
+    fallback has to be a real member of it. A null would blank the control;
+    the raw value would add a stray option to it."""
+    out, notes = validate(_ok(flags=[
         {"team": "Growth", "flag": "No alert on failed fulfilment",
          "evidence": "Three retries, no page."},
         {"team": "ce", "flag": "First reply after SLA", "evidence": "40 minutes."}]))
-    assert out["flags"][0]["team"] is None
+    assert out["flags"][0]["team"] == "OTHER"
+    assert out["flags"][0]["team_raw"] == "Growth", "the model's word must stay recoverable"
     assert out["flags"][1]["team"] == "CE", "case is not a reason to lose the team"
+    assert out["flags"][1]["team_raw"] is None, "a valid value has no raw to keep"
     assert out["flags"][0]["flag"], "the flag itself must survive its bad team"
+    assert any("Growth" in n for n in notes)
 
 
 def test_a_contact_channel_outside_the_vocabulary_becomes_null():
-    """"UNKNOWN" rendered as a channel pill is the defect, not the fix."""
+    """Unlike team, channel falls back to null — the UI renders no pill at all.
+    "01 · UNKNOWN · Unknown · No guest contact found" is the deployed defect
+    this removes, and a fallback token would only rename it."""
     out, _ = validate(_ok(support_interaction=[
         {"channel": "whatsapp", "time": "22 Jul 15:41",
          "summary": "Guest asked where the tickets were."}]))
-    assert out["support_interaction"][0]["channel"] is None
-    assert out["support_interaction"][0]["summary"]
+    row = out["support_interaction"][0]
+    assert row["channel"] is None
+    assert row["channel_raw"] == "whatsapp"
+    assert row["summary"]
 
 
 # ── classification is echoed, so a fabrication has to be caught here ────────
