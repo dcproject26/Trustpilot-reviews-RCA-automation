@@ -105,6 +105,13 @@ class FlagToBiz(BaseModel):
     tag: str        | None = None  # who to tag
     message: str    | None = None  # editable draft
     send: bool = False             # False = save draft; True = send now
+    # The facts Biz acts on. Sent as fields rather than buried in the message
+    # so they arrive in a fixed shape and can be corrected before sending
+    # without editing prose around them.
+    completion_rate: float | None = None
+    tgid: str       | None = None
+    tid: str        | None = None
+    vid: str        | None = None
 
 
 # ── Utility ─────────────────────────────────────────────────────────────────
@@ -121,6 +128,21 @@ def _looks_like_hash(s: str) -> bool:
     if not s or " " in s:
         return False
     return len(s) >= 16 and all(c in "0123456789abcdefABCDEF-" for c in s)
+
+
+def _biz_facts(body) -> str:
+    """The numbers Biz needs, on one line, in a fixed order.
+
+    They come in as fields rather than as prose the associate has to edit
+    around, so what reaches Slack is what was in the boxes.
+    """
+    bits = []
+    if body.completion_rate is not None:
+        bits.append(f"Completion {body.completion_rate:g}%")
+    for label, val in (("TGID", body.tgid), ("TID", body.tid), ("VID", body.vid)):
+        if val and str(val).strip():
+            bits.append(f"{label} {str(val).strip()}")
+    return " · ".join(bits)
 
 
 def _bucket_of(d: RcaDraft) -> str:
@@ -1179,7 +1201,8 @@ async def flag_to_biz(review_id: str, body: FlagToBiz,
         # booking id, with the review it came from nowhere in sight.
         channel, parent = dest_channel, dest_parent
         tag = body.tag or ""
-        full_msg = f"{tag}\n{body.message}".strip()
+        full_msg = "\n".join(x for x in (tag, _biz_facts(body), body.message)
+                             if x and x.strip()).strip()
         try:
             ts = await post_to_thread(channel, parent, full_msg, as_user=False)
             d.flag_to_biz_state = "sent"
@@ -1189,9 +1212,12 @@ async def flag_to_biz(review_id: str, body: FlagToBiz,
             actions = d.actions_taken or {"sp":[],"customer":[],"business":[],"product":[],"ce":[]}
             actions["business"].append({
                 "with": "Biz team — raise completion to market rate",
-                "handle": tag or "[Biz handle placeholder]",
+                "handle": tag or "—",
                 "time": datetime.utcnow().strftime("%d %b %H:%M"),
-                "context": body.message[:200],
+                # The facts first, so the log says what was actually raised
+                # rather than only how it was worded.
+                "context": " — ".join(x for x in (_biz_facts(body),
+                                                  (body.message or "")[:200]) if x),
                 "where": f"slack.com/{channel.lstrip('#')}/{ts}",
             })
             d.actions_taken = actions

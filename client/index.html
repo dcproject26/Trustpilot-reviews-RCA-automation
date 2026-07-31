@@ -4074,7 +4074,15 @@ function openFlagDraftModal(r) {
   const existing = document.getElementById('flag-modal');
   if (existing) existing.remove();
 
-  const defaultMsg = `Flagging low completion rate for review.\n\nVendor: ${r.booking.vendorName} (VID ${r.booking.vid})\nTID: ${r.booking.tid} · TGID: ${r.booking.tgid}\nCompletion: ${r.insights.completion.value} (below market avg)\nWindow: ${state.insightsWindow}\n\nFlagged from review BID ${r.booking.bid} — guest reported ${r.rca.issueL2.toLowerCase()}. Please review supply allocation and consider raising completion to market rate.`;
+  // The four facts Biz acts on are their own fields now, prefilled from the
+  // booking and editable before sending. They used to be baked into the
+  // message text, where correcting a wrong TGID meant editing prose and the
+  // numbers that actually went out were whatever survived that edit.
+  const _pctFromInsights = () => {
+    const v = String((r.insights?.completion?.value) ?? '').replace('%', '').trim();
+    return v && !isNaN(parseFloat(v)) ? parseFloat(v) : '';
+  };
+  const defaultMsg = `Flagging low completion rate for review.\n\nFlagged from review BID ${r.booking.bid} — guest reported ${(r.rca.issueL2 || '').toLowerCase()}. Window: ${state.insightsWindow}. Please review supply allocation and consider raising completion to market rate.`;
 
   const modal = document.createElement('div');
   modal.id = 'flag-modal';
@@ -4098,6 +4106,27 @@ function openFlagDraftModal(r) {
         <div class="flag-modal-row">
           <label>Tag</label>
           <input type="text" class="flag-input" id="flag-tag" placeholder="who to tag" />
+        </div>
+        <div class="flag-modal-row">
+          <label>Completion rate</label>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="number" class="flag-input" id="flag-completion"
+                   step="0.1" min="0" max="100" style="width:110px"
+                   value="${_pctFromInsights()}" />
+            <span style="font-family:var(--mono);color:var(--dim)">%</span>
+          </div>
+        </div>
+        <div class="flag-modal-row">
+          <label>TGID · TID · VID</label>
+          <div style="display:flex;gap:6px">
+            <input type="text" class="flag-input" id="flag-tgid" placeholder="TGID"
+                   style="flex:1;min-width:0" value="${esc(r.booking.tgid || '')}" />
+            <input type="text" class="flag-input" id="flag-tid" placeholder="TID"
+                   style="flex:1;min-width:0" value="${esc(r.booking.tid || '')}" />
+            <input type="text" class="flag-input" id="flag-vid" placeholder="VID"
+                   style="flex:1;min-width:0" value="${esc(r.booking.vid || '')}" />
+          </div>
+          <div class="flag-hint">Prefilled from the matched booking — correct them here if wrong.</div>
         </div>
         <div class="flag-modal-row">
           <label>Message</label>
@@ -4126,6 +4155,10 @@ function openFlagDraftModal(r) {
   flagSend.addEventListener('click', async () => {
     const tag = modal.querySelector('#flag-tag').value;
     const message = modal.querySelector('#flag-message').value;
+    const completion_rate = modal.querySelector('#flag-completion').value;
+    const tgid = modal.querySelector('#flag-tgid').value.trim();
+    const tid  = modal.querySelector('#flag-tid').value.trim();
+    const vid  = modal.querySelector('#flag-vid').value.trim();
     if (!message.trim()) { flagSend.textContent = 'Write a message first'; return; }
     const orig = flagSend.textContent;
     flagSend.disabled = true; flagSend.textContent = 'sending…';
@@ -4133,7 +4166,10 @@ function openFlagDraftModal(r) {
       const res = await fetch(`/api/reviews/${r.id}/flag-to-biz`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({tag, message, send: true}),
+        body: JSON.stringify({tag, message, send: true,
+                              completion_rate: completion_rate === '' ? null
+                                               : parseFloat(completion_rate),
+                              tgid, tid, vid}),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || 'Slack rejected the post');
