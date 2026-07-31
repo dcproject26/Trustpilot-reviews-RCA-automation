@@ -291,10 +291,14 @@ def test_an_unavailable_model_is_disclosed_like_an_unavailable_warehouse():
     the classification, the RCA and the reply all come back empty and the card
     renders blank — indistinguishable from a review too thin to say anything
     about. BigQuery being down was already disclosed; this half was not."""
-    assert 'if not is_live("anthropic"):' in PIPE, \
+    assert 'not MOCK_MODE and not is_live("anthropic")' in PIPE, \
         "the pipeline never checks whether the model is available"
-    i = PIPE.find('if not is_live("anthropic"):')
+    i = PIPE.find('if not MOCK_MODE and not is_live("anthropic")')
     block = PIPE[i:i + 900]
     assert "confidence_trail.append" in block, \
         "it is logged but never shown to the person reading the card"
     assert "not because there was nothing to say" in block
+    # ...and it must NOT fire in MOCK_MODE, where claude._call still reaches
+    # the model and the RCA really is generated. Warning there would tell an
+    # associate the analysis in front of them does not exist.
+    assert "not MOCK_MODE and" in block[:120]

@@ -1523,7 +1523,11 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # review too thin to say anything about. The BigQuery branch above
         # already says when the warehouse was unavailable; this is the same
         # disclosure for the half of the pipeline that writes the analysis.
-        if not is_live("anthropic"):
+        # Not in MOCK_MODE. is_live() reports every service as down there, but
+        # claude._call still reaches the model on that path and the RCA really
+        # is generated - so warning would tell an associate the analysis in
+        # front of them does not exist.
+        if not MOCK_MODE and not is_live("anthropic"):
             log.error(f"[pipeline] {review_id}: the AI provider is NOT live - "
                       f"classification, RCA and the reply will be empty")
             confidence_trail.append({"mark": "warn",
