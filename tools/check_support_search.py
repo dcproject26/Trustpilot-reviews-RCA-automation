@@ -33,6 +33,77 @@ SAMPLE = {
 }
 
 
+def selftest():
+    """Does the support->booking join actually join?
+
+    A dry run type-checks the join but never executes it, and the join uses
+    SAFE_CAST, which returns NULL rather than raising on anything that is not
+    a plain number. So if fct_support_queries.booking_id carries a prefix, a
+    padded id, or an id from a different space, every row silently drops and
+    the search returns nothing forever - indistinguishable from "this guest
+    never contacted support". This runs the join over a small recent slice and
+    reports what survives.
+    """
+    from server.config import (is_live, BIGQUERY_SUPPORT_TABLE,
+                               BIGQUERY_BOOKINGS_TABLE)
+    if not is_live("bigquery"):
+        print("MOCK_MODE — run this where BigQuery credentials are set.")
+        return 2
+    from server.services.bigquery import _run_query
+
+    sql = f"""
+    WITH recent AS (
+      SELECT booking_id
+      FROM `{BIGQUERY_SUPPORT_TABLE}`
+      WHERE query_created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
+        AND booking_id IS NOT NULL
+      LIMIT 200000
+    )
+    SELECT
+      COUNT(*)                                                   AS contacts,
+      COUNTIF(SAFE_CAST(r.booking_id AS INT64) IS NULL)           AS not_a_number,
+      COUNTIF(b.booking_id IS NOT NULL)                           AS joined_to_a_booking,
+      ANY_VALUE(r.booking_id)                                     AS sample_id
+    FROM recent r
+    LEFT JOIN `{BIGQUERY_BOOKINGS_TABLE}` b
+           ON SAFE_CAST(r.booking_id AS INT64) = b.booking_id
+    """
+    try:
+        rows = _run_query(sql, [])
+    except Exception as e:
+        print(f"[FAIL] the join check could not run: {e}")
+        return 1
+    if not rows:
+        print("[FAIL] no support contacts at all in the last 30 days — check "
+              "the table name.")
+        return 1
+
+    r = rows[0]
+    total  = int(getattr(r, "contacts", 0) or 0)
+    bad    = int(getattr(r, "not_a_number", 0) or 0)
+    joined = int(getattr(r, "joined_to_a_booking", 0) or 0)
+    sample = getattr(r, "sample_id", "")
+
+    print(f"support contacts in the last 30 days   {total:,}")
+    print(f"  booking_id that is not a number      {bad:,}")
+    print(f"  rows that joined to a real booking   {joined:,}")
+    print(f"  a sample booking_id as stored        {sample!r}\n")
+
+    if total and joined == 0:
+        print("[FAIL] the join matches NOTHING. The search would return no "
+              "booking, ever, and would look like an honest 'no match'.")
+        print("       Compare the sample id above with fct_bookings.booking_id "
+              "— a prefix, padding or a different id space would do this.")
+        return 1
+    if total and joined / total < 0.5:
+        print(f"[warn] only {joined / total:.0%} of contacts join to a booking. "
+              f"Worth understanding why before relying on this path.")
+        return 0
+    print(f"[ ok ] the join works — {joined / total:.0%} of recent support "
+          f"contacts resolve to a booking.")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--name", default="Sven", help="guest name to search for")
@@ -40,7 +111,12 @@ def main():
     ap.add_argument("--venue", default="", help="experience name fragment")
     ap.add_argument("--run", action="store_true",
                     help="execute the query instead of only validating it")
+    ap.add_argument("--selftest", action="store_true",
+                    help="prove the support->booking join actually joins")
     args = ap.parse_args()
+
+    if args.selftest:
+        return selftest()
 
     ind = dict(SAMPLE)
     if args.dates:
