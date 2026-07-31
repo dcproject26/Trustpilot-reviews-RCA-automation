@@ -1482,6 +1482,10 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 ),
                 dss_rec=dss_rec,
                 canned_list=canned,
+                # The takedown decision drives whether the reply carries one of
+                # the approved "update your review" lines, so it has to reach
+                # the drafter - the RCA settles it a step earlier.
+                takedown_verdict=((rca_v3 or {}).get("takedown") or {}).get("verdict", ""),
             )
         except Exception as e:
             log.exception(f"Response draft failed: {e}")

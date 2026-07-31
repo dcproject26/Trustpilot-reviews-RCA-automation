@@ -1085,7 +1085,7 @@ async function fetchInbox() {
       return {
         id:             row.id,
         author:         row.author || 'Unknown',
-        firstName:      (row.author || 'Unknown').split(' ')[0],
+        firstName:      _firstName(row.author),
         rating:         row.rating || 1,
         stars:          '★'.repeat(row.rating || 1) + '☆'.repeat(5 - (row.rating || 1)),
         language:       row.language || 'en',
@@ -2259,6 +2259,34 @@ function _insightsWindowLabel(r) {
 // down there is a ReferenceError up here.
 const esc = s => String(s == null ? '' : s).replace(/</g, '&lt;').replace(/>/g, '&gt;');
 // Pointer fields are lists in the v3 shape; older drafts hold one string.
+// "Frau Nicole Liebschner" is not called Frau. Taking the first word of the
+// author name put a German honorific into a guest-facing greeting - "Hey
+// Frau,". Titles are stripped before the first real name is taken.
+const _TITLES = new Set(['mr','mrs','ms','miss','mx','dr','prof','sir','madam',
+  'herr','frau','fraulein','fräulein','monsieur','madame','mademoiselle','m',
+  'sr','sra','srta','don','dona','doña','dott','ing','sig','sig.ra','signora',
+  'signore','heer','mevrouw','pan','pani','hr','fru','herra','rouva']);
+// Approved untraceable reply. Kept in one place so the copy button, the
+// panel and anything else that needs it cannot drift apart.
+const UNTRACEABLE_REPLY = (first) =>
+`Hey ${first},
+
+I'm sorry things didn't go as planned, and I'd love to fix this for you right away. Please share your booking ID (if available) or the email address used for your booking at https://bit.ly/hedout. Once we have your details, our team will dive right in to resolve it ASAP.
+
+Thank you so much for your understanding and patience. I'll make sure we turn this around for you!
+
+Best,
+[Your Name], Headout`;
+
+const _firstName = (author) => {
+  const parts = String(author || '').trim().split(/\s+/).filter(Boolean);
+  for (const p of parts) {
+    const bare = p.replace(/\.$/, '').toLowerCase();
+    if (_TITLES.has(bare)) continue;
+    return p;
+  }
+  return 'there';
+};
 const asPoints = v => (Array.isArray(v) ? v : (v ? [v] : [])).filter(Boolean)
   .map(p => String(p).replace(/^\s*[•·\-–▪]\s*/, ''));
 
@@ -2301,9 +2329,11 @@ function renderRcaCol() {
              told the reader nothing they had not just read. -->
         <div class="untr-lead">No booking matched this review. Ask the guest for a booking
           reference; it stays in this tab until it matches.</div>
+        <!-- Approved copy, sent unchanged. There is nothing case-specific to
+             say until the guest gives us a reference, so nothing here is
+             generated - only the name is filled in. -->
         <div class="untr-template editable-text" contenteditable="true" spellcheck="false"
-             data-untraceable-template
-             data-ph="Write the reply to send to the guest."></div>
+             data-untraceable-template>${esc(UNTRACEABLE_REPLY(r.firstName))}</div>
         <div class="untraceable-actions">
           <!-- Copy, not send: this reply is pasted into the Slack thread by
                hand like every other response in this app. -->

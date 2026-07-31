@@ -385,7 +385,7 @@ async def draft_response_v2(
     review_text: str, l1: str, l2: str, resolution: str,
     canned_responses: str = "", review_id: str = None,
     guest_name: str = "", dss_rec: dict | None = None,
-    canned_list: list | None = None,
+    canned_list: list | None = None, takedown_verdict: str = "",
 ) -> str:
     if not is_live("anthropic"):
         # Known fixture → return static mock response.
@@ -398,14 +398,14 @@ async def draft_response_v2(
             return await _call(
                 prompts.response_draft_prompt(
                     review_text, l1, l2, resolution, canned_responses, guest_name, dss_rec,
-                    canned_list=canned_list),
+                    canned_list=canned_list, takedown_verdict=takedown_verdict),
                 max_tokens=800,
             )
         return ""
     return await _call(
         prompts.response_draft_prompt(
             review_text, l1, l2, resolution, canned_responses, guest_name, dss_rec,
-            canned_list=canned_list),
+            canned_list=canned_list, takedown_verdict=takedown_verdict),
         max_tokens=800,
     )
 
