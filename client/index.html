@@ -1268,6 +1268,14 @@ function trailStep(st, key) {
     </div>`;
 }
 
+// Hoisted so both columns can use it: §13 moves the booking timeline into the
+// facts column, and its rows are editable. It closes over nothing but esc().
+function edSpan(path, text, ph = 'click to write') {
+  const empty = !String(text == null ? '' : text).trim();
+  return `<span class="editable-text${empty ? ' is-placeholder' : ''}" contenteditable="true"
+    spellcheck="false" data-v3p="${path}"${empty ? ` data-ph="${esc(ph)}"` : ''}>${empty ? esc(ph) : esc(text)}</span>`;
+}
+
 function mapSupportFrame(f) {
   return {
     type: f.thread || 'email',
@@ -1676,6 +1684,117 @@ function translationCard(r) {
   </div>`;
 }
 
+// §13 the booking timeline lives in the FACTS column now: it is
+// system-of-record data (created / fulfilment / sent / refunded), which is
+// what that column is for. No treatment change - same 88px mono grid,
+// same editable rows, same + Add event. Top-level because the column that
+// renders it is no longer the one that built it.
+// §5 "Unknown" / "N/A" / "TBD" from the model are not timestamps. Hoisted
+// with the booking timeline it serves, which now renders from the facts
+// column - the same rule applies to convo and action times.
+function _tlTime(t) {
+  const v = String(t || '').trim();
+  return (!v || /^(unknown|n\/?a|none|null|tbd|-)$/i.test(v)) ? '' : v;
+}
+
+function bookingTimelineHtml(r, v3d) {
+  const logRows = (v3d.booking_logs || []).map(l => (typeof l === 'string'
+    ? {time: '', what: l.replace(/^\s*\d+[.)]\s*/, ''), detail: ''}
+    : {time: _tlTime(l.time), what: l.what || '', detail: l.detail || ''}));
+  // The section renders even with nothing in it. It used to collapse to ''
+  // on an empty list, which took the "+ Add event" button with it - so the
+  // one case where a human most needs to write the timeline by hand was the
+  // one case with no way to do it, and the RCA simply had no such heading.
+  const logsEmptyWhy = (r.booking && r.booking.bid)
+    ? 'The model returned no events for this booking. Re-run the RCA, or add them by hand below.'
+    : (r.candidateState
+        ? 'No booking is confirmed yet, so there is no system timeline to draw from. Confirm a candidate above and re-run the RCA, or add the events by hand below.'
+        : 'No booking was matched, so there is no system timeline to draw from. Add the events by hand below.');
+  const logsHtml = `
+  <div class="section" id="rca-booking-logs-section">
+    <div class="section-label"><span>Booking timeline</span>
+      <span class="hint">times in IST</span>
+      ${logRows.length ? `<span class="sec-count">${logRows.length} event${logRows.length === 1 ? '' : 's'}</span>` : ''}
+    <span class="section-chev">▾</span></div>
+    ${logRows.length ? '' : `<div class="rca-empty">${logsEmptyWhy}</div>`}
+    ${logRows.map((l, i) => `
+      <div class="tl-row">
+        <span class="tl-time editable-text${l.time ? '' : ' is-placeholder'}"
+              contenteditable="true" spellcheck="false"
+              ${l.time ? '' : 'data-ph="—"'}
+              data-log-idx="${i}" data-log-field="time">${esc(l.time) || '—'}</span>
+        <div class="tl-body">
+          <span class="tl-what editable-text" contenteditable="true" spellcheck="false"
+                data-log-idx="${i}" data-log-field="what">${esc(l.what)}</span><span class="tl-detail"> — <span
+                class="editable-text" contenteditable="true" spellcheck="false"
+                data-log-idx="${i}" data-log-field="detail">${esc(l.detail) || 'no detail'}</span></span>
+        </div>
+        <button class="row-del" data-log-del="${i}" title="Remove event">×</button>
+      </div>`).join('')}
+    <button class="row-add" data-log-add>+ Add event</button>
+  </div>`;
+  return logsHtml;
+}
+
+// §13 the events timeline moves to the RCA column, taking the slot the
+// booking timeline held (after TL;DR, before What went wrong). It is the
+// interpreted guest journey - channel pills, actors, ZD links, hidden
+// machinery, narrative summary - so it sits beside the analysis that cites it.
+// No treatment change; only position.
+function eventsTimelineHtml(r) {
+  function _normTlEvent(e) {
+    // Bookends carry actor creation/review and thread booking/review. They
+    // frame the timeline and belong to no conversation, so no channel pill.
+    const isBookend = e.actor === 'creation' || e.actor === 'review';
+    const isElided  = /comments elided/.test(e.label || '');
+    return { ...e, _isBookend: isBookend, _isElided: isElided,
+             time: e.time || '', label: (e.label || '').trim() };
+  }
+
+  const _allEvents = (r.events || []).map(_normTlEvent);
+  const _internal  = _allEvents.filter(e => e.is_internal);
+  const _shown     = state.tlShowInternal ? _allEvents
+                                          : _allEvents.filter(e => !e.is_internal);
+
+  const _zdBase = (r.zendeskSubdomain || 'headout');
+  const events = _shown.map(e => `
+    <div class="tl-event${e.is_internal ? ' tl-internal' : ''}">
+      <div class="tl-time" title="${e.time_sort || ''}">${(e.time || '').replace(/ IST$/, '')}</div>
+      <div class="tl-content">
+        <div class="tl-header">
+          ${(!e._isBookend && !e._isElided && e.thread)
+              ? `<span class="tl-thread ${e.thread}">${e.thread}</span>` : ''}
+          <div class="tl-actor ${e.actor}">${e.label}</div>
+          ${e.is_internal
+              ? `<span class="tl-flag" title="Headout machinery, not part of the guest&#39;s story">${e.internal_reason || 'internal'}</span>`
+              : ''}
+          ${e.ticket_id
+              ? `<a class="tl-tid" href="https://${_zdBase}.zendesk.com/agent/tickets/${e.ticket_id}" target="_blank" rel="noopener" title="open ZD-${e.ticket_id}">ZD-${e.ticket_id}</a>`
+              : ''}
+        </div>
+        <div class="tl-summary">${e.summary || ''}</div>
+      </div>
+    </div>
+  `).join('')
+  + (_internal.length && !state.tlShowInternal
+      ? `<div class="tl-hidden-note" data-tl-toggle>${_internal.length} internal event${_internal.length === 1 ? '' : 's'} hidden · show</div>`
+      : _internal.length
+        ? `<div class="tl-hidden-note" data-tl-toggle>showing ${_internal.length} internal event${_internal.length === 1 ? '' : 's'} · hide</div>`
+        : '');
+
+  return `
+    <div class="section" id="rca-events-timeline-section">
+      <div class="section-label"><span>Events timeline</span>
+        <span class="hint">times in IST</span>
+        ${_shown.length ? `<span class="sec-count">${_shown.length} event${_shown.length === 1 ? '' : 's'}</span>` : ''}
+      <span class="section-chev">▾</span></div>
+      ${_shown.length
+        ? `<div class="tl-events">${events}</div>
+           ${r.timelineSummary ? `<div class="timeline-summary">${esc(r.timelineSummary)}</div>` : ''}`
+        : `<div class="rca-empty">No Zendesk events were found for this booking.</div>`}
+    </div>`;
+}
+
 function renderReviewCol() {
   const r = REVIEWS.find(x => x.id === state.selected);
   if (!r) {
@@ -1743,45 +1862,6 @@ function renderReviewCol() {
   // What is left is a display decision: machinery is hidden by default and
   // counted, so an associate reads the guest's story and can still get at the
   // rest. Nothing is dropped silently.
-  function _normTlEvent(e) {
-    // Bookends carry actor creation/review and thread booking/review. They
-    // frame the timeline and belong to no conversation, so no channel pill.
-    const isBookend = e.actor === 'creation' || e.actor === 'review';
-    const isElided  = /comments elided/.test(e.label || '');
-    return { ...e, _isBookend: isBookend, _isElided: isElided,
-             time: e.time || '', label: (e.label || '').trim() };
-  }
-
-  const _allEvents = (r.events || []).map(_normTlEvent);
-  const _internal  = _allEvents.filter(e => e.is_internal);
-  const _shown     = state.tlShowInternal ? _allEvents
-                                          : _allEvents.filter(e => !e.is_internal);
-
-  const _zdBase = (r.zendeskSubdomain || 'headout');
-  const events = _shown.map(e => `
-    <div class="tl-event${e.is_internal ? ' tl-internal' : ''}">
-      <div class="tl-time" title="${e.time_sort || ''}">${(e.time || '').replace(/ IST$/, '')}</div>
-      <div class="tl-content">
-        <div class="tl-header">
-          ${(!e._isBookend && !e._isElided && e.thread)
-              ? `<span class="tl-thread ${e.thread}">${e.thread}</span>` : ''}
-          <div class="tl-actor ${e.actor}">${e.label}</div>
-          ${e.is_internal
-              ? `<span class="tl-flag" title="Headout machinery, not part of the guest&#39;s story">${e.internal_reason || 'internal'}</span>`
-              : ''}
-          ${e.ticket_id
-              ? `<a class="tl-tid" href="https://${_zdBase}.zendesk.com/agent/tickets/${e.ticket_id}" target="_blank" rel="noopener" title="open ZD-${e.ticket_id}">ZD-${e.ticket_id}</a>`
-              : ''}
-        </div>
-        <div class="tl-summary">${e.summary || ''}</div>
-      </div>
-    </div>
-  `).join('')
-  + (_internal.length && !state.tlShowInternal
-      ? `<div class="tl-hidden-note" data-tl-toggle>${_internal.length} internal event${_internal.length === 1 ? '' : 's'} hidden · show</div>`
-      : _internal.length
-        ? `<div class="tl-hidden-note" data-tl-toggle>showing ${_internal.length} internal event${_internal.length === 1 ? '' : 's'} · hide</div>`
-        : '');
 
   const ins = r.insights;
   const similarSupport = ins.similarSupport || [];
@@ -2019,12 +2099,11 @@ function renderReviewCol() {
            bookends, which read as three different date formats. Stated once
            here instead; the stored string keeps its suffix and time_sort
            stays UTC. -->
-      <div class="facts-head"><span class="facts-head-title">Support timeline</span>
-        <span style="font-size:11px;color:var(--dim)">times in IST</span></div>
-      <div class="details-grid" style="padding:8px 16px">
-        ${events}
-        <div class="timeline-summary">${r.timelineSummary}</div>
-      </div>
+      <!-- §13 the two timelines trade columns. This slot holds the BOOKING
+           timeline now - system-of-record data, which is what the facts column
+           is for. The events timeline is the interpreted guest journey and has
+           moved beside the analysis that cites it. -->
+      ${bookingTimelineHtml(r, (r.rca && r.rca.v3) || {})}
     </div>
 
     <div class="facts-block">
@@ -2516,6 +2595,37 @@ const asPoints = v => (Array.isArray(v) ? v : (v ? [v] : [])).filter(Boolean)
 // scratch, so a per-element binding would have to be re-attached in every
 // place that touches innerHTML - which is how a control ends up live in one
 // column and dead in the other.
+// §13 the booking timeline renders from the facts column now, so its controls
+// are delegated: a per-render binding inside renderRcaCol left them dead the
+// moment the markup moved. Same reason as the raw-error toggle.
+document.addEventListener('click', async ev => {
+  const t = ev.target.closest && ev.target.closest('[data-log-del], [data-log-add]');
+  if (!t) return;
+  const r = REVIEWS.find(x => x.id === state.selected);
+  if (!r) return;
+  const v3 = r.rca.v3 = r.rca.v3 || {};
+  if (t.hasAttribute('data-log-del')) {
+    v3.booking_logs = (v3.booking_logs || []).filter((_, i) => i !== parseInt(t.dataset.logDel));
+  } else {
+    v3.booking_logs = [...(v3.booking_logs || []),
+      {time: '', what: 'New event — click to edit', detail: ''}];
+  }
+  await saveDraft(r.id, {rca_v3: v3});
+  renderReviewCol(); if (state.selected) renderRcaCol();
+});
+
+document.addEventListener('blur', async ev => {
+  const el = ev.target.closest && ev.target.closest('[data-log-idx]');
+  if (!el) return;
+  const r = REVIEWS.find(x => x.id === state.selected);
+  if (!r) return;
+  const v3 = r.rca.v3 = r.rca.v3 || {};
+  const l = (v3.booking_logs || [])[parseInt(el.dataset.logIdx)];
+  if (!l || typeof l === 'string') return;
+  l[el.dataset.logField] = el.textContent.trim();
+  await saveDraft(r.id, {rca_v3: v3});
+}, true);
+
 document.addEventListener('click', ev => {
   const btn = ev.target.closest && ev.target.closest('[data-raw-err]');
   if (!btn) return;
@@ -2632,11 +2742,6 @@ function renderRcaCol() {
   // blurring it without typing would otherwise save "click to write" as the
   // value. data-ph carries the placeholder so the saver can tell the two
   // apart, and the class greys it so it does not read as content.
-  const edSpan = (path, text, ph = 'click to write') => {
-    const empty = !String(text == null ? '' : text).trim();
-    return `<span class="editable-text${empty ? ' is-placeholder' : ''}" contenteditable="true"
-      spellcheck="false" data-v3p="${path}"${empty ? ` data-ph="${esc(ph)}"` : ''}>${empty ? esc(ph) : esc(text)}</span>`;
-  };
   const edPoints = (path, v, cls = 'chk-ev') => asPoints(v)
     .map((p, i) => `<div class="${cls}">• ${edSpan(`${path}.${i}`, p)}</div>`).join('');
 
@@ -2837,42 +2942,61 @@ function renderRcaCol() {
     const scenAll = [rca.primaryScenario, ...(rca.overlayScenarios || [])].filter(Boolean);
     let cls = 'Issue: ' + l1 + ' / ' + l2 + (sub ? ' / ' + sub : '');
     if (scenAll.length) cls += nl + 'Scenarios: ' + scenAll.join(', ');
+    // Defect 6: a line whose every value is empty must not be posted.
+    // "Issue: — / —" reached the thread on an unclassified review and read as
+    // a broken generator rather than as an unclassified review.
+    const _line = (label, ...vals) => {
+      const kept = vals.map(v => String(v == null ? '' : v).trim())
+                       .filter(v => v && v !== '—' && v !== '?');
+      return kept.length ? label + ': ' + kept.join(' / ') : '';
+    };
+    let cls2 = _line('Issue', l1 === '—' ? '' : l1, l2 === '—' ? '' : l2, sub);
+    if (scenAll.length) cls2 += (cls2 ? nl : '') + 'Scenarios: ' + scenAll.join(', ');
+    cls = cls2;
+
     const wwrParts = [];
     const _w = (rca.v3 || {}).what_went_wrong;
     if (_w) {
-      // The 5 mandated headings, verbatim structure — this block posts as-is.
-      // Pointer fields are arrays now - each becomes its own indented line.
-      // Joining an array into a string here would print "a,b,c" as one run,
-      // which is the prose this format exists to avoid.
-      const sub = v => asPoints(v).map(x => '   - ' + x).join(nl);
+      const sub2 = v => asPoints(v).map(x => '   - ' + x).join(nl);
       const gi = (_w.guest_issues || []);
-      wwrParts.push('1. Guest issue' + nl +
-        gi.map(g => '• ' + (g.issue || '')).join(nl));
-      wwrParts.push("2. Is the guest's claim accurate?" + nl +
-        gi.map(g => ['• ' + (g.issue || '') + ': ' + (g.claim_accuracy || '—'),
-                     g.claim ? '   - guest\u2019s words: \u201c' + g.claim + '\u201d' : '',
-                     sub(g.evidence)].filter(Boolean).join(nl)).join(nl));
+      // §2 / step 6: one block per guest issue, carrying only the lines it
+      // actually has. The old layout stacked five numbered headings across ALL
+      // issues, so two complaints with different root causes were flattened
+      // into one list and the reader could not tell which belonged to which.
+      gi.forEach((g, n) => {
+        const meta = [g.claim_accuracy, g.owner].filter(Boolean);
+        const block = ['*' + (n + 1) + '. ' + (g.issue || '(untitled)') + '*'
+                       + (meta.length ? '  ·  ' + meta.join('  ·  ') : '')];
+        if (g.claim) block.push('• Guest: “' + g.claim + '”');
+        if (g.claim_accuracy_note) block.push('• Why that verdict: ' + g.claim_accuracy_note);
+        [['root_cause', 'Root cause'], ['operational_failure', 'Operational failure'],
+         ['sop_gap', 'SOP / process gap'], ['pattern', 'Pattern'], ['fix', 'Fix']]
+          .forEach(([k, label]) => { if (g[k]) block.push('• ' + label + ': ' + g[k]); });
+        (g.evidence || []).forEach(e => {
+          if (typeof e === 'string') { block.push('   - ' + e); return; }
+          if (!e || !e.text) return;
+          block.push('   - ' + (e.source ? '[' + e.source + '] ' : '') + e.text
+                     + (e.ref ? ' (' + e.ref + ')' : ''));
+        });
+        wwrParts.push(block.join(nl));
+      });
+      // A pre-v4 draft keeps its analysis at document level. Rendering both
+      // means an old RCA reposted from here still says something.
       const wh = _w.what_happened || {};
-      // Root cause lives on its issue now; older drafts keep a parallel list,
-      // so both render - dropping either blanks the section for one of them.
-      const whLines = gi.filter(g => g.root_cause)
-        .map(g => '• [' + (g.owner || '?') + '] ' + (g.issue || '') + ': ' + g.root_cause)
-        .concat((wh.root_causes || []).map(c =>
-          '• [' + (c.classification || '?') + '] ' + (c.issue ? c.issue + ': ' : '') + (c.cause || '')));
+      const legacy = (wh.root_causes || []).map(c =>
+        '• [' + (c.classification || '?') + '] ' + (c.issue ? c.issue + ': ' : '') + (c.cause || ''));
       if (asPoints(wh.operational_failure).length)
-        whLines.push('• Operational failure' + nl + sub(wh.operational_failure));
-      if (asPoints(wh.sop_gap).length)
-        whLines.push('• SOP gap' + nl + sub(wh.sop_gap));
-      if (wh.pattern) whLines.push('• Pattern: ' + wh.pattern);
-      wwrParts.push('3. What actually happened?' + nl + whLines.join(nl));
+        legacy.push('• Operational failure' + nl + sub2(wh.operational_failure));
+      if (asPoints(wh.sop_gap).length) legacy.push('• SOP gap' + nl + sub2(wh.sop_gap));
+      if (wh.pattern) legacy.push('• Pattern: ' + wh.pattern);
       const sx = _w.sp_escalation || {};
-      wwrParts.push('4. Supply Partner escalation' + nl +
-        ['• Escalated: ' + (sx.escalated || '—'), sub(sx.detail)].filter(Boolean).join(nl));
+      if (sx.escalated) legacy.push('• Escalated to SP: ' + sx.escalated);
+      if (asPoints(sx.detail).length) legacy.push(sub2(sx.detail));
       const fx = _w.fixes || {};
-      const fxLines = [];
-      if ((fx.teams || []).length) fxLines.push('• Teams: ' + fx.teams.join(', ') + (fx.owner ? ' · owner: ' + fx.owner : ''));
-      for (const a of asPoints(fx.actions)) fxLines.push('• ' + a);
-      wwrParts.push('5. Fixes' + nl + fxLines.join(nl));
+      if ((fx.teams || []).length)
+        legacy.push('• Teams: ' + fx.teams.join(', ') + (fx.owner ? ' · owner: ' + fx.owner : ''));
+      for (const a of asPoints(fx.actions)) legacy.push('• ' + a);
+      if (legacy.length) wwrParts.push(legacy.join(nl));
     }
     for (const sc of (_w ? [] : (rca.wwrScenarios || []))) {
       const tag = sc.is_primary ? 'PRIMARY' : 'overlay';
@@ -3346,46 +3470,6 @@ function renderRcaCol() {
     // "Unknown" is the model's way of saying it could not date an event. It
     // is not a timestamp, so it should not be printed as one - an em-dash
     // says the same thing without looking like data.
-    const _tlTime = (t) => {
-      const v = String(t || '').trim();
-      return (!v || /^(unknown|n\/?a|none|null|tbd|-)$/i.test(v)) ? '' : v;
-    };
-    const logRows = (v3d.booking_logs || []).map(l => (typeof l === 'string'
-      ? {time: '', what: l.replace(/^\s*\d+[.)]\s*/, ''), detail: ''}
-      : {time: _tlTime(l.time), what: l.what || '', detail: l.detail || ''}));
-    // The section renders even with nothing in it. It used to collapse to ''
-    // on an empty list, which took the "+ Add event" button with it - so the
-    // one case where a human most needs to write the timeline by hand was the
-    // one case with no way to do it, and the RCA simply had no such heading.
-    const logsEmptyWhy = (r.booking && r.booking.bid)
-      ? 'The model returned no events for this booking. Re-run the RCA, or add them by hand below.'
-      : (r.candidateState
-          ? 'No booking is confirmed yet, so there is no system timeline to draw from. Confirm a candidate above and re-run the RCA, or add the events by hand below.'
-          : 'No booking was matched, so there is no system timeline to draw from. Add the events by hand below.');
-    const logsHtml = `
-    <div class="section" id="rca-booking-logs-section">
-      <div class="section-label"><span>Booking timeline</span>
-        <span class="hint">times in IST</span>
-        ${logRows.length ? `<span class="sec-count">${logRows.length} event${logRows.length === 1 ? '' : 's'}</span>` : ''}
-      <span class="section-chev">▾</span></div>
-      ${logRows.length ? '' : `<div class="rca-empty">${logsEmptyWhy}</div>`}
-      ${logRows.map((l, i) => `
-        <div class="tl-row">
-          <span class="tl-time editable-text${l.time ? '' : ' is-placeholder'}"
-                contenteditable="true" spellcheck="false"
-                ${l.time ? '' : 'data-ph="—"'}
-                data-log-idx="${i}" data-log-field="time">${esc(l.time) || '—'}</span>
-          <div class="tl-body">
-            <span class="tl-what editable-text" contenteditable="true" spellcheck="false"
-                  data-log-idx="${i}" data-log-field="what">${esc(l.what)}</span><span class="tl-detail"> — <span
-                  class="editable-text" contenteditable="true" spellcheck="false"
-                  data-log-idx="${i}" data-log-field="detail">${esc(l.detail) || 'no detail'}</span></span>
-          </div>
-          <button class="row-del" data-log-del="${i}" title="Remove event">×</button>
-        </div>`).join('')}
-      <button class="row-add" data-log-add>+ Add event</button>
-    </div>`;
-
     const flags = v3d.flags || [];
     // Grouped by owning team with counts, because a flat list of a dozen
     // flags on a complex case gives a reader no idea who has to act. Each
@@ -3463,7 +3547,7 @@ function renderRcaCol() {
     </div>` : '';
 
     _flagsHtml = flagsHtml;
-    return tldrHtml + logsHtml + wwrHtml + sopHtml;
+    return tldrHtml + eventsTimelineHtml(r) + wwrHtml + sopHtml;
   })() : '';
 
   // ── v3 sections (legacy shape, gated on tldr presence) ────────────────────
@@ -4256,27 +4340,10 @@ function renderRcaCol() {
     await persistV3(); renderRcaCol();
   });
 
-  col.querySelectorAll('[data-log-idx]').forEach(el => {
-    el.addEventListener('blur', async () => {
-      const l = (rca.v3.booking_logs || [])[parseInt(el.dataset.logIdx)];
-      if (!l || typeof l === 'string') return;
-      l[el.dataset.logField] = el.textContent.trim();
-      await persistV3(el);
-    });
-  });
-  col.querySelectorAll('[data-log-del]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      rca.v3.booking_logs = (rca.v3.booking_logs || [])
-        .filter((_, i) => i !== parseInt(btn.dataset.logDel));
-      await persistV3(); renderRcaCol();
-    });
-  });
-  const logAdd = col.querySelector('[data-log-add]');
-  if (logAdd) logAdd.addEventListener('click', async () => {
-    rca.v3.booking_logs = [...(rca.v3.booking_logs || []),
-      {time: '', what: 'New event', detail: ''}];
-    await persistV3(); renderRcaCol();
-  });
+  // The booking-timeline handlers used to live here, scoped to `col`. §13
+  // moved the markup to the facts column, so these bound nothing - and a
+  // second set of handlers for one control is how an edit gets saved twice.
+  // They are delegated at document level now; see the listener near the top.
 
   const tdRec = col.querySelector('[data-takedown-rec]');
   if (tdRec) tdRec.addEventListener('change', async () => {
