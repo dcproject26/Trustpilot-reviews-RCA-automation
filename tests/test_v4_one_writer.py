@@ -253,3 +253,26 @@ def test_sp_facts_and_sp_interpretation_are_also_split(app_env):
     out = _load(db, api, rid)[0]
     assert out["sp_interaction"] == [{"ticket_id": "7", "time": "22 Jul 16:02"}]
     assert out["sp_interaction_notes"]["raised"] == "Yes"
+
+
+def test_area_of_improving_follows_the_same_presence_rule(app_env):
+    """It was the one v4-shaped field still read column-first, so a draft whose
+    points live only in rca_v3 rendered an empty section — and an operator who
+    deleted the last point would have had it resurrected by the column."""
+    db, api = app_env
+    rid = _seed(db, area_of_improving=["stale from the column"],
+                rca_v3={"area_of_improving": ["Surface the delivery window."]})
+    assert _load(db, api, rid)[0]["area_of_improving"] == ["Surface the delivery window."]
+
+
+def test_deleting_the_last_improvement_point_does_not_resurrect_it(app_env):
+    db, api = app_env
+    rid = _seed(db, area_of_improving=["stale from the column"],
+                rca_v3={"area_of_improving": []})
+    assert _load(db, api, rid)[0]["area_of_improving"] == []
+
+
+def test_a_draft_with_no_v3_points_still_falls_back(app_env):
+    db, api = app_env
+    rid = _seed(db, area_of_improving=["written by an older pipeline"], rca_v3={})
+    assert _load(db, api, rid)[0]["area_of_improving"] == ["written by an older pipeline"]

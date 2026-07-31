@@ -488,3 +488,97 @@ def test_editing_a_booking_log_row_persists(page):
       const logs = ((d.draft || {}).rca_v3 || {}).booking_logs || [];
       return logs.map(l => l && l.what); }""")
     assert new_text in saved, saved
+
+
+# ── §6 the Slack section picker ─────────────────────────────────────────────
+
+def _picker(page):
+    return page.evaluate("""() => { const s = document.querySelector('.slack-sections');
+        return {chips: s.querySelectorAll('.slack-sec-chip').length,
+                summary: (s.querySelector('.slack-sections-summary')||{}).textContent || '',
+                btn: (s.querySelector('[data-slack-customize]')||{}).textContent || ''}; }""")
+
+
+def test_the_section_picker_is_collapsed_by_default(page):
+    """Twelve checkboxes were a wall of clutter above the post itself."""
+    got = _picker(page)
+    assert got["chips"] == 0, "the chips are showing before anyone asked"
+    assert "12 of 12 sections included" in got["summary"]
+    assert got["btn"] == "customize"
+
+
+def test_customize_reveals_the_chips_and_done_collapses_them(page):
+    page.click("[data-slack-customize]")
+    page.wait_for_timeout(400)
+    assert _picker(page)["chips"] == 12
+    assert _picker(page)["btn"] == "done"
+    page.click("[data-slack-customize]")
+    page.wait_for_timeout(400)
+    assert _picker(page)["chips"] == 0
+
+
+def test_the_collapsed_line_still_states_the_current_count(page):
+    """A collapsed picker must not hide that sections are switched off."""
+    page.click("[data-slack-customize]")
+    page.wait_for_timeout(300)
+    page.click(".slack-sec-chip:has(input[data-slack-section='insights'])")
+    page.wait_for_timeout(600)
+    assert "11 of 12" in _picker(page)["summary"]
+    page.click("[data-slack-customize]")
+    page.wait_for_timeout(400)
+    got = _picker(page)
+    assert got["chips"] == 0 and "11 of 12" in got["summary"]
+    # restore
+    page.click("[data-slack-customize]"); page.wait_for_timeout(300)
+    page.click(".slack-sec-chip:has(input[data-slack-section='insights'])")
+    page.wait_for_timeout(500)
+    page.click("[data-slack-customize]"); page.wait_for_timeout(300)
+
+
+# ── §4 exactly two empty-state treatments ───────────────────────────────────
+
+def test_an_affirmative_empty_is_not_dressed_as_a_neutral_one(page):
+    """"Every QA area was checked and none needed raising" is a result someone
+    verified. In the same grey italic as "nothing here" that reading is lost."""
+    got = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keep = r.rca.v3.flags;
+      r.rca.v3.flags = []; renderRcaCol();
+      const e = document.querySelector('#rca-flags-section .rca-empty');
+      const out = e ? {text: e.innerText, colour: getComputedStyle(e).color,
+                       italic: getComputedStyle(e).fontStyle === 'italic'} : null;
+      r.rca.v3.flags = keep; renderRcaCol();
+      return out; }""")
+    assert got, "the flags empty state did not render"
+    assert got["text"].startswith("✓")
+    assert "47, 122, 77" in got["colour"], got["colour"]
+    assert not got["italic"]
+
+
+def test_amber_stays_reserved_for_a_broken_pipeline(page):
+    """A third meaning. It must never share styling with either empty state."""
+    got = page.evaluate("""() => {
+      const a = document.createElement('div'); a.className = 'rca-empty affirm';
+      const b = document.createElement('div'); b.className = 'rca-empty err';
+      const c = document.createElement('div'); c.className = 'rca-empty';
+      document.body.append(a, b, c);
+      const out = [a, b, c].map(e => getComputedStyle(e).color);
+      a.remove(); b.remove(); c.remove(); return out; }""")
+    assert len(set(got)) == 3, f"the three meanings share a colour: {got}"
+
+
+# ── §12 SP interaction reads the split key ──────────────────────────────────
+
+def test_the_sp_section_renders_from_the_notes_key(page):
+    """Reading the pre-split key left the whole section blank after the rename
+    — a lookup that could not say it had found nothing."""
+    got = page.evaluate("""() => {
+      const s = [...document.querySelectorAll('.sp-frame')];
+      return {frames: s.length, text: s.map(x => x.innerText).join(' ')}; }""")
+    assert got["frames"], "the SP section rendered nothing"
+    reason = page.evaluate(
+        "() => ((REVIEWS.find(x=>x.id===state.selected).rca.v3||{})"
+        ".sp_interaction_notes||{}).reason || ''")
+    assert reason, "the fixture has no reason, so this proves nothing"
+    assert reason[:20] in got["text"], \
+        "raised: N/A with no reason is indistinguishable from a skipped section"
