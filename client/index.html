@@ -414,15 +414,17 @@
   .rca-col { flex: 1; min-width: 0; overflow-y: auto; padding: 20px 24px 40px; }
   .rca-head {
     display: flex; align-items: baseline; justify-content: space-between;
-    gap: 12px; margin-bottom: 14px; max-width: 720px;
+    gap: 12px; margin-bottom: 10px; max-width: 720px;
   }
-  .rca-title-row { display: flex; align-items: baseline; gap: 8px; }
+  .rca-title-row { display: flex; align-items: baseline; gap: 8px;
+    flex: 1 1 auto; min-width: 0; flex-wrap: wrap; }
   .rca-title {
     font-size: 11px; font-weight: 650; letter-spacing: .07em;
     text-transform: uppercase; color: var(--dim);
   }
   .rca-edit-icon { display: none; }
-  .rca-sub { font-size: 11.5px; color: var(--muted-2); margin-top: 2px; }
+  .rca-sub { font-size: 11.5px; color: var(--muted-2); min-width: 0;
+    overflow-wrap: anywhere; }
   .rca-head-actions { display: flex; gap: 8px; flex: none; }
   .rca-head-actions .btn, .rca-head-actions .send-btn, .rca-head-actions .copy-response-btn {
     font-size: 12.5px; padding: 7px 14px; border-radius: 7px;
@@ -1246,6 +1248,26 @@ async function fetchInbox() {
 // Overlay real draft fields onto the demo view-models. Data source only:
 // sub_theme, support_interaction_frames (+ sp_interaction_frames) and
 // support_summary come from /api/reviews/{id}; markup stays demo-v15.
+
+// Defect 5: a pipeline exception is never rendered as a trail step. The step
+// carries a plain-language sentence; the raw error and its SQL sit behind a
+// toggle, in mono, height-capped and scrollable, so a 500-character SELECT
+// cannot push the panel apart. Shared by both trail renderers - two copies of
+// this drifted once already.
+function trailStep(st, key) {
+  const mark = st.mark === 'pass' ? '✓' : st.mark === 'warn' ? '!' : '✗';
+  const cls  = st.mark === 'pass' ? 'pass' : st.mark === 'warn' ? 'warn' : 'fail';
+  const raw  = st.raw ? String(st.raw) : '';
+  const open = !!state.rawErrOpen[key];
+  return `
+    <div class="conf-step ${cls}">
+      <span class="mark">${mark}</span>
+      <span class="label-text">${st.text}${raw ? `
+        <button class="err-raw-toggle" data-raw-err="${key}">${open ? 'hide raw error' : 'show raw error'}</button>
+        ${open ? `<div class="err-raw">${esc(raw)}</div>` : ''}` : ''}</span>
+    </div>`;
+}
+
 function mapSupportFrame(f) {
   return {
     type: f.thread || 'email',
@@ -1546,6 +1568,7 @@ const state = {
   filter: 'all',
   actionTab: 'sp',
   dssEdit: false,
+  rawErrOpen: {},
   insightsWindow: '90d',
   // Which RCA sections go into the Slack thread post. All on by default;
   // unticking one drops it from the generated text.
@@ -1699,11 +1722,7 @@ function renderReviewCol() {
           ${(r.confidenceTrail || []).length ? `
           <div class="confidence-trail">
             <div class="confidence-trail-label">How we built this match</div>
-            ${(r.confidenceTrail || []).map(st => `
-              <div class="conf-step ${st.mark === 'pass' ? 'pass' : st.mark === 'warn' ? 'warn' : 'fail'}">
-                <span class="mark">${st.mark === 'pass' ? '✓' : st.mark === 'warn' ? '!' : '✗'}</span>
-                <span class="label-text">${st.text}</span>
-              </div>`).join('')}
+            ${(r.confidenceTrail || []).map((st, n) => trailStep(st, 'a' + n)).join('')}
           </div>` : ''}
         </div>
       </div>
@@ -1884,12 +1903,7 @@ function renderReviewCol() {
   const confTrail = r.confidenceTrail
     ? `<div class="confidence-trail">
          <div class="confidence-trail-label">How we built this match</div>
-         ${r.confidenceTrail.map(s => `
-           <div class="conf-step">
-             <span class="mark ${s.mark === 'fail' ? 'fail' : s.mark === 'warn' ? 'warn' : ''}">${s.mark === 'pass' ? '✓' : s.mark === 'warn' ? '!' : '✗'}</span>
-             <span class="label-text">${s.text}</span>
-           </div>
-         `).join('')}
+         ${r.confidenceTrail.map((st, n) => trailStep(st, 'b' + n)).join('')}
        </div>`
     : '';
 
@@ -2497,6 +2511,19 @@ const _firstName = (author) => {
 };
 const asPoints = v => (Array.isArray(v) ? v : (v ? [v] : [])).filter(Boolean)
   .map(p => String(p).replace(/^\s*[•·\-–▪]\s*/, ''));
+
+// Delegated once: the toggle appears in both columns and both re-render from
+// scratch, so a per-element binding would have to be re-attached in every
+// place that touches innerHTML - which is how a control ends up live in one
+// column and dead in the other.
+document.addEventListener('click', ev => {
+  const btn = ev.target.closest && ev.target.closest('[data-raw-err]');
+  if (!btn) return;
+  ev.stopPropagation();
+  state.rawErrOpen[btn.dataset.rawErr] = !state.rawErrOpen[btn.dataset.rawErr];
+  renderReviewCol();
+  if (state.selected) renderRcaCol();
+});
 
 function renderRcaCol() {
   const r = REVIEWS.find(x => x.id === state.selected);
@@ -3498,13 +3525,14 @@ function renderRcaCol() {
   ` : '';
 
   col.innerHTML = `
-    <div class="rca-head">
-      <div>
-        <div class="rca-title-row">
-          <div class="rca-title">RCA &amp; response</div>
-        </div>
-        <div class="rca-sub">Drafted by AI ${r.time || ''} · every field is editable ·
-          Send marks as sent — paste into Trustpilot manually</div>
+    <!-- §14 one baseline-aligned row, not a two-line stack: the label and the
+         sub-line cost ~34px at the top of every review. The dropped clause is
+         not lost - it moves into the row's title, and the Send button's own
+         card already says "goes out via Trustpilot on Send ↑". -->
+    <div class="rca-head" title="Send marks the review as sent — paste the reply into Trustpilot manually">
+      <div class="rca-title-row">
+        <div class="rca-title">RCA &amp; response</div>
+        <div class="rca-sub">Drafted by AI ${r.time || ''} · every field editable</div>
       </div>
       <div class="rca-head-actions">
         <button class="refresh-slack-btn" data-rca-only-regen

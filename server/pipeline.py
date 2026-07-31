@@ -144,6 +144,24 @@ def _progress(review_id: str, step: int, stage: str):
     PIPELINE_PROGRESS[review_id] = e
 
 
+def failure_entry(exc: Exception) -> dict:
+    """The trail entry for a run that died, as a driveable function.
+
+    Defect 5: an exception is not a trail step. A title, one plain-language
+    sentence, and the raw text kept alongside - shown behind a toggle in the
+    UI, never inline. Discarding the raw is the other failure: the only copy
+    then lives in a log the reader cannot reach.
+
+    Extracted so it can be tested by calling it. Asserting that `"raw":`
+    appears somewhere in this file is a spelling check - it passes against a
+    build where the line is unreachable.
+    """
+    return {"mark": "fail",
+            "title": f"Run failed — {type(exc).__name__}",
+            "text": f"<strong>Run failed</strong> — {_human_error(exc)}",
+            "raw": " ".join(str(exc).split())[:4000]}
+
+
 def _human_error(exc: Exception) -> str:
     """One sentence a reader can act on, never a stack trace.
 
@@ -1907,8 +1925,12 @@ async def process_review(review_id: str, force_candidates: bool = False):
             _d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
             if _d:
                 _tr = list(_d.confidence_trail or [])
-                _entry = {"mark": "fail",
-                          "text": f"<strong>Run failed</strong> — {_human_error(_fatal)}"}
+                # Defect 5: an exception is not a trail step. A title, one
+                # plain-language sentence, and the raw text kept alongside for
+                # the reader who wants it - behind a toggle in the UI, never
+                # inline. Discarding it entirely was the other extreme: the
+                # only copy then lived in a log the reader cannot reach.
+                _entry = failure_entry(_fatal)
                 # Do not stack the same failure twice. A retried run appended a
                 # second identical line, so the panel grew a wall of duplicate
                 # stack traces that told the reader nothing new.

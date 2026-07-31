@@ -464,3 +464,58 @@ def test_a_single_untracked_event_needs_no_announcement():
 def test_fully_ticketed_frames_are_never_announced_as_grouped():
     out = contact_join_notes([{"ticket_id": "1"}, {"ticket_id": "2"}], [], {})
     assert out == []
+
+
+# ── defect 5: the failure entry, driven ─────────────────────────────────────
+
+def test_a_dead_run_records_a_sentence_and_keeps_the_raw():
+    """The trail rendered 500 characters of SELECT straight into the dashboard.
+    The sentence is what the reader acts on; the raw is kept because the only
+    other copy lives in a log they cannot reach."""
+    from server.pipeline import failure_entry
+
+    class OperationalError(Exception):
+        pass
+
+    e = failure_entry(OperationalError(
+        "(psycopg2.OperationalError) SSL connection has been closed unexpectedly "
+        "[SQL: SELECT rca_drafts.id AS rca_drafts_id FROM rca_drafts]"))
+    assert e["mark"] == "fail"
+    assert "OperationalError" in e["title"]
+    assert "connection dropped mid-run" in e["text"]
+    assert "SELECT rca_drafts" not in e["text"], "the SQL is in the trail step itself"
+    assert "SELECT rca_drafts" in e["raw"], "the raw error was discarded"
+
+
+def test_the_raw_is_bounded():
+    """A runaway exception must not become the row."""
+    from server.pipeline import failure_entry
+    e = failure_entry(Exception("x" * 9000))
+    assert len(e["raw"]) <= 4000
+
+
+def test_an_unrecognised_failure_still_gets_a_title_and_a_raw():
+    from server.pipeline import failure_entry
+    e = failure_entry(ValueError("something nobody has a sentence for"))
+    assert e["title"].endswith("ValueError")
+    assert e["raw"] and e["text"]
+
+
+def test_the_caught_exception_never_reaches_the_trail_text():
+    """Testing failure_entry() proves the shape; it does not prove the pipeline
+    uses it. The positive form ("failure_entry( appears") is defeated by an
+    unreachable line, so this is the negative one: the caught exception is only
+    ever logged or handed to failure_entry — it is never formatted into a trail
+    string, which no amount of dead code can satisfy.
+
+    Not a count of fail entries: "BID — no 7-12 digit number found" is a
+    legitimate fail that has nothing to do with an exception.
+    """
+    import re
+    uses = [m.group(0) for m in re.finditer(r"[^\n]*\b_fatal\b[^\n]*", PIPE)]
+    assert uses, "the fatal handler is gone"
+    for line in uses:
+        ok = ("except Exception as _fatal" in line
+              or "log.exception" in line
+              or "failure_entry(_fatal)" in line)
+        assert ok, f"the exception is being formatted into the trail: {line.strip()[:90]}"
