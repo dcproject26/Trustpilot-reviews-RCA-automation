@@ -91,16 +91,19 @@ class DraftPatchV2(BaseModel):
     rca_v3:                     dict | None = None
 
     # ── RCA v4 ──
-    # Editable top-level sections. The dashboard writes most of these through
-    # rca_v3 dot-paths, but accepting them here means a caller that patches the
-    # section directly persists too, rather than silently doing nothing.
+    # Editable sections. These are NOT written to the columns of the same name:
+    # those are pipeline-written projections of rca_v3, and a second writer is
+    # how the two stores drift. A patch here edits rca_v3 - see _V4_SECTIONS.
+    #
+    # suggested_response is deliberately absent. It is the model's draft; the
+    # human's version is final_response, which is already patchable. Two
+    # editable stores for one piece of text is the same bug in miniature.
     guest_issues:               list | None = None
     sop_compliance:             dict | None = None
     booking_logs:               list | None = None
     flags:                      list | None = None
     takedown:                   dict | None = None
     dss:                        dict | None = None
-    suggested_response:         str  | None = None
 
 
 class CandidateSelect(BaseModel):
@@ -145,25 +148,37 @@ def _looks_like_hash(s: str) -> bool:
     return len(s) >= 16 and all(c in "0123456789abcdefABCDEF-" for c in s)
 
 
+_ABSENT = object()
+
+
 def _v4(d, column: str, v3_path: str, default):
     """A v4 field, preferring the edited rca_v3 over the denormalised column.
 
     Both hold the same thing. rca_v3 is what the dashboard writes when someone
-    edits a field, and the column is what the pipeline wrote when it generated
-    the draft - so rca_v3 wins, or an edit would be shadowed by the value it
-    replaced. Falls back to the column, then to the default, so a draft written
-    before the v4 deploy still renders.
+    edits a field, and the column is what the pipeline wrote at generation - so
+    rca_v3 wins, or an edit would be shadowed by the value it replaced. The
+    column is the fallback, for a draft written before the v4 deploy.
+
+    The fallback turns on PRESENCE, not truthiness, and that distinction is the
+    whole point. The dangerous value is not a missing one, it is a deliberately
+    emptied one: delete the last flag and the dashboard sends flags = [].
+    Falling back on falsiness would let the populated column win, so the delete
+    would appear to work and then undo itself on the next load. An empty list
+    beats a populated column. So does an explicit null.
     """
     node = d.rca_v3 or {}
     for part in v3_path.split("."):
-        if not isinstance(node, dict):
-            node = None
+        if not isinstance(node, dict) or part not in node:
+            node = _ABSENT
             break
-        node = node.get(part)
-    if node not in (None, "", [], {}):
-        return node
+        node = node[part]
+    if node is not _ABSENT:
+        # Present-but-null means "there is nothing here", which is an answer.
+        # Normalise it to the default's type so the renderer is not handed a
+        # None where it expects a list.
+        return default if node is None else node
     col = getattr(d, column, None)
-    return col if col not in (None, "", [], {}) else default
+    return default if col is None else col
 
 
 def _biz_facts(body) -> str:
@@ -273,6 +288,15 @@ def _draft_dict(d: RcaDraft) -> dict:
         "flags":            _v4(d, "flags", "flags", []),
         "takedown":         _v4(d, "takedown", "takedown", {}),
         "dss":              _v4(d, "dss", "dss", {}),
+        # These two are NOT projections like the six above - they are two
+        # different sources for one section. The column holds the frames the
+        # pipeline built from real Zendesk tickets, which it treats as
+        # authoritative; rca_v3 holds the model's account of the same contacts,
+        # which is the one carrying ce_miss and detail. v4 asks for the model's
+        # version, so it wins here - but that reverses the pipeline's own
+        # precedence, and nothing reads these keys yet (the client still reads
+        # support_interaction_frames directly). Settle it when the client is
+        # rebuilt, not by leaving the winner to whichever happens to be present.
         "support_interaction": _v4(d, "support_interaction_frames",
                                    "support_interaction", []),
         "sp_interaction":      _v4(d, "sp_interaction_frames",
@@ -751,6 +775,19 @@ def get_taxonomy():
 
 # ── NEW: v2 draft patch ─────────────────────────────────────────────────────
 
+# Where a v4 section lives inside rca_v3. The column of the same name is a
+# read-only projection the pipeline writes at generation time; nothing here
+# touches it.
+_V4_SECTIONS = {
+    "guest_issues":   ("what_went_wrong", "guest_issues"),
+    "sop_compliance": ("sop_compliance",),
+    "booking_logs":   ("booking_logs",),
+    "flags":          ("flags",),
+    "takedown":       ("takedown",),
+    "dss":            ("dss",),
+}
+
+
 @router.patch("/api/reviews/{review_id}/draft-v2")
 def patch_draft_v2(review_id: str, patch: DraftPatchV2,
                     db: Session = Depends(get_session)):
@@ -769,9 +806,6 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
         "tldr", "wwr_chain", "wwr_scenarios", "prevention", "evidence",
         "issue_specific_answers", "checklist_answers", "slack_thread_override",
         "rca_v3",
-        # RCA v4 sections
-        "guest_issues", "sop_compliance", "booking_logs", "flags",
-        "takedown", "dss", "suggested_response",
     ):
         val = getattr(patch, field, None)
         if val is not None:
@@ -797,11 +831,38 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
     if patch.primary_scenario is not None and patch.scenarios is None:
         d.scenarios = [s for s in ([patch.primary_scenario] + (d.overlay_scenarios or [])) if s]
 
+    # A v4 section patch edits rca_v3, never the column of the same name. The
+    # columns are the pipeline's projection; giving the client a second way to
+    # write them is how the two stores drift apart, and then the reader has to
+    # guess which one is current.
+    #
+    # Presence, not truthiness: model_fields_set distinguishes "the caller did
+    # not mention flags" from "the caller cleared flags". Sending [] must clear
+    # them, and sending null must too - otherwise the column resurrects what
+    # was just deleted.
+    _sent = patch.model_fields_set
+    _v4_sent = [k for k in _V4_SECTIONS if k in _sent]
+    if _v4_sent:
+        # A new dict, not a mutation: SQLAlchemy compares JSON columns by
+        # identity, so editing rca_v3 in place is a write it never sees.
+        blob = dict(d.rca_v3 or {})
+        for k in _v4_sent:
+            path = _V4_SECTIONS[k]
+            if len(path) == 1:
+                blob[path[0]] = getattr(patch, k)
+            else:
+                outer = dict(blob.get(path[0]) or {})
+                outer[path[1]] = getattr(patch, k)
+                blob[path[0]] = outer
+        d.rca_v3 = blob
+        flag_modified(d, "rca_v3")
+        edits += len(_v4_sent)
+
     # Mark the RCA body as human-touched, but ONLY for a real rca_v3 patch.
     # Routing changes and clearing the Slack override also come through here
     # and are not content edits; marking those would over-protect and make a
     # bulk re-run skip nearly everything.
-    if patch.rca_v3 is not None:
+    if patch.rca_v3 is not None or _v4_sent:
         d.rca_v3_edited_at = datetime.utcnow()
 
     m = db.query(ReviewMetric).filter(ReviewMetric.review_id == review_id).first()

@@ -138,19 +138,26 @@ class RcaDraft(Base):
     # VS flow still writes, and writing v3 over it destroyed those fields.
     rca_v3             = Column(JSON, default=dict)
 
-    # ── RCA v4 ──
-    # Six fields the v4 prompt returns that had no column. They ALSO live
-    # inside rca_v3, which is where the dashboard's data-v3p editor writes -
-    # so rca_v3 is the source of truth for RCA content and these are the
-    # queryable copy the pipeline writes. _draft_dict() reads rca_v3 first and
-    # falls back to the column, so an edit can never be shadowed by a stale
-    # denormalised value.
-    sop_compliance     = Column(JSON, default=dict)
-    booking_logs       = Column(JSON, default=list)
-    flags              = Column(JSON, default=list)
-    takedown           = Column(JSON, default=dict)
-    dss                = Column(JSON, default=dict)
-    guest_issues       = Column(JSON, default=list)
+    # ── RCA v4: projections of rca_v3 ──
+    #
+    # READ THIS BEFORE ADDING ANOTHER ONE. These are not independent fields.
+    # Each is a flat copy of a key inside rca_v3, kept so reporting queries do
+    # not have to parse JSON. There is exactly one writer - the pipeline, at
+    # generation time - and exactly one editor - rca_v3, through
+    # PATCH /draft-v2. The client must never write these columns; a second
+    # writer is how two stores of one value drift apart, and then every reader
+    # has to guess which is current.
+    #
+    # _draft_dict() reads rca_v3 first and falls back to the column ON
+    # PRESENCE, not truthiness: an empty list in rca_v3 means someone deleted
+    # the last row, and it has to beat a populated column or the delete undoes
+    # itself on the next load.
+    sop_compliance     = Column(JSON, default=dict)   # projection of rca_v3.sop_compliance
+    booking_logs       = Column(JSON, default=list)   # projection of rca_v3.booking_logs
+    flags              = Column(JSON, default=list)   # projection of rca_v3.flags
+    takedown           = Column(JSON, default=dict)   # projection of rca_v3.takedown
+    dss                = Column(JSON, default=dict)   # projection of rca_v3.dss
+    guest_issues       = Column(JSON, default=list)   # projection of rca_v3.what_went_wrong.guest_issues
 
     # Which canned-response situation the drafter used as its tone reference,
     # or the explicit no-match marker. The dashboard already read
