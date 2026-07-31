@@ -27,6 +27,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm.attributes import flag_modified
 
 from server.config import is_live, MOCK_MODE
+from server import prompts
 from server.db import SessionLocal, Review, RcaDraft, ReviewMetric
 from server.services import claude, bigquery as bq, zendesk, dss, slack as slk
 from server.services.canned import get_canned_responses
@@ -1784,6 +1785,11 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # flags, interactions, sop_compliance) lives in rca_fields; a failed
         # generation keeps the previous one rather than wiping it.
         draft.rca_v3                  = _v3 or draft.rca_v3 or {}
+        # Stamped only when this run actually produced an RCA. A failed
+        # generation keeps the previous blob, so it must keep that blob's
+        # version too - claiming v4 over v3 content is worse than no stamp.
+        if _v3:
+            draft.rca_prompt_version  = prompts.RCA_PROMPT_VERSION
         _tldr = _v3.get("tldr")
         if isinstance(_tldr, dict):
             draft.tldr = (f"Our mistake: {_tldr.get('our_mistake', '')} "

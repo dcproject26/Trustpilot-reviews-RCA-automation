@@ -1325,20 +1325,21 @@ that turned out fine is silence — never a line in the output.
     "detail": "<qualifier or exception note | null>",
     "zd_ref": "<ZD-xxxxx | null>"
   },
-  "support_interaction": [
+  "support_interaction_notes": [
     {
-      "channel": "<chat | email | call>",
-      "time": "<DD Mon HH:MM | null>",
+      "zd_ref": "<ZD-xxxxx — the ticket this note is about; this is the join key | null>",
       "summary": "<one line, what happened in this contact>",
       "detail": "<the fuller account, quoting the guest and the agent | null>",
-      "zd_ref": "<ZD-xxxxx | null>",
-      "ce_miss": "<what CE should have done differently | null>"
+      "ce_miss": "<what CE should have done differently | null>",
+      "channel": "<chat | email | call | null — ONLY for a contact with no ZD ticket>",
+      "time": "<DD Mon HH:MM | null — ONLY for a contact with no ZD ticket>"
     }
   ],
-  "sp_interaction": {
+  "sp_interaction_notes": {
     "raised": "<Yes | No | N/A>",
     "records": [
-      { "time": "<DD Mon HH:MM | null>", "summary": "<what was raised and what came back>", "zd_ref": "<ZD-xxxxx | null>" }
+      { "zd_ref": "<ZD-xxxxx — the join key | null>", "summary": "<what was raised and what came back>",
+        "time": "<DD Mon HH:MM | null — ONLY for a record with no ZD ticket>" }
     ]
   },
   "booking_logs": [
@@ -1374,6 +1375,10 @@ that turned out fine is silence — never a line in the output.
 5. Every analytical statement attaches to the issue it explains. `operational_failure`,
    `sop_gap`, `pattern` and `fix` are fields ON each guest issue. Do NOT emit document-level
    `what_happened`, `root_causes`, `operational_failure`, `sop_gap`, `pattern` or `fixes` lists.
+   `owner` names the internal team that must ACT on this issue. When the claim is Inaccurate, or
+   when no internal team is at fault, `owner` is null — never "Guest", "Customer", "None" or
+   "N/A". A guest cannot be assigned work, so naming one as owner puts a party who will never
+   see this RCA on the hook for the fix.
 6. `evidence[].source` and `.ref` are structured fields. The `text` must contain no `[booking]`
    or `[insights]` prefix and no URL — put the identifier in `ref` and the origin in `source`.
 7. No bullet characters (•, -, –, *) or leading numbering ("1.", "a)") inside any string.
@@ -1385,7 +1390,11 @@ that turned out fine is silence — never a line in the output.
 10. `flags` contains failures only — things a named team must act on. An empty array means
     everything was checked and nothing needed raising; return `[]`, not a placeholder entry.
 11. If a section genuinely has nothing (no SP contact, no support contact), return an empty
-    array. Do NOT fabricate a row whose summary says nothing was found.
+    array. Do NOT fabricate a row whose summary says nothing was found. The REVIEW ITSELF is
+    never a support contact: it is the artefact being analysed, not a channel the guest reached
+    us on. Never emit a `support_interaction_notes` row for it, and never write "Trustpilot",
+    "review" or "public review" as a `channel` — a phantom contact makes the contact count
+    permanently one too high, and it reads as if someone handled the guest when nobody did.
 12. `issue_specific_answers`: one object per question in ISSUE_QUESTIONS, in the order given,
     question text copied verbatim. `verdict` MUST be exactly Yes, No or Unknown — the reasoning
     and the numbers go in `evidence`. Do NOT prefix the evidence with the verdict, and do NOT
@@ -1413,13 +1422,27 @@ that turned out fine is silence — never a line in the output.
     step.
 17. `resolution` records what the guest ACTUALLY received, not what was recommended. If nothing
     has been given yet, say so plainly ("Nothing offered yet") rather than describing an intent.
-18. `suggested_response` follows the voice of the APPROVED REPLY VOICE examples — their register,
+18. `support_interaction_notes` and `sp_interaction_notes` are your INTERPRETATION of contacts
+    the system already has as facts. The rows the UI renders come from Zendesk: their time,
+    channel and ticket id are established and are not yours to restate. Your job is `summary`,
+    `detail` and `ce_miss`, joined to a contact by `zd_ref`. Set `channel` and `time` ONLY for a
+    contact you can see in the review or the raw ticket bodies that has NO Zendesk ticket behind
+    it — that row renders marked unverified, so use it for a real gap (the guest says they
+    phoned and no ticket exists), never to restate one that is already there.
+19. `suggested_response` follows the voice of the APPROVED REPLY VOICE examples — their register,
     warmth and sentence rhythm — and NONE of their content. Never copy a sentence from them,
     never carry over a remedy they mention, and never use one as a template to fill in. The
     facts of this reply come only from this case's evidence."""
 
 # The name the filler and every existing import still use.
 RCA_V3_TEMPLATE = RCA_V4_TEMPLATE
+
+# Stamped onto every draft the pipeline writes. Without it a v3 row and a v4
+# row are told apart only by guessing from their shape, which is how a
+# pre-deploy draft got read as a v4 checkpoint: every enum violation in it was
+# a v3 artefact, and nothing on the row said so. Bump this whenever the output
+# SHAPE changes - not for wording.
+RCA_PROMPT_VERSION = "rca_v4"
 
 
 # ─── 9b. WWR analysis — stacked scenario blocks (Task #13 §3) ───────────────
