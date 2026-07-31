@@ -100,7 +100,55 @@ def selftest():
               f"Worth understanding why before relying on this path.")
         return 0
     print(f"[ ok ] the join works — {joined / total:.0%} of recent support "
-          f"contacts resolve to a booking.")
+          f"contacts resolve to a booking.\n")
+    return _hashed_name_share()
+
+
+def _hashed_name_share():
+    """How much of primary_guest_name is a PII hash rather than a name?
+
+    This decides whether the support-anchored path is worth having. It matches
+    on the guest name, and a hashed name cannot be matched - so this number is
+    the ceiling on how often the path can work at all. If it is high, the
+    honest answer is that reviews should be matched some other way.
+    """
+    from server.config import BIGQUERY_SUPPORT_TABLE, BIGQUERY_BOOKINGS_TABLE
+    from server.services.bigquery import _run_query, SUPPORT_LOOKBACK_DAYS
+    sql = f"""
+    SELECT
+      COUNT(*) AS n,
+      COUNTIF(NOT (NOT REGEXP_CONTAINS(b.primary_guest_name, r'\\s')
+                   AND LENGTH(b.primary_guest_name) >= 16
+                   AND REGEXP_CONTAINS(b.primary_guest_name,
+                                       r'^[A-Za-z0-9+/=_-]+$'))) AS real_names
+    FROM `{BIGQUERY_SUPPORT_TABLE}` sq
+    JOIN `{BIGQUERY_BOOKINGS_TABLE}` b
+      ON SAFE_CAST(sq.booking_id AS INT64) = b.booking_id
+    WHERE sq.query_created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(),
+                                               INTERVAL {int(SUPPORT_LOOKBACK_DAYS)} DAY)
+      AND b.primary_guest_name IS NOT NULL
+    """
+    try:
+        rows = _run_query(sql, [])
+    except Exception as e:
+        print(f"[warn] could not measure hashed names: {str(e)[:80]}")
+        return 0
+    if not rows:
+        return 0
+    n    = int(getattr(rows[0], "n", 0) or 0)
+    real = int(getattr(rows[0], "real_names", 0) or 0)
+    if not n:
+        return 0
+    share = real / n
+    print(f"bookings behind a support contact       {n:,}")
+    print(f"  with a usable guest name              {real:,} ({share:.0%})")
+    print(f"  with a PII hash instead               {n - real:,} ({1 - share:.0%})\n")
+    if share < 0.25:
+        print(f"[warn] only {share:.0%} of these bookings carry a name that can be")
+        print(f"       matched at all. This path searches by guest name, so that")
+        print(f"       is its ceiling — worth deciding whether it earns its place.")
+    else:
+        print(f"[ ok ] {share:.0%} of bookings carry a matchable name.")
     return 0
 
 

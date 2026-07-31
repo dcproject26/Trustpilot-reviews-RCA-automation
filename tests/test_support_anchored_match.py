@@ -158,6 +158,51 @@ def test_it_refuses_to_run_with_nothing_to_anchor_on(bq_with):
     assert runner.calls == [], "no query may be issued with nothing to narrow by"
 
 
+def test_a_hashed_guest_name_is_not_a_guest_name(bq_with):
+    """fct_bookings.primary_guest_name is a PII hash on many rows.
+    'ab24TSVenneb4T3CkHFUFaGM' contains the letters SVen, and a substring
+    search for a guest called Sven returned it - handing back a Barcelona
+    walking tour as the booking behind a review about a musical."""
+    assert bq.is_hashed_name("ab24TSVenneb4T3CkHFUFaGM") is True
+    assert bq.is_hashed_name("Sven Bauer") is False
+    assert bq.is_hashed_name("Konstantin") is False, "a long real name is not a hash"
+
+    runner = bq_with([_row("88001", "Sven Bauer")])
+    asyncio.run(bq.find_via_support(SVEN, author="Sven Bauer"))
+    sql, _ = runner.calls[0]
+    assert "LENGTH(b.primary_guest_name) >= 16" in sql, \
+        "hashed rows must be excluded before the name is compared"
+
+
+def test_the_name_must_match_a_whole_word(bq_with):
+    """Substring matching is what let a hash match. Even among real names,
+    'Sven' inside 'Svensson' is a different guest."""
+    runner = bq_with([_row("88001", "Sven Bauer")])
+    asyncio.run(bq.find_via_support(SVEN, author="Sven Bauer"))
+    sql, _ = runner.calls[0]
+    assert "REGEXP_CONTAINS(LOWER(b.primary_guest_name)" in sql
+    assert "(^|[^a-z])" in sql and "([^a-z]|$)" in sql
+    assert "LIKE LOWER(CONCAT('%', @name, '%'))" not in sql, \
+        "the substring match is what produced the false positive"
+
+
+def test_a_hashed_row_that_slips_through_is_dropped(bq_with):
+    """The SQL excludes them, but this is the check that decides whether a
+    booking is shown to an associate as matching their guest."""
+    bq_with([_row("88001", "ab24TSVenneb4T3CkHFUFaGM")])
+    out = asyncio.run(bq.find_via_support(SVEN, author="Sven Bauer"))
+    assert out == [], "a hash cannot corroborate a name"
+
+
+def test_a_display_name_cannot_break_the_query(bq_with):
+    """The name goes into a regex in the SQL. "Ann (Annie)" would otherwise
+    raise rather than simply not match."""
+    runner = bq_with([_row("88001", "Annie Hall")])
+    asyncio.run(bq.find_via_support(SVEN, author="Ann (Annie)"))
+    _, params = runner.calls[0]
+    assert "(" not in params["name"] and ")" not in params["name"]
+
+
 def test_the_day_and_month_are_matched_not_the_guessed_year(bq_with):
     """Guests write "20/10", not "20/10/2025". The day and month are facts
     from the review; the year is what extraction inferred from the post date,

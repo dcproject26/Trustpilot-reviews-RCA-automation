@@ -20,6 +20,7 @@ Real table paths confirmed from the Retool workflow:
 """
 import asyncio
 import json, logging
+import re as _re_mod
 from server.config import (
     is_live, GCP_SERVICE_ACCOUNT_JSON,
     BIGQUERY_BOOKINGS_TABLE, BIGQUERY_REVIEWS_TABLE, BIGQUERY_FULFILMENTS_TABLE,
@@ -209,6 +210,28 @@ def _iso_dates(raw) -> list:
     return out[:6]
 
 
+def is_hashed_name(s: str) -> bool:
+    """True for a base64/hex PII hash rather than a human name.
+
+    fct_bookings.primary_guest_name is hashed for a large share of rows, so
+    any name comparison against it is noise on those. 'ab24TSVenneb4T3CkHFUFaGM'
+    is a hash that contains the letters 'SVen', and a substring search for a
+    guest called Sven matched it - a Barcelona walking tour returned as the
+    match for a review about a musical.
+    """
+    s = (s or "").strip()
+    if not s or " " in s:
+        return False
+    return len(s) >= 16 and bool(_re_mod.fullmatch(r"[A-Za-z0-9+/=_\-]+", s))
+
+
+# SQL for the same test, so hashed rows never even reach the name comparison.
+NOT_A_HASH_SQL = """NOT (NOT REGEXP_CONTAINS(b.primary_guest_name, r'\\s')
+                         AND LENGTH(b.primary_guest_name) >= 16
+                         AND REGEXP_CONTAINS(b.primary_guest_name,
+                                             r'^[A-Za-z0-9+/=_-]+$'))"""
+
+
 def _search_name(raw: str) -> str:
     """The part of a display name worth matching a booking against.
 
@@ -223,7 +246,13 @@ def _search_name(raw: str) -> str:
         cleaned = strip_honorifics(raw)
     except Exception:
         cleaned = str(raw or "")
-    parts = [p.strip(".,") for p in cleaned.split() if p.strip(".,")]
+    # The name is interpolated into a regex in the SQL, so anything with a
+    # meaning there is stripped - a display name like "Ann (Annie)" would
+    # otherwise break the query rather than simply not match. Characters are
+    # removed rather than whitelisted, so non-Latin names survive intact.
+    parts = [_re_mod.sub(r"[()\[\]{}.*+?^$|\\/]", "", p).strip(".,'-")
+             for p in cleaned.split()]
+    parts = [p for p in parts if p and not p.isdigit()]
     if not parts:
         return ""
     if len(parts) >= 2 and len(parts[-1]) >= 3:
@@ -281,7 +310,13 @@ def support_search_sql(indicators: dict, author: str = "", limit: int = 8,
 
     where, params = ["sq.booking_id IS NOT NULL"], []
     if name:
-        where.append("LOWER(b.primary_guest_name) LIKE LOWER(CONCAT('%', @name, '%'))")
+        # Whole word, and never against a hash. A substring LIKE returned
+        # 'ab24TSVenneb4T3CkHFUFaGM' - a PII hash with the letters SVen inside
+        # it - as the match for a guest called Sven, and with it a Barcelona
+        # walking tour as the booking behind a review about a musical.
+        where.append(NOT_A_HASH_SQL)
+        where.append("REGEXP_CONTAINS(LOWER(b.primary_guest_name), "
+                     "CONCAT(r'(^|[^a-z])', LOWER(@name), r'([^a-z]|$)'))")
         params.append(_P.ScalarQueryParameter("name", "STRING", name))
     if dates:
         # A date the review named may be the visit date OR the date the guest
@@ -395,6 +430,13 @@ async def find_via_support(indicators: dict, author: str = "",
     out = []
     for r in rows:
         d = _row_to_dict(r)
+        # The SQL excludes hashes, but this is the check that decides whether a
+        # booking is put in front of an associate as "matching this guest", so
+        # it is worth making twice. A hash cannot corroborate a name.
+        if name and is_hashed_name(d.get("guestName") or ""):
+            log.info(f"[bq] support-anchored: dropping booking {d.get('id')} - "
+                     f"its guest name is a hash, not a name")
+            continue
         d["contact_count"] = getattr(r, "contact_count", 0) or 0
         d["contact_tags"]  = getattr(r, "contact_tags", "") or ""
         d["matched_on"] = ([f"name:{name}"] if name else []) + \
