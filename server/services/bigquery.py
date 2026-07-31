@@ -18,10 +18,12 @@ Real table paths confirmed from the Retool workflow:
   headout-analytics.analytics_reporting.fct_fulfilments
   headout-analytics.analytics_reporting.dim_vendors
 """
+import asyncio
 import json, logging
 from server.config import (
     is_live, GCP_SERVICE_ACCOUNT_JSON,
     BIGQUERY_BOOKINGS_TABLE, BIGQUERY_REVIEWS_TABLE, BIGQUERY_FULFILMENTS_TABLE,
+    BIGQUERY_SUPPORT_TABLE,
 )
 from server.services.mock_data import MOCK_BOOKINGS, MOCK_INSIGHTS
 
@@ -175,6 +177,119 @@ async def find_booking(review: dict) -> dict | None:
             return {"candidates": candidates}
 
     return None
+
+
+def support_search_sql(indicators: dict, author: str = "", limit: int = 8):
+    """Build the support-anchored query. Returns (sql, params) or (None, None).
+
+    Separated from the call so tools/check_support_search.py can dry-run the
+    exact query this service issues, rather than a hand-copied lookalike that
+    drifts.
+    """
+    name  = (author or indicators.get("guest_name") or "").strip()
+    dates = [d for d in (indicators.get("dates_mentioned") or []) if d]
+    venue = (indicators.get("experience_or_venue") or "").strip()
+    # Something to anchor on is required. A bare "had a support contact"
+    # query would return the whole table.
+    if not name and not dates:
+        return None, None
+
+    # In MOCK_MODE _bqlib is None, but the parameter classes are plain data
+    # holders that need no credentials — so the query can still be built and
+    # printed for review by tools/check_support_search.py.
+    _P = _bqlib
+    if _P is None:
+        from server.services import bq_connector as _P
+
+    where, params = ["sq.booking_id IS NOT NULL"], []
+    if name:
+        where.append("LOWER(b.primary_guest_name) LIKE LOWER(CONCAT('%', @name, '%'))")
+        params.append(_P.ScalarQueryParameter("name", "STRING", name))
+    if dates:
+        # A date the review named may be the visit date OR the date the guest
+        # meant to book - both are on the booking, so both are checked, with a
+        # day of slack for timezone rounding.
+        where.append("""(
+            EXISTS (SELECT 1 FROM UNNEST(@dates) d
+                    WHERE ABS(DATE_DIFF(DATE(b.experience_date), DATE(d), DAY)) <= 1)
+            OR EXISTS (SELECT 1 FROM UNNEST(@dates) d
+                    WHERE ABS(DATE_DIFF(DATE(b.created_at), DATE(d), DAY)) <= 1)
+        )""")
+        params.append(_P.ArrayQueryParameter("dates", "STRING", dates))
+    if venue:
+        where.append("LOWER(b.experience_name) LIKE LOWER(CONCAT('%', @venue, '%'))")
+        params.append(_P.ScalarQueryParameter("venue", "STRING", venue))
+
+    sql = f"""
+    SELECT
+        b.booking_id,
+        b.experience_name,
+        b.experience_id          AS tgid,
+        b.tour_id                AS tid,
+        b.vendor_id              AS vid,
+        DATE(b.created_at)       AS booked_on,
+        DATE(b.experience_date)  AS visit_date,
+        b.primary_guest_name     AS guest_name,
+        COUNT(sq.query_id)       AS contact_count,
+        STRING_AGG(DISTINCT COALESCE(sq.query_tag, sq.query_type,
+                                     sq.contact_type), ' | ') AS contact_tags,
+        MIN(DATE(sq.query_created_at)) AS first_contact,
+        MAX(DATE(sq.query_created_at)) AS last_contact
+    FROM `{BIGQUERY_SUPPORT_TABLE}` sq
+    JOIN `{BIGQUERY_BOOKINGS_TABLE}` b
+      ON CAST(b.booking_id AS STRING) = sq.booking_id
+    WHERE {" AND ".join(where)}
+    GROUP BY 1,2,3,4,5,6,7,8
+    ORDER BY last_contact DESC
+    LIMIT {int(limit)}
+    """
+    return sql, params
+
+
+async def find_via_support(indicators: dict, author: str = "",
+                           limit: int = 8) -> list[dict]:
+    """
+    Bookings whose guest CONTACTED SUPPORT, narrowed by the review's own facts.
+
+    The complement to the Zendesk text search, not a duplicate of it.
+    fct_support_queries carries the contact as CATEGORIES - query_tag,
+    query_type, contact_type - not the guest's words, so it cannot be searched
+    for "falsches Datum". What it can do, and Zendesk cannot, is join the
+    contact to the booking and filter on real booking facts: the guest's name
+    as it appears on the booking, the actual experience date, the booking
+    date. A review naming a date is therefore matchable here even when the
+    guest's phrasing finds nothing.
+
+    Used only as a fallback, on the same terms as the Zendesk issue pass: the
+    direct matcher answers first, and this runs when it has not.
+    """
+    if not is_live("bigquery"):
+        return []
+    name  = (author or indicators.get("guest_name") or "").strip()
+    dates = [d for d in (indicators.get("dates_mentioned") or []) if d]
+    venue = (indicators.get("experience_or_venue") or "").strip()
+    sql, params = support_search_sql(indicators, author, limit)
+    if sql is None:
+        return []
+    try:
+        rows = await asyncio.get_running_loop().run_in_executor(
+            None, lambda: _run_query(sql, params))
+    except Exception as e:
+        log.warning(f"[bq] support-anchored search failed: {e}")
+        return []
+
+    out = []
+    for r in rows:
+        d = _row_to_dict(r)
+        d["contact_count"] = getattr(r, "contact_count", 0) or 0
+        d["contact_tags"]  = getattr(r, "contact_tags", "") or ""
+        d["matched_on"] = ([f"name:{name}"] if name else []) + \
+                          ([f"date:{dates[0]}"] if dates else []) + \
+                          ["contacted support"]
+        out.append(d)
+    log.info(f"[bq] support-anchored: name={bool(name)} dates={len(dates)} "
+             f"venue={bool(venue)} -> {len(out)} booking(s)")
+    return out
 
 
 async def get_similar_complaints(booking: dict) -> tuple[list, list]:
