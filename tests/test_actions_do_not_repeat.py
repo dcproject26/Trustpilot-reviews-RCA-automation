@@ -95,6 +95,36 @@ def test_there_is_no_invented_slack_channel():
                                       API.find("class FlagToBiz") + 400]
 
 
+def test_the_numbers_biz_acts_on_are_fields_not_prose():
+    """Completion rate, TGID, TID and VID used to be baked into the message
+    body, so correcting a wrong TGID meant editing prose and what went out was
+    whatever survived the edit. They are inputs now, and they reach Slack in a
+    fixed shape."""
+    import types
+    from server.api import _biz_facts
+    B = types.SimpleNamespace
+    line = _biz_facts(B(completion_rate=87.4, tgid="12345", tid="678", vid="9012"))
+    assert line == "Completion 87.4% · TGID 12345 · TID 678 · VID 9012"
+    # A missing one is omitted, not printed as None.
+    assert _biz_facts(B(completion_rate=90.0, tgid="", tid=None, vid="9012")) \
+        == "Completion 90% · VID 9012"
+    assert _biz_facts(B(completion_rate=None, tgid=None, tid=None, vid=None)) == ""
+
+    for field in ("flag-completion", "flag-tgid", "flag-tid", "flag-vid"):
+        assert f'id="{field}"' in CLIENT, f"{field} is missing from the modal"
+    i = CLIENT.find("#flag-send-btn")
+    handler = CLIENT[i:i + 2000]
+    for key in ("completion_rate", "tgid", "tid", "vid"):
+        assert key in handler, f"{key} is collected but never sent"
+
+
+def test_the_facts_reach_slack_and_the_action_log():
+    body = _fn(API, "flag_to_biz")
+    assert "_biz_facts(body)" in body, "the numbers never reach the Slack message"
+    assert body.count("_biz_facts(body)") >= 2, \
+        "the action log should record what was raised, not only how it was worded"
+
+
 def test_flagging_without_a_slack_thread_is_refused_not_redirected():
     body = _fn(API, "flag_to_biz")
     assert "has no Slack thread" in body, \
