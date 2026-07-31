@@ -80,12 +80,27 @@ class DraftPatchV2(BaseModel):
     wwr_scenarios:              list | None = None
     prevention:                 str  | None = None
     evidence:                   list | None = None
-    issue_specific_answers:     dict | None = None
+    # v4 made this an array of {question, verdict, evidence, source, ref};
+    # v3 sent {question: answer}. Accept either so a client mid-deploy and a
+    # draft written before it both still save.
+    issue_specific_answers:     list | dict | None = None
     checklist_answers:          list | None = None
     slack_thread_override:      str  | None = None
     # The dashboard edits flags / booking logs / takedown in place, and those
     # live inside the rca_v3 object rather than in columns of their own.
     rca_v3:                     dict | None = None
+
+    # ── RCA v4 ──
+    # Editable top-level sections. The dashboard writes most of these through
+    # rca_v3 dot-paths, but accepting them here means a caller that patches the
+    # section directly persists too, rather than silently doing nothing.
+    guest_issues:               list | None = None
+    sop_compliance:             dict | None = None
+    booking_logs:               list | None = None
+    flags:                      list | None = None
+    takedown:                   dict | None = None
+    dss:                        dict | None = None
+    suggested_response:         str  | None = None
 
 
 class CandidateSelect(BaseModel):
@@ -128,6 +143,27 @@ def _looks_like_hash(s: str) -> bool:
     if not s or " " in s:
         return False
     return len(s) >= 16 and all(c in "0123456789abcdefABCDEF-" for c in s)
+
+
+def _v4(d, column: str, v3_path: str, default):
+    """A v4 field, preferring the edited rca_v3 over the denormalised column.
+
+    Both hold the same thing. rca_v3 is what the dashboard writes when someone
+    edits a field, and the column is what the pipeline wrote when it generated
+    the draft - so rca_v3 wins, or an edit would be shadowed by the value it
+    replaced. Falls back to the column, then to the default, so a draft written
+    before the v4 deploy still renders.
+    """
+    node = d.rca_v3 or {}
+    for part in v3_path.split("."):
+        if not isinstance(node, dict):
+            node = None
+            break
+        node = node.get(part)
+    if node not in (None, "", [], {}):
+        return node
+    col = getattr(d, column, None)
+    return col if col not in (None, "", [], {}) else default
 
 
 def _biz_facts(body) -> str:
@@ -225,6 +261,22 @@ def _draft_dict(d: RcaDraft) -> dict:
 
         "tldr":                        d.tldr,
         "rca_v3":                      d.rca_v3 or {},
+
+        # ── RCA v4 ──
+        # rca_v3 is the source of truth: it is what the dashboard's data-v3p
+        # editor writes to. The columns are the pipeline's queryable copy, so
+        # they are the FALLBACK - reading them first would let a stale
+        # denormalised value shadow an edit someone just made.
+        "guest_issues":     _v4(d, "guest_issues", "what_went_wrong.guest_issues", []),
+        "sop_compliance":   _v4(d, "sop_compliance", "sop_compliance", {}),
+        "booking_logs":     _v4(d, "booking_logs", "booking_logs", []),
+        "flags":            _v4(d, "flags", "flags", []),
+        "takedown":         _v4(d, "takedown", "takedown", {}),
+        "dss":              _v4(d, "dss", "dss", {}),
+        "support_interaction": _v4(d, "support_interaction_frames",
+                                   "support_interaction", []),
+        "sp_interaction":      _v4(d, "sp_interaction_frames",
+                                   "sp_interaction", {}),
         "wwr_chain":                   d.wwr_chain or [],
         "prevention":                  d.prevention,
         "evidence":                    d.evidence or [],
@@ -717,6 +769,9 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
         "tldr", "wwr_chain", "wwr_scenarios", "prevention", "evidence",
         "issue_specific_answers", "checklist_answers", "slack_thread_override",
         "rca_v3",
+        # RCA v4 sections
+        "guest_issues", "sop_compliance", "booking_logs", "flags",
+        "takedown", "dss", "suggested_response",
     ):
         val = getattr(patch, field, None)
         if val is not None:
@@ -1114,6 +1169,18 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
     if not rca_v3:
         raise HTTPException(502, "RCA regeneration returned nothing - draft unchanged")
 
+    # The same validation the pipeline runs. Skipping it here was how an
+    # unvalidated RCA reached the screen: re-run from the dashboard and the
+    # coercions the pipeline applies simply did not happen.
+    rca_notes: list = []
+    try:
+        from server.services.rca_v4_validate import validate as _validate_rca
+        rca_v3, rca_notes = _validate_rca(rca_v3, scenarios)
+        for _n in rca_notes:
+            log.warning(f"[regenerate-rca] {review_id}: {_n}")
+    except Exception as e:
+        log.exception(f"RCA validation failed, keeping raw output: {e}")
+
     # Same projection the pipeline does on save.
     d.rca_v3 = rca_v3
     _tldr = rca_v3.get("tldr")
@@ -1129,11 +1196,27 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
     _aoi = rca_v3.get("area_of_improving")
     if _aoi:
         d.area_of_improving  = _aoi if isinstance(_aoi, list) else [_aoi]
-    d.issue_specific_answers = rca_v3.get("issue_specific_answers") or {}
+    d.issue_specific_answers = rca_v3.get("issue_specific_answers") or []
     d.checklist_answers      = []
+    # v4 columns — the queryable copy. Left unwritten, a re-run updated rca_v3
+    # and left these holding the previous run's answer.
+    d.guest_issues    = (rca_v3.get("what_went_wrong") or {}).get("guest_issues") or []
+    d.sop_compliance  = rca_v3.get("sop_compliance") or {}
+    d.booking_logs    = rca_v3.get("booking_logs") or []
+    d.flags           = rca_v3.get("flags") or []
+    d.takedown        = rca_v3.get("takedown") or {}
+    d.dss             = rca_v3.get("dss") or {}
+    # v4 writes the reply and the resolution as part of the RCA. final_response
+    # holds any human edit, so refreshing these does not overwrite one.
+    if rca_v3.get("resolution"):
+        d.resolution         = rca_v3["resolution"]
+    if rca_v3.get("suggested_response"):
+        d.suggested_response = rca_v3["suggested_response"]
     d.generated_at           = datetime.utcnow()
     for _col in ("rca_v3", "overlay_scenarios", "issue_specific_answers",
-                 "checklist_answers", "area_of_improving"):
+                 "checklist_answers", "area_of_improving",
+                 "guest_issues", "sop_compliance", "booking_logs", "flags",
+                 "takedown", "dss"):
         flag_modified(d, _col)
     db.commit()
     return {"ok": True, "rca_v3": rca_v3,
@@ -1141,6 +1224,9 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
             "overlay_scenarios": d.overlay_scenarios,
             "tldr": d.tldr, "prevention": d.prevention,
             "issue_specific_answers": d.issue_specific_answers,
+            "suggested_response": d.suggested_response or "",
+            "resolution": d.resolution or "",
+            "validation_notes": rca_notes,
             "area_of_improving": d.area_of_improving or []}
 
 

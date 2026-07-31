@@ -29,7 +29,6 @@ from sqlalchemy.orm.attributes import flag_modified
 from server.config import is_live, MOCK_MODE
 from server.db import SessionLocal, Review, RcaDraft, ReviewMetric
 from server.services import claude, bigquery as bq, zendesk, dss, slack as slk
-from server.services.canned import get_canned_responses
 from server.services.insights import get_insights as _get_insights
 from server.taxonomy import DIAGNOSTIC_CHECKS, BID_REGEX
 
@@ -1660,38 +1659,43 @@ async def process_review(review_id: str, force_candidates: bool = False):
         except Exception as e:
             log.exception(f"RCA v3 generation failed: {e}")
 
-        _progress(review_id, 7, "drafting response")
+        # ── 12c. Validate the RCA before anything reads it ───────────────────
+        # The dashboard renders whatever survives this with no special-casing,
+        # so every enum has to be settled here rather than guarded in the UI.
+        # It never raises: a malformed field is coerced and recorded, because
+        # losing an RCA to one bad enum is worse than one grey chip.
+        _progress(review_id, 7, "validating RCA")
+        rca_notes = []
+        if rca_v3:
+            try:
+                from server.services.rca_v4_validate import validate as _validate_rca
+                rca_v3, rca_notes = _validate_rca(rca_v3, _scenarios_routed)
+                # A coercion the reader cannot see is a silent edit. The trail
+                # is where this build already puts "we changed what the model
+                # said, and here is why", so each note goes there verbatim.
+                import html as _html
+                for _n in rca_notes:
+                    log.warning(f"[pipeline] rca validation: {_n}")
+                    confidence_trail.append({
+                        "mark": "warn",
+                        "text": f"<strong>RCA</strong> — {_html.escape(str(_n))}",
+                    })
+            except Exception as e:
+                log.exception(f"RCA validation failed, keeping raw output: {e}")
+
         # ── 13. Response draft ────────────────────────────────────────────────
-        response_draft = ""
+        # There is no separate drafting call any more. v4 returns `resolution`
+        # and `suggested_response` from the RCA itself, written against the full
+        # evidence base - the per-issue root causes, the SOP verdict and the
+        # takedown decision - which the standalone drafter never saw; it got
+        # only rca_v2's one-line resolution. Running both meant paying for two
+        # replies and discarding the better-grounded one, because _draft_dict()
+        # reads the column the drafter wrote.
+        #
+        # The cost is the canned-response tone reference, which the RCA prompt
+        # has no token for. Recovering it means adding one to the prompt body.
+        response_draft = (rca_v3 or {}).get("suggested_response") or ""
         draft_template_name = ""
-        try:
-            canned         = await get_canned_responses(l1, l2, sub_theme, review_text or "")
-            # Name the reference the drafter actually had. An empty list is
-            # worth surfacing: the response was written with no tone
-            # reference at all, which is what the associate needs to know.
-            draft_template_name = (
-                (canned[0].get("situation") or "").strip()[:120] if canned
-                else "NO MATCHING TEMPLATE — drafted without a tone reference")
-            response_draft = await claude.draft_response_v2(
-                review_text=review_text,
-                l1=l1,
-                l2=l2,
-                resolution=rca_v2.get("resolution", ""),
-                review_id=review_id,
-                guest_name=(
-                    (ticket_facts or {}).get("guest_full_name")
-                    or (booking or {}).get("guestName")
-                    or (review.author or "")
-                ),
-                dss_rec=dss_rec,
-                canned_list=canned,
-                # The takedown decision drives whether the reply carries one of
-                # the approved "update your review" lines, so it has to reach
-                # the drafter - the RCA settles it a step earlier.
-                takedown_verdict=((rca_v3 or {}).get("takedown") or {}).get("verdict", ""),
-            )
-        except Exception as e:
-            log.exception(f"Response draft failed: {e}")
 
         _progress(review_id, 8, "saving")
         # ── 14. Save ──────────────────────────────────────────────────────────
@@ -1757,7 +1761,10 @@ async def process_review(review_id: str, force_candidates: bool = False):
             guideline_actions if any((guideline_actions or {}).values())
             else rca_v2.get("actionsTaken",
                             {"sp":[],"customer":[],"business":[],"product":[],"ce":[]}))
-        draft.resolution                  = rca_v2.get("resolution", "")
+        # v4 settles the resolution off the full evidence base; rca_v2's is the
+        # fallback for a draft whose RCA call failed.
+        draft.resolution                  = ((rca_v3 or {}).get("resolution")
+                                             or rca_v2.get("resolution", ""))
 
         # v3 fields — always assign so flag_modified never fires on an unset
         # attribute (empty dict when RCA generation failed or returned nothing)
@@ -1772,7 +1779,10 @@ async def process_review(review_id: str, force_candidates: bool = False):
                           f"Our fix: {_tldr.get('our_fix', '')}").strip()
         else:
             draft.tldr = _tldr or draft.tldr
-        draft.wwr_chain               = _v3.get("wwr_chain") or []
+        # v4 does not emit wwr_chain or prevention — the chain moved onto each
+        # guest issue. Keep whatever a v3-era run left rather than blanking it,
+        # so a rollback to v3 finds its data intact.
+        draft.wwr_chain               = _v3.get("wwr_chain") or draft.wwr_chain or []
         _prev = _v3.get("prevention")
         if isinstance(_prev, list):
             _prev = "\n".join(f"• {p}" for p in _prev if p)
@@ -1784,10 +1794,26 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # flat top-level list, so it never returns this key. Assigning [] here
         # deleted the evidence appendix a legacy draft had collected.
         draft.evidence                = _v3.get("evidence") or draft.evidence or []
-        draft.issue_specific_answers  = _v3.get("issue_specific_answers") or {}
+        # v4 answers are a list of {question, verdict, evidence, source, ref};
+        # v3 stored {question: answer}. The validator normalises to the list, so
+        # the empty default is a list too.
+        draft.issue_specific_answers  = _v3.get("issue_specific_answers") or []
         # The checklist runs silently now — only failures ship, as
         # rca_fields["flags"]. Nothing renders the full answer wall anymore.
         draft.checklist_answers       = []
+
+        # ── v4 columns ────────────────────────────────────────────────────────
+        # These also live inside rca_v3, which is what the dashboard's editor
+        # writes to and therefore the source of truth for RCA content. The
+        # columns are the queryable copy, written only by the pipeline; that is
+        # why _draft_dict() reads rca_v3 first and falls back to the column,
+        # rather than the other way round.
+        draft.guest_issues            = (_v3.get("what_went_wrong") or {}).get("guest_issues") or []
+        draft.sop_compliance          = _v3.get("sop_compliance") or {}
+        draft.booking_logs            = _v3.get("booking_logs") or []
+        draft.flags                   = _v3.get("flags") or []
+        draft.takedown                = _v3.get("takedown") or {}
+        draft.dss                     = _v3.get("dss") or {}
 
         draft.ticket_facts                = ticket_facts or None
         draft.suggested_response          = response_draft
@@ -1812,6 +1838,8 @@ async def process_review(review_id: str, force_candidates: bool = False):
             "area_of_improving", "actions_taken", "overlay_scenarios", "wwr_scenarios",
             "wwr_chain", "evidence", "issue_specific_answers", "checklist_answers",
             "ticket_facts", "rca_v3", "area_of_improving",
+            "guest_issues", "sop_compliance", "booking_logs", "flags",
+            "takedown", "dss",
         ):
             try:
                 flag_modified(draft, _col)

@@ -112,7 +112,10 @@ class RcaDraft(Base):
     wwr_chain                   = Column(JSON, default=list)
     prevention                  = Column(Text, nullable=True)
     evidence                    = Column(JSON, default=list)
-    issue_specific_answers      = Column(JSON, default=dict)
+    # v4 made this an array of {question, verdict, evidence, source, ref}.
+    # v3 stored {question: answer}; drafts written before the v4 deploy
+    # still hold that shape, so every reader must handle both.
+    issue_specific_answers      = Column(JSON, default=list)
     checklist_answers           = Column(JSON, default=list)
 
     # ── Ticket fact extraction (Zendesk → structured facts) ──
@@ -134,6 +137,20 @@ class RcaDraft(Base):
     # Its own column, NOT rca_fields: that one holds the legacy v1 shape the
     # VS flow still writes, and writing v3 over it destroyed those fields.
     rca_v3             = Column(JSON, default=dict)
+
+    # ── RCA v4 ──
+    # Six fields the v4 prompt returns that had no column. They ALSO live
+    # inside rca_v3, which is where the dashboard's data-v3p editor writes -
+    # so rca_v3 is the source of truth for RCA content and these are the
+    # queryable copy the pipeline writes. _draft_dict() reads rca_v3 first and
+    # falls back to the column, so an edit can never be shadowed by a stale
+    # denormalised value.
+    sop_compliance     = Column(JSON, default=dict)
+    booking_logs       = Column(JSON, default=list)
+    flags              = Column(JSON, default=list)
+    takedown           = Column(JSON, default=dict)
+    dss                = Column(JSON, default=dict)
+    guest_issues       = Column(JSON, default=list)
 
     # Which canned-response situation the drafter used as its tone reference,
     # or the explicit no-match marker. The dashboard already read
@@ -215,6 +232,13 @@ def _ensure_columns():
         "slack_mentions":         "JSONB" if is_pg else "JSON",
         "rca_v3":                 "JSONB" if is_pg else "JSON",
         "template_name":          "VARCHAR",
+        # RCA v4 — see server/migrations/015_rca_v4.sql
+        "sop_compliance":         "JSONB" if is_pg else "JSON",
+        "booking_logs":           "JSONB" if is_pg else "JSON",
+        "flags":                  "JSONB" if is_pg else "JSON",
+        "takedown":               "JSONB" if is_pg else "JSON",
+        "dss":                    "JSONB" if is_pg else "JSON",
+        "guest_issues":           "JSONB" if is_pg else "JSON",
     }
     added, failed = [], []
     for col, coltype in wanted.items():
