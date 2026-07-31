@@ -1,0 +1,116 @@
+"""Approved replies reach the model as VOICE, and never as content.
+
+Dropping the standalone drafter bought grounding at the cost of brand voice.
+Passing the canned replies into the RCA call buys it back — but a tone example
+sitting next to a "write a reply" instruction is the single easiest way to get
+a canned answer with this guest's name pasted into it. The token is only safe
+while output rule 18 is next to it, so both are asserted together.
+
+The rendering is checked at source rather than by calling the model: what
+matters is that the examples arrive labelled as voice, under a rule that says
+copy none of their content.
+"""
+import server.prompts as prompts
+
+
+CLIENT = open("client/index.html", encoding="utf-8").read()
+PIPE   = open("server/pipeline.py", encoding="utf-8").read()
+
+
+CANNED = [
+    {"situation": "Ticket delivered late", "response":
+     "I'm so sorry your tickets were late — that's not the start to the day "
+     "we wanted for you. I've refunded the full amount today."},
+    {"situation": "Guide did not show", "response":
+     "I'm sorry no one met you at the gate. I've put the full amount back on "
+     "your card and it will land within five working days."},
+]
+
+
+def _prompt(**over):
+    kw = dict(review_text="the voucher never came", booking={}, timeline=[],
+              insights={}, dss_rec={}, l1="Operations Issue", l2="Ticket Issues",
+              sub_theme="C. Ticket Delayed", support_summary="", checklist={},
+              review_id="tp_tone_1")
+    kw.update(over)
+    return prompts.rca_v3_prompt(**kw)
+
+
+# ── the token exists, is filled, and is labelled ────────────────────────────
+
+def test_the_template_carries_a_tone_token():
+    assert "<<CANNED_TONE>>" in prompts.RCA_V4_TEMPLATE
+    assert "APPROVED REPLY VOICE" in prompts.RCA_V4_TEMPLATE
+
+
+def test_every_token_is_substituted():
+    """A token left unreplaced ships '<<CANNED_TONE>>' to the model as text."""
+    out = _prompt(canned_list=CANNED)
+    assert "<<" not in out, f"unsubstituted token: {out[out.find('<<'):][:40]!r}"
+
+
+def test_the_approved_replies_reach_the_model():
+    out = _prompt(canned_list=CANNED)
+    assert "I've refunded the full amount today." in out
+    assert "Ticket delivered late" in out
+
+
+def test_only_the_first_three_examples_go_in():
+    """More than three starts reading like a pattern to match rather than a
+    register to borrow."""
+    many = [{"situation": f"S{i}", "response": f"UNIQUE_BODY_{i}"} for i in range(6)]
+    out = _prompt(canned_list=many)
+    assert "UNIQUE_BODY_2" in out
+    assert "UNIQUE_BODY_3" not in out
+
+
+def test_no_matching_reply_is_named_not_left_blank():
+    """A blank block reads as "no voice to match". Saying so is a fact the
+    associate reviewing the reply should have."""
+    out = _prompt(canned_list=[])
+    assert "no approved replies matched" in out
+    assert "APPROVED REPLY VOICE" in out
+
+
+def test_a_malformed_canned_row_does_not_break_the_prompt():
+    out = _prompt(canned_list=[{"situation": None, "response": None}, {}])
+    assert "<<" not in out
+
+
+# ── the rule that makes the token safe ──────────────────────────────────────
+
+def test_the_no_copying_rule_ships_with_the_examples():
+    """Without rule 18 the token is a liability, not a feature. Asserted on
+    the rule's own text, not on a "18." anywhere in the template — the number
+    surviving while the clause is gone is the failure this has to catch."""
+    t = prompts.RCA_V4_TEMPLATE
+    head = "18. `suggested_response` follows the voice of the APPROVED REPLY VOICE examples"
+    assert head in t, "output rule 18 is missing or reworded"
+    rule = t[t.find(head):]
+    for phrase in ("Never copy a sentence", "never carry over a remedy",
+                   "never use one as a template"):
+        assert phrase in rule, f"rule 18 lost its {phrase!r} clause"
+    assert "only from this case's evidence" in rule
+
+
+# ── the template line goes, rather than rendering empty ─────────────────────
+
+def test_the_template_name_line_is_gone_from_the_reply_block():
+    """There is no separate drafting call, so no template was used. An old
+    draft still carries a template_name in its column — rendering it would put
+    a stale provenance claim on a reply it had nothing to do with."""
+    assert "templateName" not in CLIENT, \
+        "the reply block still reads template_name; it can only be stale now"
+    assert "tpl-name" not in CLIENT, "the Template: X element is still rendered"
+
+
+def test_the_pipeline_stops_writing_a_template_name():
+    assert "template_name" not in PIPE
+
+
+def test_the_examples_are_labelled_as_voice_where_they_appear():
+    """The label sits next to the text, not only in the rules block — the
+    model reads the block in place."""
+    out = _prompt(canned_list=CANNED)
+    i = out.find("I've refunded the full amount today.")
+    assert "never content to copy" in out[max(0, i - 600):i]

@@ -955,6 +955,7 @@ def rca_v3_prompt(
     ticket_facts: dict = None,
     scenarios_routed: list = None,
     issue_questions: list = None,
+    canned_list: list = None,
 ) -> str:
     """
     Generates the RCA v3 shape: tldr {our_mistake, our_fix}, what_went_wrong
@@ -1001,8 +1002,25 @@ def rca_v3_prompt(
         scenario_block = ("\n━━ SCENARIO CHECKS - every routed scenario, run all ━━\n"
                           + "\n".join(sc_lines) + "\n" + "━" * 40)
 
+    # Approved replies, as VOICE only. Output rule 18 is what keeps them from
+    # becoming content: a tone example sitting next to a "write a reply"
+    # instruction is the easiest way to get a canned answer with this guest's
+    # name pasted into it. Two or three is enough to establish a register;
+    # more starts reading like a pattern to match.
+    if canned_list:
+        tone = "\n\n".join(
+            f"Example {i} [{(ex.get('situation') or '').strip()}]:\n"
+            f"{(ex.get('response') or '').strip()}"
+            for i, ex in enumerate(canned_list[:3], 1))
+    else:
+        # Named, not blank. A silent absence reads as "no voice to match";
+        # this says the reply was written without one, which is a fact the
+        # associate reviewing it should have.
+        tone = "(no approved replies matched — write in plain, warm, direct English)"
+
     out = RCA_V3_TEMPLATE
     for token, value in {
+        "<<CANNED_TONE>>":      tone,
         "<<REVIEW_ID>>":        review_id,
         "<<L1>>":               l1 or "",
         "<<L2>>":               l2 or "",
@@ -1132,6 +1150,9 @@ DSS RECOMMENDATION (SOP needle; {} or match_score 0 = needle unavailable):
 
 SUPPORT SUMMARY:
 <<SUPPORT_SUMMARY>>
+
+APPROVED REPLY VOICE — tone reference only, never content to copy:
+<<CANNED_TONE>>
 
 ━━ ISSUE-SPECIFIC QUESTIONS — answer each verbatim as a key ━━
 <<ISSUE_QUESTIONS>>
@@ -1391,7 +1412,11 @@ that turned out fine is silence — never a line in the output.
     English; the English draft goes in `suggested_response` and the translation is a separate
     step.
 17. `resolution` records what the guest ACTUALLY received, not what was recommended. If nothing
-    has been given yet, say so plainly ("Nothing offered yet") rather than describing an intent."""
+    has been given yet, say so plainly ("Nothing offered yet") rather than describing an intent.
+18. `suggested_response` follows the voice of the APPROVED REPLY VOICE examples — their register,
+    warmth and sentence rhythm — and NONE of their content. Never copy a sentence from them,
+    never carry over a remedy they mention, and never use one as a template to fill in. The
+    facts of this reply come only from this case's evidence."""
 
 # The name the filler and every existing import still use.
 RCA_V3_TEMPLATE = RCA_V4_TEMPLATE

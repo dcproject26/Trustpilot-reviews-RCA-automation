@@ -171,13 +171,29 @@ def _answers(raw, notes):
 
 
 def _rows(raw, fields, notes=None, enums=None):
+    """Rows with their enum columns closed, and the raw kept when one fails.
+
+    `enums` maps column -> (allowed, fallback). The raw value goes to
+    `<column>_raw` so nothing the model said is lost: the UI renders the
+    closed value, and the raw is there for whoever asks why.
+    """
     out = []
     for r in (raw if isinstance(raw, list) else []):
         if not isinstance(r, dict):
             continue
         row = {k: _clean(r.get(k)) for k in fields}
-        for k, allowed in (enums or {}).items():
-            row[k] = _enum(row.get(k), allowed, None)
+        for k, (allowed, fallback) in (enums or {}).items():
+            given = row.get(k)
+            matched = _enum(given, allowed, None)
+            row[k] = matched if matched is not None else fallback
+            # The raw is kept only when the value genuinely failed the
+            # vocabulary. "ce" matching CE is a case fix, not a failure -
+            # keeping a raw for that would put noise on every row and make
+            # team_raw useless as a signal.
+            missed = given and matched is None
+            row[f"{k}_raw"] = given if missed else None
+            if missed and notes is not None:
+                notes.append(f"{k} {given!r} → {row[k] if row[k] else 'null'}")
         if any(row.values()):
             out.append(row)
     return out
@@ -256,10 +272,13 @@ def validate(rca: dict, scenarios_routed=None) -> tuple[dict, list]:
         # dressed as a data row - it renders as a numbered frame with an
         # UNKNOWN channel pill. The empty state says it better.
         "support_interaction": [
+            # channel falls back to null, not to a token: the UI then renders
+            # no pill at all. "UNKNOWN" dressed as a channel pill is one of the
+            # defects the closed vocabulary exists to remove.
             r for r in _rows(rca.get("support_interaction"),
                              ("channel", "time", "summary", "detail",
-                              "zd_ref", "ce_miss"),
-                             enums={"channel": CHANNELS})
+                              "zd_ref", "ce_miss"), notes,
+                             enums={"channel": (CHANNELS, None)})
             if not re.search(r"\bno (guest )?contact\b|never (reached|contacted)",
                              (r.get("summary") or ""), re.I)
         ],
@@ -268,8 +287,11 @@ def validate(rca: dict, scenarios_routed=None) -> tuple[dict, list]:
             "records": _rows(sp.get("records"), ("time", "summary", "zd_ref")),
         },
         "booking_logs":      _rows(rca.get("booking_logs"), ("time", "what", "detail")),
+        # team falls back to OTHER, not null: the UI renders it as a
+        # chip-select over the closed list, and a null would either blank the
+        # control or add a stray option to it. OTHER is a real member.
         "flags":             _rows(rca.get("flags"), ("team", "flag", "evidence", "zd_ref"),
-                                   enums={"team": FLAG_TEAMS}),
+                                   notes, enums={"team": (FLAG_TEAMS, "OTHER")}),
         "area_of_improving": [c for c in (_clean(x) for x in
                                           (rca.get("area_of_improving") if isinstance(rca.get("area_of_improving"), list) else [])) if c],
         "resolution":         _clean(rca.get("resolution")),

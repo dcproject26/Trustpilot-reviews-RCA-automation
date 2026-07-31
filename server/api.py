@@ -1211,6 +1211,15 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
     from server.services.rca_checklist import get_checklist
     from server.checklist import issue_questions_for
     checklist = await get_checklist(d.l1, d.l2)
+    # Same voice reference the pipeline passes, or a regenerated reply drifts
+    # out of the approved register while the pipeline's stays in it.
+    try:
+        from server.services.canned import get_canned_responses
+        canned_list = await get_canned_responses(
+            d.l1, d.l2, d.sub_theme, r.body_english or r.body_original or "")
+    except Exception as e:
+        canned_list = []
+        log.warning(f"[regenerate-rca] canned tone lookup failed: {e}")
     rca_v3 = await claude_svc.generate_rca_v3(
         review_text=r.body_english or r.body_original or "",
         booking=d.booking or {},
@@ -1226,6 +1235,7 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
         ticket_facts=d.ticket_facts or {},
         scenarios_routed=scenarios,
         issue_questions=issue_questions_for(scenarios),
+        canned_list=canned_list,
     )
     if not rca_v3:
         raise HTTPException(502, "RCA regeneration returned nothing - draft unchanged")

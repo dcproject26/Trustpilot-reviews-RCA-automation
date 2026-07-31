@@ -20,6 +20,7 @@ import pytest
 
 
 PIPE = open("server/pipeline.py", encoding="utf-8").read()
+API  = open("server/api.py", encoding="utf-8").read()
 
 # What the model returns: every enum wrong, in the ways the handoff observed.
 DIRTY_RCA = {
@@ -87,8 +88,10 @@ def _seed(db, rid="tp_v4_1"):
     return rid
 
 
-def _regenerate(db, api, rid, rca=DIRTY_RCA):
+def _regenerate(db, api, rid, rca=DIRTY_RCA, seen=None):
     async def _fake_rca(**kw):
+        if seen is not None:
+            seen.update(kw)
         return dict(rca)
 
     from server.services import claude as claude_svc
@@ -137,7 +140,8 @@ def test_regenerating_runs_the_validator_rather_than_storing_raw_output(app_env)
     assert v3["sop_compliance"]["verdict"] == "unknown"
     assert v3["takedown"]["verdict"] == "Untraceable"
     assert v3["booking_logs"][0]["time"] is None
-    assert v3["flags"][0]["team"] is None
+    assert v3["flags"][0]["team"] == "OTHER"
+    assert v3["flags"][0]["team_raw"] == "Growth"
 
 
 def test_the_coercions_are_reported_not_applied_silently(app_env):
@@ -196,7 +200,50 @@ def test_issue_specific_answers_are_stored_as_a_list(app_env):
         f"an RCA with no answers stored {got!r}, which the v4 renderer cannot read"
 
 
+def test_regenerating_passes_the_approved_reply_voice(app_env, monkeypatch):
+    """The reply now comes from the RCA call, so the tone reference has to
+    reach it — on this path too, or a regenerated reply drifts out of the
+    approved register while the pipeline's stays in it."""
+    db, api = app_env
+    canned = [{"situation": "Ticket delivered late", "response": "So sorry."}]
+
+    async def _canned(l1, l2, sub_theme, text):
+        return canned
+    import server.services.canned as canned_mod
+    monkeypatch.setattr(canned_mod, "get_canned_responses", _canned)
+
+    rid, seen = _seed(db), {}
+    _regenerate(db, api, rid, seen=seen)
+    assert seen.get("canned_list") == canned, \
+        "regenerate-rca calls the model with no voice reference"
+
+
+def test_a_dead_canned_sheet_does_not_take_the_rca_down(app_env, monkeypatch):
+    """The sheet 403s in this environment already. A tone reference is a nice
+    to have; the RCA is not."""
+    db, api = app_env
+
+    async def _boom(*a, **k):
+        raise RuntimeError("403 Forbidden")
+    import server.services.canned as canned_mod
+    monkeypatch.setattr(canned_mod, "get_canned_responses", _boom)
+
+    rid, seen = _seed(db), {}
+    out = _regenerate(db, api, rid, seen=seen)
+    assert out["ok"] and seen.get("canned_list") == []
+
+
 # ── the pipeline's own save, asserted at source ─────────────────────────────
+
+
+def test_the_pipeline_passes_the_approved_reply_voice():
+    i = PIPE.find("claude.generate_rca_v3(")
+    assert "canned_list=canned_list" in PIPE[i:i + 1200], \
+        "the pipeline generates a reply with no voice reference"
+    assert "get_canned_responses(" in PIPE[max(0, i - 1200):i], \
+        "canned_list is passed but never looked up"
+
+
 
 def test_the_pipeline_validates_before_it_persists():
     assert "rca_v4_validate import validate" in PIPE, \
@@ -228,3 +275,31 @@ def test_a_validation_note_reaches_the_confidence_trail():
     """A coercion the reader cannot see is a silent edit."""
     i = PIPE.find("_validate_rca(rca_v3")
     assert "confidence_trail.append" in PIPE[i:i + 900]
+
+
+def test_a_coercion_is_marked_warn_not_pass():
+    """These sit in the same list as the pipeline's own step results. Marked
+    pass, "we changed the model's answer" reads as "a step succeeded" — which
+    is how a coerced enum becomes a trusted fact."""
+    i = PIPE.find("_validate_rca(rca_v3")
+    block = PIPE[i:i + 900]
+    j = block.find("confidence_trail.append")
+    assert '"mark": "warn"' in block[j:j + 200], \
+        "a validator coercion is being reported as a successful step"
+
+
+def test_every_path_that_produces_an_rca_validates_it():
+    """A validator wired into one path looks exactly like one that works —
+    which is the defect this whole layer was written to fix."""
+    for src, name in ((PIPE, "server/pipeline.py"), (API, "server/api.py")):
+        for i, _ in _find_all(src, "generate_rca_v3("):
+            after = src[i:i + 3000]
+            assert "_validate_rca(" in after, \
+                f"{name}: a generate_rca_v3 call at offset {i} never validates its output"
+
+
+def _find_all(hay: str, needle: str):
+    i = hay.find(needle)
+    while i >= 0:
+        yield i, needle
+        i = hay.find(needle, i + 1)
