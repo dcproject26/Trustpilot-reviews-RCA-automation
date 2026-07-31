@@ -122,3 +122,38 @@ def test_candidate_fields_the_picker_needs_are_all_produced():
         assert "matchReasons" in block, f"{builder} produces no match reasons"
         assert "visitDate" in block or "date_of_visit" in block, \
             f"{builder} produces no visit date"
+
+
+# ── things only running the app can catch ───────────────────────────────────
+
+def test_literal_routes_are_registered_before_the_wildcard_one():
+    """FastAPI matches routes in declaration order. /api/reviews/bulk-status
+    sat below /api/reviews/{review_id}, so every call to it was captured as a
+    review lookup and answered 404 — the bulk reprocess progress indicator had
+    never worked, and nothing said so, because a 404 in a background poll is
+    invisible unless you are watching the console."""
+    wildcard = API.find('@router.get("/api/reviews/{review_id}")')
+    assert wildcard > 0
+    for literal in ('@router.get("/api/reviews/bulk-status")',):
+        at = API.find(literal)
+        assert at > 0, f"{literal} is gone"
+        assert at < wildcard, (
+            f"{literal} is declared after /api/reviews/{{review_id}} and will "
+            f"be swallowed by it")
+
+
+def test_the_default_tab_matches_the_tab_marked_active():
+    """The markup renders All as the active tab; state.filter said
+    'identified'. So the dashboard opened claiming to show everything, with
+    the count reading 3, and listed one review — hiding the unconfirmed match
+    and the untraceable one, which are the two that need a human."""
+    i = CLIENT.find("const state = {")
+    block = CLIENT[i:i + 700]
+    m = re.search(r"filter:\s*'([a-z]+)'", block)
+    assert m, "state.filter is gone"
+    default = m.group(1)
+    active = re.search(r'class="inbox-tab active" data-tab="([a-z]+)"', CLIENT)
+    assert active, "no tab is marked active in the markup"
+    assert default == active.group(1), (
+        f"the dashboard opens on the '{active.group(1)}' tab but filters to "
+        f"'{default}' — reviews in other buckets are invisible")

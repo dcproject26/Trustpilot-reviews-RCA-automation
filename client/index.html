@@ -1423,8 +1423,15 @@ async function loadDraftOverlays() {
 let REVIEWS = [];   // populated live from /api/reviews — no demo/placeholder rows
 
 const state = {
-  selected: 'tp_001',
-  filter: 'identified',
+  // A leftover from the mock data; there is no review with this id, so it
+  // simply means "nothing selected" until the inbox is clicked.
+  selected: null,
+  // Must agree with the tab marked `active` in the markup, which is All.
+  // It said 'identified' while the All tab rendered as selected, so the
+  // dashboard opened claiming to show everything, with the count saying 3,
+  // and listed one review. The two it hid were the ones that need a human:
+  // the unconfirmed match and the untraceable one.
+  filter: 'all',
   actionTab: 'sp',
   insightsWindow: '90d',
   // Which RCA sections go into the Slack thread post. All on by default;
