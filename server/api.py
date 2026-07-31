@@ -1214,8 +1214,18 @@ async def flag_to_biz(review_id: str, body: FlagToBiz,
             d.flag_to_biz_state = "sent"
             d.flag_to_biz_message = body.message
 
-            # Log an entry in actions_taken.business
-            actions = d.actions_taken or {"sp":[],"customer":[],"business":[],"product":[],"ce":[]}
+            # Log an entry in actions_taken.business.
+            #
+            # Copied, not mutated in place. SQLAlchemy compares a JSON column
+            # by identity, so appending to the list it already holds and
+            # assigning the same object back is not a change it can see - the
+            # endpoint returned {"ok": true} with the entry in the response
+            # and wrote nothing. Verified against a running server: the reply
+            # showed the entry, the reload showed null.
+            actions = {k: list(v) for k, v in
+                       (d.actions_taken or {}).items()} or {}
+            for _t in ("sp", "customer", "business", "product", "ce"):
+                actions.setdefault(_t, [])
             actions["business"].append({
                 "with": "Biz team — raise completion to market rate",
                 "handle": tag or "—",
@@ -1227,6 +1237,7 @@ async def flag_to_biz(review_id: str, body: FlagToBiz,
                 "where": f"slack.com/{channel.lstrip('#')}/{ts}",
             })
             d.actions_taken = actions
+            flag_modified(d, "actions_taken")
 
             m = db.query(ReviewMetric).filter(ReviewMetric.review_id == review_id).first()
             if m:
@@ -1257,8 +1268,13 @@ def patch_action(review_id: str, body: ActionPatch,
     if body.tab not in ACTION_TABS:
         raise HTTPException(400, f"Unknown tab: {body.tab}")
 
-    actions = d.actions_taken or {"sp":[],"customer":[],"business":[],"product":[],"ce":[]}
-    tab_list = actions.get(body.tab, [])
+    # Copied for the same reason as in flag_to_biz: an in-place mutation of a
+    # JSON column is invisible to SQLAlchemy, so every add, update and delete
+    # through this endpoint reported success and saved nothing.
+    actions = {k: list(v) for k, v in (d.actions_taken or {}).items()}
+    for _t in ("sp", "customer", "business", "product", "ce"):
+        actions.setdefault(_t, [])
+    tab_list = list(actions.get(body.tab, []))
 
     if body.op == "add":
         if not body.action:
@@ -1277,6 +1293,7 @@ def patch_action(review_id: str, body: ActionPatch,
 
     actions[body.tab] = tab_list
     d.actions_taken = actions
+    flag_modified(d, "actions_taken")
     db.commit()
     return {"ok": True, "actions_taken": actions}
 
