@@ -14,7 +14,23 @@ from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from server.config import DATABASE_URL
 
 db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-engine = create_engine(db_url, pool_pre_ping=True)
+# pool_pre_ping tests a connection at CHECKOUT. That is not enough here: the
+# pipeline holds one session open across BigQuery, Zendesk and four model
+# calls - minutes - and Neon closes an idle connection inside that window, so
+# the run dies on "SSL connection has been closed unexpectedly" AFTER the
+# match succeeded. The review then has a good match that was never written
+# and renders as untraceable. Recycling below Neon's idle timeout means the
+# pool never hands out a connection old enough to have been reaped.
+engine = create_engine(
+    db_url,
+    pool_pre_ping=True,
+    pool_recycle=240,        # under Neon's ~5 min idle cutoff
+    pool_size=5, max_overflow=10,
+    connect_args=({"keepalives": 1, "keepalives_idle": 30,
+                   "keepalives_interval": 10, "keepalives_count": 5,
+                   "connect_timeout": 10}
+                  if db_url.startswith("postgresql") else {}),
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 

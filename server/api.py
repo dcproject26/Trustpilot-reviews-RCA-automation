@@ -1286,6 +1286,34 @@ async def send_review(review_id: str, db: Session = Depends(get_session)):
     return {"ok": True, "ts": ts}
 
 
+@router.post("/api/reviews/{review_id}/translate-reply")
+async def translate_reply(review_id: str, db: Session = Depends(get_session)):
+    """
+    Turn the edited English reply into the guest's own language.
+
+    The draft is written and edited in English so the whole team can review
+    it, but the guest wrote in their language and the reply goes back in it.
+    Translating at the END means the edit is what gets translated, not a
+    draft that was rewritten afterwards.
+    """
+    r = db.query(Review).filter(Review.id == review_id).first()
+    d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
+    if not r or not d:
+        raise HTTPException(404, "Not found")
+    english = (d.final_response or d.suggested_response or "").strip()
+    if not english:
+        raise HTTPException(400, "There is no reply to translate yet.")
+    lang = (r.language or "").strip()
+    if not lang or lang.upper() == "EN":
+        return {"ok": True, "language": "EN", "text": english,
+                "note": "Review is in English - nothing to translate."}
+    from server.services import claude as claude_svc
+    out = await claude_svc.translate_to(english, lang, review_id)
+    if not out:
+        raise HTTPException(502, "Translation returned nothing - try again.")
+    return {"ok": True, "language": lang, "text": out}
+
+
 @router.post("/api/reviews/{review_id}/post-rca")
 async def post_rca_to_thread(review_id: str, db: Session = Depends(get_session)):
     """

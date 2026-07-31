@@ -106,6 +106,31 @@ def _progress(review_id: str, step: int, stage: str):
     PIPELINE_PROGRESS[review_id] = e
 
 
+def _human_error(exc: Exception) -> str:
+    """One sentence a reader can act on, never a stack trace.
+
+    The trail rendered 500 characters of "SELECT rca_drafts.id AS
+    rca_drafts_id, ..." straight into the dashboard. The SQL is in the log
+    where it belongs; the panel needs to say what broke and what to do.
+    """
+    name = type(exc).__name__
+    text = " ".join(str(exc).split())
+    low = text.lower()
+    if "ssl connection has been closed" in low or "server closed the connection" in low:
+        return ("the database connection dropped mid-run. Nothing was saved for "
+                "this step. Re-run the review.")
+    if "could not connect" in low or "connection refused" in low:
+        return "the database was unreachable. Re-run once it is back."
+    if "timeout" in low or "timed out" in low:
+        return "a lookup timed out. Re-run the review."
+    if "rate" in low and "limit" in low:
+        return "an API rate limit was hit. Wait a minute and re-run."
+    # Anything else: the exception type plus the first clause only, and never
+    # the SQL SQLAlchemy staples onto the end.
+    head = text.split(" [SQL:")[0].split("\n")[0]
+    return f"{name}: {head[:160]}"
+
+
 async def process_review(review_id: str, force_candidates: bool = False):
     """
     force_candidates: an associate re-ran a review whose booking they had already
@@ -1622,9 +1647,13 @@ async def process_review(review_id: str, force_candidates: bool = False):
             _d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
             if _d:
                 _tr = list(_d.confidence_trail or [])
-                _tr.append({"mark": "fail",
-                            "text": f"<strong>Run failed</strong> — {type(_fatal).__name__}: "
-                                    f"{str(_fatal)[:300]}"})
+                _entry = {"mark": "fail",
+                          "text": f"<strong>Run failed</strong> — {_human_error(_fatal)}"}
+                # Do not stack the same failure twice. A retried run appended a
+                # second identical line, so the panel grew a wall of duplicate
+                # stack traces that told the reader nothing new.
+                if not _tr or _tr[-1].get("text") != _entry["text"]:
+                    _tr.append(_entry)
                 _d.confidence_trail = _tr
                 _d.generated_at = datetime.utcnow()
                 flag_modified(_d, "confidence_trail")

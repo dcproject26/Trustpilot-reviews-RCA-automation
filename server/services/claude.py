@@ -276,6 +276,19 @@ async def translate(body: str, lang: str, review_id: str = None) -> str:
     return await _call(prompts.translation_prompt(body, lang), max_tokens=1500)
 
 
+async def translate_to(text: str, lang: str, review_id: str = None) -> str:
+    """English -> the guest's language, for the outgoing reply.
+
+    The reverse of translate(). Kept separate because the instruction is
+    different: this one must preserve the reply's tone and any booking
+    reference verbatim, where the inbound translation only has to be
+    faithful.
+    """
+    if not is_live("anthropic"):
+        return text
+    return await _call(prompts.reply_translation_prompt(text, lang), max_tokens=1500)
+
+
 # ─── 2. Signal extraction ───────────────────────────────────────────────────
 async def extract_signals(review_text: str, review_id: str = None) -> dict:
     if not is_live("anthropic"):
