@@ -11,7 +11,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Set to "true" to force all mock data regardless of credentials
-MOCK_MODE = os.getenv("MOCK_MODE", "false").lower() == "true"
+# "1", "yes" and "on" all mean true here. Accepting only the literal
+# string "true" meant MOCK_MODE=1 silently ran against real services -
+# it looks set, the app reports mock_mode false, and the difference only
+# shows up as a confusing failure further along.
+MOCK_MODE = os.getenv("MOCK_MODE", "false").strip().lower() in (
+    "true", "1", "yes", "on")
 
 # Claude model — Replit AI Integrations injects credentials automatically
 # Default model: claude-sonnet-4-6 is supported by Replit AI Integrations.
