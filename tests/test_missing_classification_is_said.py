@@ -357,3 +357,80 @@ def test_a_half_classification_names_which_half_the_ranking_lost():
     e = tone_entry([{"situation": "s", "response": "r"}], "Experience Issues", "", None)
     assert e["mark"] == "warn"
     assert "no L2" in e["text"]
+
+
+# ── which lookup produced no guest name ─────────────────────────────────────
+#
+# "[Guest name in Zendesk ticket]" was a sentence sitting in the value column.
+# It looked like data, and it made three situations identical: the warehouse
+# holds a hash for this booking, a ticket is linked but carries no requester,
+# and no ticket was ever matched. The first two are worth opening Zendesk for;
+# the third is not, and the third is the one where the match itself is
+# suspect. One string for all three sent the reader to the wrong place twice
+# out of three times.
+
+def _dict(**kw):
+    """A real RcaDraft, unsaved. A stub with only the fields I remembered would
+    pass whatever _draft_dict happens to read today."""
+    import server.db as db
+    import server.api as api
+    return api._draft_dict(db.RcaDraft(id="g1", review_id="tp_g", **kw))
+
+
+def _note(**kw):
+    return _dict(**kw)["guest_name_note"]
+
+
+def _name(**kw):
+    return _dict(**kw)["guest_name"]
+
+
+HASH = "a3f9c1e07b2d4856"          # 16 hex chars, no spaces
+
+
+def test_a_resolved_name_carries_no_note():
+    assert _name(booking={"guestName": "Lewis MacAndrew"}) == "Lewis MacAndrew"
+    assert _note(booking={"guestName": "Lewis MacAndrew"}) == ""
+
+
+def test_a_hashed_name_is_named_as_a_hash():
+    """The value IS there — it is just not a name. "no ticket was matched"
+    would be false, and it would send someone to re-run the match instead of
+    opening the ticket that is already linked."""
+    assert _name(booking={"guestName": HASH}) == ""
+    assert "hash" in _note(booking={"guestName": HASH})
+
+
+def test_a_hash_in_ticket_facts_counts_too():
+    assert "hash" in _note(ticket_facts={"guest_full_name": HASH})
+
+
+def test_a_hash_beats_the_ticket_count():
+    """A booking can hold a hash AND have linked tickets. The hash is the
+    more specific finding and the one with an action attached."""
+    assert "hash" in _note(booking={"guestName": HASH},
+                           zendesk_ticket_ids=["4491"])
+
+
+def test_a_linked_ticket_with_no_requester_says_so():
+    n = _note(zendesk_ticket_ids=["4491"])
+    assert "no requester name on the linked Zendesk ticket" == n
+    assert "hash" not in n
+
+
+def test_no_ticket_at_all_is_a_different_sentence():
+    n = _note()
+    assert "no Zendesk ticket was matched" in n
+    assert "linked Zendesk ticket" not in n
+
+
+def test_the_three_absences_never_read_the_same():
+    assert len({_note(booking={"guestName": HASH}),
+                _note(zendesk_ticket_ids=["4491"]),
+                _note()}) == 3
+
+
+def test_the_note_is_never_the_old_placeholder():
+    """It went out as a value once. It must never be one again."""
+    for kw in ({"booking": {"guestName": HASH}}, {"zendesk_ticket_ids": ["1"]}, {}):
+        assert "[Guest name" not in _note(**kw)
