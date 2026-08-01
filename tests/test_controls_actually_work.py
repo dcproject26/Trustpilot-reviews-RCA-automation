@@ -293,3 +293,85 @@ def test_the_sp_section_survives_a_draft_that_says_nothing_about_the_sp(page):
     assert got["raised"], "there is nowhere to record whether the SP was raised"
     assert "No SP contact on record" in got["text"], \
         "an absent section and an empty one still read the same"
+
+
+# ── a timeline of dashes says why ───────────────────────────────────────────
+#
+# Every `time` came back null on a real card, so the column rendered eight
+# dashes. That is what a failed timestamp lookup looks like too. The cause was
+# prompt rule 10: with no system events, the model builds the sequence from the
+# guest's own account — and a guest narrates an order, not a clock. Rule 10b
+# now has it say "undated" for exactly those, so the two can be told apart.
+
+NARRATED = [{"time": "undated", "what": "Guest arrived", "detail": "Turned up at 12:30. (guest's account, unverified)"},
+            {"time": "undated", "what": "Slot cancelled", "detail": "Told it was unavailable. (guest's account, unverified)"}]
+MIXED = [{"time": "22 Jul 15:41", "what": "Booking created", "detail": None},
+         {"time": "undated", "what": "Guest arrived", "detail": "(guest's account, unverified)"},
+         {"time": None, "what": "Voucher issued", "detail": "No time recorded."}]
+SILENT = [{"time": None, "what": "Voucher issued", "detail": None},
+          {"time": None, "what": "Refund raised", "detail": None}]
+
+
+def _timeline(page, logs):
+    return page.evaluate("""(logs) => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keep = r.rca.v3.booking_logs;
+      r.rca.v3.booking_logs = logs; renderReviewCol();
+      const sec = document.querySelector('#rca-booking-logs-section');
+      const note = sec && sec.querySelector('.tl-undated-note');
+      const out = {note: note ? note.innerText : null,
+                   times: [...sec.querySelectorAll('.tl-time')].map(t => t.innerText.trim()),
+                   colour: note ? getComputedStyle(note).color : null};
+      r.rca.v3.booking_logs = keep; renderReviewCol();
+      return out; }""", logs)
+
+
+def test_undated_is_not_rendered_as_a_timestamp(page):
+    """It is the model's answer to "when", not an answer to when."""
+    got = _timeline(page, NARRATED)
+    assert got["times"] == ["—", "—"], got["times"]
+
+
+def test_a_wholly_narrated_timeline_says_there_was_never_a_clock(page):
+    got = _timeline(page, NARRATED)
+    assert got["note"], "eight dashes and no explanation, again"
+    assert "guest's own account" in got["note"]
+    assert "Not a failed lookup" in got["note"]
+
+
+def test_a_mixed_timeline_splits_the_two_kinds_of_missing(page):
+    """A narrated entry and a system event with no recorded time are different
+    facts. Counting them together would make the honest half look broken."""
+    got = _timeline(page, MIXED)
+    assert got["note"], MIXED
+    assert "1 of 2" in got["note"], got["note"]
+    assert "not recorded" in got["note"]
+
+
+def test_nulls_with_no_stated_reason_are_not_dressed_up_as_narration(page):
+    """The inverse bug. If a bare null reads as "the guest narrated this", a
+    genuinely broken timestamp field looks like a working RCA."""
+    got = _timeline(page, SILENT)
+    narrated = _timeline(page, NARRATED)["note"]
+    assert got["note"] != narrated, \
+        "a bare null and a guest-narrated entry got the same sentence"
+    assert "gave no reason" in got["note"], got["note"]
+    assert "confidence trail" in got["note"]
+    # It may mention narration only to rule it out, never to claim it.
+    assert "the guest's own account" not in got["note"], got["note"]
+
+
+def test_a_fully_dated_timeline_gets_no_note(page):
+    """Every timeline carrying a footnote is the same as none of them doing."""
+    got = _timeline(page, [{"time": "22 Jul 15:41", "what": "Booking created",
+                            "detail": None}])
+    assert got["note"] is None, got["note"]
+    assert got["times"] == ["22 Jul 15:41"]
+
+
+def test_the_note_is_not_styled_as_data(page):
+    got = _timeline(page, NARRATED)
+    row = page.evaluate("""() => {
+      const t = document.querySelector('#rca-booking-logs-section .tl-what');
+      return t ? getComputedStyle(t).color : null; }""")
+    assert got["colour"] != row, "the footnote reads as another timeline row"

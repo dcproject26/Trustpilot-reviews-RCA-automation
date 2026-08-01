@@ -1042,6 +1042,14 @@ def rca_v3_prompt(
         "<<SCENARIO_BLOCK>>":   scenario_block,
         "<<ISSUE_QUESTIONS>>":  ("\n".join(f"- {q}" for q in (issue_questions or []))
                                  or "- (none supplied)"),
+        # The two dates the warehouse always knows. Rule 10b asks for them as
+        # bookends on an otherwise undated sequence, so they have to be handed
+        # over explicitly rather than left for the model to dig out of the
+        # booking JSON — which is what it was already failing to do.
+        "<<BOOKING_DATE>>":     _bookend(bk, "date_of_booking", "creationDate",
+                                         "bookingDate"),
+        "<<VISIT_DATE>>":       _bookend(bk, "visitDate", "date_of_visit",
+                                         "experienceDate"),
     }.items():
         out = out.replace(token, str(value))
     return out
@@ -1266,6 +1274,19 @@ that turned out fine is silence — never a line in the output.
     account — they always narrate one — and end each such `detail` with
     "(guest's account, unverified)".
 
+10b. A GUEST'S ACCOUNT HAS NO CLOCK, SO SAY SO IN `time`. A guest narrates an
+    order of events, not timestamps. Returning null for every `time` on such a
+    sequence renders a column of dashes, which reads as timestamps we failed to
+    load rather than as timestamps that were never available — the same absence
+    the dashboard shows for a broken lookup. So on any entry you built from the
+    guest's account, `time` is the string "undated" rather than null.
+    Two entries are exempt because the warehouse always knows them, and they
+    give an undated sequence real bookends: the booking being made
+    (<<BOOKING_DATE>>) and the visit (<<VISIT_DATE>>). Include both as the
+    first and last dated entries whenever they are known, whatever else you
+    have. `time` is null ONLY when you have a real event whose time genuinely
+    is not recorded anywhere — not as a shorthand for "the guest did not say".
+
 11. TAKEDOWN IS A FACTUAL TEST, NOT A SENTIMENT ONE. "Yes" only when the review
     is factually false or breaches platform policy. A review that is accurate,
     even partly, is "No" — however harsh its tone. "Untraceable" when no
@@ -1479,6 +1500,21 @@ RCA_V3_TEMPLATE = RCA_V4_TEMPLATE
 # work" or "this row predates the clause" - the same ambiguity one level down.
 # The suffix changes whenever the template text changes, so the question is
 # answerable exactly rather than by reading timestamps against deploy times.
+def _bookend(bk: dict, *keys) -> str:
+    """A date the model can put in `time`, or a phrase saying we do not have it.
+
+    Rule 10b uses these as the two dated bookends of an otherwise undated
+    sequence. Returning "" for a missing one would silently drop the bookend
+    and leave the rule asking for something that is not there; naming the
+    absence keeps the model from inventing a date to satisfy it.
+    """
+    for k in keys:
+        v = str((bk or {}).get(k) or "").strip()
+        if v:
+            return _fmt_bookend_time(v) or v
+    return "not recorded — omit this bookend"
+
+
 def _prompt_digest(text: str) -> str:
     import hashlib
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]

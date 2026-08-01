@@ -337,6 +337,10 @@
      never reads as data, and normal weight so it does not compete with the
      rows that hold real values. */
   .detail-row .v .v-absent { color: var(--empty); font-weight: 400; }
+  /* Why a timeline column is dashes. Same quiet register as .tl-hidden-note —
+     it is a statement about the data, not a warning about the pipeline. */
+  .tl-undated-note { color: var(--empty); font-size: 11px; line-height: 1.45;
+                     padding: 4px 0 2px 0; overflow-wrap: anywhere; }
   .booking-status-pill { font-size: 11px; padding: 1px 7px; border-radius: 5px; background: var(--hover-fill); color: var(--muted); }
   .bms-link, .tgid-link, .dss-row-ref { font-family: var(--mono); font-size: 11.5px; }
 
@@ -1750,7 +1754,39 @@ function translationCard(r) {
 // column - the same rule applies to convo and action times.
 function _tlTime(t) {
   const v = String(t || '').trim();
-  return (!v || /^(unknown|n\/?a|none|null|tbd|-)$/i.test(v)) ? '' : v;
+  // "undated" is prompt rule 10b's answer, not a failed timestamp: the entry
+  // came from the guest's narrative, which has an order but no clock. It is
+  // dropped to '' like the other non-times so the column stays clean, and the
+  // section footnote below says how many rows are in that state — a per-row
+  // word would repeat itself down the whole column.
+  return (!v || /^(unknown|n\/?a|none|null|tbd|undated|-)$/i.test(v)) ? '' : v;
+}
+
+// How many rows of a timeline have no time, and whether the model said why.
+// A column of dashes reads as timestamps we failed to load. Distinguishing
+// "the guest narrated this, so there was never a clock" from "this is a real
+// system event whose time is not recorded" is the difference between a
+// working RCA and a broken lookup, and they rendered identically.
+function _undatedNote(rows, raw) {
+  const missing = rows.filter(l => !l.time).length;
+  if (!missing) return '';
+  const narrated = (raw || []).filter(l => l && typeof l === 'object'
+    && /^undated$/i.test(String(l.time || '').trim())).length;
+  const unverified = (raw || []).filter(l => l && typeof l === 'object'
+    && /guest's account, unverified/i.test(String(l.detail || ''))).length;
+  const n = Math.max(narrated, unverified);
+  if (n >= missing && missing === rows.length)
+    return `Every entry here is the guest's own account of the order things `
+         + `happened in — the systems returned no events for this booking, so `
+         + `there are no timestamps to show. Not a failed lookup.`;
+  if (n)
+    return `${n} of ${missing} undated ${n === 1 ? 'entry is' : 'entries are'} `
+         + `the guest's account, which has an order but no clock. The `
+         + `${missing - n} other${missing - n === 1 ? '' : 's'} are system `
+         + `events whose time is not recorded.`;
+  return `${missing} ${missing === 1 ? 'entry has' : 'entries have'} no time. `
+       + `The model gave no reason, so this is not the same as a guest-narrated `
+       + `sequence — check the confidence trail.`;
 }
 
 function bookingTimelineHtml(r, v3d) {
@@ -1787,6 +1823,8 @@ function bookingTimelineHtml(r, v3d) {
         </div>
         <button class="row-del" data-log-del="${i}" title="Remove event">×</button>
       </div>`).join('')}
+    ${(() => { const n = _undatedNote(logRows, v3d.booking_logs);
+       return n ? `<div class="tl-undated-note">${esc(n)}</div>` : ''; })()}
     <button class="row-add" data-log-add>+ Add event</button>
   </div>`;
   return logsHtml;

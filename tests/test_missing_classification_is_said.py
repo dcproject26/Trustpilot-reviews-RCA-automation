@@ -282,7 +282,7 @@ def test_the_pipeline_actually_calls_it():
     as a source read can honestly go. The behaviour above is what is tested."""
     src = open("server/pipeline.py", encoding="utf-8").read()
     body = src[src.find("async def process_review("):]
-    for call in ("classification_entry(l1, l2, _classify_err)",
+    for call in ("classification_entry(\n            l1, l2, _classify_err, _classify_warnings)",
                  "stated_issue_entry(stated_issue, _si_err)",
                  "timeline_entry(bid_for_zd, timeline,"):
         assert call in body, f"{call} is not called from the pipeline"
@@ -322,11 +322,41 @@ def test_no_classification_is_named_as_the_reason_the_lookup_matched_nothing():
     assert "no approved reply matches" not in e["text"]
 
 
-def test_an_unreadable_sheet_is_not_an_empty_match():
+def test_a_thrown_lookup_is_not_an_empty_match():
     e = tone_entry([], "Experience Issues", "Meeting Point Issues",
                    _Boom("403 from the sheet"))
-    assert "could not be read" in e["text"]
+    assert "lookup failed" in e["text"]
     assert "403" in e["text"]
+
+
+def test_an_unreadable_sheet_does_not_blame_the_taxonomy():
+    """The lookup returns [] whether the sheet is unshared or the category has
+    no reply written for it. "no approved reply matches Experience Issues /
+    Meeting Point Issues" sends someone to write one, when what is needed is
+    to share a document."""
+    e = tone_entry([], "Experience Issues", "Meeting Point Issues", None,
+                   "the canned-responses sheet could not be read (HTTPError) - "
+                   "share it link-viewable, or with the service account")
+    assert "no approved reply matches" not in e["text"], e["text"]
+    assert "share it link-viewable" in e["text"]
+
+
+def test_an_unconfigured_sheet_reads_differently_from_an_unshared_one():
+    a = tone_entry([], "A", "B", None, "no canned-responses sheet is configured "
+                   "on this server (CANNED_RESPONSES_SHEET_ID is unset)")["text"]
+    b = tone_entry([], "A", "B", None, "the canned-responses sheet could not be "
+                   "read (HTTPError)")["text"]
+    c = tone_entry([], "A", "B", None, "")["text"]
+    assert len({a, b, c}) == 3, "an unset env var, an unshared sheet and a real "\
+        "no-match are one sentence"
+
+
+def test_the_sheet_reason_outranks_the_missing_classification():
+    """Both are true when a review is unclassified AND the sheet is down. The
+    sheet is the one that makes every other review wrong too."""
+    e = tone_entry([], "", "", None, "the canned-responses sheet could not be read")
+    assert "could not be read" in e["text"]
+    assert "this review has neither" not in e["text"]
 
 
 def test_the_three_ways_to_have_no_tone_read_differently():
@@ -339,7 +369,7 @@ def test_the_three_ways_to_have_no_tone_read_differently():
 def test_the_pipeline_calls_it():
     src = open("server/pipeline.py", encoding="utf-8").read()
     body = src[src.find("async def process_review("):]
-    assert "tone_entry(canned_list or [], l1, l2, _tone_err)" in body
+    assert "tone_entry(canned_list or [], l1, l2, _tone_err,\n                                     last_failure_reason())" in body
     assert "model's own voice" not in body, "the sentence was inlined"
 
 
@@ -434,3 +464,227 @@ def test_the_note_is_never_the_old_placeholder():
     """It went out as a value once. It must never be one again."""
     for kw in ({"booking": {"guestName": HASH}}, {"zendesk_ticket_ids": ["1"]}, {}):
         assert "[Guest name" not in _note(**kw)
+
+
+# ── the classifier's own account of what went wrong ─────────────────────────
+#
+# classifier.py records a precise reason for every failure and every repair:
+# "Invalid L1 'Booking Issues' - dropped to empty", "Response was not valid
+# JSON", "Recovered L1 to 'Experience Issues' based on L2 match". All of it
+# went to log.warning and stopped there, and the trail said "the classifier
+# returned no L1 or L2" — the one part of the answer with nothing actionable
+# in it. A taxonomy that has drifted and a model returning prose are fixed by
+# different people.
+
+def test_the_reason_the_classifier_gave_reaches_the_reader():
+    text = classification_entry("", "", None,
+                                ["Invalid L1 'Booking Issues' — dropped to empty"])["text"]
+    assert "Invalid L1 'Booking Issues'" in text, text
+
+
+def test_two_different_reasons_do_not_read_the_same():
+    a = classification_entry("", "", None, ["Response was not valid JSON"])["text"]
+    b = classification_entry("", "", None, ["Invalid L1 'Nonsense' — dropped to empty"])["text"]
+    assert a != b
+
+
+def test_no_reason_at_all_is_itself_reported():
+    """An empty warnings list means the classifier returned a clean, parseable
+    answer with no L1 in it — which is a different and stranger failure than
+    any of the ones it knows how to describe. Silence about it would put the
+    two back together."""
+    text = classification_entry("", "", None, [])["text"]
+    assert "gave no reason" in text
+
+
+def test_the_reasons_are_capped_so_the_trail_stays_readable():
+    text = classification_entry("", "", None, [f"reason {i}" for i in range(20)])["text"]
+    assert "reason 3" in text and "reason 9" not in text, text
+
+
+@pytest.mark.parametrize("junk", [None, [], ["", "  "]])
+def test_empty_warnings_never_render_as_a_dangling_list(junk):
+    text = classification_entry("", "", None, junk)["text"]
+    assert "It reported: ." not in text
+    assert "It reported:  " not in text
+
+
+@pytest.mark.parametrize("junk", [None, [], ["", "  ", "\n"]])
+def test_a_clean_classification_is_silent_whatever_shape_the_warnings_arrive_in(junk):
+    """A warnings list of blank strings is truthy. Without the filter it makes
+    a perfectly good classification report itself as repaired — and once every
+    classification carries a warn mark, the mark stops distinguishing anything
+    and the genuinely repaired ones are lost among them. That is the inverse
+    of the bug this whole file is about, and it fails just as quietly."""
+    assert classification_entry("Experience Issues", "Meeting Point Issues",
+                                None, junk) is None, junk
+
+
+def test_a_repaired_classification_is_not_silent():
+    """The validator recovers an invalid L1 from a valid L2. The selects then
+    look exactly like a clean run — same two values, no mark — while the
+    model's actual answer was a category that does not exist. Everything keyed
+    on L1/L2 is now keyed on the validator's guess."""
+    e = classification_entry("Experience Issues", "Meeting Point Issues", None,
+                             ["Invalid L1 'Booking Issues' — dropped to empty",
+                              "Recovered L1 to 'Experience Issues' from valid L2"])
+    assert e is not None, "a repair rendered identically to a clean classification"
+    assert e["mark"] == "warn", "a repair is not a step that succeeded"
+    assert "repaired" in e["text"]
+    assert "Recovered L1 to 'Experience Issues'" in e["text"]
+
+
+def test_a_repair_says_what_it_landed_on():
+    e = classification_entry("Experience Issues", "Meeting Point Issues", None,
+                             ["Invalid L1 'X' — dropped to empty"])
+    assert "Experience Issues / Meeting Point Issues" in e["text"]
+
+
+def test_a_clean_classification_is_still_silent():
+    """The inverse bug. If every classification warns, the mark stops meaning
+    anything and the repaired ones are lost in it."""
+    assert classification_entry("Experience Issues", "Meeting Point Issues",
+                                None, []) is None
+    assert classification_entry("Experience Issues", "Meeting Point Issues",
+                                None, None) is None
+
+
+def test_a_repair_reads_differently_from_an_empty_classification():
+    repaired = classification_entry("A", "B", None, ["w"])["text"]
+    empty = classification_entry("", "", None, ["w"])["text"]
+    assert repaired != empty
+    assert "was skipped with it" not in repaired, \
+        "a repaired classification did not skip the comparisons — it fed them"
+
+
+def test_the_pipeline_passes_the_warnings_through():
+    """Collecting them and not forwarding them is the same bug one step later."""
+    src = open("server/pipeline.py", encoding="utf-8").read()
+    body = src[src.find("async def process_review("):]
+    assert "_classify_warnings = list(result.warnings)" in body, \
+        "the classifier's reasons are dropped at the call site"
+    assert "_classify_err, _classify_warnings)" in body, \
+        "they are collected and then not passed on"
+
+
+# ── the canned sheet reports its own state ──────────────────────────────────
+
+def test_the_sheet_reason_is_empty_when_rows_came_back(monkeypatch):
+    """It has to be able to say "I read fine" in words distinguishable from
+    never having run — otherwise a stale reason from a previous poll gets
+    attached to a healthy read."""
+    import server.services.canned as C
+
+    async def _rows():
+        return [{"situation": "s", "response": "r"}]
+    monkeypatch.setattr(C, "_fetch_rows", _rows)
+    monkeypatch.setattr(C, "_cache_rows", [], raising=False)
+    monkeypatch.setattr(C, "_cache_at", 0, raising=False)
+    monkeypatch.setattr(C, "_last_reason", "a stale reason", raising=False)
+    asyncio.run(C._get_rows())
+    assert C.last_failure_reason() == ""
+
+
+def test_an_unreadable_sheet_names_the_fix(monkeypatch):
+    import server.services.canned as C
+
+    async def _boom():
+        raise RuntimeError("Sheets API HTTP 403")
+    monkeypatch.setattr(C, "_fetch_rows", _boom)
+    monkeypatch.setattr(C, "_cache_rows", [], raising=False)
+    monkeypatch.setattr(C, "_cache_at", 0, raising=False)
+    asyncio.run(C._get_rows())
+    r = C.last_failure_reason()
+    assert "could not be read" in r
+    assert "link-viewable" in r, "the reason does not say what would fix it"
+
+
+def test_a_readable_sheet_with_no_usable_rows_is_its_own_reason(monkeypatch):
+    """The columns did not match. The sheet IS reachable, so "share it
+    link-viewable" would be the wrong advice."""
+    import server.services.canned as C
+
+    async def _empty():
+        return []
+    monkeypatch.setattr(C, "_fetch_rows", _empty)
+    monkeypatch.setattr(C, "_cache_rows", [], raising=False)
+    monkeypatch.setattr(C, "_cache_at", 0, raising=False)
+    asyncio.run(C._get_rows())
+    r = C.last_failure_reason()
+    assert "no usable rows" in r
+    assert "link-viewable" not in r, r
+
+
+def test_an_unconfigured_sheet_says_which_variable(monkeypatch):
+    import server.services.canned as C
+    monkeypatch.setattr(C, "is_live", lambda s: False)
+    monkeypatch.setattr(C, "_last_reason", "", raising=False)
+    out = asyncio.run(C.get_canned_responses("A", "B", None, "text"))
+    assert out == []
+    assert "CANNED_RESPONSES_SHEET_ID" in C.last_failure_reason()
+
+
+# ── the prompt rule that produces a dated timeline ──────────────────────────
+#
+# Every `time` came back null on a real card, so the column rendered a row of
+# dashes — which is what a failed timestamp lookup looks like. The cause was
+# rule 10: with no system events the model builds the sequence from the guest's
+# own account, and a guest narrates an order, not a clock. Rule 10 said nothing
+# about `time`, so null was the only thing left to return.
+#
+# These drive rca_v3_prompt(), which assembles the string the model actually
+# receives. Asserting against RCA_V4_TEMPLATE instead would pass just as
+# happily against a build where the substitution is broken.
+
+def _prompt(booking=None, **kw):
+    """Whitespace-normalised: the template hard-wraps, so a phrase that is
+    plainly present fails a naive `in` check purely on where the line broke."""
+    from server import prompts
+    return " ".join(prompts.rca_v3_prompt(
+        review_text="the tickets never arrived", booking=booking or {},
+        timeline=[], insights={}, dss_rec={}, l1="", l2="", sub_theme="",
+        support_summary="", checklist={}, review_id="r1", **kw).split())
+
+
+def test_the_assembled_prompt_asks_for_undated_not_null():
+    out = _prompt()
+    assert '`time` is the string "undated" rather than null' in out
+
+
+def test_it_says_why_null_is_wrong_there():
+    """A rule with no reason attached is the first thing dropped in an edit."""
+    out = _prompt()
+    assert "reads as timestamps we failed to load" in out
+
+
+def test_null_is_still_allowed_for_a_real_undated_event():
+    """Overcorrecting would put "undated" on system events whose time genuinely
+    is not recorded — the inverse bug, and it hides a real gap."""
+    assert "not as a shorthand" in _prompt()
+
+
+def test_the_bookend_dates_are_substituted_not_left_as_tokens():
+    out = _prompt({"date_of_booking": "2026-07-01", "visitDate": "2026-07-22"})
+    assert "<<BOOKING_DATE>>" not in out and "<<VISIT_DATE>>" not in out
+    assert "01 Jul" in out and "22 Jul" in out
+
+
+def test_a_missing_bookend_is_named_rather_than_left_blank():
+    """An empty string would leave the rule asking for a date that is not
+    there, which is an invitation to invent one."""
+    out = _prompt({})
+    assert "not recorded — omit this bookend" in out
+
+
+def test_no_token_survives_the_assembly():
+    import re
+    left = re.findall(r"<<[A-Z_]+>>", _prompt({"visitDate": "2026-07-22"}))
+    assert left == [], f"unsubstituted tokens reach the model: {left}"
+
+
+def test_the_prompt_stamp_moved_with_the_rule():
+    """The stamp is content-addressed so a finding can be tied to a prompt
+    body. A rule added without the stamp changing makes "did the new clause
+    run?" unanswerable again."""
+    from server.prompts import RCA_PROMPT_VERSION, RCA_V4_TEMPLATE, _prompt_digest
+    assert RCA_PROMPT_VERSION.endswith(_prompt_digest(RCA_V4_TEMPLATE))

@@ -149,20 +149,47 @@ async def _fetch_rows() -> list[dict]:
     return rows
 
 
+# Why the last read produced no rows, or "" when it produced some. The log
+# already named the cause; this carries it to the reader of the draft, who is
+# the person actually looking at a reply in the wrong voice. An unreachable
+# sheet and a sheet with no matching row are the same empty list and entirely
+# different problems - one is fixed by sharing a document, the other by
+# writing a canned response.
+_last_reason: str = ""
+
+
+def last_failure_reason() -> str:
+    """Why the sheet produced nothing, or "" if it produced rows.
+
+    is_live("canned") is `bool(CANNED_RESPONSES_SHEET_ID)` - it says a sheet is
+    configured, not that it can be read. Those came out identical at every
+    caller, so a sheet nobody had shared looked exactly like a category nobody
+    had written a reply for.
+    """
+    return _last_reason
+
+
 async def _get_rows() -> list[dict]:
-    global _cache_rows, _cache_at
+    global _cache_rows, _cache_at, _last_reason
     if _cache_rows and (time.time() - _cache_at) < _TTL:
+        _last_reason = ""
         return _cache_rows
     try:
         rows = await _fetch_rows()
         _cache_rows = rows
         _cache_at = time.time()
+        _last_reason = "" if rows else (
+            f"the sheet was read but returned no usable rows - check that it "
+            f"has a situation column and a response column")
     except Exception as e:
         # Silently returning [] means every response is drafted with no tone
         # reference and nobody knows why - name the sheet and the cause.
         log.error(f"[canned] sheet {CANNED_RESPONSES_SHEET_ID} unreadable: {e}. "
                   f"Responses will be drafted without a tone reference. Fix: "
                   f"share the sheet link-viewable, or with the service account.")
+        _last_reason = (f"the canned-responses sheet could not be read "
+                        f"({type(e).__name__}) - share it link-viewable, or "
+                        f"with the service account")
         if not _cache_rows:
             _cache_rows = []
     return _cache_rows
@@ -181,7 +208,10 @@ async def get_canned_responses(
     Shape: [{"situation": "...", "response": "..."}, ...]
     Used by response_draft_prompt as tone reference — NOT to copy verbatim.
     """
+    global _last_reason
     if not is_live("canned"):
+        _last_reason = ("no canned-responses sheet is configured on this "
+                        "server (CANNED_RESPONSES_SHEET_ID is unset)")
         return []
 
     rows = await _get_rows()

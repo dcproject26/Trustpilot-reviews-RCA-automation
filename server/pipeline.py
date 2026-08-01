@@ -248,8 +248,8 @@ def timeline_entry(bid, events: list, ticket_ids: list,
     return {"mark": "warn", "text": head + "."}
 
 
-def tone_entry(canned_list: list, l1: str, l2: str,
-               err: Exception | None) -> dict | None:
+def tone_entry(canned_list: list, l1: str, l2: str, err: Exception | None,
+               sheet_reason: str = "") -> dict | None:
     """Whether the reply was written against approved replies, or without them.
 
     The reply is the one field on the card with no visible provenance. With
@@ -282,8 +282,15 @@ def tone_entry(canned_list: list, l1: str, l2: str,
                 f". They may be from an unrelated situation. Read the reply "
                 f"before sending."}
     if err is not None:
-        why = (f"the canned-responses sheet could not be read "
+        why = (f"the canned-responses lookup failed "
                f"({_human_error(err).strip().rstrip('.')})")
+    elif sheet_reason:
+        # The sheet itself never produced rows. Reporting "no approved reply
+        # matches Experience Issues / Meeting Point Issues" here blames the
+        # taxonomy for a document nobody shared: the two are the same empty
+        # list and are fixed by different people. is_live("canned") does not
+        # separate them either — it only says a sheet ID is configured.
+        why = sheet_reason
     elif not (l1 and l2):
         why = ("the sheet is keyed on L1/L2 and this review has neither, so "
                "there was nothing to match on")
@@ -295,7 +302,8 @@ def tone_entry(canned_list: list, l1: str, l2: str,
             f"before sending."}
 
 
-def classification_entry(l1: str, l2: str, err: Exception | None) -> dict | None:
+def classification_entry(l1: str, l2: str, err: Exception | None,
+                         warnings: list | None = None) -> dict | None:
     """The trail line for a classification that produced nothing, or None.
 
     An empty L1/L2 is never neutral, and it used to be completely silent. The
@@ -305,21 +313,47 @@ def classification_entry(l1: str, l2: str, err: Exception | None) -> dict | None
     and returned nothing, or it threw. Those are different problems with
     different fixes, so they get different sentences.
     """
-    if err is None and l1 and l2:
+    warnings = [w for w in (warnings or []) if str(w).strip()]
+    if err is None and l1 and l2 and not warnings:
         return None
     if err is not None:
         msg = _human_error(err).strip().rstrip(".")
         head = (f"<strong>Classification failed</strong> — {msg}. L1 and L2 "
                 f"are empty because the classifier errored")
+    elif l1 and l2:
+        # It recovered. Worth a line anyway: "Recovered L1 to 'Experience
+        # Issues' based on L2 match" means the model named a category that
+        # does not exist and the validator picked one for it. The selects
+        # look identical to a clean run, and the reader should know a repair
+        # fired before they trust the tag comparisons keyed on it.
+        return {"mark": "warn", "text":
+                "<strong>The classification was repaired</strong> — the model's "
+                f"answer did not validate and was corrected to {l1} / {l2}. "
+                + _why(warnings) +
+                " Check it against the review before trusting the comparisons "
+                "keyed on it."}
     else:
         absent = "L1 or L2" if not (l1 or l2) else ("L2" if l1 else "L1")
         head = (f"<strong>The classifier returned no {absent}</strong> — the "
                 f"Classification selects are empty for that reason")
     return {"mark": "warn", "text": head +
-            ", not because this review has no category. Everything keyed on "
-            "L1/L2 was skipped with it: the support-tag comparison, the "
-            "review-variant comparison and the scenario lookup. Set the "
-            "classification by hand, or re-run this review."}
+            ", not because this review has no category. " + _why(warnings) +
+            " Everything keyed on L1/L2 was skipped with it: the support-tag "
+            "comparison, the review-variant comparison and the scenario "
+            "lookup. Set the classification by hand, or re-run this review."}
+
+
+def _why(warnings: list) -> str:
+    """The classifier's own account of what went wrong, or a note that it gave
+    none. It records a precise reason for every failure — an L1 outside the
+    taxonomy, JSON that did not parse, a sub-theme with no framework — and all
+    of it went to the log. "The classifier returned no L1 or L2" was the one
+    part of the answer with nothing actionable in it.
+    """
+    if not warnings:
+        return "It gave no reason for this, which is itself worth reporting."
+    return "It reported: " + "; ".join(str(w).strip().rstrip(".")
+                                       for w in warnings[:4]) + "."
 
 
 async def process_review(review_id: str, force_candidates: bool = False):
@@ -1718,6 +1752,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # ── 11. Classification ────────────────────────────────────────────────
         l1, l2, l1_reasoning, sub_theme = "", "", "", None
         _classify_err = None
+        _classify_warnings = []
         try:
             from server.services.classifier import classify as classify_v2
             from server.services.claude import _call as claude_call
@@ -1726,7 +1761,15 @@ async def process_review(review_id: str, force_candidates: bool = False):
             l2 = result.l2
             sub_theme = result.sub_theme
             l1_reasoning = result.reasoning
-            for w in result.warnings:
+            # Carried to the trail, not just the log. The classifier already
+            # knows precisely why it produced nothing - "Invalid L1 'Booking
+            # Issues' - dropped to empty" is a taxonomy drift, "Response was
+            # not valid JSON" is a model problem, and they are fixed by
+            # different people. Logging them and then telling the reader
+            # "the classifier returned no L1 or L2" throws away the only
+            # part of the answer that was actionable.
+            _classify_warnings = list(result.warnings)
+            for w in _classify_warnings:
                 log.warning(f"[classify {review_id}] {w}")
         except Exception as e:
             _classify_err = e
@@ -1734,7 +1777,8 @@ async def process_review(review_id: str, force_candidates: bool = False):
 
         # Suppressed when the provider is down: the warning above has already
         # said so, and said it better.
-        _cls_entry = None if _ai_down else classification_entry(l1, l2, _classify_err)
+        _cls_entry = None if _ai_down else classification_entry(
+            l1, l2, _classify_err, _classify_warnings)
         if _cls_entry:
             confidence_trail.append(_cls_entry)
 
@@ -1830,7 +1874,9 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 canned_list = []
                 _tone_err = e
                 log.warning(f"[pipeline] canned tone lookup failed: {e}")
-            _tone_entry = tone_entry(canned_list or [], l1, l2, _tone_err)
+            from server.services.canned import last_failure_reason
+            _tone_entry = tone_entry(canned_list or [], l1, l2, _tone_err,
+                                     last_failure_reason())
             if _tone_entry:
                 confidence_trail.append(_tone_entry)
             rca_v3 = await claude.generate_rca_v3(
