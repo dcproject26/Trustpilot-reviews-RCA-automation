@@ -3000,7 +3000,18 @@ function renderRcaCol() {
   // account joins by zd_ref under sp_interaction_notes. Reading the pre-split
   // key left this section rendering nothing at all after the rename, which is
   // exactly the failure mode of a lookup that cannot say it found nothing.
-  const spV3 = v3d.sp_interaction_notes || v3d.sp_interaction || null;
+  // Defaulted, never null. The whole SP block used to disappear when the model
+  // said nothing about the supply partner — and it took "+ Add SP record" with
+  // it, so an operator could not record an SP contact on exactly the drafts
+  // where they are most likely to know of one the pipeline missed. A button
+  // that does not render is more inert than one that does nothing. Guest ↔
+  // support already keeps its "+ Add" beside an empty state (defect 4); this
+  // is the same treatment, and it gives the "Raised with SP" select somewhere
+  // to live so the answer can be entered by hand.
+  //
+  // "N/A" here is the default the select already shows for a missing value, so
+  // an unanswered section still reads as unanswered rather than as "No".
+  const spV3 = v3d.sp_interaction_notes || v3d.sp_interaction || {raised: 'N/A', records: []};
   const spNoteFor = key => key
     ? ((spV3 && spV3.records) || []).find(x => x && _zdKey(x.zd_ref) === key) || null : null;
   const spGroups = _contacts(rca.spFrames);

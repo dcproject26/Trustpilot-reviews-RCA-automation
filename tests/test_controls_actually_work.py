@@ -175,3 +175,121 @@ def test_a_stale_placeholder_from_an_older_draft_is_not_shown_as_a_name(page):
     got = _guest_row(page)
     _reset_guest(page)
     assert "[Guest name in Zendesk ticket]" not in got["text"], got
+
+
+# ── + Add SP record, on the branch that actually decides it ─────────────────
+#
+# Counting rows was not enough. The handler mutates the records array in
+# place, so once sp_interaction_notes exists on the draft it does not matter
+# which key the assignment names — both spellings render. Two things separate
+# them, and neither is a row count:
+#
+#   * a draft with NO notes object, where `|| {}` builds a fresh one and the
+#     assignment target is the only thing that decides where it lands; and
+#   * whether `raised` and `reason` survive, since replacing the object
+#     wholesale loses them while leaving the count correct.
+
+def _sp_state(page):
+    return page.evaluate("""() => {
+      const v = REVIEWS.find(x => x.id === state.selected).rca.v3;
+      return {notes: v.sp_interaction_notes || null,
+              frames: v.sp_interaction || null,
+              rendered: document.querySelectorAll('.sp-frame').length}; }""")
+
+
+def _sp_restore(page):
+    page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      r.rca.v3.sp_interaction_notes = r.rca.v3._kSP;
+      delete r.rca.v3._kSP; renderRcaCol(); }""")
+
+
+def test_a_record_added_to_a_draft_with_no_notes_lands_where_it_renders(page):
+    """Drafts written before the facts/interpretation split have no
+    sp_interaction_notes at all. That is the case the handler was getting
+    wrong, and the only one where the write target matters."""
+    page.evaluate("""() => {
+      const v = REVIEWS.find(x => x.id === state.selected).rca.v3;
+      v._kSP = v.sp_interaction_notes;
+      delete v.sp_interaction_notes; renderRcaCol(); }""")
+    before = _sp_state(page)["rendered"]
+    page.click("[data-sp-rec-add]")
+    page.wait_for_timeout(700)
+    got = _sp_state(page)
+    _sp_restore(page)
+    assert got["rendered"] == before + 1, \
+        f"the record was written to a key nothing renders ({got['rendered']} rows)"
+    assert got["notes"] and got["notes"]["records"], \
+        "the record did not land under sp_interaction_notes"
+
+
+def test_adding_a_record_does_not_discard_raised_and_reason(page):
+    """"raised: N/A" with no reason is indistinguishable from a skipped
+    section — the bug this section already had once. Replacing the notes
+    object with a fresh one carrying only records brings it back, and leaves
+    the row count correct while doing it."""
+    page.evaluate("""() => {
+      const v = REVIEWS.find(x => x.id === state.selected).rca.v3;
+      v._kSP = v.sp_interaction_notes;
+      v.sp_interaction_notes = {raised: 'Yes', reason: 'Vendor is not partnered.',
+                                records: [{time: '', summary: 'first', zd_ref: ''}]};
+      renderRcaCol(); }""")
+    page.click("[data-sp-rec-add]")
+    page.wait_for_timeout(700)
+    got = _sp_state(page)
+    _sp_restore(page)
+    n = got["notes"]
+    assert n["raised"] == "Yes", f"raised was dropped: {n!r}"
+    assert n["reason"] == "Vendor is not partnered.", f"reason was dropped: {n!r}"
+    assert [r["summary"] for r in n["records"]][0] == "first", \
+        "the existing record was replaced rather than appended to"
+    assert len(n["records"]) == 2
+
+
+def test_a_record_is_never_written_to_the_frames_key(page):
+    """sp_interaction is the pipeline's Zendesk-derived facts. An operator's
+    record is by definition one there is no ticket for; writing it there makes
+    the model's account and the warehouse's disagree."""
+    page.evaluate("""() => {
+      const v = REVIEWS.find(x => x.id === state.selected).rca.v3;
+      v._kSP = v.sp_interaction_notes;
+      v.sp_interaction_notes = {raised: 'N/A', reason: 'r', records: []};
+      renderRcaCol(); }""")
+    before = page.evaluate(
+        "() => JSON.stringify(REVIEWS.find(x=>x.id===state.selected).rca.v3.sp_interaction ?? null)")
+    page.click("[data-sp-rec-add]")
+    page.wait_for_timeout(700)
+    after = page.evaluate(
+        "() => JSON.stringify(REVIEWS.find(x=>x.id===state.selected).rca.v3.sp_interaction ?? null)")
+    _sp_restore(page)
+    assert after == before, \
+        f"the facts key was written by the client: {before} -> {after}"
+
+
+def test_the_sp_section_survives_a_draft_that_says_nothing_about_the_sp(page):
+    """The block was null when the model had no SP account and no frames came
+    back, so the section — and its "+ Add SP record" — was absent rather than
+    empty. The brief's rule is that none of the nine add paths may be inert; a
+    button that never renders is further from working than one that does
+    nothing."""
+    got = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const kN = r.rca.v3.sp_interaction_notes, kI = r.rca.v3.sp_interaction;
+      const kF = r.rca.spFrames, kS = r.rca.spInteraction;
+      delete r.rca.v3.sp_interaction_notes; delete r.rca.v3.sp_interaction;
+      r.rca.spFrames = []; r.rca.spInteraction = [];
+      renderRcaCol();
+      const sec = [...document.querySelectorAll('#rca-col .section')].find(
+        s => /SP INTERACTION/i.test(s.querySelector('.section-label')?.innerText || ''));
+      const out = {section: !!sec,
+                   add: !!(sec && sec.querySelector('[data-sp-rec-add]')),
+                   raised: !!(sec && sec.querySelector('[data-v3sel="sp_interaction_notes.raised"]')),
+                   text: sec ? sec.innerText : ''};
+      r.rca.v3.sp_interaction_notes = kN; r.rca.v3.sp_interaction = kI;
+      r.rca.spFrames = kF; r.rca.spInteraction = kS; renderRcaCol();
+      return out; }""")
+    assert got["section"], "the SP section vanished entirely"
+    assert got["add"], "+ Add SP record is not on the page at all"
+    assert got["raised"], "there is nowhere to record whether the SP was raised"
+    assert "No SP contact on record" in got["text"], \
+        "an absent section and an empty one still read the same"

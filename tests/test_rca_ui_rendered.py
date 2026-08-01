@@ -101,6 +101,7 @@ s.add(db.Review(id="tp_ui", slack_ts="1", slack_channel="C1", rating=1,
                 received_at=datetime.utcnow()))
 s.add(db.RcaDraft(id="d_ui", review_id="tp_ui", rca_v3=v, booking={{"id": "32908218"}},
                   match_tier=1, rca_prompt_version=RCA_PROMPT_VERSION,
+                  zendesk_ticket_ids=["34125496", "34256902"],
                   confidence_trail=[
                     {{"mark": "pass", "text": "<strong>BID extracted</strong> via attachment"}},
                     {{"mark": "warn", "text": "<strong>RCA</strong> — a coercion fired"}}],
@@ -758,6 +759,7 @@ s.add(db.Review(id="tp_ui", slack_ts="1", slack_channel="C1", rating=1,
                 received_at=datetime.utcnow()))
 s.add(db.RcaDraft(id="d_ui", review_id="tp_ui", rca_v3=v, booking={{"id": "32908218"}},
                   match_tier=1, rca_prompt_version=RCA_PROMPT_VERSION,
+                  zendesk_ticket_ids=["34125496", "34256902"],
                   confidence_trail=[
                     {{"mark": "pass", "text": "<strong>BID extracted</strong> via attachment"}},
                     {{"mark": "warn", "text": "<strong>RCA</strong> — a coercion fired"}}],
@@ -1374,3 +1376,27 @@ def test_the_machinery_toggle_works_on_a_normal_timeline(page):
     assert before == 1, f"the filter showed {before} of 1 guest event"
     assert after == 2, f"clicking show revealed {after} of 2 events"
     assert "hide" in note.lower(), f"the toggle does not offer the way back: {note!r}"
+
+
+def test_the_ticket_ids_survive_the_trip_from_the_draft(page):
+    """The renderer tests set r.zendeskTicketIds by hand, so they proved the
+    branch renders and nothing about the wiring that feeds it — dropping the
+    `draft.zendesk_ticket_ids` read entirely left every one of them green.
+    This drives the real ingest path against the real payload."""
+    got = page.evaluate("""async () => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      r.zendeskTicketIds = null;                       // wipe what is there
+      await loadDraftOverlays();                        // the real mapping
+      return REVIEWS.find(x => x.id === state.selected).zendeskTicketIds; }""")
+    assert got == ["34125496", "34256902"], \
+        f"the ticket ids did not reach the renderer: {got!r}"
+
+
+def test_the_ticket_ids_the_api_sends_are_the_ones_the_draft_holds(page):
+    """Both halves of the wire, so a rename on either side is caught here
+    rather than as a silently empty section."""
+    sent = page.evaluate("""async () => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const p = await (await fetch(`/api/reviews/${r.id}`)).json();
+      return p.draft.zendesk_ticket_ids; }""")
+    assert sent == ["34125496", "34256902"], sent
