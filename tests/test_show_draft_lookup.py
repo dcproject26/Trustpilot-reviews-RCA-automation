@@ -214,3 +214,44 @@ def test_the_trail_is_readable_in_a_terminal(seeded):
     _, out = _run(seeded, "--bid", "32908218", "--detail")
     assert "claim_accuracy 'X' → Unknown" in out
     assert "&#x27;" not in out
+
+
+# ── which build is a host running ───────────────────────────────────────────
+#
+# `curl -s` on a dead port prints nothing, and "nothing" parses as a broken
+# endpoint rather than as a refused connection. Same class as every other bug
+# this month: two very different failures producing one answer.
+
+def test_a_refused_connection_says_refused_not_nothing():
+    sys.path.insert(0, "tools")
+    import which_build
+    v, err = which_build.ask("http://127.0.0.1:9")   # discard port, always dead
+    assert v is None
+    assert "cannot reach it" in err, err
+
+
+def test_a_host_that_answers_with_html_is_not_read_as_a_build():
+    sys.path.insert(0, "tools")
+    import which_build
+    import json as _json
+    import urllib.request
+
+    class _Fake:
+        def read(self): return b"<!doctype html><html></html>"
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    real = urllib.request.urlopen
+    urllib.request.urlopen = lambda *a, **k: _Fake()
+    try:
+        v, err = which_build.ask("http://example.invalid")
+    finally:
+        urllib.request.urlopen = real
+    assert v is None and "not with JSON" in err, (v, err)
+
+
+def test_it_reports_the_working_trees_own_head():
+    sys.path.insert(0, "tools")
+    import which_build
+    head = which_build.local_head()
+    assert head and head != "unknown", "cannot tell which commit this tree is on"
