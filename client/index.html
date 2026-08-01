@@ -333,6 +333,10 @@
   .detail-row .v { font-weight: 500; overflow-wrap: anywhere; }
   .detail-row .v.mono { font-family: var(--mono); font-size: 11.5px; }
   .detail-row .v.dim, .detail-row .v .placeholder { color: var(--empty); }
+  /* An absent value carrying its reason. Same colour as .placeholder so it
+     never reads as data, and normal weight so it does not compete with the
+     rows that hold real values. */
+  .detail-row .v .v-absent { color: var(--empty); font-weight: 400; }
   .booking-status-pill { font-size: 11px; padding: 1px 7px; border-radius: 5px; background: var(--hover-fill); color: var(--muted); }
   .bms-link, .tgid-link, .dss-row-ref { font-family: var(--mono); font-size: 11.5px; }
 
@@ -1463,6 +1467,11 @@ async function loadDraftOverlays() {
       // ── Stated issue ──────────────────────────────────────────────────────
       r.statedIssue = draft.stated_issue || r.statedIssue || '';
 
+      // Which tickets the timeline was built from. An empty events list means
+      // something different when tickets matched and yielded nothing than when
+      // none matched at all, and the panel could not tell them apart.
+      r.zendeskTicketIds = draft.zendesk_ticket_ids || r.zendeskTicketIds || [];
+
       // ── Timeline → events ─────────────────────────────────────────────────
       if (Array.isArray(draft.timeline) && draft.timeline.length) {
         r.events = draft.timeline.map(t => ({
@@ -1543,15 +1552,28 @@ async function loadDraftOverlays() {
         r.booking.status  = db.booking_status || db.status || r.booking.status || '';
         r.booking.tidName = db.tid_name || db.tour_name || r.booking.tidName || '';
 
-        // Guest name: use plaintext BQ name, then Zendesk requester, then fallback
+        // Guest name: use plaintext BQ name, then Zendesk requester, then say
+        // WHICH source came up empty.
+        //
+        // The fallback was '[Guest name in Zendesk ticket]' — a sentence
+        // dressed as a value. It sat in the value column looking like data,
+        // and it made three different situations identical: the warehouse
+        // holds a hash, the linked ticket carries no requester, and no ticket
+        // was ever matched. The first two are worth opening Zendesk for; the
+        // third is not. The server works out which and sends the reason.
         const rawGuest    = db.primary_guest_name || r.booking.primaryGuestName || '';
         const zdRequester = r.booking.zendesk_requester_name || db.zendesk_requester_name || '';
-        if (rawGuest && (rawGuest.length <= 20 || /\s/.test(rawGuest))) {
+        if (rawGuest && rawGuest !== '[Guest name in Zendesk ticket]'
+            && (rawGuest.length <= 20 || /\s/.test(rawGuest))) {
           r.booking.primaryGuestName = rawGuest;
+          r.booking.guestNameNote = '';
         } else if (zdRequester) {
           r.booking.primaryGuestName = zdRequester;
+          r.booking.guestNameNote = '';
         } else {
-          r.booking.primaryGuestName = '[Guest name in Zendesk ticket]';
+          r.booking.primaryGuestName = '';
+          r.booking.guestNameNote = db.guest_name_note
+            || 'no guest name on the booking or on any linked Zendesk ticket';
         }
       }
 
@@ -1825,7 +1847,17 @@ function eventsTimelineHtml(r) {
       ${_shown.length
         ? `<div class="tl-events">${events}</div>
            ${r.timelineSummary ? `<div class="timeline-summary">${esc(r.timelineSummary)}</div>` : ''}`
-        : `<div class="rca-empty">No Zendesk events were found for this booking.</div>`}
+        : _allEvents.length
+          // Every event on this booking is Headout machinery, so the filter
+          // emptied the list. Saying "no events were found" here is false, and
+          // it also swallowed the toggle that reveals them — the note is
+          // appended to `events`, which this branch never renders.
+          ? `<div class="rca-empty">All ${_allEvents.length} Zendesk event${_allEvents.length === 1 ? ' is' : 's are'} internal Headout machinery and hidden by the filter — none of them are part of the guest's story.</div>
+             <div class="tl-hidden-note" data-tl-toggle>show ${_allEvents.length} internal event${_allEvents.length === 1 ? '' : 's'}</div>`
+          : `<div class="rca-empty">No Zendesk events were found for this booking. ${
+               (r.zendeskTicketIds || []).length
+                 ? `${r.zendeskTicketIds.length} ticket${r.zendeskTicketIds.length === 1 ? '' : 's'} matched but carried no timeline events.`
+                 : `Check the confidence trail for whether Zendesk was searched.`}</div>`}
     </div>`;
 }
 
@@ -2107,14 +2139,24 @@ function renderReviewCol() {
         <div class="detail-row"><span class="k">Booking ID</span><span class="v mono">${b.bmsLink ? `<a href="${b.bmsLink}" target="_blank" rel="noopener" class="bms-link">${b.bid}</a>` : b.bid}</span></div>
         <div class="detail-row"><span class="k">Experience</span><span class="v">${b.experience || "—"}</span></div>
         <div class="detail-row"><span class="k">TID name</span><span class="v ${b.tidName ? '' : 'placeholder'}">${b.tidName || '—'}</span></div>
-        <div class="detail-row"><span class="k">TGID / TID</span><span class="v mono">${b.tgidLink ? `<a href="${b.tgidLink}" target="_blank" rel="noopener" class="tgid-link">${b.tgid || "—"}</a>` : (b.tgid || "—")} / ${b.tid || "—"}</span></div>
-        <div class="detail-row"><span class="k">Vendor ID</span><span class="v mono">${b.vid || "—"}</span></div>
+        <div class="detail-row"><span class="k">TGID / TID</span><span class="v">${b.tgidLink ? `<a href="${b.tgidLink}" target="_blank" rel="noopener" class="tgid-link">${b.tgid || "—"}</a>` : (b.tgid || "—")} / ${b.tid || "—"}</span></div>
+        <div class="detail-row"><span class="k">Vendor ID</span><span class="v">${b.vid || "—"}</span></div>
         <div class="detail-row"><span class="k">Vendor name</span><span class="v">${b.vendorName || "—"}</span></div>
-        <div class="detail-row"><span class="k">Fulfilment type</span><span class="v mono">${b.fulfilmentType || '—'}</span></div>
-        <div class="detail-row"><span class="k">Primary guest</span><span class="v">${b.primaryGuestName || '—'}</span></div>
-        <div class="detail-row"><span class="k">Visit date</span><span class="v mono">${b.experienceDate || '—'}</span></div>
-        <div class="detail-row"><span class="k">Booking date</span><span class="v mono">${b.bookingDate || b.creationDate || '—'}</span></div>
-        <div class="detail-row"><span class="k">Review date</span><span class="v mono">${b.reviewDate || '—'}</span></div>
+        <div class="detail-row"><span class="k">Fulfilment type</span><span class="v">${b.fulfilmentType || '—'}</span></div>
+        <!-- The placeholder is stripped HERE, not only where the name is
+             resolved: drafts written before this change hold the literal
+             string in primaryGuestName, so guarding the ingest path alone
+             would leave it on screen for every one of them. -->
+        <div class="detail-row"><span class="k">Primary guest</span><span class="v">${(() => {
+          const g = (b.primaryGuestName || '').trim();
+          const real = g && g !== '[Guest name in Zendesk ticket]';
+          return real ? esc(g)
+            : `<span class="v-absent">— ${esc(b.guestNameNote
+                 || 'no guest name on the booking or on any linked Zendesk ticket')}</span>`;
+        })()}</span></div>
+        <div class="detail-row"><span class="k">Visit date</span><span class="v">${b.experienceDate || '—'}</span></div>
+        <div class="detail-row"><span class="k">Booking date</span><span class="v">${b.bookingDate || b.creationDate || '—'}</span></div>
+        <div class="detail-row"><span class="k">Review date</span><span class="v">${b.reviewDate || '—'}</span></div>
         <div class="detail-row"><span class="k">Partnered vendor</span><span class="v">${b.isPartnered == null ? '<span class="placeholder">—</span>' : `<span class="pill-sm ${b.isPartnered ? 'pill-green' : 'pill-grey'}">${b.isPartnered ? 'Yes' : 'No'}</span>`}</span></div>
         <div class="detail-row"><span class="k">Escalation email</span><span class="v">${
           b.escalationEmail
@@ -2122,7 +2164,7 @@ function renderReviewCol() {
               + (b.escalationType ? `<span class="tile-n"> · ${b.escalationType}</span>` : '')
             : `<span class="pill-sm pill-grey">No</span>`}</span></div>
         <div class="detail-row"><span class="k">Booking status</span><span class="v">${b.status ? `<span class="booking-status-pill status-${b.status}">${b.status}</span>` : '—'}</span></div>
-        <div class="detail-row"><span class="k">Lead time</span><span class="v mono">${b.leadTime || '—'}</span></div>
+        <div class="detail-row"><span class="k">Lead time</span><span class="v">${b.leadTime || '—'}</span></div>
       </div>
     </div>` : ''}
 
@@ -2385,16 +2427,8 @@ function renderReviewCol() {
 
   `;
 
-  // Machinery toggle. Hiding is a display choice, so it is reversible and it
-  // says how many it hid - a filter that silently removes rows is how the
-  // regex in the old renderer went unnoticed for so long.
-  const tlToggle = col.querySelector('[data-tl-toggle]');
-  if (tlToggle) {
-    tlToggle.addEventListener('click', () => {
-      state.tlShowInternal = !state.tlShowInternal;
-      renderReviewCol();
-    });
-  }
+  // The machinery toggle is bound by a delegated handler near renderRcaCol —
+  // the timeline it controls lives in the RCA column now (§13).
 
   // Window picker — recompute against the chosen range. This used to only set
   // state and re-render, so the caption changed ("· 90d") while the number
@@ -2704,6 +2738,23 @@ document.addEventListener('click', ev => {
   ev.stopPropagation();
   state.rawErrOpen[btn.dataset.rawErr] = !state.rawErrOpen[btn.dataset.rawErr];
   renderReviewCol();
+  if (state.selected) renderRcaCol();
+});
+
+// Machinery toggle. Hiding is a display choice, so it is reversible and it
+// says how many it hid — a filter that silently removes rows is how the regex
+// in the old renderer went unnoticed for so long.
+//
+// Delegated, and it re-renders the RCA column. §13 moved the events timeline
+// out of the review column, and the binding stayed behind: it was still
+// queried off `review-col` (which no longer contains the note, so nothing was
+// bound) and still called renderReviewCol (which no longer draws the
+// timeline, so nothing would have changed if it had been). The control
+// rendered and did nothing, which is how it went unnoticed.
+document.addEventListener('click', ev => {
+  const t = ev.target.closest && ev.target.closest('[data-tl-toggle]');
+  if (!t) return;
+  state.tlShowInternal = !state.tlShowInternal;
   if (state.selected) renderRcaCol();
 });
 
@@ -3751,7 +3802,15 @@ function renderRcaCol() {
       <div class="section-label"><span>Guest's stated issue</span><span class="section-chev">▾</span></div>
       <div class="stated-issue">
         <div class="stated-issue-text editable-text" contenteditable="true" spellcheck="false">${r.statedIssue || ''}</div>
-        ${(r.statedIssue || '').trim() ? '' : `<div class="rca-empty">Nothing was extracted — click above to write the guest's issue in one line.</div>`}
+        ${(r.statedIssue || '').trim() ? '' : `<div class="rca-empty">${
+          // "Nothing was extracted" is a claim about the review, and it was
+          // made for a call that threw just as readily as for a review with
+          // nothing in it. When the RCA below is full, the claim is provably
+          // false: the model had plenty to say about the same text.
+          ((v3d.what_went_wrong && (v3d.what_went_wrong.guest_issues || []).length) || 0)
+            ? `This step returned nothing, but the RCA below found ${(v3d.what_went_wrong.guest_issues || []).length} issue${(v3d.what_went_wrong.guest_issues || []).length === 1 ? '' : 's'} in the same review — so it is the step that failed, not a review with nothing to state. See the confidence trail. Click above to write it in one line.`
+            : `Nothing was extracted — see the confidence trail for whether the step ran. Click above to write the guest's issue in one line.`
+        }</div>`}
       </div>
     </div>
 
@@ -3759,7 +3818,12 @@ function renderRcaCol() {
     ${isaBlock}
 
     <div class="section">
-      <div class="section-label"><span>Guest ↔ support</span><span class="hint">${(v3d.support_interaction || []).length} contact${(v3d.support_interaction || []).length === 1 ? '' : 's'}</span><span class="section-chev">▾</span></div>
+      <!-- The count reads the list the rows are actually built from. It used
+           to read v3d.support_interaction — a different list, populated on a
+           different path — so the heading said "0 contacts" above eight
+           rendered contacts. A count that cannot be checked against what is
+           under it is worse than no count. -->
+      <div class="section-label"><span>Guest ↔ support</span><span class="hint">${_rows.length} contact${_rows.length === 1 ? '' : 's'}</span><span class="section-chev">▾</span></div>
       ${sup}
     </div>
 
@@ -4505,10 +4569,20 @@ function renderRcaCol() {
     await persistV3(spRaised);
   });
   const spRecAdd = col.querySelector('[data-sp-rec-add]');
+  // The notes key, not the frames key. This wrote to `sp_interaction` — the
+  // facts side, which the pipeline owns and the renderer no longer reads for
+  // records — so the record was saved to a key nothing displays and the button
+  // appeared to do nothing. The renderer reads sp_interaction_notes.records
+  // (with sp_interaction as a fallback for drafts written before the split),
+  // so an operator-added record has to land there or it is written and lost.
   if (spRecAdd) spRecAdd.addEventListener('click', async () => {
-    const sp = rca.v3.sp_interaction || {};
-    sp.records = [...(sp.records || []), {time: '', summary: 'New record — click to edit', zd_ref: ''}];
-    rca.v3.sp_interaction = sp;
+    const sp = rca.v3.sp_interaction_notes
+            || (rca.v3.sp_interaction && !Array.isArray(rca.v3.sp_interaction)
+                  ? rca.v3.sp_interaction : null)
+            || {};
+    sp.records = [...(sp.records || []),
+                  {time: '', summary: 'New record — click to edit', zd_ref: ''}];
+    rca.v3.sp_interaction_notes = sp;
     await persistV3(); renderRcaCol();
   });
 
@@ -4518,7 +4592,15 @@ function renderRcaCol() {
   // state survives re-renders and review switches.
   col.querySelectorAll('.section').forEach(sec => {
     const label = sec.querySelector('.section-label');
-    if (!label || label.querySelector('.section-chev')) return;
+    if (!label) return;
+    // The early return used to be `|| label.querySelector('.section-chev')`,
+    // which conflated two jobs this pass does: draw the chevron, and bind the
+    // click. Step 5 put a hardcoded chevron into most section templates, so
+    // that guard started firing on every one of them and the binding never
+    // ran. Every section that had been given its own chevron silently stopped
+    // collapsing — a control that renders, looks right, and does nothing.
+    // Drawing is what needs the guard; binding does not.
+    //
     // Key on the section's id, not its label text. The label carries live
     // counts ("What Happened AI 6 events", "Flags AI 1 CE · 1 CONTENT"), so
     // a text key changed whenever the data changed - and because this state
@@ -4535,10 +4617,12 @@ function renderRcaCol() {
     };
     const key = sec.id || stableLabel();
     if (!key) return;
-    const chev = document.createElement('span');
-    chev.className = 'section-chev';
-    chev.textContent = '▾';
-    label.appendChild(chev);
+    if (!label.querySelector('.section-chev')) {
+      const chev = document.createElement('span');
+      chev.className = 'section-chev';
+      chev.textContent = '▾';
+      label.appendChild(chev);
+    }
     if (state.collapsed[key]) sec.classList.add('is-collapsed');
     label.addEventListener('click', ev => {
       // Never swallow a click meant for a control inside the head.
@@ -4751,21 +4835,31 @@ function openFlagDraftModal(r) {
   // message text, where correcting a wrong TGID meant editing prose and the
   // numbers that actually went out were whatever survived that edit.
   const _pctFromInsights = () => {
-    const v = String((r.insights?.completion?.value) ?? '').replace('%', '').trim();
+    const li = r.liveInsights;
+    const raw = (li && (li.vidCompletionRate ?? li.completion_rate))
+             ?? r.insights?.completion?.value;
+    const v = String(raw ?? '').replace('%', '').trim();
     return v && !isNaN(parseFloat(v)) ? parseFloat(v) : '';
   };
-  const defaultMsg = `Flagging low completion rate for review.\n\nFlagged from review BID ${r.booking.bid} — guest reported ${(r.rca.issueL2 || '').toLowerCase()}. Window: ${state.insightsWindow}. Please review supply allocation and consider raising completion to market rate.`;
+  const _issue = (r.rca.issueL2 || '').trim().toLowerCase();
+  const defaultMsg = `Flagging low completion rate for review.\n\nFlagged from review BID ${r.booking.bid}`
+    + (_issue ? ` — guest reported ${_issue}` : '')
+    + `. Window: ${state.insightsWindow}. Please review supply allocation and `
+    + `consider raising completion to market rate.`;
 
   const modal = document.createElement('div');
   modal.id = 'flag-modal';
-  modal.className = 'flag-modal-backdrop';
+  // .flag-modal is the fixed, centred backdrop and .flag-modal-body is the
+  // card. This said 'flag-modal-backdrop', a class with no rule behind it,
+  // so the backdrop never positioned and the head and actions rendered
+  // outside the card.
+  modal.className = 'flag-modal';
   modal.innerHTML = `
-    <div class="flag-modal">
+    <div class="flag-modal-body">
       <div class="flag-modal-head">
         <div class="flag-modal-title">Draft Slack message to Biz team</div>
         <button class="flag-modal-close" data-close-modal>×</button>
       </div>
-      <div class="flag-modal-body">
         <!-- One destination, always: the review's own Slack thread, the same
              thread the RCA goes into. There was a channel field here defaulting
              to #biz-supply-ops, a channel that does not exist in the workspace,
@@ -4804,7 +4898,6 @@ function openFlagDraftModal(r) {
           <label>Message</label>
           <textarea class="flag-textarea" id="flag-message">${defaultMsg}</textarea>
         </div>
-      </div>
       <div class="flag-modal-actions">
         <button class="btn" data-close-modal>Cancel</button>
         <button class="btn primary" id="flag-send-btn">Send to Slack ↑</button>

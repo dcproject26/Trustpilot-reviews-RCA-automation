@@ -26,26 +26,71 @@ DEFAULT = "http://localhost:5000"
 
 
 def local_head() -> str:
+    """The commit this tree is on, or "unknown" — never the empty string.
+
+    `git rev-parse` outside a repository exits 128 with empty stdout, and this
+    returned that empty string straight through. Printed, it left the "you are
+    on" line blank: a git call that failed looked exactly like a commit with no
+    characters in it. Only the returncode tells them apart, so read it.
+    """
     try:
-        return subprocess.run(["git", "rev-parse", "--short", "HEAD"],
-                              capture_output=True, text=True, timeout=5).stdout.strip()
+        p = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
+                           capture_output=True, text=True, timeout=5)
+        return p.stdout.strip() if p.returncode == 0 and p.stdout.strip() else "unknown"
     except Exception:
         return "unknown"
 
 
-def ask(base: str):
-    url = base.rstrip("/") + "/api/version"
+def _get(url: str):
+    """(status, content_type, body) or (None, None, reason)."""
     try:
-        with urllib.request.urlopen(url, timeout=8) as r:
-            return json.loads(r.read().decode()), None
+        with urllib.request.urlopen(url, timeout=10) as r:
+            return r.status, r.headers.get("Content-Type", ""), r.read().decode(
+                "utf-8", "replace")
     except urllib.error.HTTPError as e:
-        return None, f"HTTP {e.code} — is this the app, or a router in front of it?"
+        return e.code, e.headers.get("Content-Type", ""), e.read().decode(
+            "utf-8", "replace")
     except urllib.error.URLError as e:
-        return None, f"cannot reach it ({e.reason}) — nothing is listening, or the host is wrong"
-    except json.JSONDecodeError:
-        return None, "answered, but not with JSON — something else is on this port"
+        return None, None, f"cannot reach it ({e.reason}) — nothing is listening, "
     except Exception as e:
-        return None, str(e)[:120]
+        return None, None, str(e)[:140]
+
+
+def ask(base: str):
+    """The build a host is running, or a reason that names what actually came back.
+
+    "not JSON" collapsed three very different situations into one sentence: a
+    Replit placeholder page while a deployment is mid-publish, an older build of
+    our own app that predates this endpoint, and a completely different service
+    on the host. /healthz tells the first two apart - it has been in this app far
+    longer than /api/version, so answering there and not here means our app, but
+    an old one.
+    """
+    base = base.rstrip("/")
+    status, ctype, body = _get(base + "/api/version")
+    if status is None:
+        return None, body.rstrip(" —") + " or the host is wrong"
+
+    if "json" in (ctype or "").lower():
+        try:
+            return json.loads(body), None
+        except json.JSONDecodeError:
+            return None, f"HTTP {status} claimed JSON and sent something else"
+
+    hstatus, hctype, hbody = _get(base + "/healthz")
+    healthy = hstatus == 200 and "json" in (hctype or "").lower() and '"ok"' in hbody
+    snippet = " ".join(body.split())[:70]
+
+    if healthy:
+        return None, (f"this IS the app, but an OLDER build — /healthz answers and "
+                      f"/api/version does not (HTTP {status}). Nothing new has been "
+                      f"published to this host.")
+    if status == 404:
+        return None, (f"HTTP 404 for both /api/version and /healthz — this host is "
+                      f"not running the app at all")
+    return None, (f"HTTP {status}, {ctype or 'no content-type'} — not the app. "
+                  f"Probably a platform page while the deployment is not live. "
+                  f"First bytes: {snippet!r}")
 
 
 def main():

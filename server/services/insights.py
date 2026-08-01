@@ -598,6 +598,23 @@ def _count(res) -> int:
     return int(_fld(res[0] if isinstance(res, list) else res, "c") or 0)
 
 
+def _no_mapping_note(l1: str | None, l2: str | None, tail: str) -> str:
+    """Why the support-tag comparison did not run, without placeholder characters.
+
+    This read "no support-tag mapping for ? / ? - support contacts not
+    compared" on a review whose classifier had returned nothing. Two different
+    failures wearing one sentence: a category deliberately left unmapped (11 of
+    32 pairs are), and a review that has no category at all. The first is a
+    gap in the tag framework and is somebody's job to fill; the second is this
+    review's own analysis missing, and is fixed by re-running or by setting the
+    Classification selects by hand. A '?' pointed at neither.
+    """
+    if l1 and l2:
+        return f"no support-tag mapping for {l1} / {l2} - {tail}"
+    missing = "L1 or L2" if not (l1 or l2) else ("L2" if l1 else "L1")
+    return f"this review has no {missing} classification - {tail}"
+
+
 async def get_insights(booking: dict, l1: str | None, l2: str | None,
                        window: str | None = None) -> dict:
     """
@@ -1178,11 +1195,11 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         "_partial_because": " · ".join(filter(None, [
             ("" if pair else "tid or vid missing - issue comparison skipped, "
                              "vendor-level metrics computed"),
-            ("" if not (pair and skip_c) else
-             f"no support-tag mapping for {l1 or '?'} / {l2 or '?'} - "
-             "support contacts not compared"),
+            ("" if not (pair and skip_c) else _no_mapping_note(
+                l1, l2, "support contacts not compared")),
             ("" if not (pair and skip_a) else
-             f"no L2 variants for {l2 or '?'} - reviews not compared"),
+             (f"no L2 variants for {l2} - reviews not compared" if l2 else
+              "this review has no L2 classification - reviews not compared")),
             # An honest empty population, said out loud.
             #
             # Booking 32908218 is tour 43605 / vendor 4040 on experience 22238.

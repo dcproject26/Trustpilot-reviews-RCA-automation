@@ -187,6 +187,141 @@ def _human_error(exc: Exception) -> str:
     return f"{name}: {head[:160]}"
 
 
+def stated_issue_entry(stated_issue: str, err: Exception | None) -> dict | None:
+    """The trail line for a stated issue that came back empty, or None.
+
+    The panel renders "Nothing was extracted — click above to write the guest's
+    issue in one line." for every empty value, which is the right sentence for
+    exactly one of the three ways it gets there: a review with nothing to
+    extract. It is the wrong sentence for a call that threw, and the wrong
+    sentence for a model that answered with whitespace — and on the card that
+    prompted this, the RCA below it was full, so "nothing to extract" was
+    plainly false.
+    """
+    if err is None and (stated_issue or "").strip():
+        return None
+    if err is not None:
+        msg = _human_error(err).strip().rstrip(".")
+        head = (f"<strong>The guest's stated issue could not be extracted"
+                f"</strong> — {msg}. The line is empty because the call failed")
+    else:
+        head = ("<strong>The stated-issue step returned nothing</strong> — the "
+                "line is empty because the model gave no answer")
+    return {"mark": "warn", "text": head +
+            ", which is not the same as a review with nothing to state. Write "
+            "it in one line by hand, or re-run this review."}
+
+
+def timeline_entry(bid, events: list, ticket_ids: list,
+                   err: Exception | None) -> dict | None:
+    """Why the events timeline is empty — or None when it has events.
+
+    "No Zendesk events were found for this booking" is one sentence covering
+    four situations: nothing was looked up because there was no booking id,
+    the lookup threw, tickets were found but carried no usable events, and the
+    honest empty where Zendesk simply has nothing for this booking. Only the
+    last of those is the sentence on screen.
+    """
+    if events:
+        return None
+    if not bid:
+        head = ("<strong>Zendesk was not searched</strong> — this review has "
+                "no booking id or reference number to search on, so the empty "
+                "events timeline is a lookup that never ran")
+    elif err is not None:
+        msg = _human_error(err).strip().rstrip(".")
+        head = (f"<strong>The Zendesk timeline lookup failed</strong> — {msg}. "
+                f"The events timeline is empty because the search broke, not "
+                f"because this booking has no tickets")
+    elif ticket_ids:
+        head = (f"<strong>Zendesk returned no usable events</strong> — "
+                f"{len(ticket_ids)} ticket(s) matched booking {bid} "
+                f"({', '.join(f'ZD-{t}' for t in ticket_ids[:4])}) but nothing "
+                f"in them parsed into a timeline event")
+    else:
+        # The legitimate empty. Said out loud so it is not read as a failure —
+        # the inverse bug, and just as bad.
+        return {"mark": "pass", "text":
+                f"<strong>Zendesk searched</strong> — no tickets are linked to "
+                f"booking {bid}. The empty events timeline is a real answer, "
+                f"not a failed lookup."}
+    return {"mark": "warn", "text": head + "."}
+
+
+def tone_entry(canned_list: list, l1: str, l2: str,
+               err: Exception | None) -> dict | None:
+    """Whether the reply was written against approved replies, or without them.
+
+    The reply is the one field on the card with no visible provenance. With
+    tone examples it lands in Headout's voice; without them the model writes in
+    its own, and the two are told apart only by reading it — which is precisely
+    what an associate is trusting the pipeline to have done. "The reply is off
+    tone" is then a mystery rather than a fact with a cause.
+
+    On the card that prompted this the cause was upstream: the canned sheet is
+    keyed on L1/L2, the classifier had returned neither, so the lookup was
+    given nothing to match and correctly matched nothing.
+    """
+    if canned_list and l1 and l2:
+        return {"mark": "pass", "text":
+                f"<strong>Reply voice</strong> — written against "
+                f"{len(canned_list)} approved reply/replies for {l1} / {l2}, "
+                f"as tone only."}
+    if canned_list:
+        # Rows came back, so this is not the empty case — but L1/L2 are worth
+        # 8 of the ranking points and word overlap with the review is the rest.
+        # Without a classification the sheet was still read and still returned
+        # its top three, ranked on overlap alone. "Matched" and "matched well"
+        # are not the same claim, and a pass line here would make the second
+        # one on the evidence for the first.
+        return {"mark": "warn", "text":
+                f"<strong>The reply's tone examples were picked on word "
+                f"overlap alone</strong> — {len(canned_list)} came back, but "
+                f"the sheet ranks mainly on L1/L2 and this review has "
+                f"{'neither' if not (l1 or l2) else ('no L2' if l1 else 'no L1')}"
+                f". They may be from an unrelated situation. Read the reply "
+                f"before sending."}
+    if err is not None:
+        why = (f"the canned-responses sheet could not be read "
+               f"({_human_error(err).strip().rstrip('.')})")
+    elif not (l1 and l2):
+        why = ("the sheet is keyed on L1/L2 and this review has neither, so "
+               "there was nothing to match on")
+    else:
+        why = f"no approved reply matches {l1} / {l2}"
+    return {"mark": "warn", "text":
+            f"<strong>The reply was written without a tone reference</strong> "
+            f"— {why}. It is in the model's own voice, not Headout's. Read it "
+            f"before sending."}
+
+
+def classification_entry(l1: str, l2: str, err: Exception | None) -> dict | None:
+    """The trail line for a classification that produced nothing, or None.
+
+    An empty L1/L2 is never neutral, and it used to be completely silent. The
+    Classification selects render blank, both insight comparisons are skipped,
+    the scenario lookup runs on a pair of empty strings — and all of that looks
+    exactly like a review nobody has got to yet. It is not: the classifier ran
+    and returned nothing, or it threw. Those are different problems with
+    different fixes, so they get different sentences.
+    """
+    if err is None and l1 and l2:
+        return None
+    if err is not None:
+        msg = _human_error(err).strip().rstrip(".")
+        head = (f"<strong>Classification failed</strong> — {msg}. L1 and L2 "
+                f"are empty because the classifier errored")
+    else:
+        absent = "L1 or L2" if not (l1 or l2) else ("L2" if l1 else "L1")
+        head = (f"<strong>The classifier returned no {absent}</strong> — the "
+                f"Classification selects are empty for that reason")
+    return {"mark": "warn", "text": head +
+            ", not because this review has no category. Everything keyed on "
+            "L1/L2 was skipped with it: the support-tag comparison, the "
+            "review-variant comparison and the scenario lookup. Set the "
+            "classification by hand, or re-run this review."}
+
+
 async def process_review(review_id: str, force_candidates: bool = False):
     """
     force_candidates: an associate re-ran a review whose booking they had already
@@ -1421,6 +1556,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
         zd_meta       = {"ticket_ids": [], "timeline_raw": []}
         bid_for_zd    = (booking or {}).get("id") or review.reference_number
         _zd_pub_date  = review.received_at.strftime("%Y-%m-%d") if review.received_at else ""
+        _zd_err       = None
         if bid_for_zd:
             try:
                 timeline, extracted_bk, zd_meta = await zendesk.get_timeline(
@@ -1432,9 +1568,15 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 log.info(f"[pipeline] timeline: {len(timeline)} events "
                          f"across tickets {zd_meta.get('ticket_ids')}")
             except Exception as e:
+                _zd_err = e
                 log.warning(f"Zendesk failed — continuing with empty timeline: {e}")
                 timeline, extracted_bk = [], {}
                 zd_meta = {"ticket_ids": [], "timeline_raw": []}
+
+        _tl_entry = timeline_entry(bid_for_zd, timeline,
+                                   zd_meta.get("ticket_ids") or [], _zd_err)
+        if _tl_entry:
+            confidence_trail.append(_tl_entry)
 
         # ── 6a. Slack pings mentioning this BID ───────────────────────────────
         # RCA context, not matching. Ops/escalation/SP channels often carry
@@ -1546,7 +1688,8 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # claude._call still reaches the model on that path and the RCA really
         # is generated - so warning would tell an associate the analysis in
         # front of them does not exist.
-        if not MOCK_MODE and not is_live("anthropic"):
+        _ai_down = not MOCK_MODE and not is_live("anthropic")
+        if _ai_down:
             log.error(f"[pipeline] {review_id}: the AI provider is NOT live - "
                       f"classification, RCA and the reply will be empty")
             confidence_trail.append({"mark": "warn",
@@ -1558,14 +1701,23 @@ async def process_review(review_id: str, force_candidates: bool = False):
 
         # ── 10. Stated Issue ──────────────────────────────────────────────────
         stated_issue = ""
+        _si_err = None
         try:
             stated_issue = await claude.stated_issue(review_text, review_id)
         except Exception as e:
+            _si_err = e
             log.exception(f"Stated issue failed: {e}")
+
+        # Suppressed when the provider is down — the warning above covers every
+        # model-written field at once, and repeating it per field is noise.
+        _si_entry = None if _ai_down else stated_issue_entry(stated_issue, _si_err)
+        if _si_entry:
+            confidence_trail.append(_si_entry)
 
         _progress(review_id, 4, "classifying issue")
         # ── 11. Classification ────────────────────────────────────────────────
         l1, l2, l1_reasoning, sub_theme = "", "", "", None
+        _classify_err = None
         try:
             from server.services.classifier import classify as classify_v2
             from server.services.claude import _call as claude_call
@@ -1577,7 +1729,14 @@ async def process_review(review_id: str, force_candidates: bool = False):
             for w in result.warnings:
                 log.warning(f"[classify {review_id}] {w}")
         except Exception as e:
+            _classify_err = e
             log.exception(f"Classification failed: {e}")
+
+        # Suppressed when the provider is down: the warning above has already
+        # said so, and said it better.
+        _cls_entry = None if _ai_down else classification_entry(l1, l2, _classify_err)
+        if _cls_entry:
+            confidence_trail.append(_cls_entry)
 
         # ── 11b. Warehouse L1/L2 comparison (log-only; Claude stays authoritative)
         try:
@@ -1663,12 +1822,17 @@ async def process_review(review_id: str, force_candidates: bool = False):
             # This is a sheet lookup, not a model call - the reply is still
             # written once, inside the RCA, against this case's evidence.
             # Output rule 18 is what stops the examples becoming content.
+            _tone_err = None
             try:
                 canned_list = await get_canned_responses(
                     l1, l2, sub_theme, review_text or "")
             except Exception as e:
                 canned_list = []
+                _tone_err = e
                 log.warning(f"[pipeline] canned tone lookup failed: {e}")
+            _tone_entry = tone_entry(canned_list or [], l1, l2, _tone_err)
+            if _tone_entry:
+                confidence_trail.append(_tone_entry)
             rca_v3 = await claude.generate_rca_v3(
                 review_text=review_text,
                 booking=booking,

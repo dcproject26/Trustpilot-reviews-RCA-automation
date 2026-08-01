@@ -218,6 +218,20 @@ def _draft_dict(d: RcaDraft) -> dict:
         _bk.get("guestName"),
         _bk.get("zendesk_requester_name"),
     )
+    # When there is no name, say WHICH source failed. "[Guest name in Zendesk
+    # ticket]" was a sentence dressed as a value: it looked like data, and it
+    # told the reader nothing about whether we had looked, found a hash, or
+    # found no ticket at all.
+    if guest_name:
+        guest_name_note = ""
+    elif any(_looks_like_hash((c or "").strip()) for c in
+             (_tf.get("guest_full_name"), _bk.get("guestName"))):
+        guest_name_note = ("the warehouse stores this as a hash — check the "
+                           "Zendesk ticket")
+    elif d.zendesk_ticket_ids:
+        guest_name_note = "no requester name on the linked Zendesk ticket"
+    else:
+        guest_name_note = "no Zendesk ticket was matched to this booking"
     booking_status = _first_name(
         _tf.get("booking_status"),
         _bk.get("status"),
@@ -227,6 +241,7 @@ def _draft_dict(d: RcaDraft) -> dict:
     return {
         "booking":            d.booking,
         "guest_name":         guest_name,
+        "guest_name_note":    guest_name_note,
         "booking_status":     booking_status,
         "match_tier":         d.match_tier,
         "match_confidence":   d.match_confidence,

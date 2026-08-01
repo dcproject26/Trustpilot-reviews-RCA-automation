@@ -230,28 +230,106 @@ def test_a_refused_connection_says_refused_not_nothing():
     assert "cannot reach it" in err, err
 
 
-def test_a_host_that_answers_with_html_is_not_read_as_a_build():
-    sys.path.insert(0, "tools")
-    import which_build
-    import json as _json
+def _fake_host(routes):
+    """urlopen replacement. routes maps a path suffix to (status, ctype, body)."""
     import urllib.request
 
-    class _Fake:
-        def read(self): return b"<!doctype html><html></html>"
+    class _Resp:
+        def __init__(self, status, ctype, body):
+            self.status = status
+            self.headers = {"Content-Type": ctype}
+            self._b = body.encode()
+        def read(self): return self._b
         def __enter__(self): return self
         def __exit__(self, *a): return False
 
+    def _open(url, *a, **k):
+        for suffix, spec in routes.items():
+            if str(url).endswith(suffix):
+                return _Resp(*spec)
+        raise AssertionError(f"unrouted {url}")
+
     real = urllib.request.urlopen
-    urllib.request.urlopen = lambda *a, **k: _Fake()
+    urllib.request.urlopen = _open
+    return real
+
+
+def _restore(real):
+    import urllib.request
+    urllib.request.urlopen = real
+
+
+def _ask(routes):
+    sys.path.insert(0, "tools")
+    import which_build
+    real = _fake_host(routes)
     try:
-        v, err = which_build.ask("http://example.invalid")
+        return which_build.ask("http://example.invalid")
     finally:
-        urllib.request.urlopen = real
-    assert v is None and "not with JSON" in err, (v, err)
+        _restore(real)
+
+
+def test_a_host_that_answers_with_html_is_not_read_as_a_build():
+    """A platform page while a deploy is mid-publish. Neither endpoint is ours."""
+    v, err = _ask({"/api/version": (200, "text/html", "<!doctype html>Deploying"),
+                   "/healthz":     (404, "text/html", "<html>404</html>")})
+    assert v is None, v
+    assert "not the app" in err, err
+
+
+def test_an_older_build_of_our_own_app_is_not_called_a_different_service():
+    """The distinction that matters when a deploy has not landed. /healthz has
+    been in this app far longer than /api/version, so answering there and not
+    here means our app, an old one - a publish that never happened, not a wrong
+    host. "answered, but not with JSON" said neither, and that one sentence was
+    what made 17 hours of a stuck deploy look like a broken endpoint."""
+    v, err = _ask({"/api/version": (404, "text/plain", "Not Found"),
+                   "/healthz":     (200, "application/json", '{"status":"ok"}')})
+    assert v is None
+    assert "OLDER build" in err, err
+    assert "Nothing new has been published" in err, err
+
+
+def test_a_host_running_nothing_of_ours_is_named_as_such():
+    v, err = _ask({"/api/version": (404, "text/plain", "nope"),
+                   "/healthz":     (404, "text/plain", "nope")})
+    assert v is None
+    assert "not running the app at all" in err, err
+
+
+def test_a_current_build_answers_with_its_commit():
+    v, err = _ask({"/api/version": (200, "application/json", '{"commit":"cfd4869"}')})
+    assert err is None, err
+    assert v["commit"] == "cfd4869"
+
+
+def test_json_that_is_not_json_is_not_read_as_a_build():
+    v, err = _ask({"/api/version": (200, "application/json", "{oh dear")})
+    assert v is None
+    assert "claimed JSON" in err, err
 
 
 def test_it_reports_the_working_trees_own_head():
     sys.path.insert(0, "tools")
     import which_build
     head = which_build.local_head()
-    assert head and head != "unknown", "cannot tell which commit this tree is on"
+    assert head, "the head is the empty string — blank where a commit should be"
+    # The mutation harness runs the suite in a copy of the tree with no .git,
+    # which is a legitimate "unknown" rather than a broken lookup.
+    if head != "unknown":
+        assert len(head) >= 7, head
+
+
+def test_a_tree_with_no_git_says_unknown_rather_than_nothing():
+    """`git rev-parse` outside a repository exits 128 with empty stdout, which
+    went straight to the caller and printed a blank where a commit belongs — a
+    failed call wearing the same face as a short answer."""
+    sys.path.insert(0, "tools")
+    import which_build
+    with tempfile.TemporaryDirectory() as d:
+        cwd = os.getcwd()
+        try:
+            os.chdir(d)
+            assert which_build.local_head() == "unknown"
+        finally:
+            os.chdir(cwd)

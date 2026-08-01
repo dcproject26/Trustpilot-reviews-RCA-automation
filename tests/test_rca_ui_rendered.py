@@ -1239,3 +1239,138 @@ def test_the_sp_section_renders_from_the_notes_key(page):
     assert reason, "the fixture has no reason, so this proves nothing"
     assert reason[:20] in got["text"], \
         "raised: N/A with no reason is indistinguishable from a skipped section"
+
+
+# ── an empty section says which kind of empty it is ─────────────────────────
+#
+# One card carried three empty sections at once, each asserting a fact about
+# the review that nothing had established: "Nothing was extracted" above a full
+# two-issue RCA, "No Zendesk events were found" for a lookup whose outcome was
+# unknown, and "? / ?" where a classification should have been.
+
+def _events(page, events, ticket_ids=None):
+    """Render the events timeline over a given event list and read it back."""
+    return page.evaluate("""([events, tids]) => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keepE = r.events, keepT = r.zendeskTicketIds;
+      r.events = events; r.zendeskTicketIds = tids || [];
+      renderRcaCol();
+      const s = document.querySelector('#rca-events-timeline-section');
+      const out = {text: s.innerText,
+                   rows: s.querySelectorAll('.tl-event').length,
+                   toggle: !!s.querySelector('[data-tl-toggle]')};
+      r.events = keepE; r.zendeskTicketIds = keepT; renderRcaCol();
+      return out; }""", [events, ticket_ids])
+
+
+INTERNAL = [{"time": "22 Jul 15:41", "actor": "system", "label": "Auto-tagged",
+             "is_internal": True, "internal_reason": "automation"},
+            {"time": "22 Jul 15:42", "actor": "system", "label": "SLA clock started",
+             "is_internal": True, "internal_reason": "automation"}]
+
+
+def test_events_hidden_by_the_filter_are_not_reported_as_absent(page):
+    """Every event on the booking is Headout machinery, so the internal filter
+    empties the list. The panel said "No Zendesk events were found for this
+    booking" — false — and dropped the toggle that reveals them, because the
+    toggle is appended to the events string this branch never renders."""
+    got = _events(page, INTERNAL)
+    assert "No Zendesk events were found" not in got["text"], \
+        "two hidden events were reported as no events"
+    assert "2" in got["text"] and "internal" in got["text"].lower()
+    assert got["toggle"], "no way to reveal the events it just admitted to having"
+
+
+def test_the_hidden_events_can_actually_be_revealed(page):
+    """A toggle that renders and does nothing is the same bug one layer down."""
+    page.evaluate("""(events) => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      r._keepE = r.events; r.events = events; renderRcaCol(); }""", INTERNAL)
+    page.click("#rca-events-timeline-section [data-tl-toggle]")
+    page.wait_for_timeout(250)
+    shown = page.evaluate(
+        "() => document.querySelectorAll('#rca-events-timeline-section .tl-event').length")
+    page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      r.events = r._keepE; state.tlShowInternal = false; renderRcaCol(); }""")
+    assert shown == 2, f"the toggle revealed {shown} of 2 internal events"
+
+
+def test_tickets_that_matched_but_carried_no_events_are_named(page):
+    """"No events were found" sends the reader nowhere. Two matched tickets is
+    something they can open."""
+    got = _events(page, [], ["4491", "4502"])
+    assert "2 tickets matched" in got["text"], got["text"]
+
+
+def test_a_genuinely_empty_timeline_points_at_the_trail(page):
+    """No tickets, no events. The panel cannot know whether Zendesk was
+    searched, so it must not claim it was."""
+    got = _events(page, [], [])
+    assert "No Zendesk events were found" in got["text"]
+    assert "confidence trail" in got["text"], \
+        "an empty timeline still asserts the lookup ran"
+
+
+def test_an_empty_stated_issue_beside_a_full_rca_does_not_blame_the_review(page):
+    """"Nothing was extracted" is a claim about the review. With issues on the
+    same screen, drawn from the same text, it is provably false."""
+    got = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keep = r.statedIssue; r.statedIssue = ''; renderRcaCol();
+      const e = document.querySelector('.stated-issue .rca-empty');
+      const out = {text: e ? e.innerText : null,
+                   issues: ((r.rca.v3.what_went_wrong||{}).guest_issues||[]).length};
+      r.statedIssue = keep; renderRcaCol(); return out; }""")
+    assert got["issues"] >= 1, "the fixture has no issues, so this proves nothing"
+    assert got["text"], "the empty stated issue rendered no explanation at all"
+    assert "Nothing was extracted" not in got["text"], got["text"]
+    assert "the step that failed" in got["text"]
+    assert str(got["issues"]) in got["text"], \
+        "it does not say how many issues contradict it"
+
+
+def test_an_empty_stated_issue_with_an_empty_rca_still_points_somewhere(page):
+    """The other branch: nothing on screen contradicts it, so the honest line
+    is that the panel does not know — not a claim about the review."""
+    got = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const kS = r.statedIssue, kW = r.rca.v3.what_went_wrong;
+      r.statedIssue = ''; r.rca.v3.what_went_wrong = {guest_issues: []};
+      renderRcaCol();
+      const e = document.querySelector('.stated-issue .rca-empty');
+      const out = e ? e.innerText : null;
+      r.statedIssue = kS; r.rca.v3.what_went_wrong = kW; renderRcaCol();
+      return out; }""")
+    assert got and "confidence trail" in got, got
+
+
+MIXED = [{"time": "22 Jul 15:40", "actor": "guest", "label": "Guest wrote in",
+          "thread": "email", "summary": "Where are my tickets?"},
+         {"time": "22 Jul 15:41", "actor": "system", "label": "Auto-tagged",
+          "is_internal": True, "internal_reason": "automation"}]
+
+
+def test_the_machinery_toggle_works_on_a_normal_timeline(page):
+    """The binding was queried off review-col and called renderReviewCol. §13
+    moved the timeline to the RCA column and left both behind, so the control
+    rendered and did nothing — for every timeline, not just the all-internal
+    one. A dead control looks exactly like a working one until it is clicked."""
+    page.evaluate("""(events) => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      r._keepE = r.events; r.events = events;
+      state.tlShowInternal = false; renderRcaCol(); }""", MIXED)
+    before = page.evaluate(
+        "() => document.querySelectorAll('#rca-events-timeline-section .tl-event').length")
+    page.click("#rca-events-timeline-section [data-tl-toggle]")
+    page.wait_for_timeout(250)
+    after = page.evaluate(
+        "() => document.querySelectorAll('#rca-events-timeline-section .tl-event').length")
+    note = page.evaluate(
+        "() => document.querySelector('#rca-events-timeline-section [data-tl-toggle]').innerText")
+    page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      r.events = r._keepE; state.tlShowInternal = false; renderRcaCol(); }""")
+    assert before == 1, f"the filter showed {before} of 1 guest event"
+    assert after == 2, f"clicking show revealed {after} of 2 events"
+    assert "hide" in note.lower(), f"the toggle does not offer the way back: {note!r}"

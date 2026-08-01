@@ -293,11 +293,20 @@ def test_an_unavailable_model_is_disclosed_like_an_unavailable_warehouse():
     about. BigQuery being down was already disclosed; this half was not."""
     assert 'not MOCK_MODE and not is_live("anthropic")' in PIPE, \
         "the pipeline never checks whether the model is available"
-    i = PIPE.find('if not MOCK_MODE and not is_live("anthropic")')
+    i = PIPE.find('_ai_down = not MOCK_MODE and not is_live("anthropic")')
+    assert i != -1, "the availability check no longer feeds a named flag"
     block = PIPE[i:i + 900]
     assert "confidence_trail.append" in block, \
         "it is logged but never shown to the person reading the card"
     assert "not because there was nothing to say" in block
+    # The flag gates the per-field disclosures too: with the provider down,
+    # every model-written field is empty and one sentence covers all of them.
+    # Repeating it for the stated issue and again for the classification is
+    # three warnings for one fact.
+    for gated in ("_ai_down else stated_issue_entry",
+                  "_ai_down else classification_entry"):
+        assert gated in PIPE, \
+            f"{gated} — the per-field warning is not suppressed when the provider is down"
     # ...and it must NOT fire in MOCK_MODE, where claude._call still reaches
     # the model and the RCA really is generated. Warning there would tell an
     # associate the analysis in front of them does not exist.
