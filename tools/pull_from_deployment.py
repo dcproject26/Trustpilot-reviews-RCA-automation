@@ -80,13 +80,71 @@ def _absent(payload_keys, model, skip=()):
     return sorted(cols - payload_keys - set(skip))
 
 
+def _looks_like_a_placeholder(u: str) -> bool:
+    """A url with no scheme, or one that is plainly a stand-in.
+
+    Handing someone a command with PASTE_THE_URL in it and expecting them to
+    substitute it is a design fault, not a user error — it failed four times
+    before this check existed. Catch it and say where the real one is.
+    """
+    u = (u or "").strip()
+    return (not u.startswith(("http://", "https://"))
+            or any(t in u.upper() for t in
+                   ("PASTE", "YOUR-", "YOUR_", "<", ">", "EXAMPLE.COM")))
+
+
+def _discover():
+    """Deployment urls this shell can guess, most likely first.
+
+    Replit does not put the DEPLOYMENT domain in the workspace environment —
+    only the dev one — so these are patterns, probed rather than trusted. Each
+    is asked for /api/version and only kept if it answers as this app.
+    """
+    import os
+    slug = os.getenv("REPL_SLUG", "")
+    owner = os.getenv("REPL_OWNER", "")
+    out = []
+    for host in (f"{slug}.replit.app",
+                 f"{slug}-{owner}.replit.app",
+                 f"{slug}.{owner}.repl.co"):
+        if slug and "." in host and not host.startswith("."):
+            out.append("https://" + host)
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--url", required=True, help="the deployment's base url")
+    ap.add_argument("--url", help="the deployment's base url; omitted, this "
+                                  "shell tries to find it")
     ap.add_argument("--apply", action="store_true",
                     help="actually write; without it nothing is inserted")
     a = ap.parse_args()
-    base = a.url.rstrip("/")
+
+    if a.url and not _looks_like_a_placeholder(a.url):
+        base = a.url.rstrip("/")
+    else:
+        if a.url:
+            print(f"{a.url!r} is not a url — it is the placeholder from the "
+                  f"instructions.\n")
+        print("Looking for the deployment...")
+        base = None
+        for cand in _discover():
+            probe, err = _get(cand + "/api/version", timeout=10)
+            print(f"  {cand}  {'answered' if isinstance(probe, dict) else err}")
+            if isinstance(probe, dict) and "fingerprint" in probe:
+                base = cand
+                break
+        if not base:
+            print("\nCould not find it. The url is the one you open the "
+                  "dashboard with:")
+            print("  Replit -> Deployments (or Publishing) -> your app -> the "
+                  "link at the top")
+            print("  or whatever address is in your browser when the dashboard "
+                  "is open.")
+            print("\nThen: python3 tools/pull_from_deployment.py --url "
+                  "https://that-address")
+            return 2
+        print(f"\nfound {base}\n")
 
     ver, err = _get(base + "/api/version")
     if err or not isinstance(ver, dict):

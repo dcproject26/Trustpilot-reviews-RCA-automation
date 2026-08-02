@@ -100,3 +100,54 @@ def test_the_stamp_survives_a_copy():
            for k in P._copyable(set(row), db.RcaDraft)}
     assert out["rca_prompt_version"] == "rca_v4+375e160b"
     assert isinstance(out["generated_at"], datetime)
+
+
+# ── the url ─────────────────────────────────────────────────────────────────
+#
+# Handing someone a command with PASTE_THE_URL in it and expecting them to
+# substitute it is a design fault, not a user error. It failed four separate
+# times in one session — `<review_id>` (where `<` is shell redirection),
+# `<the neondb url>`, `YOUR-DEPLOYMENT-URL`, `PASTE_THE_URL_YOU_CURLED` — and
+# each time the tool ran and produced a confusing error instead of saying what
+# had happened. The check belongs in the tool.
+
+@pytest.mark.parametrize("bad", [
+    "PASTE_THE_URL_YOU_CURLED",
+    "YOUR-DEPLOYMENT-URL",
+    "https://YOUR-DEPLOYMENT-URL",
+    "<the neondb url from Publishing>",
+    "your-app.replit.app",          # no scheme — urlopen says "unknown url type"
+    "",
+])
+def test_a_placeholder_is_recognised_as_one(bad):
+    assert P._looks_like_a_placeholder(bad), bad
+
+
+@pytest.mark.parametrize("good", [
+    "https://my-app.replit.app",
+    "http://localhost:5000",
+    "https://2337bd01-0d80.pike.replit.dev",
+])
+def test_a_real_url_is_not_rejected(good):
+    """Over-eager rejection is the inverse bug: it would refuse the one thing
+    the tool exists to accept."""
+    assert not P._looks_like_a_placeholder(good), good
+
+
+def test_discovery_builds_candidates_from_the_replit_environment(monkeypatch):
+    """Replit does not put the DEPLOYMENT domain in the workspace environment,
+    only the dev one, so these are patterns to probe rather than facts."""
+    monkeypatch.setenv("REPL_SLUG", "workspace")
+    monkeypatch.setenv("REPL_OWNER", "ops-managers")
+    got = P._discover()
+    assert got, "nothing to probe"
+    assert all(u.startswith("https://") for u in got), got
+    assert any("workspace" in u for u in got)
+
+
+def test_discovery_produces_nothing_rather_than_a_broken_url(monkeypatch):
+    """With no slug there is nothing to build from. A malformed candidate
+    would be probed, fail, and read as "the deployment is down"."""
+    monkeypatch.delenv("REPL_SLUG", raising=False)
+    monkeypatch.delenv("REPL_OWNER", raising=False)
+    assert P._discover() == []
