@@ -315,3 +315,55 @@ def test_a_draft_predating_v4_still_reads_its_column(app_env):
     db, api = app_env
     rid = _seed(db, suggested_response="written by an older pipeline", rca_v3={})
     assert _load(db, api, rid)[0]["suggested_response"] == "written by an older pipeline"
+
+
+# ── the cheap re-run path is the one people press ───────────────────────────
+#
+# "↻ RCA only" is a SECOND implementation of the reply decision, in api.py,
+# and it had drifted from the pipeline's before anyone looked: no untraceable
+# flag, and a truthiness gate that left the previous reply in place whenever
+# the model returned null. Rule 20's deliberate blank was overwritten by a
+# stale reply on every re-run — on the endpoint people actually use.
+
+API_TEXT = open("server/api.py", encoding="utf-8").read()
+
+
+def _regen_body():
+    i = API_TEXT.find("async def regenerate_rca(")
+    j = API_TEXT.find("@router", i + 10)
+    return API_TEXT[i:j if j > i else len(API_TEXT)]
+
+
+def test_the_rca_only_path_reads_the_reply_by_presence():
+    """`if rca_v3.get("suggested_response")` is the truthiness bug: a null
+    reply leaves the old one in the column."""
+    b = _regen_body()
+    assert '"suggested_response" in rca_v3' in b, \
+        "the cheap re-run path still gates the reply on truthiness"
+    assert 'if rca_v3.get("suggested_response"):' not in b
+
+
+def test_the_rca_only_path_knows_about_untraceable():
+    b = _regen_body()
+    assert "untraceable=not (d.booking or {})" in b, \
+        "the cheap re-run path drops the approved unable-to-trace macro"
+
+
+def test_the_rca_only_path_sends_the_macro_verbatim():
+    b = _regen_body()
+    assert 'c.get("why")' in b and 'rca_v3["suggested_response"] = _reply' in b, \
+        "an untraceable re-run rewrites the approved macro instead of sending it"
+
+
+def test_the_rca_only_path_fills_the_first_name_token():
+    b = _regen_body()
+    assert '"<first name>"' in b
+
+
+def test_both_paths_agree_on_the_verbatim_rule():
+    """One decision, two implementations, is how they drifted in the first
+    place. If they must both exist, they must at least both be checked."""
+    pipe = open("server/pipeline.py", encoding="utf-8").read()
+    for marker in ('c.get("why")', '"<first name>"'):
+        assert marker in pipe and marker in _regen_body(), \
+            f"{marker} is in one path and not the other"

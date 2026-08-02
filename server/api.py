@@ -1250,8 +1250,13 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
     # out of the approved register while the pipeline's stays in it.
     try:
         from server.services.canned import get_canned_responses
+        # `untraceable` too, or the cheap re-run path silently drops the
+        # approved unable-to-trace macro that the full pipeline uses. Two
+        # implementations of one decision is how they drift; this endpoint had
+        # already drifted before anyone looked.
         canned_list = await get_canned_responses(
-            d.l1, d.l2, d.sub_theme, r.body_english or r.body_original or "")
+            d.l1, d.l2, d.sub_theme, r.body_english or r.body_original or "",
+            untraceable=not (d.booking or {}))
     except Exception as e:
         canned_list = []
         log.warning(f"[regenerate-rca] canned tone lookup failed: {e}")
@@ -1316,8 +1321,27 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
     # holds any human edit, so refreshing these does not overwrite one.
     if rca_v3.get("resolution"):
         d.resolution         = rca_v3["resolution"]
-    if rca_v3.get("suggested_response"):
-        d.suggested_response = rca_v3["suggested_response"]
+
+    # An untraceable review sends the approved macro verbatim, exactly as the
+    # full pipeline does. Same reason: there is nothing to personalise, and a
+    # rewritten macro is an unapproved paraphrase of approved copy.
+    _verbatim = next((c for c in (canned_list or []) if c.get("why")), None)
+    if _verbatim and _verbatim.get("response"):
+        _reply = _verbatim["response"]
+        _who = (r.author or "").strip().split(" ")[0]
+        if _who:
+            _reply = _reply.replace("<first name>", _who)
+        rca_v3["suggested_response"] = _reply
+
+    # PRESENCE, not truthiness. `if rca_v3.get("suggested_response")` left the
+    # PREVIOUS reply in the column whenever the model returned null — which is
+    # what prompt rule 20 asks it to do when no approved macro covers the
+    # issue. The deliberate blank was overwritten by a stale reply on every
+    # re-run, and the card showed an unapproved reply one Send from a public
+    # review page. Same bug the pipeline had, in the endpoint people actually
+    # press.
+    if "suggested_response" in rca_v3:
+        d.suggested_response = rca_v3["suggested_response"] or ""
     d.generated_at           = datetime.utcnow()
     for _col in ("rca_v3", "overlay_scenarios", "issue_specific_answers",
                  "checklist_answers", "area_of_improving",

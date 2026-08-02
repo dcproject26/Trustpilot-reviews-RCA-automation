@@ -78,6 +78,12 @@ def _seed(db, rid="tp_v4_1"):
                         status="draft"))
         s.add(db.RcaDraft(id=f"draft_{rid}", review_id=rid,
                           l1="Operations Issue", l2="Ticket Issues",
+                          # A MATCHED draft. Without a booking this is an
+                          # untraceable review, which now sends the approved
+                          # unable-to-trace macro verbatim instead of the
+                          # model's reply — correct behaviour, wrong fixture
+                          # for the tests below, which are about a normal run.
+                          booking={"id": "32908218"},
                           # what a previous run left behind
                           flags=[{"team": "CE", "flag": "stale"}],
                           resolution="Nothing offered yet",
@@ -207,7 +213,7 @@ def test_regenerating_passes_the_approved_reply_voice(app_env, monkeypatch):
     db, api = app_env
     canned = [{"situation": "Ticket delivered late", "response": "So sorry."}]
 
-    async def _canned(l1, l2, sub_theme, text):
+    async def _canned(l1, l2, sub_theme, text, untraceable=False):
         return canned
     import server.services.canned as canned_mod
     monkeypatch.setattr(canned_mod, "get_canned_responses", _canned)
@@ -567,3 +573,47 @@ def test_only_the_state_selected_macro_is_used_verbatim():
     b = _verbatim_block()
     assert 'c.get("why")' in b, \
         "the verbatim path is not gated on the state-selected macro"
+
+
+def test_an_untraceable_draft_sends_the_macro_on_the_rca_only_path(app_env, monkeypatch):
+    """The counterpart to the fixture change above: with NO booking the reply
+    is the approved macro, word for word, not whatever the model wrote. This
+    is the path "↻ RCA only" takes, and it had none of it."""
+    db, api = app_env
+    macro = ("Hey <first name>, \n\nPlease share your booking ID at "
+             "https://bit.ly/hedout so we can trace it.\n\nBest,\nName, Headout")
+
+    async def _canned(l1, l2, sub_theme, text, untraceable=False):
+        assert untraceable, "the untraceable state never reached the lookup"
+        return [{"situation": "Customer Unable to trace booking",
+                 "response": macro, "tab": "ORM main ( TP ) Macro",
+                 "score": None, "why": "no booking was matched to this review"}]
+    import server.services.canned as canned_mod
+    monkeypatch.setattr(canned_mod, "get_canned_responses", _canned)
+
+    rid = _seed(db, rid="tp_untraceable")
+    s = db.SessionLocal()
+    try:
+        s.query(db.RcaDraft).filter(db.RcaDraft.review_id == rid).update(
+            {"booking": {}})
+        s.commit()
+    finally:
+        s.close()
+
+    _regenerate(db, api, rid)
+    reply = _reload(db, rid).suggested_response
+    assert "Please share your booking ID" in reply, reply
+    assert "<first name>" not in reply, "the name token was left unfilled"
+    assert reply.startswith("Hey David"), reply
+
+
+def test_a_null_reply_clears_the_column_on_the_rca_only_path(app_env):
+    """Rule 20 returns null when no approved macro covers the issue. The old
+    truthiness gate left the PREVIOUS reply in place, so the deliberate blank
+    was overwritten on every re-run — an unapproved reply, one Send from a
+    public review page."""
+    db, api = app_env
+    rid = _seed(db)
+    _regenerate(db, api, rid, rca=dict(DIRTY_RCA, suggested_response=None))
+    assert _reload(db, rid).suggested_response == "", \
+        "the stale reply survived a deliberate blank"
