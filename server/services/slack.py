@@ -293,6 +293,40 @@ def _unavailable(reason: str, text: str) -> list[dict]:
     }]
 
 
+# "Slack search (WIP): missing_scope." was on a real card. Two faults in six
+# words: "(WIP)" says the FEATURE is unfinished when the code is actually a
+# permission the workspace has not granted, and the bare API code says nothing
+# about what would fix it. An error should name what would work.
+_SEARCH_ERRORS = {
+    "missing_scope":
+        "the Slack user token is missing the search:read scope — add it under "
+        "OAuth & Permissions in the Slack app, then reinstall the app to the "
+        "workspace so the new scope takes effect",
+    "not_allowed_token_type":
+        "a BOT token was supplied where a user token is needed — Slack search "
+        "is only available to user tokens (xoxp-), never bot tokens (xoxb-)",
+    "invalid_auth":
+        "the Slack user token was rejected — it has been revoked or rotated, "
+        "and needs reissuing",
+    "token_revoked":
+        "the Slack user token has been revoked and needs reissuing",
+    "account_inactive":
+        "the Slack account behind the user token is deactivated",
+    "ratelimited":
+        "Slack rate-limited the search — this one is temporary, try again",
+}
+
+
+def _search_error_sentence(code: str) -> str:
+    """What went wrong AND what would fix it, or the raw code when we have no
+    better answer — said as an unrecognised code rather than dressed up."""
+    known = _SEARCH_ERRORS.get(code)
+    if known:
+        return f"Slack was not searched — {known}."
+    return (f"Slack was not searched — the API returned {code!r}, which this "
+            f"build has no guidance for. The Slack API docs list it.")
+
+
 def is_search_unavailable(mentions: list[dict] | None) -> bool:
     """True when the list is a sentinel, i.e. Slack was never actually searched."""
     return bool(mentions) and bool((mentions[0] or {}).get(SEARCH_UNAVAILABLE))
@@ -347,15 +381,14 @@ async def search_mentions(bid: str, limit: int = 20) -> list[dict]:
         # gets flagged as unreadable right after it gets flagged as unsearched.
         return _unavailable(
             "no_user_token",
-            "Slack search (WIP): user token not configured yet.")
+            "Slack was not searched — SLACK_USER_TOKEN is not set. Search needs "
+            "a USER token with search:read; a bot token cannot do it.")
     try:
         res = _user.search_messages(query=str(bid), count=limit)
     except Exception as e:
         code = _api_error_code(e)
         log.warning(f"[slack] search_mentions {bid} failed: {code}: {e}")
-        return _unavailable(
-            code,
-            f"Slack search (WIP): {code}.")
+        return _unavailable(code, _search_error_sentence(code))
     out = []
     for m in (res.get("messages") or {}).get("matches") or []:
         ch = m.get("channel", {}) or {}

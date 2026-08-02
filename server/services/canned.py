@@ -386,8 +386,11 @@ async def _get_rows() -> list[dict]:
                          f"macros instead")
             log.warning(f"[canned] {sheet_why}")
     else:
-        sheet_why = ("no live sheet is configured — running on the checked-in "
-                     "macros")
+        # Just the fact. The caller prefixes "the checked-in macros", so
+        # repeating it here rendered "from the checked-in macros — no live
+        # sheet is configured — running on the checked-in macros" on a real
+        # card. Twice is not clearer than once.
+        sheet_why = "no live sheet is configured"
 
     if live:
         _cache_rows, _last_reason = live, ""

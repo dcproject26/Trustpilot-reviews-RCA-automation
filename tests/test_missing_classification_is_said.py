@@ -783,3 +783,24 @@ def test_the_untraceable_macro_is_not_reported_as_an_unclassified_failure():
     assert e["mark"] == "pass", e
     assert "no booking was matched" in e["text"]
     assert "this review has neither" not in e["text"]
+
+
+def test_the_source_is_not_said_twice():
+    """A real card read "from the checked-in macros — no live sheet is
+    configured — running on the checked-in macros". The caller already names
+    the copy; the reason must not name it again."""
+    import server.services.canned as C
+    e = tone_entry([{"situation": "s", "response": "r"}], "A", "B", None, "",
+                   "the checked-in macros — no live sheet is configured")
+    assert e["text"].count("checked-in macros") == 1, e["text"]
+
+
+def test_the_no_sheet_reason_is_a_fact_not_a_restatement(monkeypatch):
+    import server.services.canned as C
+    monkeypatch.setattr(C, "is_live", lambda s: False)
+    monkeypatch.setattr(C, "_cache_rows", [], raising=False)
+    monkeypatch.setattr(C, "_cache_at", 0, raising=False)
+    asyncio.run(C._get_rows())
+    src = C.last_source()
+    assert "checked-in macros" in src
+    assert src.count("checked-in macros") == 1, src
