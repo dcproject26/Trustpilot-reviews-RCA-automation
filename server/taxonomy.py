@@ -634,19 +634,34 @@ SUPPORT_TAG_MAP = {
 # Mapping any of these to an adjacent tag would invent history, so the answer
 # is not to fill them in. It is to say WHY the comparison cannot be made.
 SUPPORT_TAGS_NOT_APPLICABLE = {
+    # Not "guests never contact us about this" — they plainly do, and an
+    # earlier version of this file said so and was wrong. Contacts about a
+    # refused refund exist in quantity; they are filed under the reason the
+    # guest FIRST wrote in about — the cancellation, the ticket, the refund —
+    # because that is what a contact-reason tag records. This L2 describes how
+    # WE handled it, which is a judgement made afterwards and never a tag.
+    # So the comparison is not impossible, it is being asked of the wrong
+    # category, and the note says which one to look at instead.
     ("Operations Issue", "Customer Support Issues"):
-        "guests contact us ABOUT something; being unhappy with the handling is "
-        "not a contact reason, so no tag records it",
+        "this category is about how we handled the case; contacts are tagged "
+        "by what the guest first wrote in about, so re-check L1/L2 against "
+        "that issue to get this count",
+    # For the rest the statement is narrow and checkable: no tag in the
+    # contact-reason vocabulary corresponds to the category. Not a claim about
+    # what guests do or do not do.
     ("Venue Related Issue", "Venue facility issue"):
-        "the contact-reason vocabulary has no facility tag",
+        "no tag in the contact-reason vocabulary corresponds to this category",
     ("Venue Related Issue", "Venue Overcrowding (Venue)"):
-        "the contact-reason vocabulary has no queue or crowd tag",
+        "no tag in the contact-reason vocabulary corresponds to this category",
     ("External Factor", "Venue Overcrowding (External)"):
-        "the contact-reason vocabulary has no queue or crowd tag",
+        "no tag in the contact-reason vocabulary corresponds to this category",
     ("External Factor", "Customer Late"):
-        "arriving late is not something guests raise a ticket about",
+        "no tag in the contact-reason vocabulary corresponds to this category",
     ("External Factor", "Sold Free / Discounted Admission"):
-        "no contact-reason tag records what the venue charged at the door",
+        "no tag in the contact-reason vocabulary corresponds to this category",
+    # These four are properties of a REVIEW. There is no contact to count,
+    # because the category does not describe anything a guest can write in
+    # about — which is a different statement from "the tag is missing".
     ("External Factor", "Rating Mismatch"):
         "this describes a review, not a reason for contacting support",
     ("External Factor", "Gibberish / Profanity"):

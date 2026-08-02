@@ -3053,20 +3053,27 @@ function renderRcaCol() {
     const open = !!state.ixOpen[i];
     const note = row.note || {};
     if (row.kind === 'orphan') {
+      // The index into the REAL notes list, not into _orphans. The save path
+      // writes to rca_v3.support_interaction_notes[n], so a position in a
+      // filtered view sent every orphan's edit to a different note: orphan 0
+      // and note 0 are only the same row when nothing was filtered out, and
+      // the moment one note matched a frame they diverged. Editing an
+      // unmatched contact then silently rewrote a matched one, and both
+      // rendered as if nothing had happened.
       const why = _zdKey(note.zd_ref) ? 'unmatched ZD reference' : "guest's account, unverified";
       return `
         <div class="convo-frame ${open ? 'open' : ''}">
           <div class="convo-frame-head" data-ix-toggle="${i}">
             <span class="convo-num">${String(i + 1).padStart(2, '0')}</span>
             <span class="convo-time dim">—</span>
-            <span class="interaction-summary-line">${edSpan(`support_interaction_notes.${_orphans.indexOf(note)}.summary`, note.summary)}</span>
+            <span class="interaction-summary-line">${edSpan(`support_interaction_notes.${(rca.supportNotes || []).indexOf(note)}.summary`, note.summary)}</span>
             <span class="convo-unverified" title="no Zendesk frame backs this contact">${esc(why)}</span>
             ${note.zd_ref ? zdLink(note.zd_ref) : ''}
             <span class="convo-chevron">${open ? '▾' : '▸'}</span>
           </div>
           <div class="convo-body">
-            ${note.detail ? `<div class="convo-detail">${edSpan(`support_interaction_notes.${_orphans.indexOf(note)}.detail`, note.detail)}</div>` : ''}
-            ${note.ce_miss ? `<div class="convo-gap">⚠ CE miss: ${edSpan(`support_interaction_notes.${_orphans.indexOf(note)}.ce_miss`, note.ce_miss)}</div>` : ''}
+            ${note.detail ? `<div class="convo-detail">${edSpan(`support_interaction_notes.${(rca.supportNotes || []).indexOf(note)}.detail`, note.detail)}</div>` : ''}
+            ${note.ce_miss ? `<div class="convo-gap">⚠ CE miss: ${edSpan(`support_interaction_notes.${(rca.supportNotes || []).indexOf(note)}.ce_miss`, note.ce_miss)}</div>` : ''}
           </div>
         </div>`;
     }
@@ -3408,6 +3415,13 @@ function renderRcaCol() {
       ['takedown',  'Review takedown',       takedownText],
       ['insights',  'Experience insights',   insText],
     ];
+    // The section list, so the chips above and the derive-from-text below
+    // read the SAME labels this composer writes. They used to be a second
+    // hand-kept list with different wording ("SOP" vs "SOP compliance",
+    // "Insights" vs "Experience insights"), which is fine until something has
+    // to match a heading back to a key — and then it silently matches none.
+    _genSlackText.sections = SECTIONS;
+
     const chosen = state.slackSections[r.id] || {};
     const out = [header, cls];
     for (const [key, label, body] of SECTIONS) {
@@ -3416,6 +3430,25 @@ function renderRcaCol() {
       out.push(div, '*' + label + '*', '', body);
     }
     return out.join(nl);
+  }
+
+  // Which sections a SAVED post contains, read back off the post itself.
+  //
+  // The selection lived in state.slackSections, which is memory: it did not
+  // survive a reload, and nothing on the server ever knew about it. Rather
+  // than add a second store to drift against the text, the text is the store
+  // — a section is off when its heading is absent from a post whose body for
+  // that section is not empty. An empty section is skipped by the composer
+  // too, so it must not be read back as a deselection.
+  function _sectionsFromText(text) {
+    if (!text) return null;
+    const sections = _genSlackText.sections || [];
+    const off = {};
+    for (const [key, label, body] of sections) {
+      if (!body) continue;                 // absent because empty, not chosen
+      if (!text.includes('*' + label + '*')) off[key] = false;
+    }
+    return off;
   }
   // Rendered independently of which WWR shape is in play.
   const isaBlock = `
@@ -3469,19 +3502,26 @@ function renderRcaCol() {
 
 
 
-  // Keys must match SECTIONS in _genSlackText.
-  const _slackSectionKeys = [
-    ['tldr', 'TL;DR'], ['wwr', 'What went wrong'], ['logs', 'Booking logs'],
-    ['flags', 'Flags'], ['sop', 'SOP'], ['support', 'CE interactions'],
-    ['sp', 'SP interaction'], ['aoi', 'Area of improvement'],
-    ['actions', 'Actions'], ['resolution', 'Resolution'],
-    ['takedown', 'Takedown'], ['insights', 'Insights'],
-  ];
+  // The post text, and the selection it implies.
+  //
+  // Order matters: the composer has to run before the chips can be labelled,
+  // because it is the composer that publishes the section list. And a SAVED
+  // post is authoritative over in-memory state — reload the page and the
+  // chips must show what the stored post actually contains, not what this
+  // browser last remembered.
+  const _generated = _genSlackText();
+  const _slackText = rca.slackThreadOverride || _generated;
+  if (rca.slackThreadOverride && !state.slackSections[r.id]) {
+    const derived = _sectionsFromText(rca.slackThreadOverride);
+    if (derived) state.slackSections[r.id] = derived;
+  }
+  // Keys and labels come from the composer, so a heading can never be worded
+  // one way in the post and another on the chip.
+  const _slackSectionKeys = (_genSlackText.sections || []).map(([k, l]) => [k, l]);
   // The summary line always states the CURRENT count, so a collapsed picker
   // never hides the fact that sections are off.
   const _slackOn = _slackSectionKeys.filter(
     ([k]) => (state.slackSections[r.id] || {})[k] !== false).length;
-  const _slackText = rca.slackThreadOverride || _genSlackText();
   const slackPost = `
     <div class="slack-preview section" id="rca-slack-section">
       <div class="slack-head section-label">
@@ -4218,34 +4258,39 @@ function renderRcaCol() {
   // Clearing the manual override is what makes a chip visibly do something:
   // a saved override wins over the generator, so without this the checkbox
   // would appear inert.
-  const clearOverrideAndRender = async () => {
-    if (rca.slackThreadOverride) {
-      rca.slackThreadOverride = '';
-      await saveDraft(r.id, {slack_thread_override: ''});
-    }
+  // Changing the selection RECOMPOSES the post and saves it.
+  //
+  // It used to clear the override and leave the new text living only in the
+  // textarea, and the post button sent no body at all — so the server fell
+  // back to rebuilding the whole RCA from the draft and every deselected
+  // section went to Slack anyway. Deselecting eleven of twelve sections and
+  // watching all twelve arrive is the worst version of this bug: the screen
+  // showed the short post the whole time.
+  //
+  // One store now. What is saved is what is shown is what is sent.
+  const recomposeAndSave = async () => {
+    const text = _genSlackText();
+    rca.slackThreadOverride = text;
+    await saveDraft(r.id, {slack_thread_override: text});
     renderRcaCol();
   };
   const secAll = col.querySelector('[data-slack-sec-all]');
   if (secAll) secAll.addEventListener('click', async () => {
     state.slackSections[r.id] = {};          // {} means every section included
-    await clearOverrideAndRender();
+    await recomposeAndSave();
   });
   const secNone = col.querySelector('[data-slack-sec-none]');
   if (secNone) secNone.addEventListener('click', async () => {
     const off = {};
     _slackSectionKeys.forEach(([k]) => { off[k] = false; });
     state.slackSections[r.id] = off;
-    await clearOverrideAndRender();
+    await recomposeAndSave();
   });
   col.querySelectorAll('[data-slack-section]').forEach(cb => {
     cb.addEventListener('change', async () => {
       state.slackSections[r.id] = state.slackSections[r.id] || {};
       state.slackSections[r.id][cb.dataset.slackSection] = cb.checked;
-      if (rca.slackThreadOverride) {
-        rca.slackThreadOverride = '';
-        await saveDraft(r.id, {slack_thread_override: ''});
-      }
-      renderRcaCol();
+      await recomposeAndSave();
     });
   });
 
@@ -4463,8 +4508,21 @@ function renderRcaCol() {
     delete slackPostBtn.dataset.confirming;
     slackPostBtn.disabled = true; slackPostBtn.textContent = 'posting…';
     try {
+      // Send the post that is ON SCREEN. This used to send no body, so the
+      // server rebuilt the full RCA from the draft and every section the
+      // associate had switched off went to Slack regardless. Reading the
+      // textarea rather than the saved override also covers the case where
+      // the button is clicked before the edit has blurred.
+      const area = col.querySelector('[data-slack-edit]');
+      const text = area ? area.value : '';
+      if (area && text.trim() !== (rca.slackThreadOverride || '').trim()) {
+        rca.slackThreadOverride = text.trim();
+        await saveDraft(r.id, {slack_thread_override: text.trim()});
+      }
       const resp = await fetch(`/api/reviews/${r.id}/post-rca${again ? '?force=true' : ''}`,
-                               {method: 'POST'});
+                               {method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({text: text.trim() || null})});
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(data.detail || 'post failed');
       r.rcaPostedAt = data.posted_at || new Date().toISOString();

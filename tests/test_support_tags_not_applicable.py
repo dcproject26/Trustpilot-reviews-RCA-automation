@@ -23,12 +23,30 @@ from server.taxonomy import (L2_OPTIONS, SUPPORT_TAG_MAP,
 
 
 def test_the_pair_from_the_card_explains_itself():
+    """And says what to DO about it.
+
+    The first version of this sentence claimed guests do not contact us about
+    being refused a refund. They plainly do, in quantity — those contacts are
+    filed under the reason the guest first wrote in about. Stating a falsehood
+    confidently on the card is worse than the bare "no mapping" it replaced,
+    so the note now names the next step instead of theorising about guests.
+    """
     got = _no_mapping_note("Operations Issue", "Customer Support Issues",
                            "support contacts not compared")
     assert "no support-tag mapping" not in got, got
-    assert "not a contact reason" in got
-    assert "reviews figures above are unaffected" in got, \
-        "the reader is left wondering whether the other half is broken too"
+    assert "re-check L1/L2" in got, \
+        "the note explains but does not say what would fix it"
+    assert "not a contact reason" not in got, \
+        "the claim that guests never write in about this is false"
+
+
+def test_no_note_claims_guests_do_not_contact_support():
+    """A blanket claim about guest behaviour is not something this file can
+    know, and it was wrong the one time it was made."""
+    for pair, why in SUPPORT_TAGS_NOT_APPLICABLE.items():
+        low = why.lower()
+        assert "not a contact reason" not in low, (pair, why)
+        assert "not something guests" not in low, (pair, why)
 
 
 def test_a_pair_that_is_genuinely_unmapped_still_says_so():

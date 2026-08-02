@@ -824,6 +824,17 @@ _V4_SECTIONS = {
     "flags":          ("flags",),
     "takedown":       ("takedown",),
     "dss":            ("dss",),
+    # Area of improvement was read through _v4 - rca_v3 first, column as
+    # fallback - and written to the COLUMN ONLY. So every edit landed in a
+    # store the reader never consults: add a point, delete a point, rewrite a
+    # point, all returned 200 and put a green tick on the field, and the next
+    # load showed the pipeline's original list. `show_draft --bid` keying on
+    # bookingId while the warehouse writes id, again.
+    #
+    # There is a test that walks _draft_dict's _v4 reads and fails if any of
+    # them is missing here, because spotting this one by eye took a browser
+    # clicking every control on the card.
+    "area_of_improving": ("area_of_improving",),
 }
 
 
@@ -1633,8 +1644,21 @@ async def translate_reply(review_id: str, db: Session = Depends(get_session)):
     return {"ok": True, "language": lang, "text": out}
 
 
+class SlackPostBody(BaseModel):
+    """The exact text to post, as the dashboard is showing it.
+
+    Optional, because a caller with no opinion should still get the composed
+    RCA. But when it IS sent it wins over everything, and that is the whole
+    point: the dashboard lets an associate switch sections off, and the server
+    has no way to know which — it was rebuilding the full RCA from the draft
+    and posting that, so a post trimmed to one section arrived with all twelve.
+    """
+    text: str | None = None
+
+
 @router.post("/api/reviews/{review_id}/post-rca")
 async def post_rca_to_thread(review_id: str, force: bool = False,
+                             body: SlackPostBody | None = None,
                              db: Session = Depends(get_session)):
     """
     Post the RCA into the review's own Slack thread, without marking the
@@ -1660,7 +1684,16 @@ async def post_rca_to_thread(review_id: str, force: bool = False,
         return {"ok": True, "already_posted": True, "ts": None,
                 "posted_at": d.rca_posted_at.isoformat()}
 
-    text = (d.slack_thread_override or "").strip() or format_rca_slack(r, d)
+    # What the caller is looking at beats what the server would compose. The
+    # order is: the text sent with this request, then the saved override, then
+    # a fresh render — each one a step further from what is on the associate's
+    # screen, and only taken because the nearer one is absent.
+    sent = ((body.text if body else None) or "").strip()
+    text = sent or (d.slack_thread_override or "").strip() or format_rca_slack(r, d)
+    if sent and sent != (d.slack_thread_override or "").strip():
+        # Posting is also a save. Otherwise the thread and the dashboard show
+        # different posts and neither is wrong about what it holds.
+        d.slack_thread_override = sent
     ts = await post_to_thread(r.slack_channel, r.slack_ts, text, as_user=True)
     if ts is None and not MOCK_MODE:
         raise HTTPException(502, "Slack rejected the post - check the bot's "

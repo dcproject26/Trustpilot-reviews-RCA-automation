@@ -617,8 +617,7 @@ def _no_mapping_note(l1: str | None, l2: str | None, tail: str) -> str:
         # reports a correct run as an unfinished one.
         why = support_tags_not_applicable(l1, l2)
         if why:
-            return (f"{tail} for {l2} — {why}. The reviews figures above are "
-                    f"unaffected")
+            return f"{tail} for {l2} — {why}"
         return f"no support-tag mapping for {l1} / {l2} - {tail}"
     missing = "L1 or L2" if not (l1 or l2) else ("L2" if l1 else "L1")
     return f"this review has no {missing} classification - {tail}"

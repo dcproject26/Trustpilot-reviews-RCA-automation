@@ -1188,6 +1188,24 @@ that turned out fine is silence — never a line in the output.
    root_cause, operational_failure, sop_gap, pattern and fix — never pooled,
    never merged. Do not invent a second issue when the guest raised one.
 
+2b. EVIDENCE IS SHORT AND ON THE CLAIM. Each `evidence[]` entry is ONE short
+   sentence — target 15 words, 25 is the ceiling — and it must bear on the
+   `claim` of the issue it sits under. Nothing else belongs there.
+     The test: read the claim, then read the entry. If the entry does not make
+     that claim more or less likely, DELETE it. It is context, and context
+     belongs in root_cause or pattern.
+     NO   "SP confirmed the 12:30 PM booking on 30 Jul with partner reference
+           RSZV JK8, and the system showed it as confirmed at the time CE
+           denied the refund."           (two facts, 28 words, one sentence)
+     YES  "SP confirmed the 12:30 slot on 30 Jul; ref RSZV JK8."
+     YES  "Our system still showed it confirmed when CE refused the refund."
+           (the second fact, as its own entry — one fact per entry)
+     NO   "Italy Pass is a partnered vendor, but the escalation email field is
+           blank, meaning a formal SP escalation email could not be sent."
+           (true, and it says nothing about whether the refund was owed)
+   Three to five entries per issue is normal. More than six means context is
+   being filed as evidence.
+
 3. DIAGNOSE, DON'T DESCRIBE. Name the concrete failing step. Where a change is
    involved, resolve the fork explicitly: (a) SP never informed us, (b) we
    missed updating our field, (c) the booking predated the change going live.
@@ -1348,8 +1366,8 @@ that turned out fine is silence — never a line in the output.
 {
   "stated_issue": "<2-3 sentences, 60 words MAX: the guest's problem in our words, for the top of the RCA>",
   "tldr": {
-    "our_mistake": "<one plain sentence, max 14 words, naming who did what. \"The vendor cancelled the booking, then we refused the refund.\" NOT \"the refund was denied despite the cancellation being vendor-initiated\">",
-    "our_fix": "<one plain sentence, max 14 words, an action someone can take today. \"Refund in full and tell RO this vendor keeps cancelling.\" NOT \"process full refund per standing policy; flag vendor cancellation rate for RO review\">"
+    "our_mistake": "<THE GAP, first. One plain sentence, max 14 words: the step that failed on our side, named. \"We refused a refund on a booking the vendor had cancelled.\" NOT a summary of the complaint, NOT \"the guest was unhappy\", NOT \"the refund was denied despite the cancellation being vendor-initiated\". If no gap on our side exists, say exactly what did happen instead: \"No gap on our side — the guest arrived after the slot closed.\">",
+    "our_fix": "<one plain sentence, max 14 words, an action someone can take today, addressing the gap named above. \"Refund in full and tell RO this vendor keeps cancelling.\" NOT \"process full refund per standing policy; flag vendor cancellation rate for RO review\">"
   },
   "l1": "<the L1 category from the taxonomy>",
   "l2": "<the L2 category from the taxonomy, valid for that L1>",
