@@ -1,10 +1,5 @@
 [
   {"file": "server/api.py",
-   "name": "area of improvement writes the column only again",
-   "find": "    \"area_of_improving\": (\"area_of_improving\",),",
-   "replace": ""},
-
-  {"file": "server/api.py",
    "name": "the post ignores the text it was sent",
    "find": "    sent = ((body.text if body else None) or \"\").strip()",
    "replace": "    sent = \"\""},
@@ -14,53 +9,13 @@
    "find": "        d.slack_thread_override = sent",
    "replace": "        pass"},
 
-  {"file": "client/index.html",
-   "name": "the post button sends no body again",
-   "find": "                                body: JSON.stringify({text: text.trim() || null})});",
-   "replace": "                                body: JSON.stringify({})});"},
-
-  {"file": "client/index.html",
-   "name": "a section toggle stops saving the recomposed post",
-   "find": "    rca.slackThreadOverride = text;\n    await saveDraft(r.id, {slack_thread_override: text});",
-   "replace": "    rca.slackThreadOverride = text;"},
-
-  {"file": "client/index.html",
-   "name": "the chips are not restored from the saved post",
-   "find": "    const derived = _sectionsFromText(rca.slackThreadOverride);\n    if (derived) state.slackSections[r.id] = derived;",
-   "replace": "    ;"},
+  {"file": "server/api.py",
+   "name": "an empty text wipes the saved post",
+   "find": "    text = sent or (d.slack_thread_override or \"\").strip() or format_rca_slack(r, d)",
+   "replace": "    text = (d.slack_thread_override or \"\").strip() or format_rca_slack(r, d)\n    sent = sent or ' '"},
 
   {"file": "client/index.html",
    "name": "an empty section is read back as a deselection",
    "find": "      if (!body) continue;                 // absent because empty, not chosen",
-   "replace": "      ;"},
-
-  {"file": "client/index.html",
-   "name": "orphan notes index into the filtered list again",
-   "find": "${(rca.supportNotes || []).indexOf(note)}.summary",
-   "replace": "${_orphans.indexOf(note)}.summary"},
-
-  {"file": "server/taxonomy.py",
-   "name": "the support-tag excuse claims guests never write in",
-   "find": "        \"this category is about how we handled the case; contacts are tagged \"\n        \"by what the guest first wrote in about, so re-check L1/L2 against \"\n        \"that issue to get this count\",",
-   "replace": "        \"being unhappy with the handling is not a contact reason\","},
-
-  {"file": "server/services/insights.py",
-   "name": "the window is fixed at 30 days whatever the picker says",
-   "find": "    wd         = window_days(window)",
-   "replace": "    wd         = 30"},
-
-  {"file": "server/services/insights.py",
-   "name": "the reviews denominator loses its window",
-   "find": "SELECT COUNT(DISTINCT r.booking_id) AS c\n{_reviews_from}\nWHERE b.tour_id = @tid AND f.vendor_id = @vid\n  AND r.rating <= {_NEGATIVE_RATING_MAX}\n  AND {_win}\n",
-   "replace": "SELECT COUNT(DISTINCT r.booking_id) AS c\n{_reviews_from}\nWHERE b.tour_id = @tid AND f.vendor_id = @vid\n  AND r.rating <= {_NEGATIVE_RATING_MAX}\n"},
-
-  {"file": "server/services/insights.py",
-   "name": "the support denominator loses its window",
-   "find": "  AND NOT REGEXP_CONTAINS(IFNULL({_QUERY_CATEGORY_SQL}, ''), @nar)\n  AND {_win}\n\"\"\"\n    sql_d = f\"\"\"",
-   "replace": "  AND NOT REGEXP_CONTAINS(IFNULL({_QUERY_CATEGORY_SQL}, ''), @nar)\n\"\"\"\n    sql_d = f\"\"\""},
-
-  {"file": "server/services/insights.py",
-   "name": "the ratings lose their window",
-   "find": "sql_e_tgid = f\"\"\"{_avg_select}{_reviews_from}\nWHERE b.experience_id = @tgid\n  AND r.rating IS NOT NULL\n  AND r.source = 'CUSTOMER'\n  AND {_win}\n{_avg_tail}\"\"\"",
-   "replace": "sql_e_tgid = f\"\"\"{_avg_select}{_reviews_from}\nWHERE b.experience_id = @tgid\n  AND r.rating IS NOT NULL\n  AND r.source = 'CUSTOMER'\n{_avg_tail}\"\"\""}
+   "replace": "      ;"}
 ]

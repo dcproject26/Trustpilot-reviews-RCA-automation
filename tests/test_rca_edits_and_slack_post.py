@@ -257,6 +257,47 @@ def test_the_selection_survives_a_reload(page):
         f"the chips do not match the post that is actually stored: {on}"
 
 
+def test_an_empty_section_is_not_read_back_as_a_deselection(page):
+    """The chips are derived from the saved post by looking for each section's
+    heading. A section the composer skipped because it had nothing to say has
+    no heading either — and reading that as "the associate switched it off"
+    would silently turn a section off for good, one reload at a time.
+
+    Driven by actually emptying a section rather than by asserting the guard
+    exists: the guard is one line, and deleting it leaves the whole suite
+    green unless a section is genuinely empty when this runs.
+    """
+    # Takedown renders as "" when there is no verdict — most sections fall
+    # back to a dash, so this is the one that actually goes empty.
+    page.evaluate("""async () => {
+        await fetch('/api/reviews/tp_ui/draft-v2', {method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({takedown: {}})}); }""")
+    page.reload(wait_until="networkidle")
+    page.wait_for_timeout(1000)
+    page.locator(".review-item").first.click()
+    page.wait_for_timeout(1400)
+
+    _open_picker(page)
+    page.click("[data-slack-sec-all]")
+    page.wait_for_timeout(700)
+    saved = _draft(page)["slack_thread_override"] or ""
+    assert "*Review takedown*" not in saved, \
+        "the fixture is not empty here, so this test would prove nothing"
+
+    page.reload(wait_until="networkidle")
+    page.wait_for_timeout(1000)
+    page.locator(".review-item").first.click()
+    page.wait_for_timeout(1400)
+    _open_picker(page)
+    off = page.evaluate("""() => [...document.querySelectorAll('[data-slack-section]')]
+        .filter(c => !c.checked).map(c => c.dataset.slackSection)""")
+    assert "takedown" not in off, (
+        "an empty section came back switched off — absent because it had "
+        "nothing to say has been read as absent because it was deselected")
+    assert off == [], f"sections were switched off by a reload: {off}"
+
+
 def test_a_hand_edit_is_what_gets_sent(page):
     """Typed into the box and pressed post without blurring first. The value
     on screen is the one that goes."""
