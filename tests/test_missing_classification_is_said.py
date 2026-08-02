@@ -302,16 +302,21 @@ def test_a_reply_written_against_approved_replies_says_so():
     e = tone_entry([{"situation": "s", "response": "r"}], "Experience Issues",
                    "Meeting Point Issues", None)
     assert e["mark"] == "pass"
-    assert "1 approved reply" in e["text"]
+    assert "1 approved macro" in e["text"]
     assert "Experience Issues / Meeting Point Issues" in e["text"]
 
 
-def test_a_reply_written_without_one_is_a_warning():
-    """The reply is the only field on the card with no visible provenance.
-    Off-tone and on-tone read the same until you read them."""
+def test_no_matching_macro_leaves_the_reply_blank_on_purpose():
+    """Rule 20. An invented reply reads exactly like an approved one on the
+    card — same register, same length, same shape — and Send puts it on a
+    public review. Blank plus a reason is the smaller cost, but only if the
+    reason is there; an unexplained blank box is the bug this whole branch is
+    about."""
     e = tone_entry([], "Experience Issues", "Meeting Point Issues", None)
     assert e["mark"] == "warn"
-    assert "model's own voice" in e["text"]
+    assert "No approved macro covers" in e["text"]
+    assert "left blank on purpose rather than invented" in e["text"]
+    assert "Write it yourself" in e["text"]
 
 
 def test_no_classification_is_named_as_the_reason_the_lookup_matched_nothing():
@@ -640,13 +645,20 @@ def _dead_client():
     return _C
 
 
-def test_an_unconfigured_sheet_says_which_variable(monkeypatch):
+def test_an_unconfigured_sheet_is_no_longer_a_failure(monkeypatch):
+    """It used to be: no sheet id meant no macros meant no tone reference. The
+    approved macros are checked in now, so an unset secret means "do not
+    refresh" and the pipeline is fully armed without it."""
     import server.services.canned as C
     monkeypatch.setattr(C, "is_live", lambda s: False)
+    monkeypatch.setattr(C, "_cache_rows", [], raising=False)
+    monkeypatch.setattr(C, "_cache_at", 0, raising=False)
     monkeypatch.setattr(C, "_last_reason", "", raising=False)
-    out = asyncio.run(C.get_canned_responses("A", "B", None, "text"))
-    assert out == []
-    assert "CANNED_RESPONSES_SHEET_ID" in C.last_failure_reason()
+    out = asyncio.run(C.get_canned_responses(
+        "Experience Issues", "Meeting Point Issues", None,
+        "the meeting point was wrong and nobody was there"))
+    assert out, "no sheet configured left the pipeline with no macros"
+    assert C.last_failure_reason() == "", C.last_failure_reason()
 
 
 # ── the prompt rule that produces a dated timeline ──────────────────────────
@@ -715,6 +727,25 @@ def test_the_prompt_stamp_moved_with_the_rule():
     assert RCA_PROMPT_VERSION.endswith(_prompt_digest(RCA_V4_TEMPLATE))
 
 
+def test_the_voice_line_names_the_closest_macro():
+    """"written against 3 approved macros" is true of a perfect fit and of
+    three that scraped the bar. Naming the closest is what lets a reader judge
+    the reply against something, and it is the only part of the line that
+    changes when the match is wrong."""
+    e = tone_entry([{"situation": "SP issue - Meeting point issue",
+                     "response": "r"},
+                    {"situation": "Something else", "response": "r"}],
+                   "Experience Issues", "Meeting Point Issues", None)
+    assert "SP issue - Meeting point issue" in e["text"], e["text"]
+    assert "Something else" not in e["text"], "it named all of them, not the closest"
+
+
+def test_a_macro_with_no_situation_does_not_render_empty_quotes():
+    e = tone_entry([{"situation": "", "response": "r"}], "A", "B", None)
+    assert "closest" not in e["text"], e["text"]
+    assert "“”" not in e["text"]
+
+
 def test_the_reply_voice_names_which_copy_it_used():
     """"written against 3 approved replies" is true of both the live sheet and
     the checked-in macros, and someone who just edited the sheet needs to know
@@ -736,5 +767,6 @@ def test_the_voice_line_is_still_a_sentence_with_no_source():
     """Older drafts and any caller that does not pass one must not render
     'as tone only, from .'"""
     e = tone_entry([{"situation": "s", "response": "r"}], "A", "B", None)
-    assert e["text"].rstrip().endswith("as tone only.")
-    assert ", from" not in e["text"]
+    assert e["text"].rstrip().endswith(".")
+    assert ", from" not in e["text"], e["text"]
+    assert " ." not in e["text"], e["text"]

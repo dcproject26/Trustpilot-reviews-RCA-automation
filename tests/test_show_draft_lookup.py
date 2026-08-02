@@ -419,3 +419,21 @@ def test_main_actually_prints_the_identity_line():
     # checks below report this tree's fixes as missing on someone else's build.
     assert "NOT running this tree" in out
     assert rc == 1
+
+
+def test_the_zendesk_check_uses_the_app_s_own_auth_path():
+    """It forced the email/API-token pair. The app authenticates through the
+    Replit connector (OAuth) and that pair is unset, so the check got a 401 and
+    printed BROKEN for a service that was fine — the diagnostic tool committing
+    the exact bug it exists to find. It has to go through the same call the
+    pipeline does, or a green check means nothing and a red one means less."""
+    src = open("tools/doctor.py", encoding="utf-8").read()
+    i = src.find("def _zendesk():")
+    body = src[i:i + 1400]
+    assert "_zd_get" in body, \
+        "the check no longer goes through the app's own Zendesk call"
+    assert "auth=(f\"{ZENDESK_EMAIL}/token\"" not in body, \
+        "it is forcing the token pair again"
+    assert "via {path}" in body, \
+        "it does not say WHICH auth path answered, so a connector failure and " \
+        "a token failure read the same"

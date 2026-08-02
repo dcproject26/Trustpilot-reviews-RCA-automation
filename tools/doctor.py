@@ -207,14 +207,30 @@ def check_services():
     head("SERVICES")
 
     def _zendesk():
-        import httpx
-        from server.config import ZENDESK_SUBDOMAIN, ZENDESK_API_TOKEN, ZENDESK_EMAIL
-        r = httpx.get(
-            f"https://{ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/users/me.json",
-            auth=(f"{ZENDESK_EMAIL}/token", ZENDESK_API_TOKEN), timeout=15)
-        if r.status_code != 200:
-            return False, f"HTTP {r.status_code} — {r.text[:120]}"
-        return True, f"authenticated as {r.json().get('user', {}).get('email', '?')}"
+        """Through the app's OWN auth path, whichever that is.
+
+        This used to force the email/API-token pair. The app authenticates
+        through the Replit Zendesk connector (OAuth) and the token pair is
+        unset, so the check got a 401 and reported BROKEN for a service that
+        was fine — a diagnostic tool committing the exact bug it exists to
+        find. Which path was used is named in the answer, so a connector
+        failure and a token failure are never one line.
+        """
+        from server.services.zendesk import _zd_get
+        try:
+            from server.services import zd_connector
+            path = ("the Replit connector (OAuth)" if zd_connector.available()
+                    else "the email/API-token pair")
+        except Exception:
+            path = "the email/API-token pair"
+        me = _zd_get("/api/v2/users/me.json")
+        if not me:
+            return False, (f"authenticated via {path} and got nothing back. "
+                           f"The app uses this same call for the events "
+                           f"timeline, so it is genuinely down for the "
+                           f"pipeline too.")
+        who = (me.get("user") or {}).get("email") or "?"
+        return True, f"authenticated as {who} via {path}"
 
     def _bigquery():
         from server.services import bigquery as bq

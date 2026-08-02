@@ -4003,10 +4003,21 @@ function renderRcaCol() {
            them here would claim the reply was built from it. An old draft
            still carries a template_name in its column; rendering it would put
            that stale claim on a reply it had nothing to do with. -->
-      <textarea class="reply-text" placeholder="AI-drafted response — edit as needed">${esc(rca.reply)}</textarea>
+      <!-- A blank reply is a DECISION now, not a gap. Prompt rule 20: with no
+           approved macro for this issue, the model returns null rather than
+           writing one — because an invented reply is indistinguishable from an
+           approved one on this card (same register, same length, same shape)
+           and Send puts it on a public review. The placeholder has to say that,
+           or an empty box reads as a step that failed. -->
+      <textarea class="reply-text" placeholder="${(rca.reply || '').trim()
+        ? 'AI-drafted response — edit as needed'
+        : 'No approved macro matches this issue, so nothing was drafted — curate the response yourself.'
+        }">${esc(rca.reply)}</textarea>
       <div class="reply-meta">
-        <span>Editable — review before sending${(r.lang || '').toUpperCase() !== 'EN'
-          ? ' · goes out in ' + esc(r.lang) : ''}</span>
+        <span>${(rca.reply || '').trim()
+          ? `Editable — review before sending${(r.lang || '').toUpperCase() !== 'EN'
+              ? ' · goes out in ' + esc(r.lang) : ''}`
+          : `<span class="rca-empty" style="font-style:normal">Write it yourself — no approved macro covers this issue, and a reply nobody approved must not be generated to fill the box. See the confidence trail for what was searched.</span>`}</span>
         <span>${(rca.reply || '').length} chars</span>
       </div>
       ${state.replyTranslation[r.id] ? `

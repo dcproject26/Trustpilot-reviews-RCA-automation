@@ -375,3 +375,56 @@ def test_the_note_is_not_styled_as_data(page):
       const t = document.querySelector('#rca-booking-logs-section .tl-what');
       return t ? getComputedStyle(t).color : null; }""")
     assert got["colour"] != row, "the footnote reads as another timeline row"
+
+
+# ── a blank reply is a decision, and has to read as one ─────────────────────
+#
+# Prompt rule 20: with no approved macro for the issue, the model returns null
+# rather than writing a reply, because an invented one is indistinguishable
+# from an approved one on this card — same register, same length, same shape —
+# and Send puts it on a public review. That only works if the empty box says
+# so. An unexplained blank reads as a step that failed.
+
+def _reply_state(page, text):
+    return page.evaluate("""(t) => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keep = r.rca.reply;
+      r.rca.reply = t; renderRcaCol();
+      const ta = document.querySelector('.reply-text');
+      const meta = document.querySelector('.reply-meta');
+      const out = {placeholder: ta ? ta.placeholder : null,
+                   value: ta ? ta.value : null,
+                   meta: meta ? meta.innerText : ''};
+      r.rca.reply = keep; renderRcaCol();
+      return out; }""", text)
+
+
+def test_a_blank_reply_says_to_write_it_yourself(page):
+    got = _reply_state(page, "")
+    assert "curate the response yourself" in got["placeholder"], got["placeholder"]
+    assert "AI-drafted" not in got["placeholder"], \
+        "an empty box still invites the reader to expect a draft that is not coming"
+
+
+def test_a_blank_reply_says_why_it_is_blank(page):
+    got = _reply_state(page, "")
+    assert "no approved macro" in got["meta"].lower(), got["meta"]
+    assert "Write it yourself" in got["meta"], got["meta"]
+    assert "confidence trail" in got["meta"], \
+        "it does not point at where the reason is recorded"
+
+
+def test_a_drafted_reply_is_not_told_to_write_itself(page):
+    """The inverse. If every reply carries the instruction it stops meaning
+    anything, and the deliberate blanks are lost among them."""
+    got = _reply_state(page, "Hi Lewis, I'm sorry about the meeting point.")
+    assert "curate the response yourself" not in got["placeholder"]
+    assert "Write it yourself" not in got["meta"]
+    assert "Editable" in got["meta"]
+
+
+def test_whitespace_is_not_a_reply(page):
+    """A reply of spaces renders an empty box either way; only the placeholder
+    can tell the reader which kind of empty it is."""
+    got = _reply_state(page, "   \n  ")
+    assert "curate the response yourself" in got["placeholder"], got["placeholder"]

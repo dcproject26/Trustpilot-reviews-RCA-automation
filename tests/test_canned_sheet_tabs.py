@@ -441,3 +441,153 @@ def test_an_import_that_yields_nothing_is_not_reported_as_success(tmp_path):
     assert r.returncode != 0, \
         f"an empty import exited 0:\n{r.stdout}\n{r.stderr}"
     assert "nothing usable" in (r.stdout + r.stderr)
+
+
+# ── the tags are a routing vocabulary, not junk ─────────────────────────────
+
+def test_the_tag_tab_is_read_as_a_taxonomy():
+    """It is rejected as REPLIES and used as the issue-type vocabulary. Those
+    are two different jobs for one tab and both have to happen."""
+    v = C.channel_issue_types()
+    assert "TP MACRO Issue Type" in v, sorted(v)
+    assert len(v["TP MACRO Issue Type"]) > 60
+
+
+def test_every_channel_has_its_own_vocabulary():
+    v = C.channel_issue_types()
+    assert len(v) == 3, sorted(v)
+    assert all(len(x) > 40 for x in v.values())
+
+
+def test_the_tag_vocabulary_matches_the_macros_it_names():
+    """72 of 75 TP tags are a macro's Use Case verbatim. If that collapses, the
+    tags and the macros have drifted apart and routing on one to reach the
+    other stops working — silently, since both still parse."""
+    tags = set(C.channel_issue_types()["TP MACRO Issue Type"])
+    macros = {r["situation"] for r in C._rows_from_vendored() if "TP" in r["tab"]}
+    overlap = len(tags & macros)
+    assert overlap > len(tags) * 0.85, \
+        f"only {overlap} of {len(tags)} tags name a real macro"
+
+
+# ── matching, and the blank that is a decision ──────────────────────────────
+
+def _match(monkeypatch, l1, l2, text):
+    monkeypatch.setattr(C, "is_live", lambda s: False)
+    monkeypatch.setattr(C, "_cache_rows", [], raising=False)
+    monkeypatch.setattr(C, "_cache_at", 0, raising=False)
+    return asyncio.run(C.get_canned_responses(l1, l2, None, text))
+
+
+def test_a_real_issue_finds_its_macro(monkeypatch):
+    got = _match(monkeypatch, "Experience Issues", "Meeting Point Issues",
+                 "the meeting point was wrong and nobody was there")
+    assert got, "a meeting-point review matched no macro at all"
+    assert "meeting point" in got[0]["situation"].lower(), got[0]["situation"]
+
+
+def test_the_match_prefers_the_trustpilot_voice(monkeypatch):
+    """The macros are split by channel and the voices genuinely differ — a
+    Twitter reply is 280 characters, a Trustpilot one is a paragraph. A macro
+    from the wrong tab is the wrong answer even when its situation fits."""
+    got = _match(monkeypatch, "Experience Issues", "Meeting Point Issues",
+                 "the meeting point was wrong")
+    assert C.TP_TAB_HINT in got[0]["tab"], got[0]["tab"]
+
+
+def test_word_soup_matches_nothing(monkeypatch):
+    """The old bar was score > 0, which one shared word clears — so a meeting
+    point review could 'match' a refund macro on the word 'booking' and go out
+    looking approved."""
+    assert _match(monkeypatch, "", "", "zxqw plimf glorp") == []
+
+
+def test_one_incidental_word_is_not_a_match(monkeypatch):
+    """Every macro contains 'booking'. On its own it must not carry one."""
+    assert _match(monkeypatch, "", "", "booking") == []
+
+
+def test_a_match_carries_its_score_and_tab(monkeypatch):
+    """tone_entry names the closest macro on the card. It cannot if the match
+    does not say which one it was."""
+    got = _match(monkeypatch, "Experience Issues", "Meeting Point Issues",
+                 "meeting point")
+    assert got[0]["score"] >= C.MATCH_MIN
+    assert got[0]["tab"]
+
+
+def test_matching_survives_a_classification_that_is_only_words(monkeypatch):
+    """"Meeting Point Issues" and "Meeting point issue//" share every
+    meaningful word and no substring. An exact-substring test scored that
+    perfectly good macro at zero."""
+    got = _match(monkeypatch, "Experience Issues", "Meeting Point Issues", "")
+    assert got, "token matching is not reaching the macro"
+
+
+# ── the three ranking rules, each isolated so it can actually fail ──────────
+#
+# The first pass of these tests asserted things that were true whether or not
+# the rule fired: the Trustpilot macro also had the top score, "Meeting Point
+# Issues" still matched on two unstemmed words, and no fixture had a macro
+# whose BODY shared the review's words while its situation did not. Three
+# survivors, all the same mistake — an assertion that cannot distinguish the
+# rule working from the rule being absent.
+
+def _macros(*specs):
+    """(tab, situation, response) triples as _get_rows would hand them over.
+
+    Named _macros, not _rows: this file already has a module-level _rows(tab)
+    that reads the fixture, and shadowing it silently redefined what five
+    earlier tests were calling."""
+    return [{"situation": sit, "response": resp, "tab": tab,
+             "l1_hint": "", "l2_hint": ""} for tab, sit, resp in specs]
+
+
+def _rank(monkeypatch, rows, l1, l2, text):
+    monkeypatch.setattr(C, "is_live", lambda s: False)
+    monkeypatch.setattr(C, "_cache_rows", rows, raising=False)
+    monkeypatch.setattr(C, "_cache_at", 9e18, raising=False)   # never expire
+    return asyncio.run(C.get_canned_responses(l1, l2, None, text))
+
+
+def test_the_trustpilot_voice_wins_even_when_another_channel_scores_higher(monkeypatch):
+    """The point of the channel rule. A Twitter macro that fits BETTER is
+    still the wrong answer — 280 characters where a paragraph belongs — so the
+    test has to hand it a better-fitting Twitter macro and watch it lose."""
+    got = _rank(monkeypatch, _macros(
+        ("Twitter Macro", "Meeting point issue venue related service problem",
+         "short " * 40),
+        ("ORM main ( TP ) Macro", "Meeting point issue", "long " * 40),
+    ), "Experience Issues", "Meeting Point Issues",
+        "meeting point venue related service problem")
+    assert "TP" in got[0]["tab"], \
+        f"a better-scoring Twitter macro outranked the Trustpilot one: {got[0]}"
+    assert got[1]["score"] > got[0]["score"], \
+        "the fixture no longer scores the wrong-channel macro higher, so this " \
+        "test cannot fail — fix the fixture, not the assertion"
+
+
+def test_stemming_is_what_makes_the_plural_match(monkeypatch):
+    """"Refund Issues" against a macro filed as "Refund Issue". Nothing else
+    overlaps, so the stem is the only thing that can carry it — which is what
+    makes this able to fail when the stem is removed."""
+    got = _rank(monkeypatch, _macros(
+        ("ORM main ( TP ) Macro", "Refund Issue", "x" * 200),
+    ), "", "Refund Issues", "")
+    assert got, "the plural classification no longer reaches the singular macro"
+
+
+def test_the_review_is_scored_against_the_situation_not_the_reply_body(monkeypatch):
+    """Every macro's BODY shares the same boilerplate — sorry, booking, team,
+    resolve. Scoring the review against it makes everything equally relevant,
+    so a macro whose situation is unrelated can win on words that appear in
+    every reply."""
+    got = _rank(monkeypatch, _macros(
+        ("ORM main ( TP ) Macro", "Completely unrelated situation",
+         "sorry booking team resolve refund voucher meeting point " * 12),
+        ("ORM main ( TP ) Macro", "Meeting point issue", "x" * 200),
+    ), "Experience Issues", "Meeting Point Issues",
+        "sorry booking team resolve refund voucher meeting point")
+    assert got, "nothing matched at all"
+    assert "Meeting point" in got[0]["situation"], \
+        f"a macro won on boilerplate its body happens to contain: {got[0]}"

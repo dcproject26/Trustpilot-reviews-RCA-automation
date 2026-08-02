@@ -263,11 +263,14 @@ def tone_entry(canned_list: list, l1: str, l2: str, err: Exception | None,
     given nothing to match and correctly matched nothing.
     """
     if canned_list and l1 and l2:
+        top = (canned_list[0] or {}).get("situation") or ""
         return {"mark": "pass", "text":
                 f"<strong>Reply voice</strong> — written against "
-                f"{len(canned_list)} approved reply/replies for {l1} / {l2}, "
-                f"as tone only"
+                f"{len(canned_list)} approved macro(s) for {l1} / {l2}, as tone "
+                f"only"
+                + (f", closest: “{top}”" if top else "")
                 + (f", from {source}." if source else ".")}
+
     if canned_list:
         # Rows came back, so this is not the empty case — but L1/L2 are worth
         # 8 of the ranking points and word overlap with the review is the rest.
@@ -296,7 +299,19 @@ def tone_entry(canned_list: list, l1: str, l2: str, err: Exception | None,
         why = ("the sheet is keyed on L1/L2 and this review has neither, so "
                "there was nothing to match on")
     else:
-        why = f"no approved reply matches {l1} / {l2}"
+        # Everything worked and nothing fits. Rule 20 has the model return null
+        # rather than invent a reply, so the blank box downstream is a decision
+        # — and an unexplained blank is exactly what this codebase keeps
+        # getting wrong. Reached only after a thrown lookup, an unreadable
+        # sheet and a missing classification have each been ruled out, so
+        # "nothing covers this" cannot be confused with "the lookup broke".
+        return {"mark": "warn", "text":
+                f"<strong>No approved macro covers {l1} / {l2}</strong> — the "
+                f"reply was left blank on purpose rather than invented, because "
+                f"a generated reply reads exactly like an approved one on this "
+                f"card and Send puts it on a public review. Write it yourself, "
+                f"or add a macro for this issue."
+                + (f" Searched {source}." if source else "")}
     return {"mark": "warn", "text":
             f"<strong>The reply was written without a tone reference</strong> "
             f"— {why}. It is in the model's own voice, not Headout's. Read it "

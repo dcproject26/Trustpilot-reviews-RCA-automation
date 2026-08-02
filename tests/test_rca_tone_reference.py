@@ -64,12 +64,23 @@ def test_only_the_first_three_examples_go_in():
     assert "UNIQUE_BODY_3" not in out
 
 
-def test_no_matching_reply_is_named_not_left_blank():
-    """A blank block reads as "no voice to match". Saying so is a fact the
-    associate reviewing the reply should have."""
+def test_no_matching_macro_tells_the_model_to_return_null():
+    """A blank block reads as "no voice to match", and the instruction that
+    used to sit here — "write in plain, warm, direct English" — got a reply
+    that read exactly like an approved one and was not. The model is told to
+    return null instead, and rule 20 backs it up."""
     out = _prompt(canned_list=[])
-    assert "no approved replies matched" in out
+    assert "NO APPROVED MACRO MATCHES THIS REVIEW" in out
+    assert "Return null for suggested_response" in out
+    # The prohibition, not only the instruction. "Return null for
+    # suggested_response — write in plain, warm, direct English" still
+    # contains the first half and means the opposite, which is exactly the
+    # edit a well-meaning tidy-up makes.
+    assert "Do NOT write one" in out
+    assert "plain, warm, direct English" not in out, \
+        "the old invent-a-reply instruction is back alongside the new one"
     assert "APPROVED REPLY VOICE" in out
+    assert "NO APPROVED MACRO, NO REPLY" in out, "rule 20 is not in the prompt"
 
 
 def test_a_malformed_canned_row_does_not_break_the_prompt():

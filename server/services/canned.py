@@ -424,6 +424,86 @@ def vendored_status() -> str:
 
 # ─── public API ─────────────────────────────────────────────────────────────
 
+# The channel this dashboard drafts for. The macros are split by channel and
+# the voices genuinely differ - a Twitter reply is 280 characters and a
+# Trustpilot one is a paragraph - so a macro from the wrong tab is the wrong
+# answer even when its situation matches perfectly.
+TP_TAB_HINT = "TP"
+
+# Below this, no approved macro applies. The old bar was score > 0, which one
+# shared word clears - so a reply about a meeting point could be "matched" to
+# a refund macro on the word "booking" and go out looking approved. Above the
+# bar means a real L2 or L1 hit (worth 4 and 2) or a strong situation overlap;
+# below it means say so and let a human write it.
+MATCH_MIN = 4
+
+
+def channel_issue_types() -> dict[str, list[str]]:
+    """The approved issue-type vocabulary, per channel, from the tags tab.
+
+    "Refer Macro Tags" is not a list of replies - it is the taxonomy the macros
+    are named by, three columns of it, one per channel. Parsed as replies it
+    poisons the tone reference; parsed as what it is, it is the only thing that
+    says which issue types are real. 72 of its 75 TP entries match a macro's
+    Use Case exactly, so it is also a check on drift between the two.
+    """
+    if not VENDORED.exists():
+        return {}
+    tabs = json.loads(VENDORED.read_text(encoding="utf-8"))
+    raw = tabs.get("Refer Macro Tags") or []
+    if len(raw) < 2:
+        return {}
+    headers = [h.strip() for h in raw[0]]
+    out: dict[str, list[str]] = {}
+    for i, h in enumerate(headers):
+        if not h:
+            continue
+        vals = [r[i].strip() for r in raw[1:] if i < len(r) and r[i].strip()]
+        if vals:
+            out[h] = vals
+    return out
+
+
+def _stem(w: str) -> str:
+    """Crudest possible: drop a trailing s. "Meeting Point Issues" has to match
+    "Meeting point issue//" and an exact-substring test does not, which is how
+    a perfectly good macro scored zero."""
+    return w[:-1] if len(w) > 4 and w.endswith("s") else w
+
+
+def _toks(text: str) -> set[str]:
+    return {_stem(w) for w in _keywords(text or "")}
+
+
+def _score_row(row: dict, l1, l2, sub_theme, review_kw) -> int:
+    """How well an approved macro fits this review.
+
+    Scored on the SITUATION, not the reply body. Every macro shares the same
+    boilerplate — "sorry", "booking", "team" — so scoring against the body let
+    that boilerplate carry a match and everything looked equally relevant.
+
+    Token overlap rather than substring: the classification says "Meeting Point
+    Issues" and the macro is filed under "SP issue - Meeting point issue//
+    Venue Related Issue", which share every meaningful word and no substring.
+    """
+    sit = _toks(row["situation"])
+    if not sit:
+        return 0
+    score = 0
+    for text, weight in ((l2, 3), (l1, 2), (sub_theme, 2)):
+        if not text:
+            continue
+        t = _toks(text)
+        if t:
+            score += weight * len(t & sit)
+    for hint, weight in (("l2_hint", 2), ("l1_hint", 1)):
+        h = _toks(row.get(hint) or "")
+        if h and l2 and (_toks(l2) & h):
+            score += weight
+    score += len(review_kw & sit)
+    return score
+
+
 async def get_canned_responses(
     l1: str | None,
     l2: str | None,
@@ -431,46 +511,30 @@ async def get_canned_responses(
     review_text: str,
 ) -> list[dict]:
     """
-    Returns up to 5 example responses ranked by relevance.
-    Shape: [{"situation": "...", "response": "..."}, ...]
-    Used by response_draft_prompt as tone reference — NOT to copy verbatim.
+    Approved macros that actually apply, best first, or [] when none do.
+
+    [] is a real answer now, not a degraded one. It used to mean "write in
+    plain warm English" and the model would invent a reply that read as though
+    it had been approved. It now means the associate writes it - see
+    MATCH_MIN, and the prompt rule that forbids inventing one.
     """
     global _last_reason
-    if not is_live("canned"):
-        _last_reason = ("no canned-responses sheet is configured on this "
-                        "server (CANNED_RESPONSES_SHEET_ID is unset)")
-        return []
-
     rows = await _get_rows()
     if not rows:
         return []
 
-    query_kw = _keywords(" ".join(filter(None, [l1, l2, sub_theme, review_text])))
-    scored: list[tuple[int, dict]] = []
+    review_kw = _toks(review_text)
+    scored = [(_score_row(r, l1, l2, sub_theme, review_kw), r) for r in rows]
 
-    for row in rows:
-        sit_lower = row["situation"].lower()
-        score = 0
-        if l2 and l2.lower() in sit_lower:
-            score += 4
-        elif row.get("l2_hint") and l2 and l2.lower() in row["l2_hint"].lower():
-            score += 3
-        if l1 and l1.lower() in sit_lower:
-            score += 2
-        elif row.get("l1_hint") and l1 and l1.lower() in row["l1_hint"].lower():
-            score += 2
-        if sub_theme:
-            code = sub_theme[:2].lower().strip(". ")
-            label = sub_theme[2:].lower().strip()
-            if code in sit_lower or label[:12] in sit_lower:
-                score += 2
-        overlap = len(query_kw & _keywords(row["situation"] + " " + row["response"]))
-        score += overlap
-        scored.append((score, row))
+    # Channel first. A Trustpilot macro at the bar beats a Twitter one above
+    # it, because the wrong voice is the wrong answer.
+    def _rank(pair):
+        sc, r = pair
+        on_channel = TP_TAB_HINT in (r.get("tab") or "")
+        return (on_channel, sc)
 
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return [
-        {"situation": r["situation"], "response": r["response"]}
-        for s, r in scored[:5]
-        if s > 0
-    ]
+    scored = [p for p in scored if p[0] >= MATCH_MIN]
+    scored.sort(key=_rank, reverse=True)
+    return [{"situation": r["situation"], "response": r["response"],
+             "tab": r.get("tab", ""), "score": sc}
+            for sc, r in scored[:5]]

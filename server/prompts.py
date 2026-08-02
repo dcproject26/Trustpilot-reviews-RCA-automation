@@ -1013,10 +1013,13 @@ def rca_v3_prompt(
             f"{(ex.get('response') or '').strip()}"
             for i, ex in enumerate(canned_list[:3], 1))
     else:
-        # Named, not blank. A silent absence reads as "no voice to match";
-        # this says the reply was written without one, which is a fact the
-        # associate reviewing it should have.
-        tone = "(no approved replies matched — write in plain, warm, direct English)"
+        # No approved macro fits this review. The instruction that used to sit
+        # here - "write in plain, warm, direct English" - got a reply that read
+        # exactly like an approved one and was not: same register, same shape,
+        # no review behind it. An associate cannot tell those apart on the
+        # card, so the model is told to return null and rule 20 backs it up.
+        tone = ("(NO APPROVED MACRO MATCHES THIS REVIEW. Return null for "
+                "suggested_response — see output rule 20. Do NOT write one.)")
 
     out = RCA_V3_TEMPLATE
     for token, value in {
@@ -1286,6 +1289,17 @@ that turned out fine is silence — never a line in the output.
     first and last dated entries whenever they are known, whatever else you
     have. `time` is null ONLY when you have a real event whose time genuinely
     is not recorded anywhere — not as a shorthand for "the guest did not say".
+
+20. NO APPROVED MACRO, NO REPLY. When the tone block above says no approved
+    macro matches, `suggested_response` is null. Not a paraphrase of one, not
+    "plain warm English", not a reply built from the evidence — null.
+    An invented reply is indistinguishable on the card from an approved one:
+    same register, same length, same shape. The associate reviewing it has no
+    way to tell that nothing behind it was ever signed off, and Send puts it
+    on a public review. A blank section that says "no approved macro matches
+    this — write the reply yourself" is a smaller cost than a plausible reply
+    nobody approved. Every other field is still filled in normally; this rule
+    governs `suggested_response` alone.
 
 11. TAKEDOWN IS A FACTUAL TEST, NOT A SENTIMENT ONE. "Yes" only when the review
     is factually false or breaches platform policy. A review that is accurate,
