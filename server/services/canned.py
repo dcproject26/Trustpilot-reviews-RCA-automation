@@ -308,11 +308,26 @@ _last_reason: str = ""
 # did not take effect is the same class of bug as everything else here, so the
 # reader is told which copy they are looking at.
 _last_source: str = ""
+# Whether that source is a STAND-IN for one that failed, as opposed to the
+# ordinary arrangement.
+_last_source_degraded: bool = False
 
 
 def last_source() -> str:
     """"the live sheet", or the checked-in copy and why the sheet was not used."""
     return _last_source
+
+
+def source_is_degraded() -> bool:
+    """True only when a sheet IS configured and could not be read.
+
+    Having no sheet configured is a setting, not a fault — the checked-in
+    macros are the design, not a fallback from it — and reporting it as one put
+    a line about sources on every healthy card. But a sheet somebody edited
+    this morning that silently did not load is the failure this whole file is
+    about, and that one has to reach the reader.
+    """
+    return _last_source_degraded
 
 
 def last_failure_reason() -> str:
@@ -370,20 +385,24 @@ async def _get_rows() -> list[dict]:
     checked-in copy" is a fact the reader should have.
     """
     global _cache_rows, _cache_at, _last_reason, _last_source
+    global _last_source_degraded
     if _cache_rows and (time.time() - _cache_at) < _TTL:
         return _cache_rows
 
     vendored = _rows_from_vendored()
     live: list[dict] = []
     sheet_why = ""
+    _last_source_degraded = False
     if is_live("canned"):
         try:
             live = await _fetch_rows()
             sheet_why = _last_reason
+            _last_source_degraded = not live
         except Exception as e:
             sheet_why = (f"the live sheet could not be read "
                          f"({type(e).__name__}) — running on the checked-in "
                          f"macros instead")
+            _last_source_degraded = True
             log.warning(f"[canned] {sheet_why}")
     else:
         # Just the fact. The caller prefixes "the checked-in macros", so
@@ -478,6 +497,68 @@ def _toks(text: str) -> set[str]:
     return {_stem(w) for w in _keywords(text or "")}
 
 
+MACRO_L1L2 = pathlib.Path(__file__).resolve().parent.parent / "data" / "macro_l1l2.json"
+_l1l2_map: dict | None = None
+
+
+def macro_l1l2() -> dict:
+    """Every Trustpilot macro's L1/L2, assigned by hand against the taxonomy.
+
+    Keyword overlap alone matched "Operations Issue / Customer Support Issues"
+    to the "Audio guide Issue — initiated a partial refund post DOV" macro,
+    because they share the word "refund". Every macro shares refund, booking
+    and sorry with every other; the words a macro is FILED under are not the
+    words it contains. So the filing is recorded once, checked against the real
+    taxonomy when it is built, and used before any word is counted.
+
+    Keyed on whitespace-normalised lowercase, because the sheet's own cells
+    carry line breaks in the middle of a situation name.
+    """
+    global _l1l2_map
+    if _l1l2_map is None:
+        try:
+            _l1l2_map = json.loads(MACRO_L1L2.read_text(encoding="utf-8"))
+        except Exception as e:
+            log.warning(f"[canned] macro L1/L2 map unreadable ({e}); matching "
+                        f"falls back to word overlap alone")
+            _l1l2_map = {}
+    return _l1l2_map
+
+
+def _norm_sit(s: str) -> str:
+    return re.sub(r"\s+", " ", str(s or "")).strip().lower()
+
+
+def macro_l1l2_coverage() -> dict:
+    """How much of the map actually joins, counted rather than assumed.
+
+    This map is a join keyed on a hand-typed string, which is the shape of the
+    ZD-4491 bug: `"ZD-4491"` against ticket_id `"4491"` matched nothing and read
+    exactly like a model that returned no notes. A key here with one character
+    out scores no macro and is invisible — the run looks identical to one where
+    that macro simply did not win.
+
+    So: mapped, joined, and the two failure directions named separately. An
+    unmapped macro is work not done; a mapped key with no macro is a key that
+    is wrong. They need different fixes and must not be added together.
+    """
+    m = macro_l1l2()
+    sits = {_norm_sit(r["situation"]) for r in _rows_from_vendored()
+            if TP_TAB_HINT in (r.get("tab") or "")}
+    keys = set(m)
+    return {"mapped": len(keys),
+            "macros": len(sits),
+            "joined": len(keys & sits),
+            "keys_matching_no_macro": sorted(keys - sits),
+            "macros_with_no_mapping": sorted(sits - keys)}
+
+
+# An exact taxonomy hit beats any amount of word overlap. Well above MATCH_MIN
+# so it cannot be outscored by a macro that merely shares vocabulary.
+_L1L2_EXACT = 40
+_L1_ONLY = 8
+
+
 def _score_row(row: dict, l1, l2, sub_theme, review_kw) -> int:
     """How well an approved macro fits this review.
 
@@ -493,6 +574,15 @@ def _score_row(row: dict, l1, l2, sub_theme, review_kw) -> int:
     if not sit:
         return 0
     score = 0
+
+    # The macro's filed category, before any word is counted.
+    filed = macro_l1l2().get(_norm_sit(row["situation"]))
+    if filed and l1 and l2:
+        if [l1, l2] == filed:
+            score += _L1L2_EXACT
+        elif l1 == filed[0]:
+            score += _L1_ONLY
+
     for text, weight in ((l2, 3), (l1, 2), (sub_theme, 2)):
         if not text:
             continue

@@ -318,13 +318,16 @@ _SEARCH_ERRORS = {
 
 
 def _search_error_sentence(code: str) -> str:
-    """What went wrong AND what would fix it, or the raw code when we have no
-    better answer — said as an unrecognised code rather than dressed up."""
+    """One line on the card. The fix belongs in the log, not the dashboard.
+
+    The full guidance was on screen and it was too much: a paragraph about
+    OAuth scopes in a card about a guest's refund. The card says what did not
+    happen and names the cause; whoever is fixing Slack reads the log.
+    """
     known = _SEARCH_ERRORS.get(code)
-    if known:
-        return f"Slack was not searched — {known}."
-    return (f"Slack was not searched — the API returned {code!r}, which this "
-            f"build has no guidance for. The Slack API docs list it.")
+    log.warning(f"[slack] search unavailable ({code}): "
+                f"{known or 'no guidance for this code in this build'}")
+    return f"Slack was not searched — {code}."
 
 
 def is_search_unavailable(mentions: list[dict] | None) -> bool:

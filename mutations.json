@@ -1,0 +1,106 @@
+[
+  {"file": "server/services/canned.py",
+   "name": "the L1/L2 filing bonus is never awarded",
+   "find": "            score += _L1L2_EXACT",
+   "replace": "            score += 0"},
+
+  {"file": "server/services/canned.py",
+   "name": "the L1-only bonus is never awarded",
+   "find": "            score += _L1_ONLY",
+   "replace": "            score += 0"},
+
+  {"file": "server/services/canned.py",
+   "name": "the filing map is looked up with the raw string, unnormalised",
+   "find": "    filed = macro_l1l2().get(_norm_sit(row[\"situation\"]))",
+   "replace": "    filed = macro_l1l2().get(row[\"situation\"])"},
+
+  {"file": "server/services/canned.py",
+   "name": "coverage counts every tab, not just Trustpilot",
+   "find": "    sits = {_norm_sit(r[\"situation\"]) for r in _rows_from_vendored()\n            if TP_TAB_HINT in (r.get(\"tab\") or \"\")}",
+   "replace": "    sits = {_norm_sit(r[\"situation\"]) for r in _rows_from_vendored()}"},
+
+  {"file": "server/services/canned.py",
+   "name": "a sheet that raised is not flagged as a stand-in",
+   "find": "            _last_source_degraded = True\n            log.warning(f\"[canned] {sheet_why}\")",
+   "replace": "            log.warning(f\"[canned] {sheet_why}\")"},
+
+  {"file": "server/services/canned.py",
+   "name": "no sheet configured is flagged as a stand-in",
+   "find": "    _last_source_degraded = False\n    if is_live(\"canned\"):",
+   "replace": "    _last_source_degraded = True\n    if is_live(\"canned\"):"},
+
+  {"file": "server/services/insights.py",
+   "name": "a deliberately unmapped pair reports as a forgotten gap",
+   "find": "        why = support_tags_not_applicable(l1, l2)\n        if why:",
+   "replace": "        why = \"\"\n        if why:"},
+
+  {"file": "server/services/zendesk.py",
+   "name": "summaries are clipped at the old 110 again",
+   "find": "            \"summary\": _clip(ev.get(\"summary\", \"\"), 600),",
+   "replace": "            \"summary\": _clip(ev.get(\"summary\", \"\"), 110),"},
+
+  {"file": "server/services/zendesk.py",
+   "name": "a cut no longer says it is ours",
+   "find": "    return cut.rstrip(\" ,;:-\") + f\" […cut at {n} chars]\"",
+   "replace": "    return cut.rstrip(\" ,;:-\") + \"…\""},
+
+  {"file": "server/services/zendesk.py",
+   "name": "a cut lands mid-word again",
+   "find": "    space = cut.rfind(\" \")\n    if space > n * 0.6:            # only if it does not gut the string\n        cut = cut[:space]",
+   "replace": "    pass"},
+
+  {"file": "server/pipeline.py",
+   "name": "the tone line drops the degraded source",
+   "find": "                + (f\" Using {source}.\" if source else \"\")}",
+   "replace": "                }"},
+
+  {"file": "server/pipeline.py",
+   "name": "the tone entry is never appended to the trail",
+   "find": "            if _tone_entry:\n                confidence_trail.append(_tone_entry)",
+   "replace": "            if False:\n                confidence_trail.append(_tone_entry)"},
+
+  {"file": "server/services/slack.py",
+   "name": "the search failure guidance never reaches the log",
+   "find": "    log.warning(f\"[slack] search unavailable ({code}): \"\n                f\"{known or 'no guidance for this code in this build'}\")",
+   "replace": "    pass"},
+
+  {"file": "tools/show_timeline.py",
+   "name": "an absent booking_logs key reads as an empty one",
+   "find": "    if \"booking_logs\" in rca_v3:",
+   "replace": "    if rca_v3.get(\"booking_logs\"):"},
+
+  {"file": "tools/show_timeline.py",
+   "name": "tickets with no events read as a legitimate empty",
+   "find": "    if ids and not ev:",
+   "replace": "    if False:"},
+
+  {"file": "tools/show_timeline.py",
+   "name": "a note naming an unlinked ticket is not marked",
+   "find": "            shown = f\"{Y}{ref} ✗{OFF}\"\n            unmatched += 1",
+   "replace": "            shown = ref"},
+
+  {"file": "tools/show_timeline.py",
+   "name": "the ZD- prefix defeats the note join",
+   "find": "        digits = \"\".join(c for c in ref if c.isdigit())",
+   "replace": "        digits = ref"},
+
+  {"file": "client/index.html",
+   "name": "a failed window switch keeps quiet again",
+   "find": "          state.insightsError = `Could not recompute for ${w} — the server `\n            + `returned ${resp.status}. The figures below are still the `\n            + `previous window's.`;",
+   "replace": "          ;"},
+
+  {"file": "client/index.html",
+   "name": "the panel stops saying which window it is showing",
+   "find": "            <div class=\"insight-window ${_stale ? 'stale' : ''}\">${",
+   "replace": "            <div class=\"insight-window ${_stale ? 'stale' : ''}\" hidden>${"},
+
+  {"file": "client/index.html",
+   "name": "windowDays guesses a number for an unparseable string",
+   "find": "  if (!m) return null;",
+   "replace": "  if (!m) return 30;"},
+
+  {"file": "client/index.html",
+   "name": "a ZD ref goes into href verbatim again",
+   "find": "      const isZd  = /^ZD-?\\d+$/i.test(ref);",
+   "replace": "      const isZd  = false;"}
+]

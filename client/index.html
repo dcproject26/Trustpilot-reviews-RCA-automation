@@ -379,6 +379,16 @@
     border-top: 1px dashed var(--border); font-size: 11.5px;
     color: var(--amber); line-height: 1.5;
   }
+  /* The window the figures below were actually computed for. First row of the
+     grid on purpose: a count means nothing without the range it covers, and
+     the picker above states an intention, not a result. */
+  .insight-window {
+    grid-column: 1 / -1; order: -1; font-size: 10.5px; color: var(--muted-2);
+    font-family: var(--mono); margin-bottom: 2px;
+  }
+  .insight-window.stale {
+    color: var(--amber); font-family: var(--sans); font-weight: 600;
+  }
 
   /* classification */
   .classify-block {
@@ -1021,6 +1031,12 @@
     font-family: var(--mono); font-size: 10px; color: var(--dim);
     margin-left: 6px;
   }
+  /* The row the evidence came from - a ticket id, a booking id, the window a
+     count covers. The source rail names the system; this names the record. */
+  .ev-ref {
+    font-family: var(--mono); font-size: 10px; color: var(--dim);
+    margin-left: 6px; white-space: nowrap;
+  }
 
   .chip-sop-sel  { max-width: 130px; font-size: 11px; }
   .chip-team-sel { max-width: 13ch; font-size: 10px; }
@@ -1339,6 +1355,16 @@ function mapSupportFrame(f) {
 // the panel kept the previous window's numbers under the previous window's
 // label. Every symptom of a broken window picker, with a working request
 // behind it.
+// "90d" -> 90. Mirrors _WINDOWS in server/services/insights.py, and exists so
+// the panel can compare the window it ASKED for against the one the payload
+// says it got. Unknown strings return null rather than a guess: claiming a
+// mismatch on a window we cannot parse would be its own false alarm.
+function windowDays(w) {
+  const m = /^(\d+)\s*([dwm])$/i.exec(String(w || '').trim());
+  if (!m) return null;
+  return Number(m[1]) * {d: 1, w: 7, m: 30}[m[2].toLowerCase()];
+}
+
 function unwrapInsights(payload) {
   if (!payload || typeof payload !== 'object') return null;
   if (payload.insights && typeof payload.insights === 'object') return payload.insights;
@@ -1637,6 +1663,10 @@ const state = {
   dssEdit: false,
   rawErrOpen: {},
   insightsWindow: '90d',
+  // Why the last window switch did not produce numbers, or ''. A failed switch
+  // used to be a console line only, so on screen it was identical to a switch
+  // that had worked and returned the same figures.
+  insightsError: '',
   // Which RCA sections go into the Slack thread post. All on by default;
   // unticking one drops it from the generated text.
   // Slack post section choices, keyed BY REVIEW ID. A single global map
@@ -2235,6 +2265,23 @@ function renderReviewCol() {
       <div class="insights-wrap">
         ${r.liveInsights ? (() => {
           const li = r.liveInsights;
+          // Which window these numbers are ACTUALLY for, from the same payload
+          // that carried them. The picker is a request; this is the answer.
+          //
+          // "the figures should be updating on the basis of the date window
+          // but its not" — and there was no way to tell, from the panel, which
+          // of the three layers had not updated: the click, the request, or
+          // the query. Every tile read the same whether the switch had worked
+          // or silently done nothing, which is this codebase's first rule
+          // broken in the place it costs most, because the numbers are what
+          // an RCA's "pattern" bullets are built on.
+          //
+          // So the window travels WITH the numbers. If it disagrees with the
+          // button, the panel says so instead of putting fresh labels over
+          // stale figures.
+          const _wantD = windowDays(state.insightsWindow);
+          const _gotD  = li._window_days;
+          const _stale = _gotD != null && _wantD != null && _gotD !== _wantD;
           // rating_15d / rating_30d are back-compat aliases: the server sends
           // TGID in the first and TID.VID in the second. They are SCOPES, not
           // windows - the window is whatever the picker above is set to.
@@ -2333,6 +2380,14 @@ function renderReviewCol() {
           const sd = li.same_day || {};
 
           return `<div class="insights-grid">
+            <div class="insight-window ${_stale ? 'stale' : ''}">${
+              li._window_label ? esc(li._window_label)
+                               : (_gotD != null ? `last ${_gotD} days`
+                                                : 'window not recorded')
+            }${_stale ? ` — you picked ${esc(state.insightsWindow)}; these `
+                      + `figures were not recomputed for it` : ''}</div>
+            ${state.insightsError
+              ? `<div class="insight-note">${esc(state.insightsError)}</div>` : ''}
             ${_why ? `<div class="insight-note">${_why}</div>` : ''}
 
             ${_grp('Is this issue recurring here?')}
@@ -2494,13 +2549,38 @@ function renderReviewCol() {
       // itself and answers with _zeroed_because when it cannot, which is a
       // result worth rendering rather than a reason not to ask.
       if (!r) return;
+      state.insightsError = '';
       try {
         const resp = await fetch(`/api/reviews/${r.id}/insights?window=${encodeURIComponent(w)}`);
         if (resp.ok) {
           const ins = unwrapInsights(await resp.json());
-          if (ins) r.liveInsights = ins;
+          // Three ways this call produces nothing new, and they used to be one
+          // silent path: the request failed, it succeeded with a body this
+          // client cannot read, or it succeeded and answered for a different
+          // window. All three leave the previous window's figures on screen,
+          // which is the state the user reported as "the figures should be
+          // updating on the basis of the date window but its not". Each says
+          // which one it was.
+          if (ins) {
+            r.liveInsights = ins;
+            const got = ins._window_days, want = windowDays(w);
+            if (got != null && want != null && got !== want) {
+              state.insightsError = `Asked for ${w}, the server answered for `
+                + `${got} days. The figures below are for ${got} days.`;
+            }
+          } else {
+            state.insightsError = 'The server answered, but not in a shape this '
+              + 'page can read — the figures below are the previous window\'s.';
+          }
+        } else {
+          state.insightsError = `Could not recompute for ${w} — the server `
+            + `returned ${resp.status}. The figures below are still the `
+            + `previous window's.`;
         }
       } catch (e) {
+        state.insightsError = `Could not reach the server to recompute for ${w}`
+          + ` (${e && e.message ? e.message : e}). The figures below are still `
+          + `the previous window's.`;
         // Say something. A bare "keep what is on screen" catch is what let a
         // ReferenceError in this block masquerade as a broken window picker
         // for as long as it did: the request worked, the reply was dropped on
@@ -3512,12 +3592,30 @@ function renderRcaCol() {
     const evRow = (i, j, e) => {
       const o = (e && typeof e === 'object') ? e : {text: e, source: null, ref: null};
       const src = o.source ? String(o.source) : '';
+      // The rail says WHICH system; the ref says which row in it, and without
+      // the second the reader has been told where to look and not what to
+      // open. A ZD-xxxxx is not a URL - it went into href= verbatim and
+      // produced a relative link to a page that does not exist, so a ticket
+      // reference the model DID supply looked exactly like one it had not.
+      const ref = o.ref ? String(o.ref).trim() : '';
+      const isZd  = /^ZD-?\d+$/i.test(ref);
+      const isUrl = /^https?:\/\//i.test(ref);
       const rail = src
-        ? (o.ref ? `<a href="${esc(o.ref)}" target="_blank" rel="noopener" title="${esc(o.ref)}">${esc(src)}</a>` : esc(src))
+        ? (isUrl
+             ? `<a href="${esc(ref)}" target="_blank" rel="noopener" title="${esc(ref)}">${esc(src)}</a>`
+             : esc(src))
         : '—';
+      // Non-URL refs - a ticket id, a booking id, the insights window - are
+      // shown as text beside the row rather than dropped. They are the answer
+      // to "where is this from", which is the question the source rail alone
+      // kept prompting.
+      const refTag = !ref ? ''
+        : isZd  ? ` <span class="ev-ref">${zdLink(ref)}</span>`
+        : isUrl ? ''
+        : ` <span class="ev-ref" title="where this came from">${esc(ref)}</span>`;
       return `<div class="ev-row">
         <span class="ev-src${src ? '' : ' none'}" title="${esc(src || 'no source recorded')}">${rail}</span>
-        <span class="ev-text">${edSpan(`what_went_wrong.guest_issues.${i}.evidence.${j}.text`, o.text || '', 'click to write the finding')}</span>
+        <span class="ev-text">${edSpan(`what_went_wrong.guest_issues.${i}.evidence.${j}.text`, o.text || '', 'click to write the finding')}${refTag}</span>
         <button class="x-del" data-ev-del="${i}:${j}" title="remove this evidence row">×</button>
       </div>`;
     };

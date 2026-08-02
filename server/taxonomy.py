@@ -610,20 +610,8 @@ SUPPORT_TAG_MAP = {
         "Payment Failure  3ds Failure",                              #   916
     ],
 
-    # Left unmapped on purpose - no tag in the vocabulary means these, and
-    # mapping them to something adjacent would invent history:
-    #   Operations Issue / Customer Support Issues   the guest contacts us
-    #       ABOUT something; being unhappy with the handling is not a contact
-    #       reason, so no tag records it
-    #   Venue Related / Venue facility issue         no facility tag exists
-    #   Venue Related / Venue Overcrowding (Venue)   no queue or crowd tag
-    #   External Factor / Venue Overcrowding (External)
-    #   External Factor / Customer Late
-    #   External Factor / Sold Free / Discounted Admission
-    #   External Factor / Rating Mismatch            a review-only concept
-    #   External Factor / Gibberish / Profanity      a review-only concept
-    #   Miscellaneous / Vague review, Negative Headout, General negative exp
-    #       all three describe a REVIEW, not a reason for contacting support
+    # Deliberately unmapped pairs are DATA, not a comment - see
+    # SUPPORT_TAGS_NOT_APPLICABLE below.
 
     ("Operations Issue", "Content - Instructions not clear / Misleading Info"): {
         "like_any": [
@@ -631,6 +619,54 @@ SUPPORT_TAG_MAP = {
         ],
     },
 }
+
+
+# Pairs with no support tag ON PURPOSE, and the reason for each.
+#
+# This was a comment. The card said "no support-tag mapping for Operations
+# Issue / Customer Support Issues - support contacts not compared", which reads
+# as a thing somebody forgot to do, and it is not: there is no contact-reason
+# tag for "unhappy with how we handled it", because that is not why anyone
+# opens a ticket. A deliberate absence and an unfilled gap produced the same
+# sentence - the failure this codebase's first rule is about, in the other
+# direction: a correct run reported as a broken one.
+#
+# Mapping any of these to an adjacent tag would invent history, so the answer
+# is not to fill them in. It is to say WHY the comparison cannot be made.
+SUPPORT_TAGS_NOT_APPLICABLE = {
+    ("Operations Issue", "Customer Support Issues"):
+        "guests contact us ABOUT something; being unhappy with the handling is "
+        "not a contact reason, so no tag records it",
+    ("Venue Related Issue", "Venue facility issue"):
+        "the contact-reason vocabulary has no facility tag",
+    ("Venue Related Issue", "Venue Overcrowding (Venue)"):
+        "the contact-reason vocabulary has no queue or crowd tag",
+    ("External Factor", "Venue Overcrowding (External)"):
+        "the contact-reason vocabulary has no queue or crowd tag",
+    ("External Factor", "Customer Late"):
+        "arriving late is not something guests raise a ticket about",
+    ("External Factor", "Sold Free / Discounted Admission"):
+        "no contact-reason tag records what the venue charged at the door",
+    ("External Factor", "Rating Mismatch"):
+        "this describes a review, not a reason for contacting support",
+    ("External Factor", "Gibberish / Profanity"):
+        "this describes a review, not a reason for contacting support",
+    ("Miscellaneous Issue", "Vague review"):
+        "this describes a review, not a reason for contacting support",
+    ("Miscellaneous Issue", "Negative Headout"):
+        "this describes a review, not a reason for contacting support",
+    ("Miscellaneous Issue", "General negative exp"):
+        "this describes a review, not a reason for contacting support",
+}
+
+
+def support_tags_not_applicable(l1: str, l2: str) -> str:
+    """Why this pair has no support-tag mapping, or "" if that is a real gap.
+
+    "" is not "no reason" - it means the absence is unexplained, which is a
+    different fact from an explained one and has to stay tellable apart.
+    """
+    return SUPPORT_TAGS_NOT_APPLICABLE.get((l1 or "", l2 or ""), "")
 
 
 def support_tags_for(l1: str, l2: str):

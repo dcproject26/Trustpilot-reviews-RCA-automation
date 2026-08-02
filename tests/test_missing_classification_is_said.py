@@ -298,12 +298,30 @@ def test_the_pipeline_actually_calls_it():
 from server.pipeline import tone_entry                            # noqa: E402
 
 
+def _async_returning(value):
+    async def _f(*a, **k):
+        return value
+    return _f
+
+
 def test_a_reply_written_against_approved_replies_says_so():
     e = tone_entry([{"situation": "s", "response": "r"}], "Experience Issues",
                    "Meeting Point Issues", None)
     assert e["mark"] == "pass"
     assert "1 approved macro" in e["text"]
-    assert "Experience Issues / Meeting Point Issues" in e["text"]
+    assert "tone only" in e["text"]
+
+
+def test_the_matched_line_stays_short():
+    """The healthy case is the one every card shows, so it is the one that must
+    not sprawl. It read as four lines restating an unremarkable success — the
+    classification, the source, the count and the closest macro — on a card
+    whose actual subject is a guest's complaint."""
+    e = tone_entry([{"situation": "Refund delay", "response": "r"}],
+                   "Experience Issues", "Meeting Point Issues", None)
+    assert len(e["text"].split()) <= 16, e["text"]
+    assert "Experience Issues" not in e["text"], \
+        "the classification has its own trail line; twice is not clearer"
 
 
 def test_no_matching_macro_leaves_the_reply_blank_on_purpose():
@@ -371,10 +389,61 @@ def test_the_three_ways_to_have_no_tone_read_differently():
     assert len(texts) == 3, "two of the three read the same"
 
 
-def test_the_pipeline_calls_it():
+# Every text tone_entry can return starts with one of these. api.py's trail
+# rebuild strips the tone line by the same prefixes, so if one is ever renamed
+# both places fail together rather than one silently keeping a stale copy.
+TONE_PREFIXES = ("<strong>Reply voice",
+                 "<strong>No approved macro",
+                 "<strong>The reply is an approved macro")
+
+
+def test_the_pipeline_calls_it(live_db, monkeypatch):
+    """Driven, not grepped.
+
+    A validator wired into no path looks exactly like one that works — the
+    first of the three failures CLAUDE.md opens with. This ran process_review
+    over a real (throwaway) database and reads the trail it actually wrote, so
+    deleting the call fails here even if the source line survives.
+    """
+    db = live_db
+    s = db.SessionLocal()
+    try:
+        s.add(db.Review(id="tp_tone_1", slack_ts="9.0", slack_channel="C1",
+                        rating=1, author="Tone Test",
+                        body_original="the meeting point was wrong",
+                        reference_number=None, status="new"))
+        s.commit()
+    finally:
+        s.close()
+
+    import importlib
+    import server.pipeline as P
+    importlib.reload(P)
+    monkeypatch.setattr(P, "verify_bid", lambda bid: None, raising=False)
+
+    try:
+        asyncio.run(P.process_review("tp_tone_1"))
+    except Exception:
+        pass                      # later steps may fail; the trail is the point
+
+    s = db.SessionLocal()
+    try:
+        d = s.query(db.RcaDraft).filter(
+            db.RcaDraft.review_id == "tp_tone_1").first()
+        assert d is not None, "no draft row at all — the run never got that far"
+        texts = [str((t or {}).get("text", "")) for t in (d.confidence_trail or [])]
+        assert any(t.startswith(TONE_PREFIXES) for t in texts), (
+            "no tone line in the trail the pipeline wrote — the reply's "
+            f"provenance is invisible again. Trail was: {texts}")
+    finally:
+        s.close()
+
+
+def test_the_tone_sentence_is_not_inlined():
+    """Negative assertion — a string that appears nowhere cannot be defeated by
+    unreachability, which is the one thing source checks are good for."""
     src = open("server/pipeline.py", encoding="utf-8").read()
     body = src[src.find("async def process_review("):]
-    assert "tone_entry(canned_list or [], l1, l2, _tone_err,\n                                     last_failure_reason(), last_source())" in body
     assert "model's own voice" not in body, "the sentence was inlined"
 
 
@@ -746,21 +815,64 @@ def test_a_macro_with_no_situation_does_not_render_empty_quotes():
     assert "“”" not in e["text"]
 
 
-def test_the_reply_voice_names_which_copy_it_used():
-    """"written against 3 approved replies" is true of both the live sheet and
-    the checked-in macros, and someone who just edited the sheet needs to know
-    which one they are reading."""
-    e = tone_entry([{"situation": "s", "response": "r"}], "Experience Issues",
-                   "Meeting Point Issues", None, "", "the live sheet")
-    assert "from the live sheet" in e["text"], e["text"]
-
-
-def test_the_voice_line_names_the_checked_in_copy_too():
+def test_a_sheet_that_failed_to_load_still_reaches_the_card():
+    """The one thing the trim must not take with it. Callers pass a source only
+    when it is standing in for one that failed, so anything that arrives here
+    is news and is printed."""
     e = tone_entry([{"situation": "s", "response": "r"}], "A", "B", None, "",
                    "the checked-in macros — the live sheet could not be read")
     assert "checked-in macros" in e["text"]
     assert "could not be read" in e["text"], \
         "a missed refresh is invisible on the card"
+
+
+def test_the_ordinary_run_says_nothing_about_sources():
+    """No sheet configured is the design, not a fallback from it. Printing it
+    put a provenance note on every healthy card, which is what the user asked
+    to be rid of."""
+    e = tone_entry([{"situation": "s", "response": "r"}], "A", "B", None)
+    assert "macros" not in e["text"].replace("approved macro", "")
+    assert "sheet" not in e["text"]
+
+
+def test_a_sheet_that_loaded_fine_is_not_flagged_as_a_stand_in(monkeypatch):
+    """The guard that keeps the line off healthy cards lives in canned.py, so
+    it is checked there rather than assumed at the caller."""
+    import server.services.canned as C
+    monkeypatch.setattr(C, "is_live", lambda s: True)
+    monkeypatch.setattr(C, "_fetch_rows",
+                        _async_returning([{"situation": "s", "response": "r",
+                                           "tab": "TP"}]))
+    monkeypatch.setattr(C, "_cache_rows", [], raising=False)
+    monkeypatch.setattr(C, "_cache_at", 0, raising=False)
+    asyncio.run(C._get_rows())
+    assert C.last_source() == "the live sheet"
+    assert C.source_is_degraded() is False
+
+
+def test_a_sheet_that_raised_is_flagged_as_a_stand_in(monkeypatch):
+    import server.services.canned as C
+
+    async def _boom(*a, **k):
+        raise RuntimeError("403")
+
+    monkeypatch.setattr(C, "is_live", lambda s: True)
+    monkeypatch.setattr(C, "_fetch_rows", _boom)
+    monkeypatch.setattr(C, "_cache_rows", [], raising=False)
+    monkeypatch.setattr(C, "_cache_at", 0, raising=False)
+    asyncio.run(C._get_rows())
+    assert C.source_is_degraded() is True
+    assert "could not be read" in C.last_source()
+
+
+def test_no_sheet_configured_is_not_a_stand_in(monkeypatch):
+    import server.services.canned as C
+    monkeypatch.setattr(C, "is_live", lambda s: False)
+    monkeypatch.setattr(C, "_cache_rows", [], raising=False)
+    monkeypatch.setattr(C, "_cache_at", 0, raising=False)
+    asyncio.run(C._get_rows())
+    assert C.source_is_degraded() is False, \
+        "a setting is not a fault; flagging it warns on every healthy card"
 
 
 def test_the_voice_line_is_still_a_sentence_with_no_source():
@@ -788,10 +900,10 @@ def test_the_untraceable_macro_is_not_reported_as_an_unclassified_failure():
 def test_the_source_is_not_said_twice():
     """A real card read "from the checked-in macros — no live sheet is
     configured — running on the checked-in macros". The caller already names
-    the copy; the reason must not name it again."""
-    import server.services.canned as C
+    the copy; the reason must not name it again. Still true on the degraded
+    path, which is the only one that prints a source at all now."""
     e = tone_entry([{"situation": "s", "response": "r"}], "A", "B", None, "",
-                   "the checked-in macros — no live sheet is configured")
+                   "the checked-in macros — the live sheet could not be read")
     assert e["text"].count("checked-in macros") == 1, e["text"]
 
 

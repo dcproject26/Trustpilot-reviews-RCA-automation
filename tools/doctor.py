@@ -186,6 +186,26 @@ def check_canned():
             f"Read: {sorted(tabs)}\nThis dashboard drafts Trustpilot replies, "
             f"so the tone reference is from the wrong channel.")
 
+    # The L1/L2 filing is a join on a hand-typed string. A key with one
+    # character out scores nothing and looks exactly like a macro that simply
+    # did not win, so the misses are counted here rather than left to be
+    # noticed on a card.
+    cov = C.macro_l1l2_coverage()
+    bad, gap = cov["keys_matching_no_macro"], cov["macros_with_no_mapping"]
+    detail = (f"{cov['joined']} of {cov['mapped']} mapped situations match a "
+              f"real macro; {cov['macros'] - cov['joined']} of "
+              f"{cov['macros']} TP macros have no L1/L2 filing")
+    if bad:
+        say(B, f"{len(bad)} L1/L2 mapping key(s) match NO macro",
+            detail + "\nThese score nothing and are invisible on a card:\n  "
+            + "\n  ".join(bad[:6]))
+    elif gap:
+        say(N, f"{len(gap)} TP macro(s) have no L1/L2 filing",
+            detail + "\nThey can still win on word overlap, just not on "
+                     "category:\n  " + "\n  ".join(gap[:6]))
+    else:
+        say(W, "every TP macro is filed under an L1/L2", detail)
+
 
 # ── 4. everything else that the pipeline calls ──────────────────────────────
 

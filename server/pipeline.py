@@ -297,13 +297,23 @@ def tone_entry(canned_list: list, l1: str, l2: str, err: Exception | None,
                 f"for word rather than drafted. Only the guest's first name is "
                 f"filled in. Nothing here was generated."}
     if canned_list and l1 and l2:
+        # Short. A match is not news — it is the expected case, and four lines
+        # explaining a normal outcome is the same over-writing the RCA rules
+        # exist to stop. The macro is named because it is checkable; where the
+        # macros came from is not, unless it is the answer to a question.
+        #
+        # The exception, and the reason `source` did not simply go away: a
+        # sheet somebody edited this morning that silently failed to load is
+        # invisible otherwise, and the card would read exactly as it does on a
+        # healthy run. Callers pass a source ONLY when it is standing in for
+        # one that failed (canned.source_is_degraded), so anything arriving
+        # here is news by construction.
         top = (canned_list[0] or {}).get("situation") or ""
         return {"mark": "pass", "text":
-                f"<strong>Reply voice</strong> — written against "
-                f"{len(canned_list)} approved macro(s) for {l1} / {l2}, as tone "
-                f"only"
-                + (f", closest: “{top}”" if top else "")
-                + (f", from {source}." if source else ".")}
+                f"<strong>Reply voice</strong> — {len(canned_list)} approved "
+                f"macro(s), tone only"
+                + (f". Closest: “{top}”." if top else ".")
+                + (f" Using {source}." if source else "")}
 
     if canned_list:
         # Rows came back, so this is not the empty case — but L1/L2 are worth
@@ -1939,9 +1949,13 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 canned_list = []
                 _tone_err = e
                 log.warning(f"[pipeline] canned tone lookup failed: {e}")
-            from server.services.canned import last_failure_reason, last_source
+            from server.services.canned import (last_failure_reason,
+                                                last_source,
+                                                source_is_degraded)
             _tone_entry = tone_entry(canned_list or [], l1, l2, _tone_err,
-                                     last_failure_reason(), last_source())
+                                     last_failure_reason(),
+                                     last_source() if source_is_degraded()
+                                     else "")
             if _tone_entry:
                 confidence_trail.append(_tone_entry)
             rca_v3 = await claude.generate_rca_v3(

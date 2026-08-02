@@ -1802,18 +1802,33 @@ async def find_bids_by_text(
 
 def _clip(text: str, n: int) -> str:
     """
-    Hard-cap a model-written string, regardless of what the prompt asked for.
+    Backstop against runaway model output. NOT a length policy.
 
-    The prompt tells the model to keep summaries to one sentence under 120
-    characters, and on a chat transcript it wrote two clauses and went past
-    it - a length rule is a request the model can ignore under enough
-    pressure to fit competing content in, not a guarantee. This is the
-    guarantee: whatever comes back, the renderer never receives more than
-    this many characters, so a layout built for a short label or summary
-    cannot be blown out by one verbose response.
+    It was a length policy, at 110 characters for summaries, and it cut real
+    sentences mid-word: "agent cited non-cancellable p...". The reader is then
+    guessing at the half that is missing, which costs more than a long line
+    ever did — and the justification (a narrow column) had stopped being true;
+    .tl-summary wraps.
+
+    So the caps are now set where only genuinely runaway output reaches them,
+    and three things changed about how a cut is done:
+
+      * it breaks at a word boundary, because a word cut in half is unreadable
+        in a way a sentence cut between words is not;
+      * it says the cut is OURS. A bare "…" is exactly how a model trails off,
+        so a truncation was indistinguishable from the model's own phrasing —
+        the reader could not tell whether there was more text or not;
+      * a label still gets a short cap, because a label IS a header and a
+        forty-word one breaks the row it sits in.
     """
     text = str(text or "").strip()
-    return text if len(text) <= n else text[: n - 1].rstrip() + "…"
+    if len(text) <= n:
+        return text
+    cut = text[:n]
+    space = cut.rfind(" ")
+    if space > n * 0.6:            # only if it does not gut the string
+        cut = cut[:space]
+    return cut.rstrip(" ,;:-") + f" […cut at {n} chars]"
 
 
 def _fallback_shape(raw_events: list) -> list:
@@ -2017,15 +2032,18 @@ async def _shape_via_claude(
             "time_sort": time_sort,
             "thread":  thread,
             "actor":   actor,
-            # Capped independently of the prompt's own instruction - see _clip.
-            # A label is a header word or two; 60 is generous for that and
-            # still short enough that four of them plus a thread pill and a
-            # ticket link fit a narrow column without forcing the wrap the
-            # screenshot showed. Summaries are telegraph phrases with a
-            # 100-char instruction, so 110 leaves headroom for a near-miss
-            # while anything the cap actually cuts was already twice over.
+            # A label is a header word or two and 60 keeps the row intact.
+            #
+            # The summary is not a header, it is the content, and 110 was
+            # cutting real sentences in half — "agent cited non-cancellable
+            # p...". 600 is a backstop against a model that pastes a whole
+            # transcript, not a house style; the prompt asks for short
+            # telegraphic phrases and a well-behaved summary never comes near
+            # it. A summary that reads badly should be fixed in the prompt,
+            # where the model can write a shorter COMPLETE one, not with
+            # scissors here, which only ever produces an incomplete one.
             "label":   _clip(ev.get("label", ""), 60),
-            "summary": _clip(ev.get("summary", ""), 110),
+            "summary": _clip(ev.get("summary", ""), 600),
             "ticket_id": next((s.get("ticket_id") for s in srcs if s.get("ticket_id")), ""),
             "is_internal":     is_internal,
             "internal_reason": internal[0].get("internal_reason", "") if is_internal else "",

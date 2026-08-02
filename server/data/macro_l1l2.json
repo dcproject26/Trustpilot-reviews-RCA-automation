@@ -1,0 +1,318 @@
+{
+  "account deletion": [
+    "Miscellaneous Issue",
+    "Negative Headout"
+  ],
+  "alternative sign-off responses (positive)": [
+    "Miscellaneous Issue",
+    "General negative exp"
+  ],
+  "audio guide issue (not working - sent new ones before dov)": [
+    "Product Issue",
+    "Audio Guide Issues"
+  ],
+  "audio guide issue - ( not working - initiated a partial refund post dov )": [
+    "Product Issue",
+    "Audio Guide Issues"
+  ],
+  "audio guide issue - ( quality poor)": [
+    "Product Issue",
+    "Audio Guide Issues"
+  ],
+  "cancellation/ modification request - partnered sp ( asking for more time )": [
+    "Operations Issue",
+    "Customer Support Issues"
+  ],
+  "charge back/ dispute raised by guest": [
+    "Miscellaneous Issue",
+    "Negative Headout"
+  ],
+  "clarification on the issue - need more info from guest ( bad experience )": [
+    "Miscellaneous Issue",
+    "Vague review"
+  ],
+  "concierge booking": [
+    "Miscellaneous Issue",
+    "Negative Headout"
+  ],
+  "confusion with tickets and voucher": [
+    "Operations Issue",
+    "Content - Instructions not clear / Misleading Info"
+  ],
+  "convenience fee - service fee mentioned on checkout": [
+    "Business Issue",
+    "Pricing Issues"
+  ],
+  "convenience fee - service fee not mentioned on checkout": [
+    "Business Issue",
+    "Pricing Issues"
+  ],
+  "conversion fee": [
+    "Business Issue",
+    "Pricing Issues"
+  ],
+  "customer error (guest missed the tour) - arrived late (adding hoc )": [
+    "External Factor",
+    "Customer Late"
+  ],
+  "customer error (guest missed the tour) - missed intructions (adding hoc )": [
+    "External Factor",
+    "Customer Error"
+  ],
+  "customer error (missed the tour/arrived late at mp ) - issuing 100% hoc as exception (when sp denied refund)": [
+    "External Factor",
+    "Customer Late"
+  ],
+  "customer error (missed the tour/arrived late at mp ) - issuing partial refund as exception (when sp denied refund)": [
+    "External Factor",
+    "Customer Late"
+  ],
+  "customer error (missed the tour/arrived late at mp ) - offering hoc": [
+    "External Factor",
+    "Customer Late"
+  ],
+  "customer unable to trace booking": [
+    "Operations Issue",
+    "Customer Support Issues"
+  ],
+  "delay fulfillment / unfulfilled booking - refunding the guest": [
+    "Operations Issue",
+    "Ticket Issues"
+  ],
+  "delay in fulfillment - tickets cannot be sent ( refunding + adding credits )": [
+    "Operations Issue",
+    "Ticket Issues"
+  ],
+  "delay in fulfillment - tickets just sent": [
+    "Operations Issue",
+    "Ticket Issues"
+  ],
+  "delay in fulfillment - tickets not sent ( providing eta )": [
+    "Operations Issue",
+    "Ticket Issues"
+  ],
+  "delay in refund - adding hoc as promised": [
+    "Operations Issue",
+    "Customer Support Issues"
+  ],
+  "delay in refund - ops/ finance miss": [
+    "Operations Issue",
+    "Customer Support Issues"
+  ],
+  "delay in refund -paypal escalation ( refund done)": [
+    "Operations Issue",
+    "Customer Support Issues"
+  ],
+  "delay in sending tickets/ future booking": [
+    "Operations Issue",
+    "Ticket Issues"
+  ],
+  "did not like the venue / unsatisfactory experience": [
+    "Miscellaneous Issue",
+    "General negative exp"
+  ],
+  "did not see the confirmation email and bought new tickets. (asking for proof of new tix)": [
+    "External Factor",
+    "Customer Error"
+  ],
+  "did not see the confirmation email and bought new tickets. (refunding as exception)": [
+    "External Factor",
+    "Customer Error"
+  ],
+  "existing map is not helpful - adding partial hoc ( guest attended the experience )": [
+    "Operations Issue",
+    "Meeting Point Issues"
+  ],
+  "fraudulent transactions - file a chargeback": [
+    "Miscellaneous Issue",
+    "Negative Headout"
+  ],
+  "future booking - re-assuring the guest that tickets sent are correct with redemption instructions": [
+    "Operations Issue",
+    "Ticket Issues"
+  ],
+  "generic refund - our error": [
+    "Operations Issue",
+    "Customer Support Issues"
+  ],
+  "guest arrived late at the venue (couldn't redeem tickets) - purchased new ones ( proof sent)": [
+    "External Factor",
+    "Customer Late"
+  ],
+  "guest claiming that our reviews is fake": [
+    "Miscellaneous Issue",
+    "Negative Headout"
+  ],
+  "guest error - refund as exception": [
+    "External Factor",
+    "Customer Error"
+  ],
+  "guest found a fake website - phishing scam": [
+    "Miscellaneous Issue",
+    "Negative Headout"
+  ],
+  "guest not able to access tickets - tickets already sent": [
+    "Operations Issue",
+    "Ticket Issues"
+  ],
+  "guided tour entry confusion": [
+    "Operations Issue",
+    "Content - Instructions not clear / Misleading Info"
+  ],
+  "hard push app - guest unhappy with accessing tickets on app": [
+    "Product Issue",
+    "App and Website Issues"
+  ],
+  "inclusions not met ( ho/sp error) - initating partial/full refund": [
+    "Operations Issue",
+    "Customer expectation mismatch"
+  ],
+  "incorrect tickets sent - guest requesting refund (experience date in past)": [
+    "Operations Issue",
+    "Ticket Issues"
+  ],
+  "incorrect tickets sent - guest requesting refund (guest contact before experience date)": [
+    "Operations Issue",
+    "Ticket Issues"
+  ],
+  "krakow booking - tour cancelled last minute as per nature of the venue": [
+    "Supply Partner Issue",
+    "Tour Cancelled by Operator"
+  ],
+  "krakow booking -staff behavior": [
+    "Supply Partner Issue",
+    "Guide Behaviour Issues"
+  ],
+  "offering dss - out of policy ( guest error - wrong date/time )": [
+    "External Factor",
+    "Customer Error"
+  ],
+  "our error - offered upgraded tickets": [
+    "Operations Issue",
+    "Ticket Issues"
+  ],
+  "our error - refund booking": [
+    "Operations Issue",
+    "Customer Support Issues"
+  ],
+  "overcrowded - generic ( providing coupon code )": [
+    "External Factor",
+    "Venue Overcrowding (External)"
+  ],
+  "overcrowded - why stl ( providing hoc )": [
+    "External Factor",
+    "Venue Overcrowding (External)"
+  ],
+  "pending refund - pending from finance": [
+    "Operations Issue",
+    "Customer Support Issues"
+  ],
+  "pending refund - wire transfer ( inactive bank account / paypal escalation )": [
+    "Operations Issue",
+    "Customer Support Issues"
+  ],
+  "pricing concern - no booking fee {where we haven't added any booking fees but we are still expensive than competition/venue/sp website}": [
+    "Business Issue",
+    "Pricing Issues"
+  ],
+  "priority entrance/escorted entry confusion - with audio guide and assistance of a host": [
+    "Operations Issue",
+    "Content - Instructions not clear / Misleading Info"
+  ],
+  "priority entrance/escorted entry confusion without audio guide": [
+    "Operations Issue",
+    "Content - Instructions not clear / Misleading Info"
+  ],
+  "reddit - untraceable": [
+    "Operations Issue",
+    "Customer Support Issues"
+  ],
+  "redemption issue - sp / venue denied booking eta of 48 hours": [
+    "Supply Partner Issue",
+    "Tour Cancelled by Operator"
+  ],
+  "refund request - out of policy ( we inform guest about the insurance add-on option for flexible cancellation on our website)": [
+    "External Factor",
+    "Customer Error"
+  ],
+  "refund status - generic": [
+    "Operations Issue",
+    "Customer Support Issues"
+  ],
+  "refund status - voided transactions": [
+    "Operations Issue",
+    "Customer Support Issues"
+  ],
+  "sp cancelled last minute - full refund+ hoc": [
+    "Supply Partner Issue",
+    "Tour Cancelled by Operator"
+  ],
+  "sp issue - meeting point issue// venue related issue / service issue": [
+    "Operations Issue",
+    "Meeting Point Issues"
+  ],
+  "sp tour cancellation - initiated a full refund": [
+    "Supply Partner Issue",
+    "Tour Cancelled by Operator"
+  ],
+  "tax - invoice issue": [
+    "Business Issue",
+    "Pricing Issues"
+  ],
+  "technical issue - refunding booking due to tech issues": [
+    "Product Issue",
+    "App and Website Issues"
+  ],
+  "ticket validity (trust issues) / open dated confusion / extended validity inquiries": [
+    "Operations Issue",
+    "Ticket Issues"
+  ],
+  "tickets being invalid - (asking for more time)": [
+    "Operations Issue",
+    "Ticket Issues"
+  ],
+  "to a customer asking for his/her tickets that have already been sent tickets (resend tickets)": [
+    "Operations Issue",
+    "Ticket Issues"
+  ],
+  "trust issues - assuring guest": [
+    "Miscellaneous Issue",
+    "Negative Headout"
+  ],
+  "trust issues - booking with us": [
+    "Miscellaneous Issue",
+    "Negative Headout"
+  ],
+  "trust issues - cx claims tickets invalid ( assuring cx before dov )": [
+    "Operations Issue",
+    "Ticket Issues"
+  ],
+  "trust issues - guest dov is in future": [
+    "Operations Issue",
+    "Ticket Issues"
+  ],
+  "uae war - venue closed {need more time/refund (tweak as per case)}": [
+    "External Factor",
+    "Force Majeure"
+  ],
+  "uae war refund ( flight cancellation )": [
+    "External Factor",
+    "Force Majeure"
+  ],
+  "uae war reschedule ( flight cancelled ): providing eta": [
+    "External Factor",
+    "Force Majeure"
+  ],
+  "vendor service issue - (guide/host not clear)": [
+    "Supply Partner Issue",
+    "Guide providing irrelevant/inexperienced/not clear"
+  ],
+  "venue closure - partial refund as a part of the venue was closed": [
+    "Venue Related Issue",
+    "Venue closure"
+  ],
+  "venue closure - when we miss informing guest about closure": [
+    "Operations Issue",
+    "Content - Instructions not clear / Misleading Info"
+  ]
+}

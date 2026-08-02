@@ -1370,9 +1370,11 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
                       "text": f"<strong>RCA</strong> — {_html.escape(str(_n))}"})
     try:
         from server.pipeline import tone_entry
-        from server.services.canned import last_failure_reason, last_source
+        from server.services.canned import (last_failure_reason, last_source,
+                                            source_is_degraded)
         _te = tone_entry(canned_list or [], d.l1, d.l2, None,
-                         last_failure_reason(), last_source())
+                         last_failure_reason(),
+                         last_source() if source_is_degraded() else "")
         if _te:
             _kept.append(_te)
     except Exception as _e:

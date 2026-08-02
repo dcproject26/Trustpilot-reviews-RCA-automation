@@ -51,7 +51,7 @@ import logging
 from datetime import datetime, timezone
 
 from server.config import is_live, MOCK_MODE
-from server.taxonomy import support_tags_for
+from server.taxonomy import support_tags_for, support_tags_not_applicable
 
 log = logging.getLogger(__name__)
 
@@ -610,6 +610,15 @@ def _no_mapping_note(l1: str | None, l2: str | None, tail: str) -> str:
     Classification selects by hand. A '?' pointed at neither.
     """
     if l1 and l2:
+        # A third case, and the one that was reading as a bug. Some pairs have
+        # no contact-reason tag BY DESIGN — there is no ticket category for
+        # "unhappy with how we handled it", because nobody opens a ticket for
+        # that. Saying "no mapping" of a pair that is never going to have one
+        # reports a correct run as an unfinished one.
+        why = support_tags_not_applicable(l1, l2)
+        if why:
+            return (f"{tail} for {l2} — {why}. The reviews figures above are "
+                    f"unaffected")
         return f"no support-tag mapping for {l1} / {l2} - {tail}"
     missing = "L1 or L2" if not (l1 or l2) else ("L2" if l1 else "L1")
     return f"this review has no {missing} classification - {tail}"

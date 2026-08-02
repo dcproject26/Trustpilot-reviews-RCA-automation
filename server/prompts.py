@@ -1449,6 +1449,18 @@ that turned out fine is silence — never a line in the output.
    see this RCA on the hook for the fix.
 6. `evidence[].source` and `.ref` are structured fields. The `text` must contain no `[booking]`
    or `[insights]` prefix and no URL — put the identifier in `ref` and the origin in `source`.
+6a. `ref` IS NOT OPTIONAL WHEN ONE EXISTS. `source` names a system; `ref` is the row in it, and
+   without it the reader has been told where to look and not what to open.
+     source "zendesk"  → the ZD-xxxxx the fact came from. Every timeline event and every raw
+       ticket body above carries its ticket id, so this is always available. `null` here means
+       you did not take it from a ticket.
+     source "insights" → the window label the count covers, e.g. "90 days before 2026-08-04",
+       exactly as INSIGHTS states it. A count with no window is not checkable, and the window
+       is the thing that changes underneath it.
+     source "booking" / "bms" → the booking id.
+     source "dss"      → the DSS row URL.
+     source "exp-page" → null is correct; the page is the product config, not a row.
+   `null` is a claim that no identifier exists, not a shortcut for not looking one up.
 6b. When a disclosure claim is in play — the guest says they were not told something, or were
    told the wrong thing — check EVERY piece of guest-facing copy in the data, not just the first
    one that settles it: the experience page, the booking-in-progress email, the confirmation
@@ -1844,8 +1856,12 @@ findable; one you quietly corrected is not.
    No ticket IDs, no "[ZD-xxxxx]", no "(xN)".
 
 5. SUMMARIES - NOT sentences. 2-3 telegraphic phrases separated by "; ",
-   each phrase one fact. Hard limit 100 characters total. Drop articles,
-   subjects and connective prose; keep numbers, names, dates and outcomes:
+   each phrase one fact. Aim for about 100 characters, but FINISH THE
+   THOUGHT: a complete third phrase at 130 characters beats a phrase that
+   stops halfway at 100. Never trail off, never abbreviate a word to fit.
+   If it will not fit, drop a whole phrase rather than truncate one.
+   Drop articles, subjects and connective prose; keep numbers, names,
+   dates and outcomes:
      "1 Adult + 1 Reduced; PLN 73.73; no add-on selected"
      "no ticket URLs; vendor page timed out"
      "ref 1022394558263; valid to 22 Jul 2027"
