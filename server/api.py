@@ -1342,10 +1342,48 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
     # press.
     if "suggested_response" in rca_v3:
         d.suggested_response = rca_v3["suggested_response"] or ""
+
+    # THE TRAIL. This endpoint wrote none, so a draft regenerated here kept the
+    # trail from whenever it was last matched — and every disclosure the
+    # analysis produces was simply absent. Absent reads as "nothing to report".
+    #
+    # Seen on a real draft: rca_v3 rewritten by the current prompt, stamp
+    # updated, generated_at updated, stated_issue 61 words over its 60-word
+    # ceiling — and a three-line trail carrying only the match, with no
+    # coercion note and no reply-voice line anywhere.
+    #
+    # The matching half is kept: this endpoint did not re-match, so those
+    # entries are still true. The RCA half is rebuilt, because it just was.
+    import html as _html
+    _kept = [t for t in (d.confidence_trail or [])
+             if not str((t or {}).get("text", "")).startswith("<strong>RCA</strong>")
+             and not str((t or {}).get("text", "")).startswith("<strong>Reply voice")
+             and not str((t or {}).get("text", "")).startswith("<strong>No approved macro")
+             and not str((t or {}).get("text", "")).startswith("<strong>The reply is an approved macro")
+             and "This run has not finished" not in str((t or {}).get("text", ""))]
+    for _n in (rca_notes or []):
+        _kept.append({"mark": "warn",
+                      "text": f"<strong>RCA</strong> — {_html.escape(str(_n))}"})
+    try:
+        from server.pipeline import tone_entry
+        from server.services.canned import last_failure_reason, last_source
+        _te = tone_entry(canned_list or [], d.l1, d.l2, None,
+                         last_failure_reason(), last_source())
+        if _te:
+            _kept.append(_te)
+    except Exception as _e:
+        log.warning(f"[regenerate-rca] tone trail entry skipped: {_e}")
+    d.confidence_trail = _kept
     d.generated_at           = datetime.utcnow()
     for _col in ("rca_v3", "overlay_scenarios", "issue_specific_answers",
                  "checklist_answers", "area_of_improving",
                  "guest_issues", "sop_compliance", "booking_logs", "flags",
+                 # confidence_trail is a JSON column: SQLAlchemy compares by
+                 # object identity, so a rewritten trail that is not marked
+                 # dirty is dropped on commit without an error. That is the
+                 # same failure as never writing it — which is what this
+                 # endpoint did until a moment ago.
+                 "confidence_trail",
                  "takedown", "dss"):
         flag_modified(d, _col)
     db.commit()

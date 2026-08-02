@@ -311,3 +311,45 @@ def test_an_unavailable_model_is_disclosed_like_an_unavailable_warehouse():
     # the model and the RCA really is generated. Warning there would tell an
     # associate the analysis in front of them does not exist.
     assert "not MOCK_MODE and" in block[:120]
+
+
+def test_a_half_finished_run_says_so_on_the_row():
+    """The early match persist writes the MATCHING half of the trail and
+    replaces whatever a completed run left. generated_at is not touched until
+    the end, so a run that dies after matching leaves a draft that looks
+    finished — old timestamp, full rca_v3, every column populated — carrying a
+    three-line trail with every analysis disclosure simply absent. Absent
+    reads as "nothing to report".
+
+    Seen on a real draft: five entries including two warns, then three and no
+    warns, same generated_at, nothing in between but a re-run that did not
+    finish."""
+    i = PIPE.find("_d.confidence_trail   = list(confidence_trail)")
+    assert i != -1, "the early persist no longer marks itself as partial"
+    block = PIPE[i:i + 600]
+    assert '"mark": "warn"' in block, "a half-written run is not marked warn"
+    assert "has not finished" in block
+    assert "re-run the review" in block, "it does not say what to do"
+
+
+def test_the_final_save_replaces_the_partial_trail():
+    """The marker has to be removed by finishing, or every completed run
+    carries a warning that its analysis never ran — the inverse bug, and it
+    would train people to ignore the mark."""
+    i = PIPE.find("draft.confidence_trail     = confidence_trail")
+    assert i != -1, "the final save no longer writes the whole trail"
+    # The final save assigns the list itself, not an append, so the marker
+    # cannot survive a completed run.
+    assert "list(confidence_trail) + [" not in PIPE[i:i + 200], \
+        "the final save appends instead of replacing, so the marker persists"
+
+
+def test_the_two_writes_are_distinguishable():
+    """The whole point: a reader has to be able to tell a finished run from a
+    half-finished one by looking at the row."""
+    early = PIPE.find("_d.confidence_trail   = list(confidence_trail)")
+    final = PIPE.find("draft.confidence_trail     = confidence_trail")
+    assert early != -1 and final != -1
+    assert early < final, "the early persist must come first"
+    assert "has not finished" not in PIPE[final:final + 300], \
+        "the final save writes the partial marker too"

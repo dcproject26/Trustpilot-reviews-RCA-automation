@@ -537,6 +537,7 @@ def test_the_caught_exception_never_reaches_the_trail_text():
 import re as _re
 
 PIPE_SRC = open("server/pipeline.py", encoding="utf-8").read()
+API_TEXT = open("server/api.py", encoding="utf-8").read()
 
 
 def _verbatim_block():
@@ -617,3 +618,89 @@ def test_a_null_reply_clears_the_column_on_the_rca_only_path(app_env):
     _regenerate(db, api, rid, rca=dict(DIRTY_RCA, suggested_response=None))
     assert _reload(db, rid).suggested_response == "", \
         "the stale reply survived a deliberate blank"
+
+
+# ── the cheap re-run path writes a trail ────────────────────────────────────
+#
+# It wrote none. A draft regenerated here kept the trail from whenever it was
+# last MATCHED, so every disclosure the analysis produces was absent — and
+# absent reads as "nothing to report". Seen on a real draft: rca_v3 rewritten
+# by the current prompt, stamp and generated_at updated, stated_issue 61 words
+# over its 60-word ceiling, and a three-line trail carrying only the match.
+
+def _trail(db, rid):
+    return list(_reload(db, rid).confidence_trail or [])
+
+
+def test_regenerating_writes_the_validator_notes_to_the_trail(app_env):
+    db, api = app_env
+    rid = _seed(db)
+    _regenerate(db, api, rid, rca=dict(DIRTY_RCA, stated_issue="word " * 80))
+    texts = " ".join(t.get("text", "") for t in _trail(db, rid))
+    assert "over the 60-word ceiling" in texts, \
+        f"a coercion fired and the trail says nothing: {texts!r}"
+
+
+def test_regenerating_writes_a_reply_voice_line(app_env):
+    """tone_entry always returns something. Its absence means the whole
+    analysis half of the trail is missing."""
+    db, api = app_env
+    rid = _seed(db)
+    _regenerate(db, api, rid)
+    texts = " ".join(t.get("text", "") for t in _trail(db, rid))
+    assert ("Reply voice" in texts or "No approved macro" in texts
+            or "approved macro, sent as written" in texts), texts
+
+
+def test_the_matching_half_of_the_trail_survives(app_env):
+    """This endpoint does not re-match, so those entries are still true.
+    Wiping them would lose how the booking was found."""
+    db, api = app_env
+    rid = _seed(db)
+    s = db.SessionLocal()
+    try:
+        d = s.query(db.RcaDraft).filter(db.RcaDraft.review_id == rid).first()
+        d.confidence_trail = [{"mark": "pass",
+                               "text": "<strong>BID extracted</strong> via attachment"}]
+        s.commit()
+    finally:
+        s.close()
+    _regenerate(db, api, rid)
+    texts = " ".join(t.get("text", "") for t in _trail(db, rid))
+    assert "BID extracted" in texts, "the matching half was wiped"
+
+
+def test_regenerating_twice_does_not_stack_rca_entries(app_env):
+    """The RCA half is rebuilt each time. Appending instead would grow the
+    trail without bound and show the same coercion five times."""
+    db, api = app_env
+    rid = _seed(db)
+    dirty = dict(DIRTY_RCA, stated_issue="word " * 80)
+    _regenerate(db, api, rid, rca=dirty)
+    once = len([t for t in _trail(db, rid)
+                if "60-word ceiling" in t.get("text", "")])
+    _regenerate(db, api, rid, rca=dirty)
+    twice = len([t for t in _trail(db, rid)
+                 if "60-word ceiling" in t.get("text", "")])
+    assert once == twice == 1, (once, twice)
+
+
+def test_the_trail_survives_the_commit(app_env):
+    """confidence_trail is a JSON column and SQLAlchemy compares by identity,
+    so a rewritten trail that is not flag_modified is discarded on commit with
+    no error — the same result as never writing it. Every test above reads the
+    trail back from the database through a fresh session, which is the only
+    thing that can tell a written trail from a dropped one; this one pins the
+    round trip explicitly."""
+    db, api = app_env
+    rid = _seed(db)
+    _regenerate(db, api, rid, rca=dict(DIRTY_RCA, stated_issue="word " * 80))
+    db.SessionLocal().close()
+    fresh = db.SessionLocal()
+    try:
+        d = fresh.query(db.RcaDraft).filter(db.RcaDraft.review_id == rid).first()
+        texts = " ".join(t.get("text", "") for t in (d.confidence_trail or []))
+    finally:
+        fresh.close()
+    assert "60-word ceiling" in texts, \
+        "the trail was written in memory and dropped on commit"

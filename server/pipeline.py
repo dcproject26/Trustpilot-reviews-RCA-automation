@@ -1591,7 +1591,26 @@ async def process_review(review_id: str, force_candidates: bool = False):
             _d.match_method       = _m.get("method") or narrowing_path
             _d.candidates_list    = candidates
             _d.candidate_state    = candidate_state
-            _d.confidence_trail   = confidence_trail
+            # The trail written here is the MATCHING half only — the analysis
+            # has not run yet. It replaces whatever a previous completed run
+            # left, and `generated_at` is not touched until the end, so a run
+            # that dies after this point leaves a draft that looks finished
+            # (old timestamp, full rca_v3, every column populated) carrying a
+            # three-line trail. Every disclosure the analysis writes is simply
+            # absent, and absent reads as "nothing to report".
+            #
+            # Seen on a real draft: five trail entries including two warns,
+            # then three and no warns, same generated_at, nothing in between
+            # but a re-run that did not finish.
+            #
+            # The marker is removed by the final save, which writes the whole
+            # trail again. If it is still on the row, the run did not finish.
+            _d.confidence_trail   = list(confidence_trail) + [{
+                "mark": "warn",
+                "text": "<strong>This run has not finished</strong> — matching "
+                        "is done and the analysis is still running. Everything "
+                        "below the match is from the PREVIOUS run. If this line "
+                        "is still here, the run died: re-run the review."}]
             _d.bid_source         = bid_source
             _d.extracted_signals  = extracted_sigs or {}
             _d.narrowing_attempts = narrowing_attempts or []
