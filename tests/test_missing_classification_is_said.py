@@ -770,3 +770,16 @@ def test_the_voice_line_is_still_a_sentence_with_no_source():
     assert e["text"].rstrip().endswith(".")
     assert ", from" not in e["text"], e["text"]
     assert " ." not in e["text"], e["text"]
+
+
+def test_the_untraceable_macro_is_not_reported_as_an_unclassified_failure():
+    """It is selected by state and arrives with no L1/L2, so it would otherwise
+    fall through to "the sheet is keyed on L1/L2 and this review has neither" —
+    true, and entirely beside the point."""
+    e = tone_entry([{"situation": "Customer Unable to trace booking",
+                     "response": "x", "score": None,
+                     "why": "no booking was matched to this review"}],
+                   "", "", None, "", "the checked-in macros")
+    assert e["mark"] == "pass", e
+    assert "no booking was matched" in e["text"]
+    assert "this review has neither" not in e["text"]

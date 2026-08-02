@@ -659,3 +659,68 @@ def test_a_macro_is_scored_on_its_situation_not_its_reply_body():
         "a macro about coupons outscored one about meeting points"
     assert C._score_row(wrong, "", "", None, kw) == 0, \
         "the reply body is being scored"
+
+
+# ── the untraceable review ──────────────────────────────────────────────────
+#
+# A review whose booking we could not find has no classification to match on,
+# and the words "unable to trace" are OURS, not the guest's — the guest just
+# complains. Keyword matching was never going to bridge that, so an untraceable
+# review reached NO macro and got a blank reply, while the macro written for
+# exactly this case sat in the Trustpilot tab unused.
+
+def _untraceable(monkeypatch, text="terrible experience, nobody helped me"):
+    monkeypatch.setattr(C, "is_live", lambda s: False)
+    monkeypatch.setattr(C, "_cache_rows", [], raising=False)
+    monkeypatch.setattr(C, "_cache_at", 0, raising=False)
+    return asyncio.run(C.get_canned_responses("", "", None, text, untraceable=True))
+
+
+def test_an_untraceable_review_gets_the_trace_macro(monkeypatch):
+    got = _untraceable(monkeypatch)
+    assert got, "an untraceable review reached no macro at all"
+    assert "unable to trace" in got[0]["situation"].lower(), got[0]["situation"]
+
+
+def test_it_is_the_trustpilot_one(monkeypatch):
+    """Three channels have an unable-to-trace macro and they are different
+    replies. This dashboard sends via Trustpilot."""
+    assert C.TP_TAB_HINT in _untraceable(monkeypatch)[0]["tab"]
+
+
+def test_the_same_review_matches_nothing_when_it_is_traceable(monkeypatch):
+    """Proof the flag is what selects it, not the review text — otherwise this
+    passes for the wrong reason and the untraceable branch is still broken."""
+    monkeypatch.setattr(C, "is_live", lambda s: False)
+    monkeypatch.setattr(C, "_cache_rows", [], raising=False)
+    monkeypatch.setattr(C, "_cache_at", 0, raising=False)
+    assert asyncio.run(C.get_canned_responses(
+        "", "", None, "terrible experience, nobody helped me")) == []
+
+
+def test_the_untraceable_macro_says_why_it_was_chosen(monkeypatch):
+    """It was selected by state, not scored. A reader comparing it against the
+    classification would find no connection, so the reason travels with it."""
+    got = _untraceable(monkeypatch)
+    assert got[0]["why"] == "no booking was matched to this review"
+    assert got[0]["score"] is None, "it must not claim a match score it never earned"
+
+
+def test_a_classification_does_not_override_the_untraceable_macro(monkeypatch):
+    """An untraceable review can still carry a guess at L1/L2. The absent
+    booking is the more specific fact and the macro is written for it."""
+    monkeypatch.setattr(C, "is_live", lambda s: False)
+    monkeypatch.setattr(C, "_cache_rows", [], raising=False)
+    monkeypatch.setattr(C, "_cache_at", 0, raising=False)
+    got = asyncio.run(C.get_canned_responses(
+        "Experience Issues", "Meeting Point Issues", None,
+        "the meeting point was wrong", untraceable=True))
+    assert "unable to trace" in got[0]["situation"].lower(), got[0]["situation"]
+
+
+def test_the_pipeline_passes_the_untraceable_state():
+    """The flag can be perfect and never be set. Nothing else in the pipeline
+    knows whether a booking was found."""
+    src = open("server/pipeline.py", encoding="utf-8").read()
+    assert "untraceable=not booking" in src, \
+        "the untraceable state never reaches the macro lookup"

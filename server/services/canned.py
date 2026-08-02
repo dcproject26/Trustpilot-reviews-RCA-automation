@@ -504,11 +504,21 @@ def _score_row(row: dict, l1, l2, sub_theme, review_kw) -> int:
     return score
 
 
+# The macro for a review whose booking we could not find. It exists in the TP
+# tab and the untraceable path could not reach it: an untraceable review has no
+# booking, so usually no classification, so nothing to match on — and the words
+# "unable to trace" are OURS, not the guest's. The guest just complains; we are
+# the ones who cannot find the booking. Keyword matching was never going to
+# bridge that, so the state has to be passed in.
+_TRACE_MACRO = "unable to trace"
+
+
 async def get_canned_responses(
     l1: str | None,
     l2: str | None,
     sub_theme: str | None,
     review_text: str,
+    untraceable: bool = False,
 ) -> list[dict]:
     """
     Approved macros that actually apply, best first, or [] when none do.
@@ -522,6 +532,25 @@ async def get_canned_responses(
     rows = await _get_rows()
     if not rows:
         return []
+
+    # No booking found. There is a macro written for exactly this and it is the
+    # right answer whatever the review says, so it is selected directly rather
+    # than competed for on keywords it would lose.
+    if untraceable:
+        trace = [r for r in rows
+                 if _TRACE_MACRO in (r["situation"] or "").lower()]
+        on_tp = [r for r in trace if TP_TAB_HINT in (r.get("tab") or "")]
+        picked = on_tp or trace
+        if picked:
+            return [{"situation": r["situation"], "response": r["response"],
+                     "tab": r.get("tab", ""), "score": None,
+                     "why": "no booking was matched to this review"}
+                    for r in picked[:3]]
+        # It is not there. Fall through to normal matching rather than return
+        # nothing — but this is worth knowing, because the untraceable branch
+        # is now relying on a macro by name.
+        log.warning(f"[canned] untraceable, but no macro named "
+                    f"{_TRACE_MACRO!r} exists in the checked-in copy")
 
     review_kw = _toks(review_text)
     scored = [(_score_row(r, l1, l2, sub_theme, review_kw), r) for r in rows]

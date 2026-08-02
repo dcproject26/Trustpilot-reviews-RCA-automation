@@ -262,6 +262,15 @@ def tone_entry(canned_list: list, l1: str, l2: str, err: Exception | None,
     keyed on L1/L2, the classifier had returned neither, so the lookup was
     given nothing to match and correctly matched nothing.
     """
+    # The untraceable macro is selected by state, not matched on keywords, so
+    # it arrives with no L1/L2 and would otherwise fall through to "the sheet
+    # is keyed on L1/L2 and this review has neither" — which would be true and
+    # entirely beside the point.
+    if canned_list and (canned_list[0] or {}).get("why"):
+        return {"mark": "pass", "text":
+                f"<strong>Reply voice</strong> — {(canned_list[0] or {}).get('why')}, "
+                f"so the approved “{(canned_list[0] or {}).get('situation')}” macro "
+                f"was used rather than a match on the classification."}
     if canned_list and l1 and l2:
         top = (canned_list[0] or {}).get("situation") or ""
         return {"mark": "pass", "text":
@@ -1885,7 +1894,8 @@ async def process_review(review_id: str, force_candidates: bool = False):
             _tone_err = None
             try:
                 canned_list = await get_canned_responses(
-                    l1, l2, sub_theme, review_text or "")
+                    l1, l2, sub_theme, review_text or "",
+                    untraceable=not booking)
             except Exception as e:
                 canned_list = []
                 _tone_err = e
