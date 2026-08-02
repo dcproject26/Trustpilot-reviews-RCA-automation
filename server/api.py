@@ -1378,11 +1378,14 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
     for _col in ("rca_v3", "overlay_scenarios", "issue_specific_answers",
                  "checklist_answers", "area_of_improving",
                  "guest_issues", "sop_compliance", "booking_logs", "flags",
-                 # confidence_trail is a JSON column: SQLAlchemy compares by
-                 # object identity, so a rewritten trail that is not marked
-                 # dirty is dropped on commit without an error. That is the
-                 # same failure as never writing it — which is what this
-                 # endpoint did until a moment ago.
+                 # Belt and braces, and NOT load-bearing: the assignment
+                 # above builds a new list, and SQLAlchemy detects a new
+                 # object without help. It would be load-bearing the moment
+                 # someone appends to the existing trail instead, which is the
+                 # obvious next edit — a JSON column mutated in place is
+                 # dropped on commit with no error.
+                 # Mutation testing caught the earlier comment claiming this
+                 # was what made the write stick. It was not.
                  "confidence_trail",
                  "takedown", "dss"):
         flag_modified(d, _col)

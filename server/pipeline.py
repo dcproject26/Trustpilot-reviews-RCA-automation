@@ -187,6 +187,26 @@ def _human_error(exc: Exception) -> str:
     return f"{name}: {head[:160]}"
 
 
+def partial_trail(trail: list) -> list:
+    """The matching half of a trail, marked as unfinished.
+
+    The early persist writes this and replaces whatever a completed run left,
+    while generated_at is not touched until the end — so a run that dies after
+    matching leaves a draft that looks finished (old timestamp, full rca_v3,
+    every column populated) carrying a three-line trail with every analysis
+    disclosure simply absent. Absent reads as "nothing to report".
+
+    The final save writes the whole trail again, without this marker. If the
+    marker is still on the row, the run did not finish.
+    """
+    return list(trail or []) + [{
+        "mark": "warn",
+        "text": "<strong>This run has not finished</strong> — matching is done "
+                "and the analysis is still running. Everything below the match "
+                "is from the PREVIOUS run. If this line is still here, the run "
+                "died: re-run the review."}]
+
+
 def stated_issue_entry(stated_issue: str, err: Exception | None) -> dict | None:
     """The trail line for a stated issue that came back empty, or None.
 
@@ -1605,12 +1625,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
             #
             # The marker is removed by the final save, which writes the whole
             # trail again. If it is still on the row, the run did not finish.
-            _d.confidence_trail   = list(confidence_trail) + [{
-                "mark": "warn",
-                "text": "<strong>This run has not finished</strong> — matching "
-                        "is done and the analysis is still running. Everything "
-                        "below the match is from the PREVIOUS run. If this line "
-                        "is still here, the run died: re-run the review."}]
+            _d.confidence_trail   = partial_trail(confidence_trail)
             _d.bid_source         = bid_source
             _d.extracted_signals  = extracted_sigs or {}
             _d.narrowing_attempts = narrowing_attempts or []

@@ -313,23 +313,45 @@ def test_an_unavailable_model_is_disclosed_like_an_unavailable_warehouse():
     assert "not MOCK_MODE and" in block[:120]
 
 
-def test_a_half_finished_run_says_so_on_the_row():
-    """The early match persist writes the MATCHING half of the trail and
-    replaces whatever a completed run left. generated_at is not touched until
-    the end, so a run that dies after matching leaves a draft that looks
-    finished — old timestamp, full rca_v3, every column populated — carrying a
-    three-line trail with every analysis disclosure simply absent. Absent
-    reads as "nothing to report".
+from server.pipeline import partial_trail                     # noqa: E402
 
-    Seen on a real draft: five entries including two warns, then three and no
-    warns, same generated_at, nothing in between but a re-run that did not
-    finish."""
-    i = PIPE.find("_d.confidence_trail   = list(confidence_trail)")
-    assert i != -1, "the early persist no longer marks itself as partial"
-    block = PIPE[i:i + 600]
-    assert '"mark": "warn"' in block, "a half-written run is not marked warn"
-    assert "has not finished" in block
-    assert "re-run the review" in block, "it does not say what to do"
+
+def test_a_half_finished_run_says_so_on_the_row():
+    """The early match persist writes the MATCHING half and replaces whatever
+    a completed run left, while generated_at is untouched until the end. A run
+    that dies after matching therefore leaves a draft that looks finished —
+    old timestamp, full rca_v3, every column populated — with every analysis
+    disclosure absent. Absent reads as "nothing to report".
+
+    Driven, not grepped: the source assertion this replaces stayed green
+    against a build where the marker was unreachable, because the string was
+    still in the file."""
+    got = partial_trail([{"mark": "pass", "text": "<strong>BID extracted</strong>"}])
+    assert len(got) == 2, got
+    assert got[0]["text"].startswith("<strong>BID extracted"), "the match half was lost"
+    assert got[-1]["mark"] == "warn"
+    assert "has not finished" in got[-1]["text"]
+    assert "re-run the review" in got[-1]["text"], "it does not say what to do"
+
+
+def test_the_marker_is_appended_to_a_new_list():
+    """It must not mutate the caller's trail. The analysis appends to that
+    same list afterwards, and the final save writes it — a marker left in it
+    would ride through to a completed run."""
+    original = [{"mark": "pass", "text": "a"}]
+    got = partial_trail(original)
+    assert original == [{"mark": "pass", "text": "a"}], "the caller's list was mutated"
+    assert got is not original
+
+
+def test_an_empty_trail_still_gets_the_marker():
+    assert len(partial_trail([])) == 1
+    assert len(partial_trail(None)) == 1
+
+
+def test_the_pipeline_uses_it_at_the_early_persist():
+    assert "_d.confidence_trail   = partial_trail(confidence_trail)" in PIPE, \
+        "the early persist no longer marks itself as partial"
 
 
 def test_the_final_save_replaces_the_partial_trail():
@@ -338,16 +360,16 @@ def test_the_final_save_replaces_the_partial_trail():
     would train people to ignore the mark."""
     i = PIPE.find("draft.confidence_trail     = confidence_trail")
     assert i != -1, "the final save no longer writes the whole trail"
-    # The final save assigns the list itself, not an append, so the marker
-    # cannot survive a completed run.
-    assert "list(confidence_trail) + [" not in PIPE[i:i + 200], \
-        "the final save appends instead of replacing, so the marker persists"
+    # The final save assigns the list itself, so the marker cannot survive a
+    # completed run.
+    assert "partial_trail(" not in PIPE[i:i + 200], \
+        "the final save marks a finished run as unfinished"
 
 
 def test_the_two_writes_are_distinguishable():
     """The whole point: a reader has to be able to tell a finished run from a
     half-finished one by looking at the row."""
-    early = PIPE.find("_d.confidence_trail   = list(confidence_trail)")
+    early = PIPE.find("_d.confidence_trail   = partial_trail(")
     final = PIPE.find("draft.confidence_trail     = confidence_trail")
     assert early != -1 and final != -1
     assert early < final, "the early persist must come first"

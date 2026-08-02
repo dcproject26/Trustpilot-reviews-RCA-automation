@@ -135,23 +135,53 @@ def test_the_same_database_on_both_sides_is_refused(pair):
     assert _count(src, "reviews") == 5
 
 
-def test_it_refuses_when_it_cannot_prove_the_two_are_different(tmp_path):
-    """Postgres that will not report its system identifier. Copying on a guess
-    could double a live table."""
+def test_it_refuses_when_it_cannot_prove_the_two_are_different(pair, monkeypatch):
+    """A Postgres that will not report its system identifier. Copying on a
+    guess could double a live table.
+
+    Driven in-process with _identity stubbed. The subprocess version of this
+    passed for the wrong reason: with no psycopg2 installed the engine failed
+    to open first, so the guard under test was never reached — a mutation that
+    deleted it outright stayed green."""
+    sys.path.insert(0, "tools")
+    import migrate_db
+    src, dst = pair
+    monkeypatch.setattr(migrate_db, "_identity", lambda e: None)
+    monkeypatch.setattr(sys, "argv", ["migrate_db.py", "--from", f"sqlite:///{src}",
+                                      "--to", f"sqlite:///{dst}", "--apply"])
+    before = _count(dst, "reviews")
+    assert migrate_db.main() == 2
+    assert _count(dst, "reviews") == before, "it copied without proving anything"
+
+
+def test_one_side_identifying_is_not_enough(pair, monkeypatch):
+    """Half an answer is not an answer. If only the source identifies, the two
+    could still be the same database."""
+    sys.path.insert(0, "tools")
+    import migrate_db
+    src, dst = pair
+    monkeypatch.setattr(migrate_db, "_identity",
+                        lambda e: "abc" if "a.db" in str(e.url) else None)
+    monkeypatch.setattr(sys, "argv", ["migrate_db.py", "--from", f"sqlite:///{src}",
+                                      "--to", f"sqlite:///{dst}", "--apply"])
+    before = _count(dst, "reviews")
+    assert migrate_db.main() == 2
+    assert _count(dst, "reviews") == before
+
+
+def test_an_unopenable_database_is_a_sentence_not_a_traceback(tmp_path):
+    """A missing driver is a setup problem with a one-line fix, and it used to
+    arrive as a forty-line traceback that reads like the migration broke."""
     import os
-    code = subprocess.run(
+    r = subprocess.run(
         [sys.executable, "tools/migrate_db.py",
          "--from", "postgresql://u@127.0.0.1:1/x",
          "--to", "postgresql://u@127.0.0.1:2/y"],
         capture_output=True, text=True, env=dict(os.environ))
-    out = code.stdout + code.stderr
-    assert code.returncode == 2, out
-    # Either it could not open the connection or it could not identify it.
-    # Both must be a sentence, and neither may proceed to a copy.
-    assert ("Refusing to copy on a guess" in out
-            or "cannot open the" in out), out
-    assert "Traceback" not in out, \
-        "a setup problem with a one-line fix arrived as a stack trace"
+    out = r.stdout + r.stderr
+    assert r.returncode == 2, out
+    assert "Traceback" not in out, out
+    assert "cannot open the" in out
     assert "row(s) would be copied" not in out, "it planned a copy anyway"
 
 
