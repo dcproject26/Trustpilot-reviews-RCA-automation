@@ -64,20 +64,15 @@ def check_config():
     else:
         say(W, "MOCK_MODE is off")
 
-    # The one that has been wrong all along, and cannot be seen from the UI.
     env_id = os.getenv("CANNED_RESPONSES_SHEET_ID")
-    code_default = "1aXnZzzFQ8tDiaXs0E2YRErOcTSOsbTOqnM7WhyOnmi4"
-    env_example = "1BYTHYZK2um93IPwiOlBR8eKP4jfdjVTxKo9b1RIW_1o"
     if not env_id:
-        say(B, "CANNED_RESPONSES_SHEET_ID is not set",
-            f"Falling back to the code default {code_default}.\n"
-            f".env.example names a DIFFERENT sheet ({env_example}) and calls "
-            f"that one 'the confirmed Sheet ID'. Set the secret to whichever "
-            f"is right — right now nobody can tell which is being read.")
-    elif env_id == code_default:
-        say(W, "CANNED_RESPONSES_SHEET_ID is set", f"{env_id} (the code default)")
+        say(N, "CANNED_RESPONSES_SHEET_ID (optional)",
+            "unset — the pipeline uses the checked-in macros. That is the "
+            "supported setup; set this only to refresh from a live sheet.")
     else:
-        say(W, "CANNED_RESPONSES_SHEET_ID is set", f"{env_id} (an override)")
+        say(W, "CANNED_RESPONSES_SHEET_ID is set",
+            f"{env_id}\nThe live sheet will be preferred when readable, and "
+            f"the checked-in macros used when it is not.")
 
     for name, var in (("Anthropic", "ANTHROPIC_API_KEY"),
                       ("Zendesk", "ZENDESK_API_TOKEN"),
@@ -140,22 +135,31 @@ def check_db():
 # ── 3. the canned sheet — the one that actually broke the reply voice ───────
 
 def check_canned():
-    head("CANNED RESPONSES SHEET")
+    head("CANNED RESPONSES (the reply's voice)")
     import server.config as cfg
-    if not cfg.CANNED_RESPONSES_SHEET_ID:
-        say(N, "canned sheet", "no sheet id configured")
-        return
     import server.services.canned as C
+
+    # The checked-in copy first, because it is the source of truth now. A live
+    # sheet that cannot be read is a missed refresh, not a broken pipeline —
+    # reporting it as broken would make a healthy run look faulty.
+    vend = C.vendored_status()
+    say(B if vend.startswith("missing") else W,
+        "checked-in macros (server/data/canned_macros.json)", vend)
+
     C._cache_rows, C._cache_at = [], 0
     try:
-        rows = asyncio.run(C._fetch_rows())
+        rows = asyncio.run(C._get_rows())
     except Exception as e:
-        say(B, "canned sheet", _short(e))
+        say(B, "canned responses", _short(e))
         return
 
+    if not cfg.CANNED_RESPONSES_SHEET_ID:
+        say(N, "live sheet refresh",
+            "no CANNED_RESPONSES_SHEET_ID — running on the checked-in macros, "
+            "which is the supported setup, not a failure")
     reason = C.last_failure_reason()
     if not rows:
-        say(B, "the sheet produced no replies",
+        say(B, "no replies from any source",
             (reason or "no reason recorded, which is itself a bug") +
             "\nEvery draft reply is being written with NO tone reference.")
         return

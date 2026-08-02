@@ -100,9 +100,14 @@ DSS_SHEET_ID            = os.getenv("DSS_SHEET_ID",
                                      "13PpmkVW5mvLbpW5wtSUOZBhRQfQUsOJtLys2osQnvR0")
 DSS_SHEET_TAB           = os.getenv("DSS_SHEET_TAB", "")          # legacy, unused
 
-# Canned responses — Google Sheet
-CANNED_RESPONSES_SHEET_ID = os.getenv("CANNED_RESPONSES_SHEET_ID",
-                                        "1aXnZzzFQ8tDiaXs0E2YRErOcTSOsbTOqnM7WhyOnmi4")
+# Canned responses — OPTIONAL live refresh of server/data/canned_macros.json.
+#
+# No default, deliberately. There used to be one here while .env.example named
+# a DIFFERENT sheet and called that one "the confirmed Sheet ID", so whether an
+# unset secret read the right document was unanswerable from either file. The
+# approved macros are checked in now; this only says whether to try refreshing
+# them from a live sheet, and unset means "don't" rather than "guess".
+CANNED_RESPONSES_SHEET_ID = os.getenv("CANNED_RESPONSES_SHEET_ID", "")
 
 # RCA Checklist — Google Sheet
 RCA_CHECKLIST_SHEET_ID = os.getenv("RCA_CHECKLIST_SHEET_ID",

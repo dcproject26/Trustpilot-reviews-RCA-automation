@@ -369,7 +369,7 @@ def test_the_three_ways_to_have_no_tone_read_differently():
 def test_the_pipeline_calls_it():
     src = open("server/pipeline.py", encoding="utf-8").read()
     body = src[src.find("async def process_review("):]
-    assert "tone_entry(canned_list or [], l1, l2, _tone_err,\n                                     last_failure_reason())" in body
+    assert "tone_entry(canned_list or [], l1, l2, _tone_err,\n                                     last_failure_reason(), last_source())" in body
     assert "model's own voice" not in body, "the sentence was inlined"
 
 
@@ -569,50 +569,75 @@ def test_the_pipeline_passes_the_warnings_through():
 
 # ── the canned sheet reports its own state ──────────────────────────────────
 
+GOOD_TAB = [["Use Case", "Response"],
+            ["Unable to trace", "Hey <first name>, " + "x" * 200]]
+LABEL_TAB = [["TP MACRO Issue Type", "SM MACRO Issue Type"],
+             ["Unable to trace booking", "Unable to trace"]]
+
+
+def _sheet(monkeypatch, tabs=None, boom=None):
+    """Drive the REAL _fetch_rows against a stubbed sheet.
+
+    These three used to stub _fetch_rows and then call it, which exercised the
+    stub and nothing else. The reasons they check are set inside _fetch_rows,
+    so the stub has to be one layer lower.
+    """
+    import server.services.canned as C
+    monkeypatch.setattr(C, "_cache_rows", [], raising=False)
+    monkeypatch.setattr(C, "_cache_at", 0, raising=False)
+    monkeypatch.setattr(C, "_last_reason", "a stale reason", raising=False)
+    if boom:
+        def _t():
+            raise boom
+    else:
+        def _t():
+            return list((tabs or {}).items())
+    monkeypatch.setattr(C, "_tabs_via_service_account", _t)
+    return C
+
+
 def test_the_sheet_reason_is_empty_when_rows_came_back(monkeypatch):
     """It has to be able to say "I read fine" in words distinguishable from
     never having run — otherwise a stale reason from a previous poll gets
     attached to a healthy read."""
-    import server.services.canned as C
-
-    async def _rows():
-        return [{"situation": "s", "response": "r"}]
-    monkeypatch.setattr(C, "_fetch_rows", _rows)
-    monkeypatch.setattr(C, "_cache_rows", [], raising=False)
-    monkeypatch.setattr(C, "_cache_at", 0, raising=False)
-    monkeypatch.setattr(C, "_last_reason", "a stale reason", raising=False)
-    asyncio.run(C._get_rows())
+    C = _sheet(monkeypatch, {"ORM main ( TP ) Macro": GOOD_TAB})
+    assert asyncio.run(C._fetch_rows())
     assert C.last_failure_reason() == ""
 
 
-def test_an_unreadable_sheet_names_the_fix(monkeypatch):
-    import server.services.canned as C
-
-    async def _boom():
-        raise RuntimeError("Sheets API HTTP 403")
-    monkeypatch.setattr(C, "_fetch_rows", _boom)
-    monkeypatch.setattr(C, "_cache_rows", [], raising=False)
-    monkeypatch.setattr(C, "_cache_at", 0, raising=False)
-    asyncio.run(C._get_rows())
-    r = C.last_failure_reason()
-    assert "could not be read" in r
-    assert "link-viewable" in r, "the reason does not say what would fix it"
-
-
 def test_a_readable_sheet_with_no_usable_rows_is_its_own_reason(monkeypatch):
-    """The columns did not match. The sheet IS reachable, so "share it
-    link-viewable" would be the wrong advice."""
-    import server.services.canned as C
-
-    async def _empty():
-        return []
-    monkeypatch.setattr(C, "_fetch_rows", _empty)
-    monkeypatch.setattr(C, "_cache_rows", [], raising=False)
-    monkeypatch.setattr(C, "_cache_at", 0, raising=False)
-    asyncio.run(C._get_rows())
+    """The columns did not match, or every tab was a tag map. The sheet IS
+    reachable, so "share it link-viewable" would be the wrong advice."""
+    C = _sheet(monkeypatch, {"Refer Macro Tags": LABEL_TAB})
+    assert asyncio.run(C._fetch_rows()) == []
     r = C.last_failure_reason()
-    assert "no usable rows" in r
+    assert "no tab held usable replies" in r, r
     assert "link-viewable" not in r, r
+
+
+def test_an_unreachable_sheet_falls_back_and_says_which_copy_is_in_use(monkeypatch):
+    """Not a failure any more — the checked-in macros carry the run. But an
+    edit someone made in the sheet that silently did not take effect is the
+    same class of bug as everything else here, so the source is reported."""
+    C = _sheet(monkeypatch, boom=RuntimeError("Sheets API HTTP 403"))
+    monkeypatch.setattr(C, "is_live", lambda s: True)
+    monkeypatch.setattr(C.httpx, "AsyncClient", _dead_client())
+    rows = asyncio.run(C._get_rows())
+    assert rows, "an unreachable sheet emptied the tone reference"
+    assert C.last_failure_reason() == "", \
+        "a run with a full tone reference reported a failure"
+    src = C.last_source()
+    assert "checked-in macros" in src, src
+    assert "could not be read" in src, "it does not say the refresh was missed"
+
+
+def _dead_client():
+    class _C:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url): raise RuntimeError("no network")
+    return _C
 
 
 def test_an_unconfigured_sheet_says_which_variable(monkeypatch):
@@ -688,3 +713,28 @@ def test_the_prompt_stamp_moved_with_the_rule():
     run?" unanswerable again."""
     from server.prompts import RCA_PROMPT_VERSION, RCA_V4_TEMPLATE, _prompt_digest
     assert RCA_PROMPT_VERSION.endswith(_prompt_digest(RCA_V4_TEMPLATE))
+
+
+def test_the_reply_voice_names_which_copy_it_used():
+    """"written against 3 approved replies" is true of both the live sheet and
+    the checked-in macros, and someone who just edited the sheet needs to know
+    which one they are reading."""
+    e = tone_entry([{"situation": "s", "response": "r"}], "Experience Issues",
+                   "Meeting Point Issues", None, "", "the live sheet")
+    assert "from the live sheet" in e["text"], e["text"]
+
+
+def test_the_voice_line_names_the_checked_in_copy_too():
+    e = tone_entry([{"situation": "s", "response": "r"}], "A", "B", None, "",
+                   "the checked-in macros — the live sheet could not be read")
+    assert "checked-in macros" in e["text"]
+    assert "could not be read" in e["text"], \
+        "a missed refresh is invisible on the card"
+
+
+def test_the_voice_line_is_still_a_sentence_with_no_source():
+    """Older drafts and any caller that does not pass one must not render
+    'as tone only, from .'"""
+    e = tone_entry([{"situation": "s", "response": "r"}], "A", "B", None)
+    assert e["text"].rstrip().endswith("as tone only.")
+    assert ", from" not in e["text"]

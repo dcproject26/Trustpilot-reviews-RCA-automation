@@ -9,7 +9,9 @@ Falls back silently to [] when MOCK_MODE or the sheet is unreachable.
 """
 import csv
 import io
+import json
 import logging
+import pathlib
 import re
 import time
 
@@ -301,6 +303,16 @@ async def _fetch_rows() -> list[dict]:
 # different problems - one is fixed by sharing a document, the other by
 # writing a canned response.
 _last_reason: str = ""
+# WHICH source the current rows came from. Not a failure — the tone reference
+# is present either way — but an edit someone made in the sheet that silently
+# did not take effect is the same class of bug as everything else here, so the
+# reader is told which copy they are looking at.
+_last_source: str = ""
+
+
+def last_source() -> str:
+    """"the live sheet", or the checked-in copy and why the sheet was not used."""
+    return _last_source
 
 
 def last_failure_reason() -> str:
@@ -314,30 +326,100 @@ def last_failure_reason() -> str:
     return _last_reason
 
 
+VENDORED = pathlib.Path(__file__).resolve().parent.parent / "data" / "canned_macros.json"
+
+
+def _rows_from_vendored() -> list[dict]:
+    """The approved macros, checked into the repo.
+
+    THIS IS THE SOURCE OF TRUTH. The live sheet was never a dependency worth
+    having: it needs a service account share nobody had done, its id is
+    ambiguous between config.py and .env.example, the public CSV export can
+    only reach one of nine tabs, and every one of those failures came out as
+    the same empty list — a reply drafted in the model's own voice with nothing
+    on screen to say why.
+
+    The macros are approved content that changes rarely and is reviewed when it
+    does. Vendoring them means the tone reference ALWAYS works, offline, in
+    CI, and in a deployment nobody has shared a document with. Refresh it by
+    re-exporting the sheet to HTML and re-running tools/import_macros.py.
+    """
+    if not VENDORED.exists():
+        return []
+    tabs = json.loads(VENDORED.read_text(encoding="utf-8"))
+    rows: list[dict] = []
+    skipped: list[str] = []
+    for name, raw in tabs.items():
+        got, why = _parse_tab(name, raw)
+        rows.extend(got)
+        if why:
+            skipped.append(why)
+    if skipped:
+        log.info(f"[canned] vendored: {len(skipped)} tab(s) hold no replies: "
+                 + " | ".join(skipped))
+    return rows
+
+
 async def _get_rows() -> list[dict]:
-    global _cache_rows, _cache_at, _last_reason
+    """The vendored macros, refreshed from the live sheet when that is possible.
+
+    The sheet is an OPTIONAL improvement now, not a dependency. If it is
+    reachable and yields more rows, they win — someone editing the sheet
+    should see their edit. If it is not, the vendored copy carries the run and
+    the reason the sheet failed is still recorded, because "we are on the
+    checked-in copy" is a fact the reader should have.
+    """
+    global _cache_rows, _cache_at, _last_reason, _last_source
     if _cache_rows and (time.time() - _cache_at) < _TTL:
-        _last_reason = ""
         return _cache_rows
-    try:
-        rows = await _fetch_rows()
-        _cache_rows = rows
-        _cache_at = time.time()
-        _last_reason = "" if rows else (
-            f"the sheet was read but returned no usable rows - check that it "
-            f"has a situation column and a response column")
-    except Exception as e:
-        # Silently returning [] means every response is drafted with no tone
-        # reference and nobody knows why - name the sheet and the cause.
-        log.error(f"[canned] sheet {CANNED_RESPONSES_SHEET_ID} unreadable: {e}. "
-                  f"Responses will be drafted without a tone reference. Fix: "
-                  f"share the sheet link-viewable, or with the service account.")
-        _last_reason = (f"the canned-responses sheet could not be read "
-                        f"({type(e).__name__}) - share it link-viewable, or "
-                        f"with the service account")
-        if not _cache_rows:
-            _cache_rows = []
+
+    vendored = _rows_from_vendored()
+    live: list[dict] = []
+    sheet_why = ""
+    if is_live("canned"):
+        try:
+            live = await _fetch_rows()
+            sheet_why = _last_reason
+        except Exception as e:
+            sheet_why = (f"the live sheet could not be read "
+                         f"({type(e).__name__}) — running on the checked-in "
+                         f"macros instead")
+            log.warning(f"[canned] {sheet_why}")
+    else:
+        sheet_why = ("no live sheet is configured — running on the checked-in "
+                     "macros")
+
+    if live:
+        _cache_rows, _last_reason = live, ""
+        _last_source = "the live sheet"
+        log.info(f"[canned] {len(live)} replies from the live sheet")
+    elif vendored:
+        _cache_rows = vendored
+        # NOT a failure. The tone reference is present and approved; only the
+        # refresh did not happen. Marking this as a failure would make a
+        # healthy run look broken, which is the inverse bug.
+        _last_reason = ""
+        _last_source = ("the checked-in macros"
+                        + (f" — {sheet_why}" if sheet_why else ""))
+        log.info(f"[canned] {len(vendored)} replies from the checked-in macros"
+                 + (f" ({sheet_why})" if sheet_why else ""))
+    else:
+        _cache_rows = []
+        _last_source = ""
+        _last_reason = (sheet_why or "no live sheet") + \
+            f" and the checked-in macros are missing from {VENDORED.name}"
+        log.error(f"[canned] {_last_reason}")
+    _cache_at = time.time()
     return _cache_rows
+
+
+def vendored_status() -> str:
+    """One line for tools/doctor.py: what the checked-in copy holds."""
+    if not VENDORED.exists():
+        return f"missing — {VENDORED} is not in this tree"
+    rows = _rows_from_vendored()
+    tabs = sorted({r["tab"] for r in rows})
+    return f"{len(rows)} replies across {len(tabs)} tab(s): {', '.join(tabs)}"
 
 
 # ─── public API ─────────────────────────────────────────────────────────────

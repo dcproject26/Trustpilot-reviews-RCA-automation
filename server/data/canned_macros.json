@@ -1,0 +1,1923 @@
+{
+ "Content Check": [
+  [
+   "New Macros Added",
+   "Response",
+   "Content Team Update",
+   ""
+  ],
+  [
+   "Refund Request - Out of policy \n( When guest review for strict policy and we cannot refund. We inform guest about the insurance add-on option for flexible cancellation on our website",
+   "Hey <Name>,\n\nThanks for sharing your feedback. I can see why this situation is disappointing, and I agree that this isn’t ideal.\n\nThat said, your booking falls under a strict no-cancellation policy, so we’re unable to cancel or reschedule it at this stage. This is clearly mentioned on the booking page and in the confirmation details.\n\nBecause of this, I won’t be able to issue a full refund. However, I’ve arranged a partial refund in the form of Headout credits, which you can use on a future booking. You’ll receive an email shortly with the details. I hope this helps in some way 💜\n\nFor future bookings, I also wanted to share that we offer an optional insurance add-on for most non-refundable experiences. It’s available at a small additional cost during checkout and allows more flexibility if plans change. You can read more about it here:[Attach Link]\n\nWe’re also actively working on introducing more flexible cancellation options across more experiences.\n\nIf you have any questions, reply to our email, and I’ll take care of it.\n\nBest,\nName, Headout",
+   "Hey <Name>,\n\nThanks for sharing your feedback. I understand why this is disappointing, and I agree it’s not ideal.\n\nYour booking, however, falls under a strict no-cancellation policy, so we’re unable to cancel or reschedule it at this stage. This is mentioned on the booking page and in your confirmation details.\n\nBecause of this, I’m unable to issue a full refund. That said, I’ve arranged a partial refund as Headout credits, which you can use on a future booking. You’ll receive an email shortly with the details and I hope this helps a bit. \n\nFor future bookings, I also wanted to highlight a feature already available on our website. Most non-refundable experiences offer an optional insurance add-on at checkout, for a small additional cost. This gives you more flexibility if your plans change.\n\nWe’re working on bringing more flexible cancellation options across experiences.\n\nIf you have any questions, just reply to this email and I’ll take care of it.\n\n\nBest,\nName, Headout",
+   "You can read more about it here: [Attach link] - to add in future"
+  ],
+  [
+   "Venue Closure - When we miss informing guest about closure",
+   "Hey ,\nThanks for reaching out, and I’m really sorry we missed informing you about the venue closure. I agree — this should have been communicated clearly, and I understand how disappointing that must have been.\n\nTo make this right, we’ve processed a full refund for your booking. On top of that, we’ve added an extra 25% of the booking value as Headout credits to your account. You’ll receive email confirmations for both shortly.\n\nWe’re reviewing what went wrong here to ensure closures are communicated more proactively going forward.\n\nIf you’d like help planning a replacement experience or have any questions, just reply here — I’m happy to help 💜\n\nBest,\n{{agent_name}}, Headout",
+   "Hey <Name>,\n\nThanks for reaching out. I’m really sorry we missed informing you about the venue closure. You’re right, this should’ve been communicated clearly, and I understand how disappointing that must have been.\n\nTo make this right, we’ve processed a full refund for your booking. We’ve also added an extra 25% of the booking value as Headout credits to your account. You’ll receive email confirmations for both shortly. We’re reviewing what went wrong to ensure closures are communicated more proactively going forward.\n\nIf you’d like help planning an another experience or have any questions, just reply to this email and I’ll take care of it.\n\nBest,\nAgent name,\nHeadout",
+   ""
+  ],
+  [
+   "Technical Issue - Refunding booking due to tech issues",
+   "Hey ,\n\nThanks for flagging this. You’re right — the issue occurred due to a technical error on our end, and that’s not the experience we aim to deliver.\n\nTo fix this, we’ve issued a <full/partial> refund for your booking. You’ll receive an email confirmation shortly, and the amount should reflect back to your original payment method within 2 to 3 working days.\n\nWe’ve also shared this internally so the team can address the root cause and avoid a repeat.\n\nGlad we could make things right! If you’ve got a moment, we’d love for you to update your TP review here: [link]\n\nIf there’s anything else you need help with or if you’d like assistance planning another experience, just reply here and I’ll take care of it. 💜\n\nBest,\n{{agent_name}}, Headout",
+   "Hey <Name>,\n\nThanks for flagging this. You’re right, the issue was caused by a technical error on our end, and that’s not the experience we want you to have.\n\nTo make this right, we’ve issued a <full/partial> refund for your booking. You’ll receive an email confirmation shortly, and the amount should reflect back to your original payment method within 2–3 working days. We’ve shared this internally as well so the team can prevent this from happening again.\n\nGlad we could sort this out. If you’re up for it, we’d really appreciate you updating your Trustpilot review here: [link]\n\nIf you’d like help planning an another experience or have any questions, just reply to this email and I’ll take care of it.\n\nBest,\nAgent name,\nHeadout",
+   ""
+  ],
+  [
+   "",
+   "",
+   "",
+   ""
+  ],
+  [
+   "",
+   "",
+   "",
+   ""
+  ],
+  [
+   "",
+   "",
+   "",
+   ""
+  ],
+  [
+   "",
+   "",
+   "",
+   ""
+  ],
+  [
+   "REVAMP",
+   "",
+   "",
+   ""
+  ],
+  [
+   "Guest claiming that our reviews is fake",
+   "Hey <name>,\n\n\nWe really appreciate your honesty. I’m sorry to hear that you have concerns about the authenticity of our reviews 😕. At Headout, we take pride in providing our guests with the best possible experience, and I assure you that all of our reviews are genuine. We've had over 20 million happy guests from 196 countries. You can check their feedback on Trustpilot! (https://www.trustpilot.com/review/headout.com).\n\nI hope that you will consider experiencing our service first-hand. If there is anything else we can do to assist you, please do not hesitate to let us know.\n\n\nLooking forward to helping you head out! 💜\n\nBest,\nName, Headout",
+   "Hey <Name>,\n\nThanks for sharing your thoughts. I know it can be tricky to trust reviews sometimes, so I really appreciate your honesty. At Headout, every review is genuine, and we’re proud to have served over 47 million guests from 196 countries. You can check their feedback on Trustpilot: <Trustpilot link>\n\nWe’d love for you to experience our service firsthand. If there’s anything else we can do to help, just reply to this email and I’ll take care of it.\n\nLooking forward to helping you head out! 💜\n\nBest,\nAgent name,\nHeadout",
+   ""
+  ],
+  [
+   "Hard Push App - Guest facing issue with accessing tickets",
+   "\"Hey <Name>,\n\nThanks for choosing us for your adventure and for your feedback. I understand that downloading our app might seem like an extra step, but it's all about enhancing your experience. Our app ensures easy access to your tickets, even offline, and offers cool features to level up your adventure. We promise, it's a quick and simple process. \n\nIf you have any questions or concerns, please feel free to ask. We're here to make sure your experience with us is as smooth as possible! 💜\n\nI have resent your tickets via email. I hope you have a great time heading out with us! 🚀\n\nBest,\nName, Headout\"",
+   "Hey <Name>,\n\nThanks for choosing us for your experience and for sharing your feedback. I know downloading our app might feel like an extra step, but it’s all about making your experience better. With the app, you can access your tickets anytime, even offline, and enjoy features that enhance your adventure. It’s quick and simple, we promise!\n\nI’ve also sent your tickets via email. Can’t wait for you to head out with us!\n\nIf you have any questions or need help, just reply to this email and I'll take care of it.\n\n\n\nBest,\nAgent name,\nHeadout",
+   ""
+  ]
+ ],
+ "Macro - Hyperlinking proof": [
+  [
+   "Use Case",
+   "Macro Name",
+   "Response"
+  ],
+  [
+   "Use case for guest error- wrong date",
+   "OUT OF POLICY MACRO - DSS",
+   "Hey <first name>,\n\nI'm so sorry for the experience you've had with us. It looks like the date/time you picked wasn't the one you intended. We work closely with local partners to bring incredible experiences to life. In this case, the local partner has a strict non-cancellation policy. As a result, I'm unable to reschedule or cancel and refund your booking. This policy is highlighted before you book to ensure a guest is always aware. You can view them here:[INSERT LINK]\n\nUnfortunately, due to our strict no-cancellation or rescheduling policy, we’re unable to make any changes to the booking. However, I’ve initiated a partial refund in the form of Headout credits, which you can use to rebook the experience. I’ve sent you a confirmation email as well. I hope this provides some assistance.\n\nIf you have any questions, feel free to reply to this email, and we’ll be happy to help! 💜\n\nBest,\nName | Headout"
+  ],
+  [
+   "Use case for guest error- wrong pax",
+   "OUT OF POLICY MACRO - DSS",
+   "Hey <first name>, \n\nI'm very sorry for the experience you've had with us 😞. It seems like you purchased tickets for more guests than you intended to. We work closely with local partners to bring incredible experiences to life. In this case, the local partner has a strict non-cancellation policy. As a result, I'm unable to reschedule or cancel and refund your booking. This policy is highlighted before you book to ensure a guest is always aware. You can view them here: [INSERT LINK]\n\nNo worries though, as I have initiated a partial refund for the extra guest(s) in the form of Headout credits. I have sent confirmation of this via email, too. I hope this brightens your day a bit! \n\nIf you have any questions, just reply to our email and we’ll take care of it! 💜\n\nBest,\nName | Headout"
+  ],
+  [
+   "Use case highlighting guest confusion between Priority Entrance/Escorted Entry with Audio Guides or Host Assistance.",
+   "Priority Entrance/Escorted entry confusion - with Audio Guide and Assistance of a host",
+   "Hey {{name}},\n\nI'm very sorry for the experience you've had with us. 😞\n\nYou purchased ticket(s) that not only include(s) entry but also an audio guide and the assistance of a host! These experiences often come with what's called “Priority Entrance” or “Escorted Entry,” which helps guests skip long lines and navigate the site more easily, especially useful in busy locations.\n\nHowever, we understand this can be confusing, especially if you were expecting just standard entry. You can always find a breakdown of what's included in your ticket here: [insert link ]\n\nThat said, I understand it may be frustrating to pay for a benefit you didn’t intend to use, so I’ve initiated a partial refund (mention the amount if the guest has mentioned it in the review) for the difference between the ticket you purchased and a regular entry ticket. I’ve also sent you an email confirming this. \\<Or offer complete refund, e.g. ‘, so I’ve initiated a complete refund for you’.>\n\nIf you have any questions, just reply to our email and I’ll take care of it! 💜\n\nBest,\nName | Headout"
+  ],
+  [
+   "Use case highlighting guest confusion between Priority Entrance/Escorted Entry with our Audio Guide",
+   "Priority Entrance/Escorted entry confusion without Audio Guide",
+   "Hey <first name>,\n\nI'm really sorry to hear about your experience with us. 😞\n\nYou purchased ticket(s) that not only include entry but also the assistance of a host. These inclusions are clearly mentioned on the experience page before completing the purchase to ensure guests are fully informed, you can view them here: [INSERT LINK].\n\nThat said, I understand it can be frustrating to pay for a benefit you didn’t intend to use, so I’ve initiated a partial refund (mention the amount if the guest has noted it in the review) for the difference between the ticket you purchased and a regular entry ticket. I’ve also sent you an email confirming this. <Or offer complete refund, e.g. ‘so I’ve initiated a complete refund for you.’>\n\nIf you have any questions, just reply to our email and I’ll take care of it! 💜\n\nBest,\nName | Headout"
+  ],
+  [
+   "Use case for a tour missed by a guest after failing to follow instructions.",
+   "Customer error - Guest missed the tour - didn’t read intructions",
+   "Hey <Name>,\n\nI’m sorry that you missed your tour. I understand your confusion, but our tickets come with instructions regarding the meeting point to ensure a seamless experience. These important details are also shared on the experience page before you make a purchase, so guests are well-informed in advance — you can view them here [Link].\n\nThat said, I completely understand that these things can happen, so I’ve initiated a <X>% refund in the form of Headout credits. I’ve also sent an email confirming this. I hope this brightens your day a bit! ✨\n\nIf you have any questions or concerns, just reply to the email, and I’ll take care of it! 💜\n\nBest,\nName | Headout"
+  ],
+  [
+   "Use case for guest raising issue with conversion Fee",
+   "Conversion Fee",
+   "Hey Jatin,\n\nI’m really sorry for the confusion around the fee—you’re absolutely right to flag it.\n\nSome banks add a small cross-border or FX fee if they classify our payment processor as international, even if your booking is charged in your local currency. We totally get how frustrating that can be when it’s not expected.\n\nWhile we can’t reimburse these third-party charges, we do our best to outline this on our payment page here: [ hyperlink ] so guests can make informed choices based on their card provider.\n\nI appreciate your patience on this one. If there’s anything else I can help with, just hit reply—I’ve got you covered.\n\nBest,\nName | Headout"
+  ],
+  [
+   "Use case when guests complaint about no STL ( Skip-the-line) due to overcrowding.",
+   "Overcrowded – STL (Why a Queue?)",
+   "Hey {{name}},\n\nThank you for sharing your experience—and I’m really sorry it involved more waiting than expected. 😞\n\nEven with Skip-the-Line access, there can occasionally be short waits due to security checks or high visitor traffic at the venue, especially during peak hours. We’ve highlighted these details in our experience info here: [hyperlink], so you can plan your visit with ease.\n\nTo make up for your experience, I’ve gone ahead and issued a partial refund in Headout credits. You should’ve received an email with the confirmation by now. 💜\n\nWe’d love another chance to help you plan a smoother visit next time—just reach out!\n\nBest,\nName | Headout"
+  ],
+  [
+   "Use case when a guest raises a concern about overcrowding at the venue",
+   "Overcrowded – Generic",
+   "Hey {{name}},\nI'm very sorry for the experience you've had with us 😞. During peak seasons, the venue typically opens up entry for a larger number of people.\n\nWe know this can impact your visit, which is why we highlight expected crowd levels and other helpful details on our website here: [ hyperlink here]\n\nTo make up for your experience, I have emailed you a coupon code which you can use to enjoy \\<X%> off your next experience with us.\n\nPlease feel free to reach out to us at any time if you'd like advice on when the best time to visit a particular venue might be.\n\nI hope this helps brighten your day! If you have any questions, just reply to our email and we’ll take care of it. 💜\n\n– Name , Headout"
+  ],
+  [
+   "Use case for guest requesting /escalating for Invoice",
+   "Invoice",
+   "Hey Bill,\n\nThank you for sharing your feedback with us. We apologise for the trouble you experienced in obtaining a tax invoice.\n\nHeadout functions solely as an intermediary between our guests and the experience providers on our platform. As the experiences are directly operated and fulfilled by our partner suppliers, we’re unable to issue tax invoices ourselves. This is also outlined in our Terms of Use under the Payments section here [https://www.headout.com/terms-of-use/].\n\nWe appreciate your understanding, and if you have any questions, reply to our email and we’ll take care of it!\n\nBest,\nName | Headout"
+  ]
+ ],
+ "Macros for SM": [
+  [
+   "Main Issue Type",
+   "Response"
+  ],
+  [
+   "Unable to trace",
+   "Hey <first name>, \n\nI'm very sorry for the experience you've had with us. 😕 I’d love to help resolve this for you as quickly as possible. Could you please DM us with the email address and name used to make the booking and your reservation number, so that I can locate your booking? As soon as I have this, I’ll work on getting this sorted for you. \n\nThank you for your patience! 💜 \n\nBest, \nName"
+  ],
+  [
+   "Following up on DM - Unable to trace",
+   "\"Hey <first name> 👋, Thank you for your patience while I looked into this for you. We really appreciate it! We haven’t heard from you since we last talked <x> days ago 😞. Could you please DM us with the email address and name used to make the booking? Thank you! I look forward to resolving this for you ASAP. 💜 Best, Name \""
+  ],
+  [
+   "Unable to trace the booking - Following Up post 48 hours of no response from guest.",
+   "\"Hey <first name> 👋, Thank you for your patience while I looked into this for you. We really appreciate it! We haven’t heard from you since we last talked <x> days ago 😞. Could you please DM us with the email address and name used to make the booking? Thank you! I look forward to resolving this for you ASAP. 💜 Best, Name \""
+  ],
+  [
+   "Interested in an expeirience",
+   "Hey <first name>, that's a great experience you've chosen to head out. \n\nYou can explore this experience at <insert experience link>\n\nBest,\nName"
+  ],
+  [
+   "Influencer - first reply",
+   "Hey there,\n\nThank you for your interest in collaborating with Headout.💜\n\nSign up to join Headout for Creators via the link in our bio, and get instant access to sponsored experiences!\n\nStay spontaneous,\nTeam Headout"
+  ],
+  [
+   "Taking the conversation to DM(need more details)",
+   "Hey <name>, \n\nI'm very sorry for the experience you've had with us. 😕\n\nI’d love to help resolve this for you as quickly as possible. Could you please DM us with the email address and name used to make the booking and your reservation number, so that I can locate your booking?\n\nAs soon as I have this, I’ll work on getting this sorted for you.\n\nThank you for your patience! 💜\n\nBest,\nName"
+  ],
+  [
+   "Taking the conversation to DM (booking found)",
+   "Hey <name>!\n\nThank you for your patience while I looked into this for you. I’ve successfully located your booking ID and am here to help! I’d love to continue this conversation over DM to ensure your privacy and security.\n\nI look forward to resolving this for your ASAP! 💜\n\nBest,\n<name>"
+  ],
+  [
+   "Cx arrived late and missed the tour - Customer error",
+   "Hey <Name>,\n\nI’m sorry to hear that you couldn’t redeem your ticket on time. While your ticket was strictly timed, I understand that things don’t always go as planned. I’ve added <$X> credits to your Headout account for you to use on your next adventure with us! ✨\n\nI’ve also sent an email to confirm this. If you have any questions or concerns, just reply to the email, and I’ll take care of it! 💜\n\nBest,\nName"
+  ],
+  [
+   "F1 Discounts query",
+   "Hey <name>, 👋 \n\nI understand why you might wonder about our Formula 1 offers, but they are as real as it gets. We're not here to trick anyone! Our aim is to provide genuine, memorable experiences, and make the experience accessible to as many folks as possible - whether you're a Red Bull, Mercedes, McLaren or Ferrari fan! 🏎️\n\nYour trust is important to us so if you have any questions or concerns, just let me know, and I’ll do my best to assist you! 💜\n\n- Name"
+  ],
+  [
+   "When guest asks for coupon code TWITTER",
+   "Hey <name>,\nWe’re so glad you’ve decided to head out with us! \n\nWe’ll send you an exclusive code for your booking via DM. https://twitter.com/messages/compose?recipient_id=998049942\n\nFeel free to reach out to us for any other queries / concerns you may have. Always here to help.\n\nHappy heading out! :purple_heart:\n\nName"
+  ],
+  [
+   "When guest asks for coupon code",
+   "Hey <name>,\n\nWe’re so glad you’ve decided to head out with us! You can use the code SOCIAL101 for your booking 💜\n\nFeel free to reach out to us for any other queries / concerns you may have. Always here to help.\n\nHappy heading out! 🥳\n\nBest,\n<name>"
+  ],
+  [
+   "Our error - refund processed and confirmation sent on email(twitter)",
+   "Hey <first name>, \n\nI'm very sorry for what has happened 😞. This is definitely not the Headout experience we'd want you to have, and so I've personally spoken to all concerned teams to ensure this never happens again.\n\nI’ve now processed a complete refund for this booking and have sent confirmation of this via email, too.\n\nPlease feel free to ask any questions or share specific concerns you may have, and we'll be happy to take it from there.\n\nBest, \nName"
+  ],
+  [
+   "Fake Website- Phishing Attack",
+   "Hey <Name>,\n\nThanks for reaching out. The link you shared is not affiliated with Headout in any way. We're aware of this situation, and our legal experts are working hard to resolve this promptly and take appropriate action. Your trust is of utmost importance to us, and we're dedicated to ensuring a safe and enjoyable experience for all our guests.  🚀\n\nMeanwhile, if you want to explore Headout experiences in Dubai, check out our website at https://www.headout.com/things-to-do-city-dubai/ We assure you a fantastic time, and memories to last a lifetime. ✨\n\nIf there’s anything else I can assist you with, please let me know, and I’ll get right to it! 💜\n\n- Name"
+  ],
+  [
+   "Positive response Playstore",
+   "Hey <name> 👋,\n\nWe're so glad you loved heading out with us! Thank you so much for sharing your experience with the world, we really appreciate it. 💜\n\nLook forward to seeing you head out on many more life-changing adventures with us!\n\nName"
+  ],
+  [
+   "Enquiring about Services we don't offer(flight, hotel, Visa etc)",
+   "Hello there! 💜\n\nThank you so much for getting in touch, we’re excited to hear you’re planning your next trip 🥳. At Headout, we specialize in providing curated experiences for our customers to make their holidays unforgettable, and to make heading out easier 😉. You can check out our full range of experiences here: https://www.headout.com/ \n\nUnfortunately, at the moment, we don’t offer a wider range of travel services such as flight or hotel bookings, but perhaps you’ll find something else on our app that’ll make your adventure extra fun! \n\nHope you have a great day ahead! \n\nBest, \nName"
+  ],
+  [
+   "Headout ban in Dubai and Abu Dhabi",
+   "Hey <Name>,\n\nThanks for reaching out. We're aware that some of our guests within the UAE are experiencing difficulties accessing our website at the moment. Not to worry though, our best minds are working on it and we should be up and running shortly!  🚀\n\nThank you for your patience and understanding. We're truly sorry for any inconvenience this may have caused.\n\nIf you’ve got questions, as always, we’re only a DM/message away! 💜\n\n- Name"
+  ],
+  [
+   "Partnership enquiry",
+   "Hey <first name>,\n\nThank you for your interest in partnering with Headout. 💜\n\nPlease fill out the Headout Partnerships form from this link https://hub.headout.com/ and we’ll get back to you in a week’s time. \n\nBest,\n<your name>"
+  ],
+  [
+   "Taking the conversation forward to DM",
+   "Hey <first name>, We’ve found your booking ID/located the <relevant detail>, and we are here to help! To ensure your privacy and security, we’d love to continue this conversation over DM. Please feel free to ask any questions or share specific concerns you may have, and we'll be happy to take it from there. Looking forward to taking care of your concerns and ensuring you have a great experience with us! ✨ Best Name\""
+  ],
+  [
+   "Wanderfest UAE - Offers",
+   "Hey there, thanks so much for reaching out. ✨\n\nWe’re so happy that you want to learn more about this exciting event!\n\nWanderfest UAE is the biggest experiences sale you’ve ever seen. Think deep discounts, total flexibility, exclusive deals and more.\nDon’t believe us? Head to www.headout.com/wanderfest-uae/ and check it out for yourself. \n\nIf you’ve got questions, as always, we’re only a DM/message (depending on context) away. Hope you have a great weekend ahead! 💜\n\nBest,\nName"
+  ],
+  [
+   "Enquiring about coupon/offers",
+   "Hey <first name>, thanks so much for reaching out. ✨\n\nYou can enjoy cashback offers from 5-20% on most of our experiences. Plus, if you're a first-time customer, don't forget to use the promo codes 5OUT or HOBLOG to save more. How cool is that?\n\nBut wait, there's more! Head to this link and save it to your bookmarks for the latest offers, promo codes, and more: https://blog.headout.com/deals-offers-promo-codes/  \n\nIf you’ve got questions, as always, we’re only a DM away. Hope you have a great weekend ahead! 💜\n\nBest,\nBlaze"
+  ],
+  [
+   "Refund - Voided / Non Auth transaction",
+   "Hey <name> 👋,\n\nWe’re so sorry for the inconvenience this has caused. \n\nOur records show that the payment hasn’t gone through our system yet, but don’t worry, we’ll take care of this right away! A complete refund has been issued, and it should reflect in your account within 48 hours.\n\nThank you for your patience while we resolved this for you. If you have any questions or concerns, please don’t hesitate to reach out to us. 💜\n\nBest,\nName"
+  ],
+  [
+   "Wanderfest UAE - Guest not able to book",
+   "Hey <first name>, we’re sorry for the tardy experience you’ve had so far.😔\n\nHonestly, we didn’t anticipate the level of spike we’re seeing. We’re not making excuses, we promise. All our teams are on it and the rest of your experience will be seamless.\n\nHang in there for us, we appreciate your patience. 💜\n\nBest,\nName"
+  ],
+  [
+   "Booked wrong date/time",
+   "Hey <first name>! 👋\n\nThanks for getting in touch with us. 💜\n\nSorry to hear you booked your experience for the wrong date/time <delete as applicable>. No worries, though — let me see if there's anything I can do. In some cases, I may be able to modify your booking.\n\nPlease could you provide me with your booking reference number and your desired date/time <delete as applicable>? I can then have a look in our system. 👀\n\nSpeak soon!\n\nBest,\nName"
+  ],
+  [
+   "Death in the family",
+   "Hey <name>,\n\nI'm so sorry to hear about your loss. My deepest condolences to you and your family.\n\nI've gone ahead and refunded the full amount of your experience. This refund should reflect in your account in the next 2-7 business days, depending on your bank.\n\nSending you hugs and love.\n\nBest,\nName"
+  ],
+  [
+   "Delay FF - Alternatives",
+   "Hi <name>,\n\nThank you for the reservation you made with us at Headout.\n\nUnfortunately, this experience isn’t available anymore for your customer’s slot. This happens very rarely when the availability on our system doesn’t match with our local partner’s, mostly due to a surge in volume or a technical glitch.\n\nI’ve listed the best alternatives for the customers below and would like to work with you to get this resolved. Please provide the alternatives to the customer and simply respond to this email with their choice.\n\nOption 1: Reschedule to XXYY hours for the same date\nOption 2: Reschedule to XXYY hours on XXYY which is the next available date\nOption 3: Refund the entire amount to your card\n\nOur team is also available on live chat 24/7. In case you want to talk about this in detail, please click here.\n\nLooking forward to hearing from you.\n\nStay spontaneous,\nTeam Headout"
+  ],
+  [
+   "Booked more than once",
+   "Hey <name>!\n\nOh no! I'm sorry to hear you booked the experience twice. 😞 These things happen.\n\nPlease could you provide me with your booking reference number? I'll double-check if there's anything I can do to cancel one of the bookings and refund you.\n\nIf I can't offer you a full refund, I can provide you a 50% refund in the form of Headout credits. I hope this helps. \n\nSpeak soon! 💜\n\nBest,\nName"
+  ],
+  [
+   "Booked wrong Experience",
+   "Hey hey <name>,\n\nWhoops, sorry to hear that. Please could you provide me with your booking details? I can then look into this for you. 👀\n\nSpeak soon! 💜\n\nBest,\nName\n\nFollow-up email:\n\nHello!\n\nThank you for your patience while I checked the booking for you. 😊\n\n<2 options, delete as applicable> \n\n1. I have good news! 🎉 Your experience is eligible for rebooking without additional charges. I've gone ahead and added the credits back to your Headout account, so you can now book for the experience you'd like.\n\n2. Unfortunately, this particular booking isn't covered by our refund policy, so the best I can offer you is a <20-50%> refund in the form of Headout credits. You can then go ahead and rebook and pay partially with the credits. I'm sorry I'm not able to do more than this, but I hope it helps?\n\nAs always, I'm just a message away — feel free to DM if you have any other questions or concerns. 💜\n\nBest,\nName"
+  ],
+  [
+   "Booked wrong date",
+   "Hey hey <name>,\n\nWhoops, sorry to hear that. Please could you provide me with your booking details? I can then look into this for you. 👀\n\nSpeak soon! 💜 \n\nBest,\nName\n\nFollow-up email:\n\nHello!\n\nThank you for your patience while I checked the booking for you. 😊\n\n<2 options, delete as applicable> \n\n1. I have good news! 🎉 Your booking is eligible for rescheduling. I've gone ahead and added the credits back to your Headout account, so you can now book for the date and time you'd like.\n\n2. Unfortunately, this particular booking isn't covered by our refund policy, so the best I can offer you is a <20-50%> refund in the form of Headout credits. You can then go ahead and rebook and pay partially with the credits. I'm sorry I'm not able to do more than this, but I hope it helps?\n\nAs always, I'm just a message away — feel free to DM if you have any other questions or concerns. 💜\n\nBest,\nName"
+  ],
+  [
+   "Coupon/ Discount Code",
+   "Hey <name>👋\n\nWe’re so glad you’ve decided to head out with us! You can use the code SOCIAL767 for your booking 💜\n\nFeel free to reach out to us for any other queries / concerns you may have. Always here to help.\n\nHappy heading out! \n\nBest,\nName"
+  ],
+  [
+   "Customer running late",
+   "Hey <name>, 👋\n\nOh no, I'm sorry to hear you're running late! 😞 \n\nUnfortunately, these tickets are timed and can only be used to access the experience at the time mentioned on the ticket. A very strict timed policy is maintained by our local partner. 😕\n\nThe best thing you can do right now is speak with the local tour operator on <CONTACT NUMBER>. I will also try and reach out to the operator on your behalf to see if I can do anything.\n\nI wish there was more I could do to help at this stage. \n\nIf you can, please do keep me updated on whether you were able to make it on time for the experience or if you need more help in getting in touch with the operator. Fingers crossed! 💜 As always, I'm just a quick message away.\n\nBest,\nName"
+  ],
+  [
+   "Closing the Tweet/Comment",
+   "Hey <first name>,\n\nI’m really sorry for the inconvenience caused. We’re constantly working to improve our operations and will strive to serve you better next time around.\n\nLooks like this is all sorted now. Please let us know if you need anything more! We’re just a tweet/DM away. \n\nBest,\nName\n                                OR\nHey <first name>, looks like this is all sorted now. Let us know if you need anything more! We’re just a tweet/DM away \n\nBest,\nName"
+  ],
+  [
+   "Tour started late / guide arrived late at MP",
+   "Hi <name>!\n\nI'm so sorry to hear about what you've gone through. This is far from what we'd want anyone to experience with Headout. 😞\n\nAt the moment, I'm trying to establish why this happened to resolve this as quickly as possible for you. 🚀\n\nFirst up, I'm going to have a chat with our local partner to better understand the situation. Please could you provide me with the following information, to better inform my conversation with them?\n\n1. At what time (local time) did you reach the meeting point on the day of the experience?\n2. Is there any chance you have a time-stamped or non-time-stamped picture that you would have taken on reaching the meeting point?\n3. How long did you wait for the guide after you reached the meeting point?\n4. Were you able to get in touch with our local partner on the contact number provided on your voucher?\n\nWe completely understand that you might not have all the information requested above, and that's completely okay. We will reach out to our partner after we hear from you and all the other Headout guests who went on the tour to get more information. ✍️\n\nOnce again, I'm sorry this has happened. If you have any questions or concerns, I'm just a quick DM away! 💜\n\nBest,\nName"
+  ],
+  [
+   "Cx claims that SP is not responding",
+   "Hi <name>!\n\nI'm so sorry you haven't heard from our local partner. This is far from what we'd want anyone to experience with Headout. 😞\n\nPlease could you provide me your booking details? \n\nOnce again, I'm sorry this has happened. If you have any questions or concerns, I'm just a quick DM away! 💜\n\nName"
+  ],
+  [
+   "Tickets invalid",
+   "Hey <name>,\n\nI'm so sorry this has happened. 😞 It's definitely not the experience we'd want you or any Headout guest to have. \n\nI can see that the tickets are indeed invalid. I can either reissue you a fresh set of tickets, or refund you the full amount. Which would you prefer? 😊\n\nSpeak soon! 💜\n\nBest,\nName"
+  ],
+  [
+   "The customer claims the tour did not take place",
+   "Hi <name>!\n\nI'm so sorry to hear about what you've gone through. This is far from what we'd want anyone to experience with Headout. 😞\n\nAt the moment, I'm trying to establish why this happened to resolve this as quickly as possible for you. 🚀\n\nFirst up, I'm going to have a chat with our local partner to better understand the situation. Please could you provide me with the following information, to better inform my conversation with them?\n\n1. At what time (local time) did you reach the meeting point on the day of the experience?\n2. Is there any chance you have a time-stamped or non-time-stamped picture that you would have taken on reaching the meeting point?\n3. How long did you wait for the guide after you reached the meeting point?\n4. Were you able to get in touch with our local partner on the contact number provided on your voucher?\n\nWe completely understand that you might not have all the information requested above, and that's completely okay. We will reach out to our partner after we hear from you and all the other Headout guests who went on the tour to get more information. ✍️\n\nOnce again, I'm sorry this has happened. If you have any questions or concerns, We're just a quick DM away! 💜\n\nBest,\nName"
+  ],
+  [
+   "Health issues",
+   "Hey <name>! 👋\n\nOh no, I'm sorry to hear about the health issues you're going through. 😞 I really hope you feel better soon!\n\n<if you feel guest is being honest> Of course, as a one-off exception, I'd be happy to refund you the full amount so that you can head out when you're feeling better, instead! 💜 This refund should reflect in your account within 2-7 business days, depending on your bank. 😊\n\n<if you're unsure about the authenticity of the claim> Of course, as a one-off exception, I'd be happy to offer you a 50% refund in Headout credits, so that you can head out when you're feeling better, instead! 💜 \n\nIf you have any other questions or concerns, feel free to DM us! \n\nBest,\nName"
+  ],
+  [
+   "Flight/train cancellation or delay",
+   "Hey <name>, 👋\n\nI'm sorry to hear your flight/train <delete as applicable> has been cancelled/is delayed <delete as applicable>. \n\nWould it be possible for you to please provide me with some form of documentation or proof of the delay/cancellation? Thank you so much. 😊\n\n<once documentation provided> Thanks so much for cooperating and providing us with the info. This helps immensely! I'm happy to provide you a full refund in the form of Headout credits, so you can head out when the time is right! I hope this helps. 💜\n\nBest,\nName"
+  ],
+  [
+   "Death in the family",
+   "Hey <name>,\n\nI'm so, so sorry to hear about your loss. 💜 My deepest condolences to you and your family.\n\nI've gone ahead and refunded the full amount of your experience. This refund should reflect in your account in the next 2-7 business days, depending on your bank.\n\nSending you hugs and love.\n\nBest,\nName"
+  ],
+  [
+   "Venue closure/ full capacity/ experience cancelled",
+   "Hey <name>, 👋\n\nI'm so sorry this has happened — it's not at all an experience we'd want you to go through. 💜\n\nOf course, I'll issue an immediate refund to your original payment method. The refund amount will reflect in your account within 2-7 days, depending on your bank. \n\nI'd also love to offer you a coupon code for <X%> off (up to $X) to use on your next experience with us.\n\nPlease could you provide me with your booking reference number so I can get this sorted out for you?\n\nOnce again, my sincere apologies for the hassle this may have caused.\n\nSpeak soon. 😊\n\nBest,\nName"
+  ],
+  [
+   "Delay due to traffic/transport strikes",
+   "Hey <name>, 👋\n\nI'm sorry to hear your flight/train <delete as applicable> has been/is delayed <delete as applicable>. \n\nWould it be possible for you to please provide me with some form of documentation or proof of the delay/cancellation? Thank you so much. 😊\n\n<once documentation provided> Thanks so much for cooperating and providing us with the info. This helps immensely! I'm happy to provide you a full refund in the form of Headout credits, so you can head out when the time is right! I hope this helps. 💜\n\nBest,\nName"
+  ],
+  [
+   "Weather issues",
+   "Hey <name>! 👋\n\nSorry to hear you're facing issues with the weather where you are. 😕\n\nPlease could you provide me with your booking reference number? I'll chat to our supply partner and see if there's anything we can do about this for you. \n\nSpeak soon! 💜\n\nBest,\nName"
+  ],
+  [
+   "Convenience fee issue",
+   "Hey <name>! 😊\n\nThanks for reaching out. Very valid question! \n\nFor some of our experiences, we charge a convenience fee in addition to the ticket price, in order to cover the costs of online transactions and providing you with our stellar 24/7 support!\n\nWe mention this fee on the checkout page, just before you buy your tickets.\n\nHope this helps to address your doubts. 💜\n\nBest,\nName"
+  ],
+  [
+   "Charged higher price than the venue",
+   "Hi <name>, 👋\n\nOoh, that's odd! As you may know, we offer an unrivalled Best Price Guarantee, so this is very rare. \n\nPlease could you share the link of the website where you saw this cheaper price? Our team will then take a look and adjust our pricing if needed.\n\nThanks for bringing this to our attention, I very much appreciate it!\n\nBest,\nName"
+  ],
+  [
+   "Delay in Refund",
+   "Hey <name>, 👋\n\nI'm sorry to hear you haven't received your refund yet. Please could you provide me with your booking reference number, so I can look into this for you? ✍️\n\n<refund processed, ARN not shared> It appears your refund has been processed! Here's the reference number so you can cross-check with your bank: <XXX>. Of course, let me know if you have any other doubts! 💜\n\n<refund processed, ARN already shared> I've looked into this for you, and it appears we've already processed the refund, as well as shared the reference number for you to cross-check with your bank. If you have it, please could you send over the email or correspondence from your bank stating that the refund hasn't been credited? Thank you. 🙏🏻\n\n<refund not processed> I've looked into this for you, and it seems the refund has been delayed. I'm so sorry this has happened. I'll contact the relevant team immediately, and make sure this is processed straight away. I'd also like to offer you a coupon for <X%> to enjoy a discount of up to <$X> on your next experience with us. I hope this helps a little! Once again, my sincere apologies for the delay. 💜\n\nThanks so much for your time and patience! 💜\n\nBest,\nName"
+  ],
+  [
+   "How can I make a reservation using headout credits?",
+   "Hey <name>, 👋\n\nYay, I'm excited to hear you'll be using your Headout credits! 💜\n\nYou can view how many credits you have in your account by simply logging into the Headout website or app using your email address. Your credits will be displayed right next to the 'Credits' tab.\n\nUsing your credits is simple: they'll automatically get deducted from the total value of your booking. You can check out the breakdown of the cost when you're on the payment page. ✔️\n\nI hope this helps. Of course, if you have any other questions, please DM us at any time! Here to help. 😊\n\nBest,\nName"
+  ],
+  [
+   "What modes of payment do we accept on our website?",
+   "Hey <name>! 👋\n\nWe accept all major debit and credit cards, as well as payment through Apple Pay and Google Pay! 😊\n\nI hope this helps. Excited to see you head out with us soon. 💜\n\nBest,\nName"
+  ],
+  [
+   "Shoutout for Guest having more than 2k followers (for mentions in stories/tweet etc.",
+   "Hey hey <name>,\n\nWhoops, sorry to hear that. Please could you provide me with your booking details? I can then look into this for you. 👀\n\nSpeak soon! 💜\n\nBest,\nName\n\nFollow-up email:\n\nHello!\n\nThank you for your patience while I checked the booking for you. 😊\n\n<2 options, delete as applicable> \n\n1. I have good news! 🎉 Your booking is eligible for rescheduling. I've gone ahead and added the credits back to your Headout account, so you can now book for the date and time you'd like.\n\n2. Unfortunately, this particular booking isn't covered by our refund policy, so the best I can offer you is a <20-50%> refund in the form of Headout credits. You can then go ahead and rebook and pay partially with the credits. I'm sorry I'm not able to do more than this, but I hope it helps?\n\nAs always, I'm just a message away — feel free to DM if you have any other questions or concerns. 💜\n\nBest,\nName"
+  ],
+  [
+   "Enquiring about Job Openings",
+   "Hey Yash👋,\n\nThank you for your interest in working with us, we love to see it! 💜\n\nFor more details, you can check and apply at https://www.headout.com/careers/.\nIf you can’t find a role that matches what you had in mind, you can email us at life@headout.com and we’ll take it forward from there.\n\nThanks once again!\n\nBest,\nAvi"
+  ],
+  [
+   "Positive Reviews on comments",
+   "1. Thank you for heading out with us. We hope you had a great time! 💜\n2. That looks like a lot of fun! Hope you had a good time heading out 🥳 \n3. Thanks for heading out with us! 💜\n4. These pictures are so cool! 🤩(for pictures) \n5. Damn, that looks like fun! Hope you had a great time! 👋"
+  ],
+  [
+   "Over-Crowded- Generic",
+   "Hey <name>,\n\nI am really sorry to hear that we were unable to give you the experience that you've hoped for. During peak seasons, our partnered venues, including *said experience* open up entry to a larger number of people. I understand that this can negatively affect your experience and will try our best to work on our crowd management going forward. As a token of our apology, we will be emailing you a special coupon code which you can use for booking your next experience with us. Please do reach out to us if you'd like any help on when the best time to visit might be. \n\nI hope this helps brighten your day just a little at least! If you have any questions, just reply to our DM and we’ll take care of it! 💜\n\nBest,\nName"
+  ],
+  [
+   "Over-Crowded- STL- Why a queue?",
+   "Hey <name>,\n\nI am really sorry to hear that we were unable to give you the experience that you've hoped for. During peak seasons, our partnered venues, including *said experience* open up entry to a larger number of people. I understand that this can negatively affect your experience and will try our best to work on our crowd management going forward. As a token of our apology, we will be emailing you a special coupon code which you can use for booking your next experience with us. Please do reach out to us if you'd like any help on when the best time to visit might be. \n\nI hope this helps brighten your day just a little at least! If you have any questions, just reply to our DM and we’ll take care of it! 💜\n\nBest,\nName"
+  ],
+  [
+   "Did not like the venue",
+   "Hey <first name>,\n\nWe’re sorry to hear that your experience was not the ideal one you'd hoped for. Although not completely in our control, we will do all that we can to ensure an improved experience going forward. As a token of our appreciation for your feedback, we will be emailing you a special coupon code which you can use for your next booking with us.\n\nIf you have any questions, just reply to our DM and we’ll take care of it! 💜\n\nUntil next time!\n\nBest,\nName"
+  ],
+  [
+   "Guide/Host not clear",
+   "Hey <name>,\n\nI am really sorry to hear that we could not give you the experience that you'd hoped for! We will do all that we can to ensure this situation does not repeat itself in the future. As a token of apology, we have initiated a partial refund in the form of Headout credits for which you will be receiving an email. I hope this compensates a little for the inconvenience and brightens your day a bit!  \n\nIf you have any questions, just reply to our DM and we’ll take care of it! 💜\n\nBest,\nName"
+  ],
+  [
+   "A part of the venue was closed",
+   "Hey <first name>,\n\nWe’re so sorry for the experience you had with us at Headout.😞\n\nAs a token of our apology, a partial refund (mention the amount if the guest has mentioned the same in the review) along with a special coupon code has been processed with an email confirming the same.\n\nIf you have any questions, just reply to our DM and we’ll take care of it! 💜\n\nBest,\nName"
+  ],
+  [
+   "Quality of Audioguide is poor",
+   "Hey <first name>,\n\nWe’re so sorry for the hassle this has caused. Thank you for bringing this to our notice. We will look into this matter and make the necessary changes. As a token of our apology, we have issued a partial refund for the AudioGuide amount back to your mode of payment.\n\nIf you have any questions, just reply to our DM and we’ll take care of it! 💜\n\nBest,\nName"
+  ],
+  [
+   "Redemption issue- SP denied booking",
+   "Hey <first name>,  \n\nWe’re sorry to hear your visit did not go as planned.  😞\n\nWe are working with our local partners to ensure a fair resolution is provided. It is taking longer than anticipated as we are yet to hear from them.\n\nJust give us 24/48 hours and we’ll definitely share an update. Thank you for your patience and for bringing this to our notice. \n\nIf you have any questions, just reply to our DM and we’ll take care of it! 💜\n\nBest,\nName"
+  ],
+  [
+   "Did not receive Audio Guide",
+   "Hey <first name>,\n\nWe're sorry to hear that you did not get to experience your visit to the fullest. We’ve gone ahead and have issued a partial refund for the AudioGuide. We once again apologize for the inconvenience caused and look forward to seeing you head out with us soon!\n\nIf you have any questions, just reply to our DM and we'll take care of it! 💜\n\n Best,\nName"
+  ],
+  [
+   "Existing map is not helpful",
+   "Hey <first name>,\n\nWe’re so sorry for the hassle this has caused. Thank you for bringing this to our notice. We will look into this matter and make the necessary changes. As a token of our apology, we have emailed you a special coupon code to use on your next booking with us to make amends.\n\nIf you have any questions, just reply to our DM and we’ll take care of it! 💜\n\nBest,\nName"
+  ],
+  [
+   "Refund Status",
+   "Hey <name>,\n\nWe are sorry to hear that you haven't yet received the refund 😞. A full refund has already been processed to your card on <date>. We have sent you an email with more information about the status of your refund.\n\nIf you have any questions, just reply to our DM and we’ll take care of it! 💜\n\nBest,\nName"
+  ],
+  [
+   "SP denied refund - Guest error",
+   "Hey <First Name>,\n\nI’m sorry for the experience you’ve had. I understand that you feel you were on time, however, our records indicate that the tour departed at its scheduled time, Unfortunately, I cannot offer a refund for missed tours. 😞\n\nYour feedback is valuable to us, and to make up for this less-than-ideal situation, I’d like to offer you a partial refund in the form of Headout credits to use on your next booking with us. I’ve also sent you an email confirming the same. I hope this helps make up a bit for the inconvenience.\n\nIf you have any questions, just reply to our email and I’ll take care of it! 💜\n\nBest, \nName"
+  ],
+  [
+   "Refund status (updated)",
+   "Hey <Name>,\n\nI’m sorry to hear that you haven’t received the refund. No need to worry as we've already processed a full refund to your card on <date>. I have sent you an email containing more details regarding the status of your refund. Hope this helps! ✨\n\nIf you have any questions or concerns, feel free to reply to our email and I'll take care of it! 💜\n\nBest.\nName"
+  ],
+  [
+   "Our error - offered an upgrade",
+   "Hey <First Name>!\n\nI’m truly sorry for the cancellation hiccup. Good news! I've upgraded your reservation and the tickets have been sent to your email. I hope your upcoming experience is nothing short of an adventure. ✨\n\nIf you have any questions or concerns, just reply to the email, and I’ll take care of it. Happy heading out! 💜\n\nBest, \nName"
+  ],
+  [
+   "Resolution WIP - Need more time from guest ( ETA 24-48 hours )",
+   "Hi <First Name>,\n\nThank you for reaching out. We are currently looking into the issue and will provide you with an update within the next 24–48 hours.\n\nWe sincerely apologize for the inconvenience caused and truly appreciate your patience while we work on this.\n\nIf you have any additional questions in the meantime, please feel free to reply to our email/DM.\n\nBest regards,\n[Your Name]"
+  ],
+  [
+   "Guets having problem with accessing tickets - Hard Push App",
+   "Hey <Name>,\n\nThanks for choosing us for your adventure and for your feedback. I understand that downloading our app might seem like an extra step, but it's all about enhancing your experience. Our app ensures easy access to your tickets, even offline, and offers cool features to level up your adventure. 🚀\n\nWe promise, it's a quick and simple process. If you have any questions or concerns, please feel free to ask. We're here to make sure your experience with us is as smooth as possible! 💜\n- Name"
+  ]
+ ],
+ "ORM Email Macro": [
+  [
+   "Main Issue Type",
+   "Response"
+  ],
+  [
+   "Meeting point details",
+   "Hey {{name}},\n\nThanks for flagging this—I’m here to help, and I’ll do my best to get this sorted quickly.\n\nTo build a strong case with our local partner, could you share a few quick details?\n\n1) What time (local time) did you reach the meeting point?\n2) Do you have a photo from the meeting point (timestamped or not)?\n3) How long did you wait for the guide after arriving?\n4) Were you able to reach our local partner via the contact number on your voucher?\n\nNo stress if you don’t have everything—that’s totally okay. Just send over whatever you can, and I’ll take it from there.\n\nIf there’s anything else you need, just hit reply and I’ve got you.\n\nBest,\nName"
+  ],
+  [
+   "Invalid tickets",
+   "Hey {{name}},\n\nThanks for flagging this—I’m looking into it now.\n\nI’ve double-checked your booking details, and everything on the ticket side (date, time, number of guests, and experience type) matches what was confirmed. At the moment, we haven’t seen similar reports from other guests, but I’ve looped in our internal team to be sure there’s no wider issue.\n\nJust one quick thing—if you saw an error message while scanning your ticket at the venue, could you share exactly what it said (a screenshot would help too)? That’ll let us raise this directly with our local partner and speed things up.\n\nOnce I hear back internally, I’ll let you know the next steps—whether that’s a fresh ticket, a refund, or anything else you need.\n\nThanks again for your patience while we get this sorted.\n\nBest,\n {{agent_name}}, Headout"
+  ],
+  [
+   "Ticket sent but guest did not see (Where we share proof to guests)",
+   "Hey <Name>,\n\nI’m really sorry you couldn’t locate the confirmation email. It’s never fun to feel left out of the loop 😞\n\nI’ve double-checked our records, and the tickets were successfully sent to your email <guest’s email ID> within <X> minutes of your booking being confirmed. Please find the attached screenshot/email log as proof of the same.\n\nThat said, I completely understand how frustrating this situation must have been. While this typically falls outside our refund policy, I’ve gone ahead and made an exception for you. A full refund has been processed to your original payment method. It should reflect in your account within 2–3 business days, depending on your bank 💜\n\nThank you for bringing this to our attention. If you’re open to it, you can update your Trustpilot review here:[link].\n\nIf there’s anything more I can do, just hit reply — I’m here to help.\n\nBest,\nName"
+  ],
+  [
+   "Tech Issue",
+   "Hey {{ticket.requester.first_name}},\n\nThank you for reaching out. I appreciate you bringing this technical issue to our attention. I sincerely apologize for the inconvenience it has caused, preventing you from booking your tickets with Headout.\n\nPlease rest assured that I have escalated this bug to our tech team, and they are actively working to resolve it promptly for you and our other guests.\n\nI kindly request you to try booking again within the next 24 hours. You should not encounter any further glitches during this time. We look forward to assisting you in heading out with us soon.\n\nIf there is anything else you need, just hit reply to this email and I’ll see to it.\n\nBest,\nName"
+  ],
+  [
+   "Review removal request from SP",
+   "Hey Team,\n \nThanks for writing in!\n \nWe’ve got your request to remove your review and our team is currently looking into it. We’ll review things as per our internal guidelines and take the right next steps. In the meantime, if you have any questions or need more details, feel free to reply to this email or raise a ticket on the Hub Help Center -- we're here to help.\n \nBest,\nName , Headout"
+  ],
+  [
+   "Offerring coupon/discount due to unsatisfactory experience",
+   "Hey,\n \nThanks for reaching out!\n \nThank you for bringing this to my attention. I’m sorry to hear that your experience was not the ideal one you'd hoped for. This is not the level of service we strive to provide.  Your feedback is highly valuable to us, and I want to assure you that we take it seriously. We are committed to making improvements to ensure that future experiences exceed your expectations.\n \nTo try and compensate for the disappointing experience, I have emailed you a coupon code that you can use to enjoy 10% off your next experience with us. Just apply the coupon code \"SOCIAL101\" and receive a 10% discount on the total booking amount.\n \nYou can also find a full list of our current offers here.\n \nIf you need anything else, reply to this email, and I'll get it sorted! 💜\n\nBest,\nName, Headout"
+  ],
+  [
+   "War Cancellation Request - ETA 48 hours",
+   "Hi {{name}},\n\nThanks for your patience while we looked into this. Due to the current geopolitical situation, several flights have been disrupted, which has led to multiple cancellations affecting experiences.\n\nWe’ve escalated your case to our concerned team, and they’re now coordinating with the local operator to confirm the cancellation and the next steps.\n\nWe’ll share an update with you within the next 48–72 hours as soon as we hear back from them. In the meantime, if you have any questions, just reply here and I’ll be happy to help.\n\nBest,\n{{agent_name}}, Headout"
+  ]
+ ],
+ "ORM main ( TP ) Macro": [
+  [
+   "Use Case",
+   "TP / PlayStore / Other Social Media Response MACRO",
+   "IMP NOTE"
+  ],
+  [
+   "Customer Unable to trace booking",
+   "Hey <first name>, \n\nI’m sorry things didn’t go as planned, and I’d love to fix this for you right away. Please share your booking ID (if available) or the email address used for your booking at https://bit.ly/hedout.  Once we have your details, our team will dive right in to resolve it ASAP.\n\nThank you so much for your understanding and patience. I’ll make sure we turn this around for you!\n\nBest,\nName, Headout",
+   "For Playstore Within 350 letters\nHey <first name>, I'm sorry your experience didn't go as planned. 💜 Please share your booking ID or the email used for your booking at https://bit.ly/hedout, and our team will look into it right away. Thanks for your patience—we'll do our best to resolve this as quickly as possible."
+  ],
+  [
+   "To a customer asking for his/her tickets that have already been sent tickets (Resend tickets)",
+   "Hey <first name>, \n\nOh no, I’m sorry to hear you didn't receive your tickets. 😞\n\nI've just checked our system, which confirms the tickets were sent to you on {date}. Please could you check your Spam folder, just in case they were sent there by mistake?\n\nNo worries though, as I have resent your tickets. I hope you have a great time heading out with us!\n\nIf you have any questions, just reply to our email and we’ll take care of it. 💜\n\n<Name>\nTeam Headout",
+   ""
+  ],
+  [
+   "Ticket Validity (Trust Issues) / Open Dated Confusion / Extended Validity Inquiries",
+   "Hey <first name>, \n\nI'm sorry for the confusion caused by the dates mentioned on the tickets. 😞\n\nI assure you that your tickets can be used until <date> and you will have no trouble redeeming them on the date of your visit! \n\nIf you have any questions, please do reply to our email and we’ll take care of it. 💜\n\n\n<Name>\nTeam Headout",
+   ""
+  ],
+  [
+   "Delay in sending tickets/ future booking",
+   "Hi <name>,\n\n\nThank you for writing back to us.\n\n\nYour reservation is confirmed! However, because our local partner processes tickets a minimum of 7 days before the date of this particular experience, you will receive your tickets closer to the time.\n\n\nWe understand this isn't ideal, and we are working on improving our ticketing processes at the moment. However, once again, I'd like to reiterate that your reservation is absolutely confirmed and the tickets will be sent to you well in advance.\n\n\nIf you have any questions, just reply to our email and we’ll take care of it!\n\n\n<Name>\nTeam Headout",
+   ""
+  ],
+  [
+   "Convenience Fee - Service Fee mentioned on Checkout",
+   "Hi <Name>,\n\nThank you for writing to us.\n\nI’ve just looked at your booking and can see that you paid a booking fee of <$X>. This small fee supports online payment processing charges, and access to our 24/7 customer support team, and helps us run a trusted global marketplace. \nWe’ve made sure to be transparent about the break-up of the total price and highlighted the booking fee on the checkout page, right before you make the payment.\n\nFor now, I’ve refunded the booking fee to your original payment method. This will be reflected in your account within the next 2-3 business days, depending on your bank. I hope this helps.💜\n\nIf you have any questions, just reply to our email and we’ll take care of it.\n\n\n<Name>\nTeam Headout",
+   ""
+  ],
+  [
+   "Convenience Fee - Service Fee not mentioned on Checkout",
+   "Hi <Name>,\n\nThank you for writing to us. ✨\n\n\nI’ve just looked at your booking and can see that you paid a booking fee of <$X>. This small fee supports online payment processing charges, and access to our 24/7 customer support team, and helps us run a trusted global marketplace.This is also outlined in our Terms of Use under the Payments section here [https://www.headout.com/terms-of-use/].\n \n\nFor now, I have refunded the total difference in price to your original payment method. This will be reflected in your account within the next 2-3 business days, depending on your bank. I hope this helps. \n\nIf you have any questions, just reply to our email and we’ll take care of it! 💜\n\n\n<Name>\nTeam Headout",
+   "IMP NOTE :\na) If the difference amount is mentioned by the guest then mention the amount. \nb) If the difference amount is huge (eg:more than 100$) avoid mentioning the amount until unless guest has mentioned the amount on the review."
+  ],
+  [
+   "Pricing Concern - No booking fee\n{Where we haven't added any Booking Fees but we are still expensive than competition/venue/SP website}",
+   "Hey {{name}},\n\nThanks for flagging this. We appreciate you taking the time to point it out. We've checked this on our end, and you're right that there's a difference compared to the venue's listed price.\n\nWe've gone ahead and processed a refund of {{currency}} {{amount}} to cover the difference. You should see this reflected in your account within 5-7 business days.\n\nWe always aim to keep our prices fair and competitive, and we're reviewing this with our supply partner to better align moving forward.\n\nIf you have any questions, just reply to our email and we'll take care of it.💜\n\nBest,\n{{agent_name}}, Headout",
+   ""
+  ],
+  [
+   "SP issue - Meeting point issue// Venue Related Issue / Service Issue",
+   "Hey <first name>,  \n\nI’m sorry that your visit did not go as planned.  😞\n\nWe are working with our local partner to ensure a fair resolution is provided. Unfortunately, as we have not yet heard back from them, this is taking longer than expected. \n\nPlease rest assured that I’m personally following up with the partner, and will update you within the next 48 hours. Thank you for your patience. \n\n\nIf you have any questions, just reply to our email and we’ll take care of it! 💜\n\n<Name>\nTeam Headout",
+   ""
+  ],
+  [
+   "Delay fulfillment / Unfulfilled Booking - Refunding the guest",
+   "Hey <first name>, \n\nI’m so sorry your booking could not be confirmed 😞. While very rare, this happened because of a technical glitch.\n\nI've refunded the full amount you paid for this reservation to your original payment method. This will reflect in your account within the next 2-3 business days, depending on your bank. \n\nTo compensate for the inconvenience caused, I have also added <$X> in Headout credits to your account, and have sent confirmation of this to you via email. I hope this brightens your day a bit!\n\nIf you have any questions, just reply to our email and we’ll take care of it!  💜\n\n<Name>\nTeam Headout",
+   ""
+  ],
+  [
+   "Incorrect Tickets Sent - Guest Requesting Refund\n (Guest contact before Experience date)",
+   "Hey <first name>, \n\n\nI sincerely apologize for the oversight on our part 😞. \n\n\nI've refunded the full amount you paid for this reservation to your original payment method. This will reflect in your account within the next 2-3 business days, depending on your bank. \n\nIf you have any questions, just reply to our email and we’ll take care of it! 💜\n\n<Name>\nTeam Headout",
+   ""
+  ],
+  [
+   "Incorrect Tickets Sent - Guest Requesting Refund\n(Experience date in past)",
+   "Hey <first name>, \n\nI sincerely apologize for the oversight on our part 😞. This is definitely not the Headout experience we'd want you to have, so I've personally spoken to all concerned teams to ensure this never happens again.\n\n\nI've refunded the full amount you paid for this reservation to your original payment method. This will reflect in your account within the next 2-3 business days, depending on your bank. \n\nAs our way of making it up to you, I’ve emailed you a coupon code to enjoy <X%> off your next Headout experience!\n\nIf you have any questions, just reply to our email and we’ll take care of it! 💜\n\n<Name>\nTeam Headout",
+   ""
+  ],
+  [
+   "Our Error - Refund Booking",
+   "Hey <first name>, \n\nI'm very sorry for what has happened 😞. This is definitely not the Headout experience we'd want you to have, so I've personally spoken to all concerned teams to ensure it never happens again.\n\nI've refunded the full amount you paid for this reservation to your original payment method. This refund will reflect in your account within the next 2-3 business days, depending on your bank. \n\nTo compensate for the inconvenience caused, I have also added <$X> in Headout credits to your account, and have sent confirmation of this to you via email. I hope this brightens your day a bit!\n\nIf you have any questions, just reply to our email and we'll take care of it! 💜\n\n<Name>\nTeam Headout",
+   "Refunding due to content Issue , Support Issue, Tech Issue"
+  ],
+  [
+   "Guest Error - Refund As Exception",
+   "Hey <first name>, \n\nI'm very sorry for the experience you've had with us 😞. Although this cancelation/refund <delete as applicable> is strictly out of policy, I’ve made an exception for you and refunded (Є/$)<X> to your card as per your request. This refund will reflect in your account within the next 2-3 business days, depending on your bank.         \n\nWe look forward to seeing you head out with us soon!\n\nIf you have any questions, just reply to our email and we'll take care of it. 💜\n\n<Name>\nTeam Headout",
+   ""
+  ],
+  [
+   "Offering DSS -  OUT OF POLICY  ( Guest Error - Wrong Date/time )",
+   "Hey <Name>,\n\nI'm so sorry for the experience you've had with us. It looks like the date/time you picked wasn't the one you intended. We work closely with local partners to bring incredible experiences to life. In this case, the local partner has a strict non-cancellation policy. As a result, I'm unable to reschedule or cancel and refund your booking. This policy is highlighted before you book to ensure the guest is always aware.\n\nThat said, I’ve made an exception and issued a partial refund—50% of the amount paid—in the form of Headout credits. You can use these to book the experience again at your convenience. I’ve also sent confirmation via email.\n\nIf you have any questions, just reply to our email, and we’ll take care of it! 💜\n\n<Name>\nTeam Headout",
+   "Note : \na) You can also inform guest with proof of the link to our website where we provide the info about  cancellation policy. Refer the macro under Macro - Hyperlinking proof\nb) We must also inform the guest about our new  cancellation flexiable insurance add-on on checkout for non-refundable experiences/product. New Macro updated on this."
+  ],
+  [
+   "Priority Entrance/Escorted entry confusion - with Audio Guide and Assistance of a host",
+   "Hey <first name>, \n\nI'm very sorry for the experience you've had with us. 😞\n\n\nYou purchased ticket(s) that not only include(s) entry but also an audio guide and the assistance of a host!\n\nHowever, I understand it may be frustrating to pay for a benefit you didn’t intend to use, so I’ve initiated a partial refund (mention the amount if the guest has mentioned it in the review) for the difference between the ticket you purchased and a regular entry ticket. I’ve also sent you an email confirming this. <Or offer complete refund, e.g. ‘, so I’ve initiated a complete refund for you’.>\n\nIf you have any questions, just reply to our email and I’ll take care of it! 💜\n\n<Name>\nTeam Headout",
+   "Note :\na) mention the amount if the guest has mentioned it in the review\nb) offer complete refund if its an escalation case  and purchased new tix.\nc) Kindly send out Take down link"
+  ],
+  [
+   "Priority Entrance/Escorted entry confusion without Audio Guide",
+   "Hey <first name>, \n\nI'm very sorry for the experience you've had with us. 😞\n\n\nYou purchased ticket(s) that not only include(s) entry, but also the assistance of a host!\n\nHowever, I understand it may be frustrating to pay for a benefit you didn’t intend to use, so I’ve initiated a partial refund (mention the amount if the guest has mentioned it in the review) for the difference between the ticket you purchased and a regular entry ticket. I’ve also sent you an email confirming this. <Or offer complete refund, e.g. ‘, so I’ve initiated a complete refund for you’.>\n\nIf you have any questions, just reply to our email and I’ll take care of it! 💜\n\n<Name>\nTeam Headout",
+   "Note :\na) mention the amount if the guest has mentioned it in the review\nb) offer complete refund if its an escalation case and purchased new tix.\nc) Kindly send out Take down link"
+  ],
+  [
+   "Guided tour entry confusion",
+   "Hey <first name>, \n\nI'm very sorry for the experience you've had with us. 😞\n\n\nYou purchased ticket(s) that not only include(s) entry, but also a full guided tour!\n\nHowever, I understand it may be frustrating to pay for a benefit you didn’t intend to use, so I’ve initiated a partial refund (mention the amount if the guest has mentioned it in the review) for the difference between the ticket you purchased and a regular entry ticket. I’ve also sent you an email confirming this. <Or offer complete refund, e.g. ‘, so I’ve initiated a complete refund for you’.>\n\nIf you have any questions, just reply to our email and I’ll take care of it! 💜\n\n<Name>\nTeam Headout",
+   ""
+  ],
+  [
+   "Future booking - Re-assuring the guest that tickets sent are correct with redemption instructions",
+   "Hey [Name],\n\nWe wanted to provide you with important information about your upcoming experience with us. Your purchased tickets include entry tickets with the assistance and guidance of a host. For that, all you need to do is show the voucher to the host at the venue, and they will assist you further. You already have your vouchers with you, but we have re-shared them for your convenience. \n\nWe understand you may be anxious without a physical or digital ticket in hand, but rest assured that your voucher is all you need for this specific experience. This may be a departure from the usual process, but we have streamlined it to ensure your convenience.\n\nThank you for choosing us for your upcoming experience. We are committed to providing you with a memorable and enjoyable time. We look forward to serving you and creating lasting memories together.\n\nIf you have any questions or concerns, just reply to our email and I'll take care of it! 💜\n\n<Name>\nTeam Headout",
+   ""
+  ],
+  [
+   "Delay in Fulfillment - Tickets just sent",
+   "Hey <first name>, \n\nI’m so sorry we kept you waiting. Due to a technical constraint, we were not able to send your tickets as quickly as we usually do 😞.\n\nNot to worry, though, as I’ve just sent the tickets to your email. Please check your inbox to access them and start heading out!\n\nOf course, this shouldn’t have happened, so we’d love to make it up to you with <X%> off your next experience with us. I’ve included a coupon for this in the email, too. Have a great time!\n\nIf you have any questions, just reply to our email and we'll take care of it! 💜\n\n<Name>\nTeam Headout",
+   ""
+  ],
+  [
+   "Delay in Fulfillment - Tickets not sent ( Providing ETA )",
+   "Hey <Name>,\n\n\nI’m so sorry for the delay. Due to a technical constraint, we weren’t able to send your tickets as quickly as we usually do 😞.\n\n\nNot to worry, though, as our team’s working on it and you should receive your tickets via e-mail within the next <ETA>.\n\n\nOf course, this shouldn’t have happened, so I’d love to make it up to you with <X%> off your next experience with us. I’ve included a coupon for this in the email, too. Have a great time!\n\n\nIf you have any questions, just reply to our email and I'll take care of it! 💜\n\n\n<Name>\nTeam Headout",
+   ""
+  ],
+  [
+   "Delay in Fulfillment - Tickets cannot be sent ( Refunding + Adding Credits )",
+   "Hey <first name>,\n\n\nI’m so sorry your booking could not be confirmed 😞. While very rare, this happened because of a technical glitch.\n\n\nTo try and make things right, I’ve initiated a full refund to your card, which should reflect within the next 48 hours.\n\n\nI have also added <$> in Headout credits to your account, and have sent confirmation of this to you via email. I hope this brightens your day a bit! ✨\n\nIf you have any questions or concerns, just reply to the email, and I’ll take care of it! 💜\n\n<Name>\nTeam Headout",
+   ""
+  ],
+  [
+   "Trust Issues - Cx claims tickets invalid ( Assuring cx before DOV )",
+   "Hey <first name>, \n\nI can confirm that the tickets you purchased are valid for the scheduled date and you will not face any issues with entry. I have also sent you an email confirming this.\n\nIf you have any questions, just reply to our email and I'll take care of it! 💜\n\n<Name>\nTeam Headout",
+   ""
+  ],
+  [
+   "Did not see the confirmation email and bought new tickets. (Refunding as exception)",
+   "Hey <Name>,\n\nI’m really sorry you couldn’t find the confirmation email. It’s never fun to feel left out of the loop . I’ve double-checked, and the tickets were sent to your email <X > minutes after your booking was confirmed.\n\nThat said, I completely understand how frustrating this must be. While it usually falls outside our refund policy, I’ve gone ahead and made an exception just for you. A full refund has been processed to your original payment method. It should reflect in your account within 2–3 business days, depending on your bank. 💜\n\nThanks for sharing your concern with us. If you’re open to it, you can update your TP review here: [link].\n\nIf there’s anything more I can do, just reply here. I’ll be happy to help.\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Did not see the confirmation email and bought new tickets. (Asking for Proof of New Tix)",
+   "Hey <first name>, \n\nI’m sorry to hear you didn't see the confirmation email 😞. I can confirm that the tickets were sent to your email <x> minutes after we received your booking. \n\nNothing to worry about, though. If you could send us a document supporting your claim to https://bit.ly/hedout , a full refund will be issued to your account. I hope this helps. 💜\n\n\n If you have any questions, just reply to our email and we’ll take care of it! \n\nBest,\nName, Headout",
+   "NOTE : Please dont not ask for PROOF until booking value is high( Above 200$) Ensure to send TAKEDOWN for cases where we refund. Use this macro only if we require proof."
+  ],
+  [
+   "Tickets being Invalid - \n(asking for more time)",
+   "Hey <first name>,\n\nThank you for bringing this to my attention. I’m sorry to hear that your experience was not the ideal one you'd hoped for 😞. This is not the level of service we strive to provide.  Your feedback is highly valuable to us, and I want to assure you that we take it seriously. We are committed to making improvements to ensure that future experiences exceed your expectations.\n\nPlease rest assured that I’m personally following up with the relevant team, and will update you within the next 48 hours. Thank you for your patience. 💜\n\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Clarification on the Issue - Need more info from guest  ( Bad Experience )",
+   "Hey <name>,\n\nI'm very sorry for the experience you've had with us. 😞\n\nWhile I do have your booking ID, I’d love to know more about the issue to help you as quickly as possible. \n\nI have also sent you an email with this request. I look forward to hearing back and helping you solve this!\n\nThank you for your patience! 💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Trust Issues - Assuring guest",
+   "Hey <first name>,\n\nThank you for raising your concerns with us at Headout. I can guarantee that we are an authorized distributor for <experience name>. I can therefore confirm that the tickets you purchased are valid for the scheduled date and you will not face any issues with entry.\n\nI hope this helps. If you have any questions, just reply to our email and we'll take care of it! 💜\n\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Overcrowded - Generic ( Providing Coupon Code )",
+   "Hey <name>,\n\nI'm very sorry for the experience you've had with us 😞. During peak seasons, the venue typically opens up entry for a larger number of people.\n\nI understand that this can negatively affect your experience and, and we will try our best to work with the venue to improve crowd management going forward. \nTo make up for your experience, I have emailed you a coupon code which you can use to enjoy <X%> off your next experience with us. \n\nPlease feel free to reach out to us at any time if you'd like advice on when the best time to visit a particular venue might be.\n\nI hope this helps brighten your day! If you have any questions, just reply to our email and we’ll take care of it. 💜\n\nBest,\nName, Headout",
+   "Note : You can also inform guest with proof of the link to our website where we provide the info about overcrowding. Refer the macro under Macro - Hyperlinking proof"
+  ],
+  [
+   "Overcrowded - Why STL ( Providing HOC  )",
+   "Hey <name>,\n\nI'm very sorry for the experience you've had with us 😞. During peak seasons, the venue typically opens up entry for a larger number of people.\n\nI understand that this can negatively affect your experience and we will try our best to work with the venue to improve crowd management going forward. \nTo compensate for the inconvenience caused, I have initiated a partial refund in the form of Headout credits, and have sent confirmation of this to you via email. I hope this brightens your day a bit! \n\nPlease feel free to reach out to us at any time if you'd like advice on when the best time to visit a particular venue might be.\n\nIf you have any questions, just reply to our email and we’ll take care of it. 💜\n\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Did not like the venue / Unsatisfactory Experience",
+   "Hey <first name>,\n\n\nThank you for bringing this to my attention. I’m sorry to hear that your experience was not the ideal one you'd hoped for. This is not the level of service we strive to provide.  Your feedback is highly valuable to us, and I want to assure you that we take it seriously. We are committed to making improvements to ensure that future experiences exceed your expectations.\n\n\nTo try and compensate for the disappointing experience, I have emailed you a coupon code that you can use to enjoy <X%> off your next experience with us.  I hope this brightens your day a bit! \n\n\nIf you have any questions or concerns, just reply to our email, and I’ll take care of it. Looking forward to helping you head out again! 💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Vendor Service Issue - (Guide/host not clear)",
+   "Hey <name>,\n\nI’m really sorry to hear that we could not give you the experience you'd hoped for 😞. I will do all that I can to ensure that this doesn’t happen again.\n\nTo compensate for the inconvenience caused, I have initiated a partial refund in the form of Headout credits. I have sent confirmation of this to you via email. I hope this brightens your day a bit! \n\nIf you have any questions, just reply to our email and we’ll take care of it! 💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Venue Closure - Partial refund as a part of the venue was closed",
+   "Hey <first name>,\n\nI'm very sorry for the experience you've had with us 😞. We should have warned you in advance of the closure. This was an oversight on our part, and I’ll make sure something like this doesn’t happen again.\n\nTo help make up for this inconvenience, I've initiated a partial refund for your missed tour, and you should see the amount in your account within <X number> days. I’ve also sent an e-mail to confirm this. I hope this brightens your day a bit! \n\nIf you have any questions, just reply to our email and we’ll take care of it! 💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Venue Closure - Full refund as guest couldnt take the experience",
+   "",
+   "Note - Kindly send out Take down link where we resolve and refund guest. Always take right judge on the tone of the review"
+  ],
+  [
+   "Audio Guide Issue - ( Quality Poor)",
+   "Hey <first name>,\n\nI'm very sorry for the experience you've had with us 😞. We will do all that we can to ensure an improved experience for you and all Headout guests going forward. \n\nTo make it up to you, I have emailed you a coupon code, which you can use to enjoy <X%> off your next booking with us. \n\nIf you have any questions, just reply to our email and we’ll take care of it! 💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Audio Guide Issue (Not Working - sent new ones before DOV)",
+   "Hey <First Name>,\n\nI’m sorry to hear that the audio guide wasn't working during your tour 😕. I understand how frustrating that can be and apologize for any inconvenience caused.  I appreciate you bringing this to our notice and I’ve sent over the new audio guide via mail.\n\nThank you for your patience and understanding. I hope you enjoy the rest of your tour! ✨\n\nIf you have any questions, just reply to our email and I’ll take care of it! 💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Audio guide Issue - ( Not Working -  initiated a partial refund post DOV )",
+   "Hey <First Name>,\n\nI’m sorry to hear that the audio guide wasn't working during your tour 😕. I understand how frustrating that can be and apologize for any inconvenience caused.  \n\nTo help make up for this inconvenience, I've initiated a partial refund for your missed tour, and you should see the amount in your account within <X number> days. I’ve also sent an e-mail to confirm this.\n\nThank you for your patience and understanding. I hope you enjoy the rest of your tour! ✨\n\n If you have any questions, just reply to our email and I’ll take care of it! 💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Redemption Issue - SP / Venue denied booking\nETA of 48 hours",
+   "Hey <first name>,\n\nI’m sorry to hear your visit did not go as planned. 😞\n\nI’d like to reassure you that I’m working with our local partner to ensure a fair resolution is provided as soon as possible. Unfortunately, as we’re yet to hear from them, the process is taking a little longer than anticipated.\n\nPlease rest assured that I’m personally following up with the partner, and will update you within the next 48 hours. Thank you for your patience. \n\n If you have any questions, just reply to our email and we’ll take care of it! 💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Existing map is not helpful - Adding Partial HOC ( Guest attended the experience )",
+   "Hey <first name>,\n\nI'm very sorry for the experience you've had with us 😞. I will do all that we can to ensure an improved experience for you and all Headout guests going forward. \n\nTo compensate for the inconvenience caused, I have initiated a partial refund in the form of Headout credits, and have sent confirmation of this to you via email. I hope this brightens your day a bit! \n\nIf you have any questions, just reply to our email and we’ll take care of it! 💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Cancellation/ Modification Request - Partnered SP ( Asking for more time )",
+   "Hey <first name>,\n\nI'm very sorry for the experience you've had with us 😞. I will do all that we can to ensure an improved experience for you and all Headout guests going forward. \n\nTo compensate for the inconvenience caused, I have initiated a partial refund in the form of Headout credits, and have sent confirmation of this to you via email. I hope this brightens your day a bit! \n\nIf you have any questions, just reply to our email and we’ll take care of it! 💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Delay In Refund - Ops/ Finance Miss",
+   "Hi <name>,\n\nI'm very sorry to hear that you haven't received the refund yet. 😕\n\nI can confirm that the refund has already been processed from our end on <DATE and TIME here>. The Acquirer Reference Number (ARN) for your refund is: <XXX>. This will reflect in your account within the next 2-3 business days, depending on your bank.        \n\nPlease could you have a chat with your bank, quoting the reference number above? They should be able to tell you more about the status of your refund.\n\nTo compensate for the inconvenience caused, I have emailed you a coupon code which you can use to enjoy <X%> off your next booking with us. I hope this brightens your day a bit! \n\nLooking forward to seeing you head out with us again soon. 💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Delay in Refund -Paypal escalation ( Refund Done)",
+   "Hi <name>,\n\nI'm very sorry to hear that you haven’t received the refund yet. 😕\n\nI can confirm that the refund has already been sent to your PayPal account. This will reflect in your account within the next 2-3 business days. Please could you have a chat with PayPal? They should be able to tell you more about the status of your refund.\n\nTo compensate for the inconvenience caused, I have emailed you a coupon code which you can use to enjoy <X%> off your next booking with us. I hope this brightens your day a bit! \n\nI look forward to seeing you head out with us again soon. 💜 \n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Delay In Refund - Adding HOC as promised",
+   "Hey <first name>\n \nI'm sorry to hear about the mix-up with your booking date and our delay in adding the promised credits.\n \nI've now added <$> as Headout credits to your account. You can use these credits to enjoy a discount on your next booking with us. I hope this helps make up for any inconvenience caused! ✨\n \nI’ve also sent an email to confirm this. If you have any questions or concerns, just reply to our email, and I’ll take care of it. We can't wait to have you join us for your next adventure! Happy heading out! 💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Guest claiming that our reviews is fake",
+   "Hey {{name}},\n\nI understand wanting to be sure before booking with a new company.\n\nOur reviews come only from customers who have completed an experience booked through Headout. Only they’re allowed to leave feedback on our platform, which is how we’ve built over 5 million verified reviews.\n\nYou can also cross-check this on Trustpilot, a neutral third-party platform where we have 50,000+ reviews with a 4.4+ average rating. These reviews are independently collected and cannot be edited or filtered by us.\n\nHeadout has been operating for over a decade, serving 48 million guests across 190+ countries. We are official partners of some of the world’s most iconic landmarks. Our team of 700+ and a network of 11 offices worldwide is available 24/7 to support you. We are also backed by investors behind companies like Airbnb, SpaceX, Zomato, Stripe, Coinbase, and more.\n\nIf you’d like help picking an experience or want to double-check anything before booking, I’m here to help. \n\nBest,\n{{agent_name}}, Headout",
+   ""
+  ],
+  [
+   "Customer error (Missed the tour/arrived late at MP ) - Offering HOC",
+   "Hey <First Name>,\n\nI’m sorry for the experience you’ve had. Our local partners have confirmed that the experience did start on its scheduled time. We also had other guests on this experience who were able to enjoy it without any issues. As a result, I unfortunately cannot offer a refund in this scenario as per our local partner's policy. 😞\n\nHowever, we really value you as our guest. I've processed a partial refund in the form of credits you can use for your next booking with us. I’ve also sent an e-mail to confirm this.\n\nIf you have any questions, just reply to our email and I’ll take care of it! 💜\n\nBest,\nName, Headout",
+   "Can add Insuarance Add On HO offers"
+  ],
+  [
+   "Customer error (Missed the tour/arrived late at MP ) - Issuing partial refund as exception (when SP denied refund)",
+   "Hey <First Name>,\n\nI’m sorry for the experience you’ve had. I understand that you feel you were on time, however, our records indicate that the tour departed at its scheduled time, Unfortunately, I cannot offer a refund for missed tours. \n\nYour feedback is valuable to us, and to make up for this less-than-ideal situation, I’ve initiated a 25-50% refund via Headout credits. You can use this to enjoy a discount on your next Headout booking. I’ve also sent an email to confirm this.\n\n\n\nIf you have any questions, just reply to our email and I’ll take care of it! 💜\n\nBest,\nName, Headout",
+   "Can add Insuarance Add On we HO offers and Take down link"
+  ],
+  [
+   "Customer error (Missed the tour/arrived late at MP ) - Issuing 100% HOC as exception (when SP denied refund)",
+   "Hey, <Name>!\nI'm sorry for the experience you’ve had with the tour 😔. I understand how frustrating it can be when things don't go as planned.\n\n\nAfter looking into your case, we reached out to our local partner regarding the tour. They confirmed that the tour did take place on time at the specified meeting point. However, I understand you believe you were on time.\n\nI know that is disappointing, and I want to ensure you have a positive experience with us in the future. To make it up to you, I’ve initiated a full refund via Headout credits. You can use this to enjoy a discount on your next Headout booking. I’ve also sent an email to confirm this.\n\n\nIf you’ve any questions or concerns, just reply to our email, and I’ll take care of it! 💜\ntime.\n\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Refund status - Generic",
+   "Hey <Name>,\n\nI’m sorry to hear that you haven’t received the refund. No need to worry as we've already processed a full refund to your card on <date>. I have sent you an email containing more details regarding the status of your refund. Hope this helps! ✨ \n\nIf you have any questions or concerns, feel free to reply to our email and I'll take care of it! 💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Refund Status - Voided transactions",
+   "Hey <Name>,\n\nThank you for bringing this to my attention. I appreciate your patience and apologize for any inconvenience caused.\n\n\nAfter checking with my team, I can confirm that your refund was initiated on<Date>.\n\nPlease note that reversed transactions may take up to 7-15 business days to be processed. However, the specific timeframe can vary depending on your bank.\n\nAs this is a voided transaction, you won't receive a notification when the refunded amount is credited back to your account. I’d request you to please keep track of your exact bank account balance to confirm if your refund has been processed. Once it’s successfully processed, your bank balance will increase by the refunded amount.\n\n\nThank you for your understanding.\n\n\nIf you’ve any questions or concerns, just reply to our email, and I’ll take care of it! 💜\n\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Inclusions not met ( HO/SP error) - Initating partial/full refund",
+   "Hey <Name>,\n\n\nI’m sorry to hear that you weren’t able to fully enjoy your experience with us. I understand that not being able to visit a particular sight can be disappointing.\n\n\nTo help make up for this inconvenience, I've initiated a partial refund for your missed tour, and you should see the amount in your account within <X number> days. I’ve also sent an e-mail to confirm this.\n\n\nIf you have any questions or concerns, just reply to our email and I'll take care of it! 💜\n\nBest,\nName, Headout",
+   "Note - Kindly send out Take down link where we resolve and refund guest. Always take right judge on the tone of the review"
+  ],
+  [
+   "Trust Issues -  Booking with us",
+   "Hey {{name}},\n\nI understand wanting to be sure before booking with a new company.\n\nHeadout has been operating for over a decade, serving 48 million guests across 190+ countries. We are official partners of some of the world's most iconic landmarks. Our team of 700+ and a network of 11 offices worldwide is available 24/7 to help you with anything you need. We are also backed by investors behind companies like Airbnb, SpaceX, Zomato, Stripe, Coinbase, and many more.\n\nOur reviews are tied to real customers who’ve completed an experience as only they are allowed to leave feedback. That’s how we’ve built over 5 million verified reviews. On Trustpilot alone, a neutral 3rd party reviews platform, we have 50,000+ reviews with a 4.4+ average rating.\n\nIf you’d like help with a specific experience, I’m here to guide you. \n\nBest,\n{{agent_name}}, Headout",
+   ""
+  ],
+  [
+   "Trust issues - Guest DOV is in future",
+   "Hey {{name}},\n\nI understand wanting to be sure, especially when you already have a booking coming up.\n\nHeadout has been operating for over a decade, serving 48 million guests across 190+ countries. We are official partners of some of the world’s most iconic landmarks. Our team of 700+ and a network of 11 offices worldwide is available 24/7 to support you. We are also backed by investors behind companies like Airbnb, SpaceX, Zomato, Stripe, Coinbase, and more.\n\nOur reviews are tied to real customers who’ve completed an experience as only they are allowed to leave feedback. That’s how we’ve built over 5 million verified reviews. On Trustpilot alone, a neutral 3rd party reviews platform, we have 50,000+ reviews with a 4.4+ average rating.\n\nSince your experience is already booked, you’re all set. If you’d like, I can walk you through what to expect on the day or help with any specific details. \n\nBest,\n{{agent_name}}, Headout",
+   ""
+  ],
+  [
+   "SP Tour Cancellation - Initiated a full refund",
+   "Hey <Name>\n\nI just wanted to give you an update regarding your tour cancellation issue for <name of experience> on <date of experience>. This is not the kind of service we strive for, and we're truly sorry for the inconvenience, and that we couldn't give you the experience you looked forward to. 😞\n\nTo make things right, we've gone ahead and processed a full refund to your card. You should see the refund credited back to your account <insert timelines>. As a token of our appreciation for your understanding, we've also included a 10% coupon code for your future bookings. We value your support and want to make sure your future experiences with us are perfect.\n\nIf you have any questions or concerns, just reply to our email and I'll take care of it! 💜\n\nBest,\nName, Headout",
+   "Note - Kindly send out Take down link where we resolve and refund guest. Always take right judge on the tone of the review"
+  ],
+  [
+   "SP cancelled last minute - Full refund+ HOC",
+   "Hey < Name>,\n \nI'm sorry for the experience you had with us 😞. This was a last-minute cancellation by our local partner, due to an unexpected system failure on their end. But we totally understand the frustration, disappointment and inconvenience this caused you.\n\n\nRest assured, we took immediate action and processed a full refund for these bookings on <Date of action>, and the funds should be reflected in 2-3 business days, depending upon your bank.\n\n\nTo make up for the inconvenience caused, I have also added 25% Headout credits for your bookings, to your account as compensation and have sent confirmation of this to you via email.\n\n\nWe know this was not the experience you wanted and not one we strive for, but we genuinely value your feedback, and hope that this conveys our commitment to improving. We do hope you will come back to Headout. I assure you, you won't regret it!\n\n\nThank you for your understanding, and we look forward to serving you better in the future.\n\n\nIf you have any questions, just reply to our email and we'll take care of it! 💜\n\n\nBest,\nName, Headout",
+   "Note - Kindly send out Take down link where we resolve and refund guest. Always take right judge on the tone of the review"
+  ],
+  [
+   "Guest not able to access tickets - Tickets already sent",
+   "Hey, <Name>\n\n\nI'm sorry to hear you're having trouble accessing your tickets. Fret not, I'm here to help.\n\n\nI’ve re-sent your tickets via email. All you have to do is download them now! 🎉 In case you’re unable to locate the email, please check your spam folder.\n\n\nIf you have any questions or concerns, just reply to our email, and I’ll take care of it. Happy heading out! 💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Alternative Sign-Off Responses (Positive)",
+   "Response 1\n\nHey <Name>\n\nYay! We've successfully resolved your query. 🙌\n\nIf you have any questions or concerns, just reply to our email, and I’ll take care of it. Have a great day! 💜\n\nBest,\nName, Headout\n\nResponse 2\n\nHey <Name>\n\nIt's a win! Your query has been resolved, and I'm thrilled that I could help. If you have any questions or concerns, just reply to our email, and I’ll take care of it. . \n\nYour experiences are at the heart of what we do, and we look forward to being a part of your future adventures! ✨\n\nHappy heading out! 💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Guest found a fake website - Phishing scam",
+   "Hey <Name>,\n\nThanks for reaching out. The link you shared is not affiliated with Headout in any way. We're aware of this situation, and our legal experts are working hard to resolve this promptly and take appropriate action. Your trust is of utmost importance to us, and we're dedicated to ensuring a safe and enjoyable experience for all our guests. \n\nMeanwhile, if you want to explore Headout experiences in <Dubai/placeholder>, check out our website at <https://www.headout.com/things-to-do-city-dubai/ >\n\n\nOur reviews are tied to real customers who’ve completed an experience as only they are allowed to leave feedback. That’s how we’ve built over 5 million verified reviews. On Trustpilot alone, a neutral 3rd party reviews platform, we have 50,000+ reviews with a 4.4+ average rating.\n\nIf there's anything else I can assist you with, please let me know, and I'll get right to it! (purp heart)\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Our error - Offered Upgraded tickets",
+   "Hey <First Name>\n\nI’m truly sorry for the cancellation hiccup. To make up for it, I've upgraded your reservation and the tickets have been sent to your email. I hope your upcoming experience is nothing short of an adventure. ✨\n\nIf you have any questions or concerns, just reply to the email, and I’ll take care of it. Happy heading out! 💜\n\nBest,\nName, Headout",
+   "Note - Kindly send out Take down link where we resolve and refund guest. Always take right judge on the tone of the review"
+  ],
+  [
+   "Customer error (Guest missed the tour) - Missed Intructions (Adding HOC )",
+   "Hey <Name>,\n\nI’m sorry that you missed your tour. I understand your confusion, but our tickets come with instructions regarding the meeting point to ensure you have a seamless experience.\n\nHowever, I understand these things can happen, so I’ve initiated a <X>% refund in the form of Headout credits. I’ve also sent an email confirming this. I hope this brightens your day a bit! ✨\n\nIf you have any questions or concerns, just reply to the email, and I’ll take care of it! 💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Customer error (Guest missed the tour) - Arrived Late (Adding HOC )",
+   "Hey <Name>,\n\nI’m sorry to hear that you couldn’t redeem your ticket on time. While your ticket was strictly timed, I understand that things don’t always go as planned. I’ve added <$X> credits to your Headout account for you to use on your next adventure with us! ✨\n\nI’ve also sent an email to confirm this. If you have any questions or concerns, just reply to the email, and I’ll take care of it! 💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Hard Push App - Guest unhappy with accessing tickets on APP",
+   "Hey <Name>,\n\nThanks for choosing us for your experience and for sharing your feedback. I know downloading our app might feel like an extra step, but it’s all about making your experience better. With the app, you can access your tickets anytime, even offline, and enjoy features that enhance your adventure. It’s quick and simple, we promise! 💜\n\nI’ve also sent your tickets via email. Can’t wait for you to head out with us! \n\nIf you have any questions or need help, just reply to this email and I'll take care of it. 🚀\n\nBest,\nName,Headout",
+   ""
+  ],
+  [
+   "Fraudulent Transactions - File a chargeback",
+   "Hey <Name>,\n\nI'm sorry to hear about the issue with your card 😞. Please contact your bank ASAP and report this unauthorized transaction as a case of fraud. They will help you through the process of filing a chargeback.\n\nWhile you're working with your bank, our finance team is on top of this situation as well. We’re here to provide any necessary information to assist in resolving the issue swiftly.\n\nIf you have any questions or concerns, please let me know. I’m here to help! 💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Guest arrived late at the venue (Couldn't redeem tickets) -  Purchased new ones ( Proof Sent)",
+   "Hey <Name>,\n\nI’m sorry to hear about the inconvenience you faced at the venue. This isn’t the Headout experience we strive to provide.\n\nFret not, I've processed a refund for your original tickets. I’ve also sent an email to confirm this. I hope this brightens your day a bit. ✨\n\nIf you have any questions or concerns, just let reply to the email, and I’ll take care of it! 💜\n\nBest,\nName, Headout",
+   "Note - Kindly send out Take down link where we resolve and refund guest. Always take right judge on the tone of the review"
+  ],
+  [
+   "Pending Refund - Wire Transfer ( Inactive Bank Account / PayPal Escalation )",
+   "Hey <Name>,\n\nI’m sorry about the delay in your refund. < Since your payment was made via PayPal more than 6 months ago/ Since your orginal mode of payment is not active > we can’t process the refund via the same method. Instead, I’ll process your refund < via a bank transfer/ via wire transfer> ( delete as aplicable ).\n\nI’ve sent you an email requesting details I’d need to process this. Once I have that, I’ll expedite your refund. Thanks for your patience! ✨\n\nIf you have any questions or concerns, just reply to the email, and I’ll take care of it! 💜\n\nBest,\nName, Headout",
+   "Note - Kindly send out Take down link where we resolve and refund guest. Always take right judge on the tone of the review"
+  ],
+  [
+   "Pending Refund - Pending from Finance",
+   "Hey <Name>,\n\nI’m sorry about the delay in your refund. I've asked the finance team to process the refund. Rest assured, this refund will reflect in your account within the next 24 hours, depending on your bank.\n\nThanks for your patience! ✨\n\nIf you have any questions or concerns, just reply to the email, and I’ll take care of it! 💜\n\nBest,\nName, Headout",
+   "Note - Kindly send out Take down link where we resolve and refund guest. Always take right judge on the tone of the review"
+  ],
+  [
+   "Generic Refund - Our Error",
+   "Hey <Name>,\n \nI’m so sorry for the experience you’ve had with us. 😔  This is not as per our usual standards and I’ve spoken to the concerned teams to ensure it doesn’t happen again.\n \nTo try and make things right, I’ve initiated a full refund to your card, which should reflect within the next 3-5 working days.\n \nI’ve also emailed you a special coupon code for you to enjoy a discount on your next booking with us. I hope this brightens your day a bit! ✨ \n \nIf you have any questions or concerns, just reply to our email, and I’ll take care of it! 💜  \n\n\nBest,\nName, Headout",
+   "Note - Kindly send out Take down link where we resolve and refund guest. Always take right judge on the tone of the review"
+  ],
+  [
+   "Conversion Fee",
+   "Hey <Name>,\n\n\nI’m so sorry for the experience you've had with us. I understand how unexpected and frustrating this can be.\n\n\nIf your bank classifies Headout's processing entity as international, you may incur cross-border fees, even if the charge was processed in your original currency.\n\n\nUnfortunately, if these fees are applied by your card issuer, Headout cannot refund them.\nWe appreciate your understanding, and if you have any questions, just reply to our email and we’ll take care of it! \n\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Krakow Booking - Tour cancelled last minute as per nature of the venue",
+   "Hi [Guest's Name],\n\n\nThank you for your feedback. We're sorry to hear about your experience in Krakow and for the inconvenience caused.\n\n\nOccasionally, last-minute changes to tours or experiences are unavoidable due to operational issues or unforeseen circumstances. These adjustments are made in collaboration with our local partners to maintain the quality of the experience, but we understand they can disrupt your plans.\n\n\n[A refund of $XX has been processed and will reflect in your account within X days // We've added $XX as Headout Credit, now available in your account.] A confirmation email with all the details has been sent your way. If you have any questions, feel free to reach out.\n\nYour feedback is invaluable as we work with our partners to make our policies more adaptable and guest-focused.\n\nIf I can help with anything else, reply to this email and I'll get it sorted! 💜  \n\nBest,\n<Name>, Headout",
+   "Note : \n1) You can also inform guest with proof of the link to our website where we provide the info about last min-cancellation/change. Refer the macro under Macro - Hyperlinking proof\n2) We must also inform the guest about our new  cancellation flexiable insurance add-on on checkout for non-refundable experiences/product. New Macro will be updated on this.\n3) If Refund sent Take-Down"
+  ],
+  [
+   "Krakow Booking -Staff Behavior",
+   "Hey [Guest's Name],\n\nThank you for reaching out and bringing this to our attention. I’m really sorry to hear about the issues with the staff in Krakow—this isn’t the kind of service we aim to deliver. We’ve already flagged this with our local partner so they can look into it right away.\n\nTo try make up for it, we’ve [processed a refund of $XX // added $XX as Headout Credit to your account]. You’ll get a confirmation email shortly, <The amount should show up in your account within X days, depending on your bank.>.\n\nIf I can help with anything else, reply to this email and I'll get it sorted! 💜  \n\nBest,\n<Name>, Headout",
+   ""
+  ],
+  [
+   "Confusion with tickets and voucher",
+   "Hey {{name}}, \n\nI'm very sorry for the experience you've had with us. 😞 The ticket you booked includes hosted entry, so a voucher is issued to make sure our host can personally assist you at the venue. We’ve highlighted this under the “My Ticket” section in the website/app. To make it up to you, I’ve sent a 10% off coupon for your next booking with us. Hope we get a chance to turn this around and give you a smoother experience next time. 💜\n\n\nBest,\n<Name>, Headout",
+   ""
+  ],
+  [
+   "Charge back/ Dispute raised by guest",
+   "Hey < name>\n\nI’m so sorry for the experience you’ve had with us. 😔\n\nI’ve looked into your refund, and here’s what I found: a chargeback was initiated on your payment. Since this is a formal dispute raised with your bank, the funds are now frozen and under review. This also means I legally can’t process a refund from my end unless the chargeback is withdrawn.\n\nIf you'd like us to handle the refund directly, the best way forward would be to cancel the chargeback with your bank. Otherwise, your bank will complete their investigation and decide whether to return the funds, and it will be out of our control.\n\nLet me know how you’d like to proceed, and I’ll guide you through it.\n\nBest,\n <Name>, Headout",
+   ""
+  ],
+  [
+   "Account Deletion",
+   "Hey <name>,\n\nThank you for reaching out. I am sorry to see you go. If there's anything I can do to change your mind, I'll more than happy to help.\n\nIf you're sure you want to delete your Headout account, log in via our app or mobile site using your registered email. Then go to Account > Settings > Delete Account and follow the steps.\n\nQuick note: account deletion kicks in after a 30-day window to keep things secure.\n\nIf you prefer I handle it for you, just let me know.\n\nBest,\n<Name> , Headout",
+   ""
+  ],
+  [
+   "Tax - Invoice Issue",
+   "Hey <name>,\n\nThank you for sharing your feedback with us. We apologise for the trouble you experienced in obtaining a tax invoice.\n\nHeadout functions solely as an intermediary between our guests and the experience providers on our platform. As the experiences are directly operated and fulfilled by our partner suppliers, we’re unable to issue tax invoices ourselves. This is also outlined in our Terms of Use under the Payments section here [https://www.headout.com/terms-of-use/].\n\nWe appreciate your understanding, and if you have any questions, reply to our email and we’ll take care of it!\n\nBest,\n<Name> , Headout",
+   ""
+  ],
+  [
+   "Concierge booking",
+   "Option 1 : When NOT CC concierge\n\n\nHey {{name}},\n\n\nThanks for calling this out — refund delays are never fun, and we’re really sorry you had to deal with this. We checked your case, and your booking for {{experience}} was made through a concierge partner, not directly on Headout. That means the refund is issued by the concierge, as they handle the payment end-to-end.\n\n\nThe good news: we’ve already processed the full refund from our side to your concierge 🎉. The final step is for them to transfer the amount to you. \n\nIf you have any questions, just reply to our email and we’ll take care of it. 💜\n\n\nBest,\n{{agent_name}}, Headout\n\n\nOption 2 : When Cc concierge\n\n\nHey {{name}},\n\nSo sorry you had to chase this — refund delays can be really frustrating 😔. After looking into your {{experience}} booking, we noticed it was made through a concierge partner, not directly with Headout. In these cases, the refund is issued by the concierge since they handle the payment.\n\n\nWe’ve already processed the full refund from our side to your concierge, and they’ll now need to transfer the amount to you. To keep things smooth and clear, we’ve set up a common email thread with all of us so this gets sorted quickly.\n\nIf you have any questions, just reply to our email and we’ll take care of it. 💜\n\nBest,\n {{agent_name}}, Headout",
+   ""
+  ],
+  [
+   "Refund Request - Out of policy \n( We inform guest about the insurance add-on option for flexible cancellation on our website)",
+   "Hey <Name>,\n\nThanks for sharing your feedback. I understand why this is disappointing, and I agree it’s not ideal.\n\nYour booking, however, falls under a strict no-cancellation policy, so we’re unable to cancel or reschedule it at this stage. This is mentioned on the booking page and in your confirmation details.\n\nBecause of this, I’m unable to issue a full refund. That said, I’ve arranged a partial refund as Headout credits, which you can use on a future booking. You’ll receive an email shortly with the details and I hope this helps a bit. \n\nFor future bookings, I also wanted to highlight a feature already available on our website. Most non-refundable experiences offer an optional insurance add-on at checkout, for a small additional cost. This gives you more flexibility if your plans change.\n\nWe’re working on bringing more flexible cancellation options across experiences.\n\nIf you have any questions, just reply to this email and I’ll take care of it. 💜\n\n\nBest,\nName, Headout",
+   "Note : Do check if the particular TGID provides Insurance Add on option on our website. While checking  the TGID please make sure to add date later than 24 hours."
+  ],
+  [
+   "Venue Closure - When we miss informing guest about closure",
+   "Hey <Name>,\n\nThanks for reaching out. I’m really sorry we missed informing you about the venue closure. You’re right, this should’ve been communicated clearly, and I understand how disappointing that must have been.\n\nTo make this right, we’ve processed a full refund for your booking. We’ve also added an extra 25% of the booking value as Headout credits to your account. You’ll receive email confirmations for both shortly. We’re reviewing what went wrong to ensure closures are communicated more proactively going forward.\n\nIf you’d like help planning an another experience or have any questions, just reply to this email and I’ll take care of it. 💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Technical Issue - Refunding booking due to tech issues",
+   "\"Hey <Name>,\n\nThanks for flagging this. You’re right, the issue was caused by a technical error on our end, and that’s not the experience we want you to have.\n\nTo make this right, we’ve issued a <full/partial> refund for your booking. You’ll receive an email confirmation shortly, and the amount should reflect back to your original payment method within 2–3 working days. We’ve shared this internally as well so the team can prevent this from happening again. <Edit as per requirement>\n\nGlad we could sort this out. If you’re up for it, we’d really appreciate you updating your Trustpilot review here: [link]\n\nIf you have any questions, just reply to our email, and I’ll take care of it. 💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "UAE War Refund ( Flight cancellation )",
+   "Hi {{first name}},\n\nThank you for letting us know. We are very sorry that your flight/train was cancelled due to the current situation in the UAE — that is never easy.\n\nWe’ve gone ahead and processed your refund. At the moment, both our team and local operators are handling a high volume of requests as the situation continues to evolve, which may cause slight delays in processing.\n\nYour refund should reflect in your account within 2 to 5 working days, depending on your bank. We have sent confirmation of this to you via email.\n\nThanks for bearing with us and we appreciate your patience. If you’d like, you can update your TP review here: [link],\n\nWe’re here if you need anything else.  💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "UAE War Reschedule ( flight cancelled ): Providing ETA",
+   "Hi {{first name}},\n\nThank you for letting us know. We are sorry your flight/train was cancelled due to the current situation in UAE — that is never easy.\n\nWe’ve passed your reschedule request to our local operator and are checking the best available options for you. Due to a surge in similar requests on both ends, responses are taking a little longer than usual.\n\nWe’re closely following up to secure an update. You can expect to hear from us with a final resolution within 48 hours.\n\nWe appreciate your patience.💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "UAE War - Venue Closed {need more time/refund (tweak as per case)}",
+   "Hi {{first name}},\n\nThank you for reaching out, and we’re sorry your plans have been affected.\n\nDue to the current situation in the UAE, the venue is temporarily closed and unable to operate as scheduled. Our team and local operators are currently handling a high volume of requests as the situation evolves.\n\nWe’re working with the venue to understand next steps and available options for your booking. You can expect a clear update from us within the next 48 hours. /\n\nWe appreciate your patience, and we’ll keep you posted as soon as we have more information.\n\nBest,\nName, Headout\n\n\n--------OR--------\n\n\nHi {{first name}},\n\nThank you for reaching out, and we’re sorry your plans have been impacted due to the current situation in the UAE.\n\nAs the venue is currently closed, we’ve gone ahead and initiated a full refund for your booking.\n\nAt the moment, both our team and local operators are handling a high volume of requests as the situation continues to evolve, which may cause slight delays in processing.\n\nYour refund should reflect in your account within 2 to 5 working days, depending on your bank or payment provider.\n\nThanks for bearing with us, and we appreciate your patience. If you’d like, you can update your TP review here: [link],\n\nWe’re here if you need anything else.💜\n\nBest,\nName, Headout",
+   ""
+  ],
+  [
+   "Reddit - Untraceable",
+   "Hi there, I’m from the Headout Support Team. I’m really sorry your experience turned out this way.\n\nWe’d like to look into this properly with the relevant team. Please send us your booking ID via DM, or feel free to reach out through our live chat support if that’s easier for you. Thank you for your patience! 💜 - Name, Team Headout\"",
+   ""
+  ]
+ ],
+ "Refer Macro Tags": [
+  [
+   "TP MACRO Issue Type",
+   "",
+   "SM MACRO Issue Type",
+   "",
+   "TWITTER MACRO Issue Type"
+  ],
+  [
+   "Customer Unable to trace booking",
+   "",
+   "Unable to trace",
+   "",
+   "Unable to trace booking"
+  ],
+  [
+   "To a customer asking for his/her tickets that have already been sent tickets (Resend tickets)",
+   "",
+   "Following up on DM - Unable to trace",
+   "",
+   "Following up on DM - Unable to trace the booking"
+  ],
+  [
+   "Ticket Validity (Trust Issues) / Open Dated Confusion",
+   "",
+   "Unable to trace the booking - Following Up post 48 hours of no response from guest.",
+   "",
+   "Unable to trace - following up with the guest on the thread( only for X - twitter)"
+  ],
+  [
+   "Delay in sending tickets/ future booking",
+   "",
+   "Interested in an expeirience",
+   "",
+   "Interested in an expeirience and asking for prices"
+  ],
+  [
+   "Convenience Fee - Service Fee mentioned on Checkout",
+   "",
+   "Influencer - first reply",
+   "",
+   "Influencer - first reply"
+  ],
+  [
+   "Convenience Fee - Service Fee not mentioned on Checkout",
+   "",
+   "Taking the conversation to DM(need more details)",
+   "",
+   "Taking the conversation to DM(need more details)"
+  ],
+  [
+   "Pricing Concern - No booking fee\n{Where we haven't added any Booking Fees but we are still expensive than competition/venue/SP website}",
+   "",
+   "Taking the conversation to DM (booking found)",
+   "",
+   "Taking the conversation to DM (booking found)"
+  ],
+  [
+   "SP issue - Meeting point issue// Venue Related Issue / Service Issue",
+   "",
+   "Cx arrived late and missed the tour - Customer error",
+   "",
+   "Cx arrived late and missed the tour - Customer error"
+  ],
+  [
+   "Delay fulfillment / Unfulfilled Booking - Refunding the guest",
+   "",
+   "F1 Discounts query",
+   "",
+   "F1 Discounts query"
+  ],
+  [
+   "Incorrect Tickets Sent - Guest Requesting Refund\n (Guest contact before Experience date)",
+   "",
+   "When guest asks for coupon code TWITTER",
+   "",
+   "When guest asks for coupon code TWITTER"
+  ],
+  [
+   "Incorrect Tickets Sent - Guest Requesting Refund\n(Experience date in past)",
+   "",
+   "When guest asks for coupon code",
+   "",
+   "When guest asks for coupon code"
+  ],
+  [
+   "Our Error - Refund Booking",
+   "",
+   "Our error - refund processed and confirmation sent on email(twitter)",
+   "",
+   "Our error - refund processed and confirmation sent on email(twitter)"
+  ],
+  [
+   "Guest Error - Refund As Exception",
+   "",
+   "Fake Website- Phishing Attack",
+   "",
+   "fake phishing"
+  ],
+  [
+   "Offering DSS -  OUT OF POLICY  ( Guest Error - Wrong Date/time )",
+   "",
+   "Positive response Playstore",
+   "",
+   "Positive response Playstore"
+  ],
+  [
+   "Priority Entrance/Escorted entry confusion - with Audio Guide and Assistance of a host",
+   "",
+   "Enquiring about Services we don't offer(flight, hotel, Visa etc)",
+   "",
+   "Enquiring about Services we don't offer(flight, hotel, Visa etc)"
+  ],
+  [
+   "Priority Entrance/Escorted entry confusion without Audio Guide",
+   "",
+   "Headout ban in Dubai and Abu Dhabi",
+   "",
+   "Headout ban in Dubai and Abu Dhabi"
+  ],
+  [
+   "Guided tour entry confusion",
+   "",
+   "Partnership enquiry",
+   "",
+   "Partnership enquiry"
+  ],
+  [
+   "Future booking - Re-assuring the guest that tickets sent are correct with redemption instructions",
+   "",
+   "Taking the conversation forward to DM",
+   "",
+   "Taking the conversatio forward to DM"
+  ],
+  [
+   "Delay in Fulfillment - Tickets just sent",
+   "",
+   "Wanderfest UAE - Offers",
+   "",
+   "Wanderfest UAE - Offers"
+  ],
+  [
+   "Delay in Fulfillment - Tickets not sent ( Providing ETA )",
+   "",
+   "Enquiring about coupon/offers",
+   "",
+   "Wanderfest UAE - Guest not able to book"
+  ],
+  [
+   "Delay in Fulfillment - Tickets cannot be sent ( Refunding + Adding Credits )",
+   "",
+   "Refund - Voided / Non Auth transaction",
+   "",
+   "Did not see the confirmation email and bought new tickets"
+  ],
+  [
+   "Trust Issues - Cx claims tickets invalid ( Assuring cx before DOV )",
+   "",
+   "Wanderfest UAE - Guest not able to book",
+   "",
+   "Booked more than once"
+  ],
+  [
+   "Did not see the confirmation email and bought new tickets. (Refunding as exception)",
+   "",
+   "Booked wrong date/time",
+   "",
+   "Booked wrong Experience"
+  ],
+  [
+   "Did not see the confirmation email and bought new tickets. (Asking for Proof of New Tix)",
+   "",
+   "Death in the family",
+   "",
+   "Booked wrong date"
+  ],
+  [
+   "Tickets being Invalid - \n(asking for more time)",
+   "",
+   "Delay FF - Alternatives",
+   "",
+   "Coupon Code for SM guest"
+  ],
+  [
+   "Clarification on the Issue - Need more info from guest",
+   "",
+   "Booked more than once",
+   "",
+   "Customer running late"
+  ],
+  [
+   "Trust Issues - Assuring guest",
+   "",
+   "Booked wrong Experience",
+   "",
+   "Closing the Tweet/Comment"
+  ],
+  [
+   "Overcrowded - Generic ( Providing Coupon Code )",
+   "",
+   "Booked wrong date",
+   "",
+   "Tickets sent - Inform guest"
+  ],
+  [
+   "Overcrowded - Why STL ( Providing HOC  )",
+   "",
+   "Coupon/ Discount Code",
+   "",
+   "Tickets invalid"
+  ],
+  [
+   "Did not like the venue / Unsatisfactory Experience",
+   "",
+   "Customer running late",
+   "",
+   "The customer claims the tour did not take place"
+  ],
+  [
+   "Vendor Service Issue - (Guide/host not clear)",
+   "",
+   "Closing the Tweet/Comment",
+   "",
+   "Health issues"
+  ],
+  [
+   "Venue Closure - Partial refund as a part of the venue was closed",
+   "",
+   "Tour started late / guide arrived late at MP",
+   "",
+   "Flight/train cancellation or delay"
+  ],
+  [
+   "Venue Closure - Full refund as guest couldnt take the experience",
+   "",
+   "Cx claims that SP is not responding",
+   "",
+   "Death in the family"
+  ],
+  [
+   "Audio Guide Issue - ( Quality Poor)",
+   "",
+   "Tickets invalid",
+   "",
+   "Venue closure/ full capacity/ experience cancelled"
+  ],
+  [
+   "Audio Guide Issue (Not Working - sent new ones before DOV)",
+   "",
+   "The customer claims the tour did not take place",
+   "",
+   "delay due to traffic/transport strikes"
+  ],
+  [
+   "Audio guide Issue - ( Not Working -  initiated a partial refund post DOV )",
+   "",
+   "Health issues",
+   "",
+   "Convenience fee issue"
+  ],
+  [
+   "Redemption Issue - SP / Venue denied booking\nETA of 48 hours",
+   "",
+   "Flight/train cancellation or delay",
+   "",
+   "Charged higher price than the venue"
+  ],
+  [
+   "Existing map is not helpful - Adding Partial HOC ( Guest attended the experience )",
+   "",
+   "Death in the family",
+   "",
+   "Delay in Refund"
+  ],
+  [
+   "Cancellation/ Modification Request - Partnered SP ( Asking for more time )",
+   "",
+   "Venue closure/ full capacity/ experience cancelled",
+   "",
+   "How can I make a reservation using headout credits?"
+  ],
+  [
+   "Delay In Refund - Ops/ Finance Miss",
+   "",
+   "Delay due to traffic/transport strikes",
+   "",
+   "What modes of payment do we accept on our website?"
+  ],
+  [
+   "Delay in Refund -Paypal escalation ( Refund Done)",
+   "",
+   "Weather issues",
+   "",
+   "Enquiring about Job Openings"
+  ],
+  [
+   "Delay In Refund - Adding HOC as promised",
+   "",
+   "Convenience fee issue",
+   "",
+   "Positive Reviews on comments"
+  ],
+  [
+   "Guest claiming that our reviews is fake",
+   "",
+   "Charged higher price than the venue",
+   "",
+   "Over-Crowded- Generic"
+  ],
+  [
+   "Customer error (Missed the tour/arrived late at MP ) - Offering HOC",
+   "",
+   "Delay in Refund",
+   "",
+   "Did not like the venue"
+  ],
+  [
+   "Customer error (Missed the tour/arrived late at MP ) - Issuing partial refund as exception (when SP denied refund)",
+   "",
+   "How can I make a reservation using headout credits?",
+   "",
+   "Guide/Host not clear"
+  ],
+  [
+   "Customer error (Missed the tour/arrived late at MP ) - Issuing 100% HOC as exception (when SP denied refund)",
+   "",
+   "What modes of payment do we accept on our website?",
+   "",
+   "A part of the venue was closed"
+  ],
+  [
+   "Refund status - Generic",
+   "",
+   "Shoutout for Guest having more than 2k followers (for mentions in stories/tweet etc.",
+   "",
+   "Quality of Audioguide is poor"
+  ],
+  [
+   "Refund Status - Voided transactions",
+   "",
+   "Enquiring about Job Openings",
+   "",
+   "Redemption issue- SP denied booking"
+  ],
+  [
+   "Inclusions not met ( HO/SP error) - Initating partial/full refund",
+   "",
+   "Positive Reviews on comments",
+   "",
+   "Did not receive Audio Guide"
+  ],
+  [
+   "Trust issues - Guest DOV is in future",
+   "",
+   "Over-Crowded- Generic",
+   "",
+   "Existing map is not helpful"
+  ],
+  [
+   "SP Tour Cancellation - Initiated a full refund",
+   "",
+   "Over-Crowded- STL- Why a queue?",
+   "",
+   "Refund Status"
+  ],
+  [
+   "SP cancelled last minute - Full refund+ HOC",
+   "",
+   "Did not like the venue",
+   "",
+   "SP denied refund error - guest error"
+  ],
+  [
+   "Guest not able to access tickets - Tickets already sent",
+   "",
+   "Guide/Host not clear",
+   "",
+   "Refund status (updated)"
+  ],
+  [
+   "Alternative Sign-Off Responses (Positive)",
+   "",
+   "A part of the venue was closed",
+   "",
+   "Our error - offered an upgrade"
+  ],
+  [
+   "Guest found a fake website - Phishing scam",
+   "",
+   "Quality of Audioguide is poor",
+   "",
+   "Guets having problem with accessing tickets - pushing the guest to app"
+  ],
+  [
+   "Our error - Offered Upgraded tickets",
+   "",
+   "Redemption issue- SP denied booking",
+   "",
+   "How to use Headout Creator Partneship"
+  ],
+  [
+   "Customer error (Guest missed the tour) - Missed Intructions (Adding HOC )",
+   "",
+   "Did not receive Audio Guide",
+   "",
+   "Default macro (with DM fallback)"
+  ],
+  [
+   "Customer error (Guest missed the tour) - Arrived Late (Adding HOC )",
+   "",
+   "Existing map is not helpful",
+   "",
+   "Variant A: For users who already mention they can’t DM"
+  ],
+  [
+   "Hard Push App - Guest facing issue with accessing tickets",
+   "",
+   "Refund Status",
+   "",
+   ""
+  ],
+  [
+   "Fraudulent Transactions - File a chargeback",
+   "",
+   "SP denied refund - Guest error",
+   "",
+   ""
+  ],
+  [
+   "Guest arrived late at the venue (Couldn't redeem tickets) -  Purchased new ones ( Proof Sent)",
+   "",
+   "Refund status (updated)",
+   "",
+   ""
+  ],
+  [
+   "Pending Refund - Wire Transfer ( Inactive Bank Account / PayPal Escalation )",
+   "",
+   "Our error - offered an upgrade",
+   "",
+   ""
+  ],
+  [
+   "Pending Refund - Pending from Finance",
+   "",
+   "Guets having problem with accessing tickets - Hard Push App",
+   "",
+   ""
+  ],
+  [
+   "Generic Refund - Our Error",
+   "",
+   "Resolution WIP - Need more time from guest ( ETA 24-48 hours )",
+   "",
+   ""
+  ],
+  [
+   "Conversion Fee",
+   "",
+   "",
+   "",
+   ""
+  ],
+  [
+   "Krakow Booking - Tour cancelled last minute as per nature of the venue",
+   "",
+   "",
+   "",
+   ""
+  ],
+  [
+   "Krakow Booking -Staff Behavior",
+   "",
+   "",
+   "",
+   ""
+  ],
+  [
+   "Confusion with tickets and voucher",
+   "",
+   "",
+   "",
+   ""
+  ],
+  [
+   "Charge back/ Dispute raised by guest",
+   "",
+   "",
+   "",
+   ""
+  ],
+  [
+   "Account Deletion",
+   "",
+   "",
+   "",
+   ""
+  ],
+  [
+   "Tax - Invoice Issue",
+   "",
+   "",
+   "",
+   ""
+  ],
+  [
+   "Concierge booking",
+   "",
+   "",
+   "",
+   ""
+  ],
+  [
+   "Refund Request - Out of policy \n( We inform guest about the insurance add-on option for flexible cancellation on our website)",
+   "",
+   "",
+   "",
+   ""
+  ],
+  [
+   "Venue Closure - When we miss informing guest about closure",
+   "",
+   "",
+   "",
+   ""
+  ],
+  [
+   "Technical Issue - Refunding booking due to tech issues",
+   "",
+   "",
+   "",
+   ""
+  ]
+ ],
+ "Sheet9": [
+  [
+   ""
+  ]
+ ],
+ "Takedown Macro": [
+  [
+   "Macro Name",
+   "Takedown Macro"
+  ],
+  [
+   "",
+   "IMPORTANT NOTE: Case scenarios may vary, so please use the appropriate takedown statements below based on the situation.\nIf the guest’s tone is inappropriate or if there have been multiple escalations, please avoid sending a takedown request.\n\na) Glad we could make things right. If you have a moment, you can update your TP review here: [link]\nb) Thanks for giving us the chance to fix things. If you're open to it, feel free to update your review here: [link]\nc) Thanks for bearing with us. If you’d like, you can update your TP review here: [link]"
+  ],
+  [
+   "Full Refund + Credits",
+   "Hey <Name>,\n\nThanks for your patience. I’ve processed a full refund using your original payment method. Depending on your bank, you should see it in 2–3 business days.\nTo make up for the inconvenience, I’ve also added <$X> in Headout credits to your account. You’ll get a confirmation email shortly.\n\nIf you need anything else, just reply here and I’ll sort it out.\n\nGlad we could make things right! If you’ve got a moment, we’d love for you to update your TP review here: [link]\n\nBest,\n [Your Name], Headout"
+  ],
+  [
+   "Missed Tour Partial Refund - Guest error",
+   "Hey <Name>,\n\nSorry to hear the experience didn’t go as planned. I understand how frustrating it must’ve been to miss seeing something you were probably really looking forward to.\n\nTo help make up for it, I’ve issued a partial refund. You’ll see the amount reflected in your account within <X> business days. I’ve sent over a confirmation email too.\n\nAppreciate you giving us the chance to fix things. If you’re up for it, feel free to update your TP review here: [link]\n\nIf there is anything else I can help with, just hit reply and I’ll take care of the rest.\n\nBest,\n [Your Name], Headout"
+  ],
+  [
+   "Out of Policy Refund Exception",
+   "Hey <Name>,\n\nI hear you. While this is technically outside our refund policy, I’ve gone ahead and made an exception for you. A refund of (Є/$)<X> has been processed to your original payment method. It should reflect in your account in 2–3 business days, depending on your bank.\n\nI hope this helps smooth things over. If you need anything else, I’m just one reply away.\n\nIf you feel like it, you can update your TP review here: [link]\n\nBest,\n [Your Name], Headout"
+  ],
+  [
+   "Closure Oversight + Credit Compensation",
+   "Hey <Name>,\n\nWe dropped the ball on this one—and I’m really sorry we didn’t give you a heads-up about the closure. That’s on us.\n\nTo help make up for the inconvenience, I’ve added Headout credits to your account as a partial refund. You’ll receive a confirmation email with the details.\nIf you’ve got questions or need anything else, just reply and I’ll jump right in.\n\nThanks for bearing with us. If you’re open to it, you can update your TP review here: [link].\n\nBest,\n[Your Name], Headout"
+  ]
+ ],
+ "Twitter Macro": [
+  [
+   "Template Use Case",
+   "Meaning/Context of where this template is used.",
+   "Mode of Response",
+   "Content Approved Template Response",
+   "Short Version",
+   "",
+   ""
+  ],
+  [
+   "Unable to trace booking",
+   "Applies when we're unable to locate the booking and need further details for verification.",
+   "Reply to cx post",
+   "Hey <first name>, \n\nI'm very sorry for the experience you've had with us. 😕 I’d love to help resolve this for you as quickly as possible. Could you please DM us with the email address and name used to make the booking and your reservation number, so that I can locate your booking? As soon as I have this, I’ll work on getting this sorted for you. \n\nThank you for your patience! 💜 \n\nBest, \nName | Team Headout",
+   "Hey {{name}}, so sorry you’re running into this 😕 Could you DM us your booking ID, plus the name and email used? We’ll get on it right away and help sort this out for you. Thanks so much for your patience, we’ve got you! 💜 - Name",
+   "",
+   ""
+  ],
+  [
+   "Following up on DM - Unable to trace the booking",
+   "Follow-up case for untraceable Booking ID where guest details are still awaited.",
+   "Reply to cx post",
+   "Hey <first name> 👋, \n\nThank you for your patience while I looked into this for you. We really appreciate it! We haven’t heard from you since we last talked <x> days ago 😞. Could you please DM us with the email address and name used to make the booking? Thank you! I look forward to resolving this for you ASAP. 💜 \n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}} 👋 Just checking in, we haven’t heard from you in a few days. Could you please DM us your booking name & email so we can help you out? Looking forward to getting this resolved ASAP! 💜 - Name",
+   "",
+   ""
+  ],
+  [
+   "Unable to trace - following up with the guest on the thread( only for X - twitter)",
+   "Used when we’re unable to locate the booking and are reaching out again on the X( Twitter) thread.",
+   "Reply to cx post",
+   "Hey <name>, I’m sorry about the inconvenience caused. Could you please share your booking ID on this thread? Once I have the required information, I’ll work to resolve this for you ASAP and update you via email. Thanks for your patience and understanding! 💜\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, sorry again for the trouble 😞 Could you drop your booking ID here on the thread? Once we have it, we’ll look into this and get back to you via email. Thanks for bearing with us! 💜 - Name",
+   "",
+   ""
+  ],
+  [
+   "Interested in an expeirience and asking for prices",
+   "Used when a guest expresses interest in an experience and inquires about pricing.",
+   "Reply to cx post",
+   "Hey <first name>, that's a great experience you've chosen to head out. \n\nYou can explore this experience at <insert experience link>\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, awesome pick! 🙌 You can check out all the details and prices for this experience here: [insert link] ,let us know if you have any questions. Can’t wait for you to head out!  💜 - Name",
+   "",
+   ""
+  ],
+  [
+   "Influencer - first reply",
+   "Applies to inquiries from influencers interested in collaborating with us",
+   "Post/DM",
+   "Hey there,\n\nThank you for your interest in collaborating with Headout.💜\n\nSign up to join Headout for Creators via the link in our bio, and get instant access to sponsored experiences!\n\nStay spontaneous,\nTeam Headout",
+   "Hey there! 💜 Thanks for your interest in teaming up with Headout. You can sign up for Headout for Creators via the link in our bio to unlock amazing sponsored experiences. Let’s make magic happen! ✨ - Name",
+   "",
+   ""
+  ],
+  [
+   "Taking the conversation to DM(need more details)",
+   "Used when we advise the guest (non-traceble bookings)to continue the conversation via DM for privacy or support.",
+   "Reply to cx post",
+   "Hey <name>, \n\nI'm very sorry for the experience you've had with us. 😕\n\nI’d love to help resolve this for you as quickly as possible. Could you please DM us with the email address and name used to make the booking and your reservation number, so that I can locate your booking?\n\nAs soon as I have this, I’ll work on getting this sorted for you.\n\nThank you for your patience! 💜\n\nBest,\n<Name> | Team Headout\nhttps://twitter.com/messages/compose?recipient_id=998049942",
+   "Hey {{name}}, so sorry to hear that 😕 Could you DM us your booking name, email, and reservation ID so we can help you better? We’ll jump on it right away! 💜 \n https://twitter.com/messages/compose?recipient_id=998049942",
+   "",
+   ""
+  ],
+  [
+   "Taking the conversation to DM (booking found)",
+   "Used when we advise the guest (traceble bookings)to continue the conversation via DM for privacy or support. This macro is used when we are not sure of the guest query and no communication traced in ZD/Chats/Calls",
+   "Reply to cx post",
+   "Hey <name>, \n\nI'm very sorry for the experience you've had with us. 😕\n\nI’d love to help resolve this for you as quickly as possible. Could you please DM us with the email address and name used to make the booking and your reservation number, so that I can locate your booking?\n\nAs soon as I have this, I’ll work on getting this sorted for you.\n\nThank you for your patience! 💜\n\nBest,\n<Name> | Team Headout\nhttps://twitter.com/messages/compose?recipient_id=998049942",
+   "Hey {{name}}, we've found your booking and are ready to help! Since your DMs are currently closed to us, please send us a quick DM [here – URL of our DMs] to continue securely. You don't need to repeat your entire message — just say \"Hi,\" and we'll take it from there :sparkles: - Name",
+   "",
+   ""
+  ],
+  [
+   "Cx arrived late and missed the tour - Customer error",
+   "Used when the guest missed the tour due to late arrival and has contacted us for support.",
+   "Post/DM",
+   "Hey <Name>,\n\nI’m sorry to hear that you couldn’t redeem your ticket on time. While your ticket was strictly timed, I understand that things don’t always go as planned. I’ve added <$X> credits to your Headout account for you to use on your next adventure with us! ✨\n\nI’ve also sent an email to confirm this. If you have any questions or concerns, just reply to the email, and I’ll take care of it! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, we’re sorry you couldn’t make it on time 😞 We’ve added $X in Headout credits to your account to use on your next adventure! ✨ You’ll find all the details in your inbox. Hope to host you again soon! 💜- Name",
+   "",
+   ""
+  ],
+  [
+   "F1 Discounts query",
+   "Applies only to F1 experience bookings with discounts. Not in use at the moment",
+   "Reply to cx post",
+   "Hey <name>, 👋 \n\nI understand why you might wonder about our Formula 1 offers, but they are as real as it gets. We're not here to trick anyone! Our aim is to provide genuine, memorable experiences, and make the experience accessible to as many folks as possible - whether you're a Red Bull, Mercedes, McLaren or Ferrari fan! 🏎️\n\nYour trust is important to us so if you have any questions or concerns, just let me know, and I’ll do my best to assist you! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}} 👋 Totally get your curiosity! Our Formula 1 deals are 100% real, we’re here to make premium events more accessible 🏎️ Whether you support Red Bull, Ferrari or McLaren, we’ve got your back. DM us if you’ve got more questions! 💜 - Name",
+   "",
+   ""
+  ],
+  [
+   "When guest asks for coupon code TWITTER",
+   "Used when a guest requests a discount or coupon code on X.",
+   "Reply to cx post",
+   "Hey <name>,\n\nWe’re so glad you’ve decided to head out with us!   We’ll send you an exclusive code for your booking via DM. https://twitter.com/messages/compose?recipient_id=998049942\n\nFeel free to reach out to us for any other queries / concerns you may have. Always here to help.\n\nHappy heading out! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, love that you’re heading out with us! 🎉 We’ll be sending you an exclusive discount code via DM in just a bit 💌 Stay tuned! https://twitter.com/messages/compose?recipient_id=998049942 - Name",
+   "",
+   ""
+  ],
+  [
+   "When guest asks for coupon code",
+   "Used when a guest requests a discount or coupon code.",
+   "DM/Email",
+   "Hey <name>,\n\nWe’re so glad you’ve decided to head out with us! You can use the code SOCIAL101 for your booking 💜\n\nFeel free to reach out to us for any other queries / concerns you may have. Always here to help.\n\nHappy heading out! 🥳\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, we’re thrilled you’re booking with us! 🎉 Use the code SOCIAL101 for a sweet discount on your booking 💜 Let us know if you need help with anything else. Happy heading out! - Name",
+   "",
+   ""
+  ],
+  [
+   "Our error - refund processed and confirmation sent on email(twitter)",
+   "Used when a Headout error occurred and the guest is informed that the refund has been processed, with confirmation sent via email. Response can be used on DM",
+   "DM/Email",
+   "Hey <first name>, \n\nI'm very sorry for what has happened 😞. This is definitely not the Headout experience we'd want you to have, and so I've personally spoken to all concerned teams to ensure this doesn't happens again.\n\nI’ve now processed a complete refund for this booking and have sent confirmation of this via email, too.\n\nPlease feel free to ask any questions or share specific concerns you may have, and we'll be happy to take it from there.\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, truly sorry about this experience 😞 We’ve now processed your full refund and sent confirmation to your email. If there’s anything more you need or if something’s unclear, just drop us a DM , we’re here for you! 💜 - Name",
+   "",
+   ""
+  ],
+  [
+   "fake phishing",
+   "When a guest contacts us about a phishing issue. Response can be used on DM or on the actual post.",
+   "Post/DM",
+   "Hey <Name>,\n\nThanks for reaching out. The link you shared is not affiliated with Headout in any way. We're aware of this situation, and our legal experts are working hard to resolve this promptly and take appropriate action. Your trust is of utmost importance to us, and we're dedicated to ensuring a safe and enjoyable experience for all our guests.  🚀\n\nMeanwhile, if you want to explore Headout experiences in <City Name>, check out our website at  <https://www.headout.com/things-to-do-city-dubai/>. We assure you a fantastic time, and memories to last a lifetime. ✨\n\nIf there’s anything else I can assist you with, please let me know, and I’ll get right to it! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey there, thanks for flagging this! That link isn’t from us , our legal team is already on it 🚨 For trusted experiences, head to  https://headout.com. Stay safe and always book smart! 💜 - Name",
+   "",
+   ""
+  ],
+  [
+   "Positive response Playstore",
+   "When a guest posts a positive comment on Play Store, App Store, or X.",
+   "Reply to cx post",
+   "Hey <name> 👋,\n\nWe're so glad you loved heading out with us! Thank you so much for sharing your experience with the world, we really appreciate it. 💜\n\nLook forward to seeing you head out on many more life-changing adventures with us!\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}} 👋 So glad you loved heading out with us! Thanks a ton for the kind words, we can’t wait to be part of your next adventure. 💜 – Name",
+   "",
+   ""
+  ],
+  [
+   "Enquiring about Services we don't offer(flight, hotel, Visa etc)",
+   "Used when a guest asks about services we do not provide, such as flights, hotels, or visa assistance. Response can be used on DM ( Rarely Used )",
+   "Post/DM",
+   "Hello there! 💜\n\nThank you so much for getting in touch, we’re excited to hear you’re planning your next trip 🥳. At Headout, we specialize in providing curated experiences for our customers to make their holidays unforgettable, and to make heading out easier 😉. You can check out our full range of experiences here: https://www.headout.com/ \n\nUnfortunately, at the moment, we don’t offer a wider range of travel services such as flight or hotel bookings, but perhaps you’ll find something else on our app that’ll make your adventure extra fun! (to be mentioned if the post is asking about flight and hotels also)\n\nHope you have a great day ahead! \n\nBest,\n<Name> | Team Headout",
+   "Hey there! Thanks for reaching out 💜 We currently don’t offer flights, hotels, or visas but you’ll love the experiences we do have 👉 https://headout.com ✨ – [name]",
+   "",
+   ""
+  ],
+  [
+   "Headout ban in Dubai and Abu Dhabi",
+   "Previously used when Headout was banned in Dubai and Abu Dhabi. This case is now obsolete.",
+   "Post/DM",
+   "Hey <Name>,\n\nThanks for reaching out. We're aware that some of our guests within the UAE are experiencing difficulties accessing our website at the moment. Not to worry though, our best minds are working on it and we should be up and running shortly!  🚀\n\nThank you for your patience and understanding. We're truly sorry for any inconvenience this may have caused.\n\nIf you’ve got questions, as always, we’re only a DM/message away! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, we’re aware of some access issues in the UAE and our team’s actively working to fix it 🚀 We’ll be back soon thanks for your patience and support 💜– [name]",
+   "",
+   ""
+  ],
+  [
+   "Partnership enquiry",
+   "This is used when a user asks about partnering / List their experience with us. Response can be used on DM",
+   "Post/DM",
+   "Hey <first name>,\n\nThank you for your interest in partnering with Headout. 💜\n\nPlease fill out the Headout Partnerships form from this link https://hub.headout.com/ and we’ll get back to you in a week’s time. \n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, thanks for your interest in partnering with us! 🙌 Please fill out this form: https://hub.headout.com and our team will reach out within a week. 💼\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Taking the conversatio forward to DM",
+   "Used when we need to continue the conversation via DM to protect sensitive information.",
+   "Reply to cx post",
+   "Hey <first name>, \n\nWe’ve found your booking ID/located the <relevant detail>, and we are here to help! To ensure your privacy and security, we’d love to continue this conversation over DM. Please feel free to ask any questions or share specific concerns you may have, and we'll be happy to take it from there. Looking forward to taking care of your concerns and ensuring you have a great experience with us! ✨\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, we've found your booking and are ready to help! Since your DMs are currently closed to us, please send us a quick DM [here – URL of our DMs] to continue securely. You don't need to repeat your entire message — just say \"Hi,\" and we'll take it from there :sparkles: - Name",
+   "",
+   ""
+  ],
+  [
+   "Wanderfest UAE - Offers",
+   "This is only for experiences related to Wanderfest in the UAE. It is not in use currently and will remain inactive until Wanderfest returns.",
+   "Reply to cx post",
+   "Hey there, thanks so much for reaching out. ✨\n\nWe’re so happy that you want to learn more about this exciting event!\n\nWanderfest UAE is the biggest experiences sale you’ve ever seen. Think deep discounts, total flexibility, exclusive deals and more.\nDon’t believe us? Head to www.headout.com/wanderfest-uae/ and check it out for yourself. \n\nIf you’ve got questions, as always, we’re only a DM/message (depending on context) away. Hope you have a great weekend ahead! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey there! 🎉 Wanderfest UAE = epic discounts + flexibility on top experiences. Check out the magic here: www.headout.com/wanderfest-uae 💜 Questions? We’re a DM away!\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Wanderfest UAE - Guest not able to book",
+   "This is only for experiences related to Wanderfest in the UAE. It is not in use currently and will remain inactive until Wanderfest returns.",
+   "Reply to cx post",
+   "Hey <first name>, we’re sorry for the tardy experience you’ve had so far.😔\n\nHonestly, we didn’t anticipate the level of spike we’re seeing. We’re not making excuses, we promise. All our teams are on it and the rest of your experience will be seamless.\n\nHang in there for us, we appreciate your patience. 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, we’re really sorry for the hiccup 😔 Demand’s higher than we expected, but we’re on it! Hang in there , we’ll get things back on track ASAP 💜\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Did not see the confirmation email and bought new tickets",
+   "Applies when the guest missed the confirmation email and bought new tickets directly at the venue.",
+   "Post/DM",
+   "Hey <first name>, \n\nI’m sorry to hear you didn't see the confirmation email 😞. I can confirm that the tickets were sent to your email <x> minutes after we received your booking. \n\nNothing to worry about, though. If you could send us a document supporting your claim a full refund will be issued to your account. I hope this helps. 💜\n\n\n If you have any questions, just reply to our email and we’ll take care of it! \n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, sorry about the confusion 😞 Tickets were sent shortly after your booking. Please DM us your email & any docs , we’ll review and issue a full refund 💜\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Booked more than once",
+   "Used when a guest accidentally makes a duplicate booking and reaches out for assistance.",
+   "DM/Email",
+   "Hey <name>!\n\nOh no! I'm sorry to hear you booked the experience twice. 😞 These things happen.\n\nPlease could you provide me with your booking reference number? I'll double-check if there's anything I can do to cancel one of the bookings and refund you.\n\nIf I can't offer you a full refund, I can provide you a 50% refund in the form of Headout credits. I hope this helps. \n\nSpeak soon! 💜\n\nBest,\n<Name> | Team Headout",
+   "Oh no, {{name}}! Sorry about the double booking 😞 Please DM us your booking ID and we’ll try to cancel one and refund you. If not, we’ll issue 50% credits 💜\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Booked wrong Experience",
+   "Used when a guest accidentally books the wrong experience and reaches out for support. (the follow up response to be sent in email or DM is mentioned in the same cell)",
+   "DM/Email",
+   "Hey hey <name>,\n\nWhoops, sorry to hear that. Please could you provide me with your booking details? I can then look into this for you. 👀\n\nSpeak soon! 💜\n\nBest,\n<Name> | Team Headout\n\nFollow-up post getting details:\n\nHello!\n\nThank you for your patience while I checked the booking for you. 😊\n\n<2 options, delete as applicable> \n\n1. I have good news! 🎉 Your experience is eligible for rebooking without additional charges. I've gone ahead and added the credits back to your Headout account, so you can now book for the experience you'd like.\n\n2. Unfortunately, this particular booking isn't covered by our refund policy, so the best I can offer you is a <20-50%> refund in the form of Headout credits. You can then go ahead and rebook and pay partially with the credits. I'm sorry I'm not able to do more than this, but I hope it helps?\n\nAs always, I'm just a message away — feel free to DM if you have any other questions or concerns. 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, oops! Booked the wrong one? No worries, DM us your booking details and we’ll look into rebooking or refunding as best we can 💜\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Booked wrong date",
+   "Applies when guests book with incorrect details—date, time, or number of participants—and request assistance. (the follow up response to be sent in email or DM is mentioned in the same cell)",
+   "DM/Email",
+   "Hey hey <name>,\n\nWhoops, sorry to hear that. Please could you provide me with your booking details? I can then look into this for you. 👀\n\nSpeak soon! 💜 \n\nBest,\n<Name> | Team Headout\n\nFollow-up comment/ DM : \n\nHello!\n\nThank you for your patience while I checked the booking for you. 😊\n\n<2 options, delete as applicable> \n\n1. I have good news! 🎉 Your booking is eligible for rescheduling. I've gone ahead and added the credits back to your Headout account, so you can now book for the date and time you'd like.\n\n2. Unfortunately, this particular booking isn't covered by our refund policy, so the best I can offer you is a <20-50%> refund in the form of Headout credits. You can then go ahead and rebook and pay partially with the credits. I'm sorry I'm not able to do more than this, but I hope it helps?\n\nAs always, I'm just a message away — feel free to DM if you have any other questions or concerns. 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, whoops! We’ve all been there. Just drop us a DM with your booking info, and we’ll look into options to reschedule or help out 💜\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Coupon Code for SM guest",
+   "Applies to inquiries on social platforms about available discounts.",
+   "DM/Email",
+   "Hey <name>👋\n\nWe’re so glad you’ve decided to head out with us! You can use the code SOCIAL767 for your booking 💜\n\nFeel free to reach out to us for any other queries / concerns you may have. Always here to help.\n\nHappy heading out! \n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}} 👋 So glad you’re heading out with us! Use code SOCIAL767 at checkout to enjoy a little extra on us 💜 DM us if you need help booking!\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Customer running late",
+   "Applies when a guest may miss their scheduled tour; we direct them to reach out to the supplier. (This response used for DM only. Rarely used.)",
+   "DM/Email",
+   "Hey <name>, 👋\n\nOh no, I'm sorry to hear you're running late! 😞 \n\nUnfortunately, these tickets are timed and can only be used to access the experience at the time mentioned on the ticket. A very strict timed policy is maintained by our local partner. 😕\n\nThe best thing you can do right now is speak with the local tour operator on <CONTACT NUMBER>. I will also try and reach out to the operator on your behalf to see if I can do anything.\n\nI wish there was more I could do to help at this stage. \n\nIf you can, please do keep me updated on whether you were able to make it on time for the experience or if you need more help in getting in touch with the operator. Fingers crossed! 💜 As always, I'm just a quick message away.\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, so sorry you’re delayed 😞 These tickets are timed, but try contacting the tour operator at <CONTACT>. We’ll reach out to them too , fingers crossed 🤞\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Closing the Tweet/Comment",
+   "Applied when finalizing tweets or comments. (where the customer has clarified/confirmed that there is no longer an issue)",
+   "Reply to cx post",
+   "Hey <first name>,\n\nI’m really sorry for the inconvenience caused. We’re constantly working to improve our operations and will strive to serve you better next time around.\n\nLooks like this is all sorted now. Please let us know if you need anything more! We’re just a tweet/DM away. \n\nBest,\n<Name> | Team Headout\n\n                                OR\n\nHey <first name>, looks like this is all sorted now. Let us know if you need anything more! We’re just a tweet/DM away \n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, looks like this is all sorted now ✨ Let us know if anything else comes up, we’re always just a tweet/DM away! 💜\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Tickets sent - Inform guest",
+   "This is used when a guest asks for tickets we’ve already emailed them.",
+   "Post/DM",
+   "Hey <first name>, \n\nOh no, I’m sorry to hear you didn't receive your tickets. 😞\n\nI've just checked our system, which confirms the tickets were sent to you on {date}. Please could you check your Spam folder, just in case they were sent there by mistake?\n\nNo worries though, as I have resent your tickets. I hope you have a great time heading out with us!\n\nIf you have any questions, just reply to our email and we’ll take care of it. 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, your tickets were emailed on {{date}} , check spam too, just in case! I’ve re-sent them now. Hope you have a fab time heading out 💜\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Tickets invalid",
+   "Used when a guest reports their tickets were not accepted as valid.",
+   "DM/Email",
+   "Hey <name>,\n\nI'm so sorry this has happened. 😞 It's definitely not the experience we'd want you or any Headout guest to have. \n\nI can see that the tickets are indeed invalid. I can either reissue you a fresh set of tickets, or refund you the full amount. Which would you prefer? 😊\n\nSpeak soon! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, so sorry to hear that 😞 We can reissue valid tickets or offer a full refund , let us know which you’d prefer and we’ll sort it out 💜\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "The customer claims the tour did not take place",
+   "Applies when guests claim their tour was canceled on-site or delayed due to a late guide. Response via DM only, rarely used.",
+   "DM/Email",
+   "Hi <name>!\n\nI'm so sorry to hear about what you've gone through. This is far from what we'd want anyone to experience with Headout. 😞\n\nAt the moment, I'm trying to establish why this happened to resolve this as quickly as possible for you. 🚀\n\nFirst up, I'm going to have a chat with our local partner to better understand the situation. Please could you provide me with the following information, to better inform my conversation with them?\n\n1. At what time (local time) did you reach the meeting point on the day of the experience?\n2. Is there any chance you have a time-stamped or non-time-stamped picture that you would have taken on reaching the meeting point?\n3. How long did you wait for the guide after you reached the meeting point?\n4. Were you able to get in touch with our local partner on the contact number provided on your voucher?\n\nWe completely understand that you might not have all the information requested above, and that's completely okay. We will reach out to our partner after we hear from you and all the other Headout guests who went on the tour to get more information. ✍️\n\nOnce again, I'm sorry this has happened. If you have any questions or concerns, We're just a quick DM away! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, so sorry the tour didn’t go as planned 😞 That’s not the experience we want for you. Could you DM us the time you arrived, how long you waited, and if you reached out to the partner? We’ll investigate this right away 🚀 - Name",
+   "",
+   ""
+  ],
+  [
+   "Health issues",
+   "Applies when guests need to change or cancel their booking due to illness or medical issues. (basis DSS)",
+   "DM/Email",
+   "Hey <name>! 👋\n\nOh no, I'm sorry to hear about the health issues you're going through. 😞 I really hope you feel better soon!\n\n<if you feel guest is being honest> Of course, as a one-off exception, I'd be happy to refund you the full amount so that you can head out when you're feeling better, instead! 💜 This refund should reflect in your account within 2-7 business days, depending on your bank. 😊\n\n<if you're unsure about the authenticity of the claim> Of course, as a one-off exception, I'd be happy to offer you a 50% refund in Headout credits, so that you can head out when you're feeling better, instead! 💜 \n\nIf you have any other questions or concerns, feel free to DM us! \n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, I’m really sorry to hear that 😔 As a one-time exception, we can offer a full or partial refund (in credits) so you can head out when you’re feeling better 💜 DM us for help!\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Flight/train cancellation or delay",
+   "Used when a guest requests rescheduling or cancellation because their flight or train was canceled or delayed.",
+   "Post/DM",
+   "Hey <name>, 👋\n\nI'm sorry to hear your flight/train <delete as applicable> has been cancelled/is delayed <delete as applicable>. \n\nWould it be possible for you to please provide me with some form of documentation or proof of the delay/cancellation? Thank you so much. 😊\n\n<once documentation provided> Thanks so much for cooperating and providing us with the info. This helps immensely! I'm happy to provide you a full refund in the form of Headout credits, so you can head out when the time is right! I hope this helps. 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, sorry your plans were disrupted 😕 Could you DM us a quick screenshot or doc showing your flight/train delay or cancellation? Once we’ve got that, we’ll issue your Headout credit refund 💜 - Name",
+   "",
+   ""
+  ],
+  [
+   "Death in the family",
+   "Applies when guests seek a refund following a family member’s death. ( Rarely Used )",
+   "DM/Email",
+   "Hey <name>,\n\nI'm so, so sorry to hear about your loss. 💜 My deepest condolences to you and your family.\n\nI've gone ahead and refunded the full amount of your experience. This refund should reflect in your account in the next 2-7 business days, depending on your bank.\n\nSending you hugs and love.\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, I’m truly sorry for your loss 💜 We’ve processed a full refund, please allow 2–7 business days for it to reflect. Sending strength and care your way.\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Venue closure/ full capacity/ experience cancelled",
+   "Applies to cases where guests seek a refund after a venue closure, supplier‑initiated cancellation, or overbooking.",
+   "Post/DM",
+   "Hey <name>, 👋\n\nI'm so sorry this has happened — it's not at all an experience we'd want you to go through. 💜\n\nOf course, I'll issue an immediate refund to your original payment method. The refund amount will reflect in your account within 2-7 days, depending on your bank. \n\nI'd also love to offer you a coupon code for <X%> off (up to $X) to use on your next experience with us.\n\nPlease could you provide me with your booking reference number so I can get this sorted out for you?\n\nOnce again, my sincere apologies for the hassle this may have caused.\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, we’re really sorry for the hassle 😞 We’ve processed a full refund and also sent a discount code to make your next Headout better 💜 DM us with your booking ID so we can help!\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "delay due to traffic/transport strikes",
+   "Used when a guest misses their tour due to external factors such as transport strikes or weather issues.  \n( Rarely Used Response)",
+   "DM/Email",
+   "Hey <name>, 👋\n\nI'm sorry to hear your experience.\n\nWould it be possible for you to please provide me with some form of documentation or proof? Thank you so much. 😊\n\n<once documentation provided> Thanks so much for cooperating and providing us with the info. This helps immensely! I'm happy to provide you a full refund in the form of Headout credits, so you can head out when the time is right! I hope this helps. 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, so sorry your plans got disrupted 😞 Could you DM us any proof (e.g. news link, screenshot)? Once received, we’ll issue a refund in Headout credits so you can head out again soon 💜\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Convenience fee issue",
+   "Applies to cases where guests seek clarification on additional fees or pricing discrepancies.",
+   "Post/DM",
+   "Hey <name>! \n\nThanks for reaching out. Very valid question! \n\nFor some of our experiences, we charge a convenience fee in addition to the ticket price, in order to cover the costs of online transactions and providing you with our stellar 24/7 support!\n\nWe mention this fee on the checkout page, just before you buy your tickets.\n\nHope this helps to address your doubts. 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, great question! We charge a small convenience fee to cover secure payments and 24/7 guest support. It’s always shown at checkout before you book. Hope this clears things up! 💜\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Charged higher price than the venue",
+   "This is for cases where a guest compares Headout pricing unfavorably against the venue’s price.",
+   "Post/DM",
+   "Hi <name>, 👋\n\nOoh, that's odd! As you may know, we offer an unrivalled Best Price Guarantee, so this is very rare. \n\nPlease could you share the link of the website where you saw this cheaper price? Our team will then take a look and adjust our pricing if needed.\n\nThanks for bringing this to our attention, I very much appreciate it! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, that’s unusual! We offer a Best Price Guarantee, so this shouldn’t happen 😕 Could you DM us the cheaper listing link so we can look into it and make it right? 💜\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Delay in Refund",
+   "This is when guest contact us when refund has been delayed.\n1) When we have not shared ARN with guest and refund has been done.\n2) When have already share ARN with guest.\n3) When Refund is delayed on our end.",
+   "DM/Email",
+   "Hey <name>, 👋\n\nI'm sorry to hear you haven't received your refund yet. Please could you provide me with your booking reference number, so I can look into this for you? ✍️\n\n<refund processed, ARN not shared> It appears your refund has been processed! Here's the reference number so you can cross-check with your bank: <XXX>. Of course, let me know if you have any other doubts! 💜\n\n<refund processed, ARN already shared> I've looked into this for you, and it appears we've already processed the refund, as well as shared the reference number for you to cross-check with your bank. If you have it, please could you send over the email or correspondence from your bank stating that the refund hasn't been credited? Thank you. 🙏🏻\n\n<refund not processed> I've looked into this for you, and it seems the refund has been delayed. I'm so sorry this has happened. I'll contact the relevant team immediately, and make sure this is processed straight away. I'd also like to offer you a coupon for <X%> to enjoy a discount of up to <$X> on your next experience with us. I hope this helps a little! Once again, my sincere apologies for the delay. 💜\n\nThanks so much for your time and patience! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, sorry for the wait! 😞 Could you please DM your booking ID so we can check the status and share your refund reference? We’ll sort this ASAP and follow up with your bank if needed 💜\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "How can I make a reservation using headout credits?",
+   "For cases where guests seek guidance on applying their Headout Credits. ( Rarely Used )",
+   "Post/DM",
+   "Hey <name>, 👋\n\nYay, I'm excited to hear you'll be using your Headout credits! 💜\n\nYou can view how many credits you have in your account by simply logging into the Headout website or app using your email address. Your credits will be displayed right next to the 'Credits' tab.\n\nUsing your credits is simple: they'll automatically get deducted from the total value of your booking. You can check out the breakdown of the cost when you're on the payment page. ✔️\n\nI hope this helps. Of course, if you have any other questions, please DM us at any time! Here to help. 😊\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}} 👋 You’ll see your credits in your account once you log in. At checkout, they’re applied automatically, no code needed! Easy peasy 💜 DM us if you need help using them.\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "What modes of payment do we accept on our website?",
+   "This is used when a guest contacts us to ask about available payment methods. ( Rarely Used )",
+   "Reply to cx post",
+   "Hey <name>! 👋\n\nWe accept all major debit and credit cards, as well as payment through Apple Pay and Google Pay! 😊\n\nI hope this helps. Excited to see you head out with us soon. 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, we accept all major debit/credit cards, plus Apple Pay & Google Pay! 😊 Let us know if you run into issues at checkout, we’re happy to help 💜\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Enquiring about Job Openings",
+   "This is used when candidates inquire about job opportunities at Headout. ( Rarely Used )",
+   "Post/DM",
+   "Hey Yash👋,\n\nThank you for your interest in working with us, we love to see it! 💜\n\nFor more details, you can check and apply at https://www.headout.com/careers/.\nIf you can’t find a role that matches what you had in mind, you can email us at life@headout.com and we’ll take it forward from there.\n\nThanks once again!\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, thanks for your interest in working with us 💜 You can view openings at headout.com/careers or drop your CV to life@headout.com if nothing fits for now.\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Positive Reviews on comments",
+   "Applies to instances where guests leave positive comments on Twitter posts.(rarely used)",
+   "Reply to cx post",
+   "1. Thank you for heading out with us. We hope you had a great time! 💜\n2. That looks like a lot of fun! Hope you had a good time heading out 🥳 \n3. Thanks for heading out with us! 💜\n4. These pictures are so cool! 🤩(for pictures) \n5. Damn, that looks like fun! Hope you had a great time! 👋",
+   "Thanks for heading out with us, {{name}}! 💜 Hope you had the best time!\n(or choose alternates)\n\n- That looks like so much fun 🥳\n\n- These pics are awesome 🤩\n\nHope your adventure was everything and more!\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Over-Crowded- Generic",
+   "Used when guests report issues with overcrowding or excessive wait times.",
+   "Post/DM",
+   "Hey <name>,\n\nI am really sorry to hear that we were unable to give you the experience that you've hoped for. During peak seasons, our partnered venues, including *said experience* open up entry to a larger number of people. I understand that this can negatively affect your experience and will try our best to work on our crowd management going forward. As a token of our apology, we will be emailing you a special coupon code which you can use for booking your next experience with us. Please do reach out to us if you'd like any help on when the best time to visit might be. \n\nI hope this helps brighten your day just a little at least! If you have any questions, just reply to our DM and we’ll take care of it! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, sorry things felt too packed 😞 During peak season, venues can get crowded, we hear you! We’re emailing you a special coupon as a small apology 💜 DM us if you'd like visit tips!\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Did not like the venue",
+   "This is used when guests report issues related to the venue, such as unprofessional staff, ongoing renovations, or cleanliness concerns.",
+   "DM/Email",
+   "Hey <first name>,\n\n\nThank you for bringing this to my attention. I’m sorry to hear that your experience was not the ideal one you'd hoped for. This is not the level of service we strive to provide.  Your feedback is highly valuable to us, and I want to assure you that we take it seriously. We are committed to making improvements to ensure that future experiences exceed your expectations.\n\n\nTo try and compensate for the disappointing experience, I have emailed you a coupon code that you can use to enjoy <X%> off your next experience with us.  I hope this brightens your day a bit! \n\n\nIf you have any questions or concerns, just reply to our email, and I’ll take care of it. Looking forward to helping you head out again! 💜\n\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, so sorry the experience didn’t meet your expectations 😞 We’re taking your feedback seriously and have sent you a coupon to help make your next outing better 💜\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Guide/Host not clear",
+   "Applies to cases where the guide was unclear, unprofessional, or the tour experience was negatively impacted.",
+   "Post/DM",
+   "Hey <name>,\n\nI am really sorry to hear that we could not give you the experience that you'd hoped for! We will do all that we can to ensure this situation does not repeat itself in the future. As a token of apology, we have initiated a partial refund in the form of Headout credits for which you will be receiving an email. I hope this compensates a little for the inconvenience and brightens your day a bit!  \n\nIf you have any questions, just reply to our DM and we’ll take care of it! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, so sorry the guide didn’t deliver the experience we promised 😞 We’ve issued a partial refund in credits 💜 You’ll see an email from us soon—hope this helps!\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "A part of the venue was closed",
+   "Applies when guests report that part of the venue was closed and seek clarification or resolution.",
+   "DM/Email",
+   "Hey <first name>,\n\nI'm very sorry for the experience you've had with us 😞. We should have warned you in advance of the closure. This was an oversight on our part, and I’ll make sure something like this doesn’t happen again.\n\nTo help make up for this inconvenience, I've initiated a partial refund for your missed tour, and you should see the amount in your account within <X number> days. I’ve also sent an e-mail to confirm this.\n\nIf you have any questions, just reply to our email and we’ll take care of it! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, we should’ve informed you ahead of time and we’re really sorry 😞 We’ve issued a partial refund and emailed you confirmation 💜 Let us know if you need anything else!\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Quality of Audioguide is poor",
+   "Applies when the guest experiences issues with the clarity, content, or functionality of the audio guide.",
+   "Post/DM",
+   "Hey <first name>,\n\nWe’re so sorry for the hassle this has caused. Thank you for bringing this to our notice. We will look into this matter and make the necessary changes. To help make up for this inconvenience, we've initiated have issued a partial refund for the Audio Guide amount back to your mode of payment.\n\nIf you have any questions, just reply to our DM and we’ll take care of it! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, so sorry about the audio guide issues 😞 We’ve processed a partial refund for that and will raise this with the partner 💜 Thanks for flagging it!\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Redemption issue- SP denied booking",
+   "This is used when a guest encounters issues redeeming tickets or is provided with an incorrect meeting point.",
+   "Post/DM",
+   "Hey <first name>,  \n\nWe’re sorry to hear your visit did not go as planned.  😞\n\nWe are working with our local partners to ensure a fair resolution is provided. It is taking longer than anticipated as we are yet to hear from them.\n\nJust give us <24/48> hours and we’ll definitely share an update. Thank you for your patience and for bringing this to our notice. \n\nIf you have any questions, just reply to our DM and we’ll take care of it! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, sorry your visit didn’t go smoothly 😞 We’re working with our partner to get clarity, please allow us 24-48 hrs for a proper update. Thanks so much for your patience 💜\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Did not receive Audio Guide",
+   "Applies when the guest informs us that the promised audio guide was not provided.",
+   "Post/DM",
+   "Hey <first name>,\n\nWe're sorry to hear that you did not get to experience your visit to the fullest. We’ve gone ahead and have issued a partial refund for the AudioGuide. We once again apologize for the inconvenience caused and look forward to seeing you head out with us soon!\n\nIf you have any questions, just reply to our DM and we'll take care of it! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, so sorry the audio guide wasn’t provided 😞 We’ve issued a partial refund for this and hope your next Headout is smoother 💜 DM us if you need anything!\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Existing map is not helpful",
+   "Applies when the guest expresses difficulty understanding or using the meeting point map.( Rarely Used )",
+   "Post/DM",
+   "Hey <first name>,\n\nWe’re so sorry for the hassle this has caused. Thank you for bringing this to our notice. We will look into this matter and make the necessary changes. To try and compensate for the disappointing experience, I have emailed you a coupon code that you can use to enjoy <X%> off your next experience with us.  I hope this brightens your day a bit! \n\nIf you have any questions, just reply to our DM and we’ll take care of it! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, sorry for the map trouble 😔 We’ll fix that! We’ve also emailed you a coupon to use for your next adventure. Hope this brightens your day just a little 💜\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Refund Status",
+   "Applies when a refund is delayed, and we provide the guest with ARN via email",
+   "Post/DM",
+   "Hey <name>,\n\nWe are sorry to hear that you haven't yet received the refund 😞. A full refund has already been processed to your card on <date>. We have sent you an email with more information about the status of your refund.\n\nIf you have any questions, just reply to our DM and we’ll take care of it! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, your refund was processed on {{date}} 💸 We’ve also sent you an email with the full status, including ARN. Let us know if you need help locating it 💜\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "SP denied refund error - guest error",
+   "Applies when the tour is missed due to the guest’s fault, and any refund offered follows DSS",
+   "DM/Email",
+   "Hey <First Name>,\n\nI’m sorry for the experience you’ve had. I understand that you feel you were on time, however, our records indicate that the tour departed at its scheduled time, Unfortunately, I cannot offer a refund for missed tours. 😞\n\nYour feedback is valuable to us, and to make up for this less-than-ideal situation, I’d like to offer you a partial refund in the form of Headout credits to use on your next booking with us. I’ve also sent you an email confirming the same. I hope this helps make up a bit for the inconvenience.\n\nIf you have any questions, just reply to our email and I’ll take care of it! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, we checked with our partner and sadly the tour left on time 😞 We’ve sent you a partial credit refund to use next time. Hope this helps make up for it 💜\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Refund status (updated)",
+   "This is used when a guest inquires about their refund status, and we share the ARN via email or DM.",
+   "Post/DM",
+   "Hey <Name>,\n\nI’m sorry to hear that you haven’t received the refund. No need to worry as we've already processed a full refund to your card on <date>. I have sent you an email containing more details regarding the status of your refund. Hope this helps! ✨\n\nIf you have any questions or concerns, feel free to reply to our email and I'll take care of it! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, your refund was already processed on {{date}} and we’ve shared the ARN via email ✉️ Let us know if your bank still can’t find it, we’ll help 💜\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Our error - offered an upgrade",
+   "This is used when the issue is caused by our error and the guest is offered an upgraded ticket as a resolution.",
+   "Post/DM",
+   "Hey <First Name>!\n\nI’m truly sorry for the cancellation hiccup. Good news! I've upgraded your reservation and the tickets have been sent to your email. I hope your upcoming experience is nothing short of an adventure. ✨\n\nIf you have any questions or concerns, just reply to the email, and I’ll take care of it. Happy heading out! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, so sorry for the hiccup! We've upgraded your tickets and sent them via email 🎟️ Hope this experience turns into an epic one 💜 Let us know if you need help!\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Guets having problem with accessing tickets - pushing the guest to app",
+   "Used when guests face issues accessing their tickets, and we recommend downloading the app for easier access.",
+   "Post/DM",
+   "Hey <Name>,\n\nThanks for choosing us for your adventure and for your feedback. I understand that downloading our app might seem like an extra step, but it's all about enhancing your experience. Our app ensures easy access to your tickets, even offline, and offers cool features to level up your adventure. 🚀\n\nWe promise, it's a quick and simple process. If you have any questions or concerns, please feel free to ask. We're here to make sure your experience with us is as smooth as possible! 💜\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, sorry about the trouble! Our app gives offline access to your tickets & cool extras 🚀 Try downloading it for a smoother experience 💜 DM us if you need help!\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "How to use Headout Creator Partneship",
+   "Applies to questions regarding the process or details of the Headout Creator Partnership. (influencers)",
+   "DM/Email",
+   "Hey <Name>,\n\nThanks for signing up with us — we're super excited to start creating with you!\n\nNow that you’ve signed in, you’ll see your first voucher available. You can use it to redeem any experience of your choice and start creating content around it.\n\nOnce you’ve posted your reel or post and submitted the link, a new voucher will automatically be generated for your next experience.\n\nJust a quick reminder: each voucher is valid for one experience only and can’t be reused. A fresh voucher will be issued once your content link is submitted.\n\nWe also run weekly challenges where you stand a chance to win an iPhone 16 Pro Max! Plus, the first 500 posts to go live earn $25 each. You don’t need to redeem an experience for this — you can use your existing travel content, just make sure to creatively integrate Headout into it.\n\nBest, \nHeadout Community",
+   "Hey {{name}}, thanks for signing up! 💜 Your first voucher’s live, use it to book any experience, create content, and post the link to get your next one. Let’s get creating!\n– Headout Community",
+   "",
+   ""
+  ],
+  [
+   "Default macro (with DM fallback)",
+   "Used when the guest is unable to send a DM due to Twitter privacy settings.",
+   "Reply to cx post",
+   "Hey <first name>,\n\nI'm really sorry to hear about your experience. 😔 I’d love to help sort this out ASAP. Could you try sending us a DM with your booking email, full name, and reservation number so I can look into this for you?\n\nIf you're unable to DM us (due to Twitter settings), please reply here and I’ll share an alternate way to get in touch.\n\nThanks so much for your patience 💜\n\nBest,\n<Name> | Team Headout \n🔗 DM us here:  https://twitter.com/messages/compose?recipient_id=998049942",
+   "Hey {{name}}, sorry to hear that 😞 If you can’t DM us, no worries! Just drop your email or booking ID here → https://bit.ly/hedout and we’ll jump in right away 💜\n– [name]",
+   "",
+   ""
+  ],
+  [
+   "Variant A: For users who already mention they can’t DM",
+   "Used when the guest informs us that they are unable to send a direct message.",
+   "Reply to cx post",
+   "Hey <first name>,\n\nThanks for flagging this! I’m really sorry things didn’t go as planned, and I’d love to fix this for you right away.\n\nSince DMs aren’t working, could you please share your email ID or booking ID (if you have it) here: https://bit.ly/hedout?\n\nOnce we have your details, our team will dive right in to sort this out ASAP. 💪\n\nBest,\n<Name> | Team Headout",
+   "Hey {{name}}, thanks for flagging this! Since DMs aren’t working, could you share your email or booking ID here 👉 https://bit.ly/hedout? We’ll jump in and get this sorted for you ASAP 💪\n– [name]",
+   "",
+   ""
+  ]
+ ]
+}

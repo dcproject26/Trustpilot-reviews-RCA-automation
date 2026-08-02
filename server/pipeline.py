@@ -249,7 +249,7 @@ def timeline_entry(bid, events: list, ticket_ids: list,
 
 
 def tone_entry(canned_list: list, l1: str, l2: str, err: Exception | None,
-               sheet_reason: str = "") -> dict | None:
+               sheet_reason: str = "", source: str = "") -> dict | None:
     """Whether the reply was written against approved replies, or without them.
 
     The reply is the one field on the card with no visible provenance. With
@@ -266,7 +266,8 @@ def tone_entry(canned_list: list, l1: str, l2: str, err: Exception | None,
         return {"mark": "pass", "text":
                 f"<strong>Reply voice</strong> — written against "
                 f"{len(canned_list)} approved reply/replies for {l1} / {l2}, "
-                f"as tone only."}
+                f"as tone only"
+                + (f", from {source}." if source else ".")}
     if canned_list:
         # Rows came back, so this is not the empty case — but L1/L2 are worth
         # 8 of the ranking points and word overlap with the review is the rest.
@@ -1874,9 +1875,9 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 canned_list = []
                 _tone_err = e
                 log.warning(f"[pipeline] canned tone lookup failed: {e}")
-            from server.services.canned import last_failure_reason
+            from server.services.canned import last_failure_reason, last_source
             _tone_entry = tone_entry(canned_list or [], l1, l2, _tone_err,
-                                     last_failure_reason())
+                                     last_failure_reason(), last_source())
             if _tone_entry:
                 confidence_trail.append(_tone_entry)
             rca_v3 = await claude.generate_rca_v3(

@@ -283,3 +283,161 @@ def test_the_csv_fallback_says_it_can_only_see_one_tab(monkeypatch):
     assert rows, "the CSV fallback produced nothing"
     assert all("first tab only" in r["tab"] for r in rows), \
         "a one-tab read is not labelled as one"
+
+
+# ── the checked-in macros ───────────────────────────────────────────────────
+#
+# The live sheet failed four ways — an unshared service account, an ambiguous
+# id between config.py and .env.example, a CSV export that reaches one of nine
+# tabs, and a network that could not resolve docs.google.com — and every one
+# arrived as the same empty list. The approved macros are in the repo now and
+# the sheet is an optional refresh. These are the tests that stop that
+# quietly reverting.
+
+def test_the_macros_are_actually_in_the_tree():
+    assert C.VENDORED.exists(), \
+        f"{C.VENDORED} is missing — every reply loses its tone reference"
+
+
+def test_the_checked_in_macros_yield_usable_replies():
+    rows = C._rows_from_vendored()
+    assert len(rows) > 150, f"only {len(rows)} replies survived parsing"
+
+
+def test_the_trustpilot_macros_are_among_them():
+    """This dashboard drafts Trustpilot replies. Macros for every other
+    channel and none for this one is the failure that started all of it."""
+    tabs = {r["tab"] for r in C._rows_from_vendored()}
+    assert any("TP" in t for t in tabs), tabs
+
+
+def test_every_reply_channel_survived_the_import():
+    tabs = {r["tab"] for r in C._rows_from_vendored()}
+    for expected in (TP, TWITTER, "Macros for SM", "ORM Email Macro"):
+        assert expected in tabs, f"{expected} did not survive: {sorted(tabs)}"
+
+
+def test_the_tag_mapping_tab_did_not_survive_the_import():
+    assert MAPPING not in {r["tab"] for r in C._rows_from_vendored()}
+
+
+def test_line_breaks_survived_the_html_import():
+    """A macro is a laid-out reply. Losing <br> runs the greeting into the body
+    and every tone example becomes one paragraph — which teaches the model the
+    wrong shape while looking perfectly fine in a row count."""
+    rows = [r for r in C._rows_from_vendored() if r["tab"] == TP]
+    assert any("\n" in r["response"] for r in rows), \
+        "not one Trustpilot macro has a line break"
+
+
+def test_the_replies_are_replies_not_labels():
+    rows = C._rows_from_vendored()
+    long = [r for r in rows if len(r["response"]) > 120]
+    assert len(long) > len(rows) * 0.8, \
+        f"only {len(long)} of {len(rows)} look like actual replies"
+
+
+# ── the sheet is now optional, and that must not read as a failure ──────────
+
+def _fresh(monkeypatch):
+    monkeypatch.setattr(C, "_cache_rows", [], raising=False)
+    monkeypatch.setattr(C, "_cache_at", 0, raising=False)
+    monkeypatch.setattr(C, "_last_reason", "", raising=False)
+
+
+def test_with_no_sheet_configured_the_macros_still_load(monkeypatch):
+    _fresh(monkeypatch)
+    monkeypatch.setattr(C, "is_live", lambda s: False)
+    rows = asyncio.run(C._get_rows())
+    assert rows, "no sheet configured left the pipeline with no tone reference"
+
+
+def test_an_unreachable_sheet_is_not_reported_as_a_failure(monkeypatch):
+    """The tone reference is present and approved; only the refresh did not
+    happen. Marking that a failure makes a healthy run look broken — the
+    inverse bug, and it trains people to ignore the mark."""
+    _fresh(monkeypatch)
+    monkeypatch.setattr(C, "is_live", lambda s: True)
+
+    async def _boom():
+        raise RuntimeError("docs.google.com unreachable")
+    monkeypatch.setattr(C, "_fetch_rows", _boom)
+    rows = asyncio.run(C._get_rows())
+    assert rows, "an unreachable sheet emptied the tone reference"
+    assert C.last_failure_reason() == "", \
+        f"a working run reported a failure: {C.last_failure_reason()!r}"
+
+
+def test_a_readable_sheet_wins_over_the_checked_in_copy(monkeypatch):
+    """Someone editing the sheet has to see their edit."""
+    _fresh(monkeypatch)
+    monkeypatch.setattr(C, "is_live", lambda s: True)
+
+    async def _live():
+        return [{"situation": "edited", "response": "x" * 200, "tab": "live"}]
+    monkeypatch.setattr(C, "_fetch_rows", _live)
+    rows = asyncio.run(C._get_rows())
+    assert [r["situation"] for r in rows] == ["edited"]
+
+
+def test_losing_both_sources_says_so(monkeypatch):
+    """The only genuine failure left, and it must not be silent."""
+    _fresh(monkeypatch)
+    monkeypatch.setattr(C, "is_live", lambda s: False)
+    monkeypatch.setattr(C, "_rows_from_vendored", lambda: [])
+    assert asyncio.run(C._get_rows()) == []
+    why = C.last_failure_reason()
+    assert why and "checked-in macros are missing" in why, why
+
+
+def test_the_status_line_names_the_tabs(monkeypatch):
+    """doctor.py prints this. A bare count cannot answer "is Trustpilot in
+    there", which is the only question that matters."""
+    s = C.vendored_status()
+    assert "replies across" in s and TP in s, s
+
+
+def test_the_importer_keeps_the_line_breaks_a_macro_is_laid_out_with():
+    """<br> is a real newline in a macro. Stripping it runs the greeting into
+    the body, so every tone example becomes one wall of text — which teaches
+    the model the wrong shape while a row count still looks perfect."""
+    import sys as _sys
+    _sys.path.insert(0, "tools")
+    import import_macros
+    got = import_macros._cells(
+        "<td>Unable to trace</td>"
+        "<td>Hey &lt;first name&gt;,<br><br>I'm sorry.<br>Best,</td>")
+    assert got[0] == "Unable to trace"
+    assert got[1].count("\n") >= 2, repr(got[1])
+    assert got[1].startswith("Hey <first name>,")
+
+
+def test_the_importer_strips_the_markup_but_not_the_text():
+    import sys as _sys
+    _sys.path.insert(0, "tools")
+    import import_macros
+    got = import_macros._cells('<td><span style="x">Refund</span> &amp; more</td>')
+    assert got == ["Refund & more"]
+
+
+def test_an_import_that_yields_nothing_is_not_reported_as_success(tmp_path):
+    """The importer exits 0 and prints "wrote ..." either way. An export that
+    parsed to zero usable replies would then look like a refresh that worked,
+    and the tone reference would be empty on the next deploy with a green
+    commit behind it."""
+    import subprocess
+    import sys as _sys
+    d = tmp_path / "export"
+    d.mkdir()
+    (d / "Nothing.html").write_text(
+        "<table><tr><td></td><td>A</td></tr>"
+        "<tr><td>1</td><td>Some Heading</td></tr>"
+        "<tr><td>2</td><td>a value</td></tr></table>", encoding="utf-8")
+    out = tmp_path / "out.json"
+    r = subprocess.run([_sys.executable, "tools/import_macros.py", str(d)],
+                       capture_output=True, text=True,
+                       env={**__import__("os").environ,
+                            "CANNED_MACROS_OUT": str(out)})
+    assert r.returncode != 0, \
+        f"an empty import exited 0:\n{r.stdout}\n{r.stderr}"
+    assert "nothing usable" in (r.stdout + r.stderr)
