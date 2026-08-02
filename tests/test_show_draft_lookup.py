@@ -333,3 +333,89 @@ def test_a_tree_with_no_git_says_unknown_rather_than_nothing():
             assert which_build.local_head() == "unknown"
         finally:
             os.chdir(cwd)
+
+
+# ── the deployment verifier ─────────────────────────────────────────────────
+#
+# It exists to answer "are the fixes reflecting", and it had no test of its
+# own — the same gap it was written to close. The database identity is the
+# load-bearing line: Replit's workspace and its published deployment keep
+# separate secret stores, so a database migration that updates one leaves the
+# other on the old instance, silently, until somebody compares them. Hostnames
+# cannot settle it (the same Postgres is proxied under different names); the
+# cluster's system_identifier can.
+
+def _db_lines(db):
+    sys.path.insert(0, "tools")
+    import verify_fixes
+    return "\n".join(verify_fixes.db_lines(db))
+
+
+def test_a_postgres_identity_is_printed_so_two_hosts_can_be_compared():
+    out = _db_lines({"dialect": "postgresql", "identity": "7401992"})
+    assert "7401992" in out
+    assert "OTHER url" in out, "it does not say the line is for comparing"
+
+
+def test_an_unreadable_identity_is_not_silence():
+    """No identity on a Postgres host means the comparison cannot be made.
+    Printing nothing would read as "checked, they match"."""
+    out = _db_lines({"dialect": "postgresql"})
+    assert "could not be read" in out
+    assert "I cannot tell" in out
+
+
+def test_sqlite_says_it_shares_nothing_rather_than_failing_to_answer():
+    """A legitimate n/a, not a broken lookup — sqlite is a file in one
+    container, so the question does not apply. Merging it with the unreadable
+    case would make a healthy setup look faulty."""
+    out = _db_lines({"dialect": "sqlite", "target": "/tmp/x.db"})
+    assert "n/a" in out
+    assert "could not be read" not in out
+
+
+def test_the_three_database_answers_never_read_the_same():
+    assert len({_db_lines({"dialect": "postgresql", "identity": "1"}),
+                _db_lines({"dialect": "postgresql"}),
+                _db_lines({"dialect": "sqlite"})}) == 3
+
+
+def test_main_actually_prints_the_identity_line():
+    """db_lines() can be perfect and never be called — deleting the call from
+    main() left every test above green. This drives main() end to end against
+    a stubbed host and reads what a person would actually see."""
+    sys.path.insert(0, "tools")
+    import io
+    import json as _json
+    import contextlib
+    import verify_fixes
+
+    body = _json.dumps({
+        "commit": "deadbeef", "short": "deadbee", "on_disk": "deadbeef",
+        "stale": False, "fingerprint": "nope-not-this-tree",
+        "db": {"dialect": "postgresql", "target": "h/d", "drafts": 3,
+               "identity": "7401992"},
+    })
+
+    class _Resp:
+        status = 200
+        headers = {"Content-Type": "application/json"}
+        def read(self): return body.encode()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    import urllib.request
+    real = urllib.request.urlopen
+    urllib.request.urlopen = lambda *a, **k: _Resp()
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            rc = verify_fixes.main_for_test("http://example.invalid")
+    finally:
+        urllib.request.urlopen = real
+    out = buf.getvalue()
+    assert "7401992" in out, f"the identity never reached the screen:\n{out}"
+    # A fingerprint that does not match must stop the run rather than let the
+    # checks below report this tree's fixes as missing on someone else's build.
+    assert "NOT running this tree" in out
+    assert rc == 1

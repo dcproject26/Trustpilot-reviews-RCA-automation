@@ -110,10 +110,36 @@ PIPELINE_FIXES = [
 ]
 
 
-def main():
+def db_lines(db: dict) -> list[str]:
+    """The database identity lines, or a line saying why there is no identity.
+
+    The identity, not the hostname. Replit's workspace and its published
+    deployment keep SEPARATE secret stores, so a database migration that
+    updates one leaves the other pointing at the old instance — silently, for
+    as long as nobody compares them. Two dashboards then disagree about what
+    exists and no amount of cache-clearing changes it. Hostnames cannot settle
+    it either: Replit proxies the same Postgres under different names, so two
+    surfaces can look split when they are not and identical when they are not.
+    pg_control_system()'s system_identifier is the cluster's own id.
+
+    Run the tool against BOTH urls and compare this line. Nothing else proves
+    they share a database.
+    """
+    if db.get("identity"):
+        return [f"  db identity         {db['identity']}",
+                f"                      ^ run me against your OTHER url too; if "
+                f"this line differs, they are different databases"]
+    if not str(db.get("dialect", "")).startswith("sqlite"):
+        return [f"  {DUNNO} db identity     could not be read — I cannot tell "
+                f"whether this shares a database with your other surface"]
+    return [f"  db identity         n/a — sqlite is a file in THIS container, "
+            f"so this surface shares nothing with any other"]
+
+
+def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("base", nargs="?", default="http://localhost:5000")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     base = a.base.rstrip("/")
     print(f"host: {base}\n")
 
@@ -147,6 +173,8 @@ def main():
     db = ver.get("db") or {}
     print(f"  database            {db.get('dialect')} {db.get('target')}"
           f"  ({db.get('drafts', '?')} drafts)")
+    for line in db_lines(db):
+        print(line)
     print()
 
     # Two different staleness questions, and the fingerprint answers only one.
@@ -266,6 +294,16 @@ def main():
               f"check for a CDN or service worker serving a cached index.html.")
         return 1
     return 0
+
+
+def main_for_test(base: str) -> int:
+    """main() with an explicit host, so a test can drive the whole flow.
+
+    Extracting db_lines() made it testable and left the CALL untested — the
+    mutation that deleted the call from main() survived every test of the
+    function itself. This is the entry point a person uses.
+    """
+    return main([base])
 
 
 if __name__ == "__main__":

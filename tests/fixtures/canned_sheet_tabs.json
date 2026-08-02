@@ -1,0 +1,243 @@
+{
+ "Content Check": [
+  [
+   "New Macros Added",
+   "Response",
+   "Content Team Update",
+   ""
+  ],
+  [
+   "Refund Request - Out of policy ( When guest review for strict policy and we cannot refund. We inform guest about the insurance add-on option for flexible cancellation on our website",
+   "Hey <Name>,Thanks for sharing your feedback. I can see why this situation is disappointing, and I agree that this isn’t ideal.That said, your booking falls under a strict no-cancellation policy, so we",
+   "Hey <Name>,Thanks for sharing your feedback. I understand why this is disappointing, and I agree it’s not ideal.Your booking, however, falls under a strict no-cancellation policy, so we’re unable to c",
+   "You can read more about it here: [Attach link] - to add in future"
+  ],
+  [
+   "Venue Closure - When we miss informing guest about closure",
+   "Hey ,Thanks for reaching out, and I’m really sorry we missed informing you about the venue closure. I agree — this should have been communicated clearly, and I understand how disappointing that must h",
+   "Hey <Name>,Thanks for reaching out. I’m really sorry we missed informing you about the venue closure. You’re right, this should’ve been communicated clearly, and I understand how disappointing that mu",
+   ""
+  ],
+  [
+   "Technical Issue - Refunding booking due to tech issues",
+   "Hey ,Thanks for flagging this. You’re right — the issue occurred due to a technical error on our end, and that’s not the experience we aim to deliver.To fix this, we’ve issued a <full/partial> refund ",
+   "Hey <Name>,Thanks for flagging this. You’re right, the issue was caused by a technical error on our end, and that’s not the experience we want you to have.To make this right, we’ve issued a <full/part",
+   ""
+  ],
+  [
+   "",
+   "",
+   "",
+   ""
+  ]
+ ],
+ "Macro - Hyperlinking proof": [
+  [
+   "Use Case",
+   "Macro Name",
+   "Response"
+  ],
+  [
+   "Use case for guest error- wrong date",
+   "OUT OF POLICY MACRO - DSS",
+   "Hey <first name>,I'm so sorry for the experience you've had with us. It looks like the date/time you picked wasn't the one you intended. We work closely with local partners to bring incredible experie"
+  ],
+  [
+   "Use case for guest error- wrong pax",
+   "OUT OF POLICY MACRO - DSS",
+   "Hey <first name>, I'm very sorry for the experience you've had with us 😞. It seems like you purchased tickets for more guests than you intended to. We work closely with local partners to bring incredi"
+  ],
+  [
+   "Use case highlighting guest confusion between Priority Entrance/Escorted Entry with Audio Guides or Host Assistance.",
+   "Priority Entrance/Escorted entry confusion - with Audio Guide and Assistance of a host",
+   "Hey {{name}},I'm very sorry for the experience you've had with us. 😞You purchased ticket(s) that not only include(s) entry but also an audio guide and the assistance of a host! These experiences often"
+  ],
+  [
+   "Use case highlighting guest confusion between Priority Entrance/Escorted Entry with our Audio Guide",
+   "Priority Entrance/Escorted entry confusion without Audio Guide",
+   "Hey <first name>,I'm really sorry to hear about your experience with us. 😞You purchased ticket(s) that not only include entry but also the assistance of a host. These inclusions are clearly mentioned "
+  ]
+ ],
+ "Macros for SM": [
+  [
+   "Main Issue Type",
+   "Response"
+  ],
+  [
+   "Unable to trace",
+   "Hey <first name>, I'm very sorry for the experience you've had with us. 😕 I’d love to help resolve this for you as quickly as possible. Could you please DM us with the email address and name used to m"
+  ],
+  [
+   "Following up on DM - Unable to trace",
+   "\"Hey <first name> 👋, Thank you for your patience while I looked into this for you. We really appreciate it! We haven’t heard from you since we last talked <x> days ago 😞. Could you please DM us with t"
+  ],
+  [
+   "Unable to trace the booking - Following Up post 48 hours of no response from guest.",
+   "\"Hey <first name> 👋, Thank you for your patience while I looked into this for you. We really appreciate it! We haven’t heard from you since we last talked <x> days ago 😞. Could you please DM us with t"
+  ],
+  [
+   "Interested in an expeirience",
+   "Hey <first name>, that's a great experience you've chosen to head out. You can explore this experience at <insert experience link>Best,Name"
+  ]
+ ],
+ "ORM Email Macro": [
+  [
+   "Main Issue Type",
+   "Response"
+  ],
+  [
+   "Meeting point details",
+   "Hey {{name}},Thanks for flagging this—I’m here to help, and I’ll do my best to get this sorted quickly.To build a strong case with our local partner, could you share a few quick details?1) What time ("
+  ],
+  [
+   "Invalid tickets",
+   "Hey {{name}},Thanks for flagging this—I’m looking into it now.I’ve double-checked your booking details, and everything on the ticket side (date, time, number of guests, and experience type) matches wh"
+  ],
+  [
+   "Ticket sent but guest did not see (Where we share proof to guests)",
+   "Hey <Name>,I’m really sorry you couldn’t locate the confirmation email. It’s never fun to feel left out of the loop 😞I’ve double-checked our records, and the tickets were successfully sent to your ema"
+  ],
+  [
+   "Tech Issue",
+   "Hey {{ticket.requester.first_name}},Thank you for reaching out. I appreciate you bringing this technical issue to our attention. I sincerely apologize for the inconvenience it has caused, preventing y"
+  ]
+ ],
+ "ORM main ( TP ) Macro": [
+  [
+   "Use Case",
+   "TP / PlayStore / Other Social Media Response MACRO",
+   "IMP NOTE"
+  ],
+  [
+   "Customer Unable to trace booking",
+   "Hey <first name>, I’m sorry things didn’t go as planned, and I’d love to fix this for you right away. Please share your booking ID (if available) or the email address used for your booking at https://",
+   "For Playstore Within 350 lettersHey <first name>, I'm sorry your experience didn't go as planned. 💜 Please share your booking ID or the email used for your booking at https://bit.ly/hedout, and our te"
+  ],
+  [
+   "To a customer asking for his/her tickets that have already been sent tickets (Resend tickets)",
+   "Hey <first name>, Oh no, I’m sorry to hear you didn't receive your tickets. 😞I've just checked our system, which confirms the tickets were sent to you on {date}. Please could you check your Spam folde",
+   ""
+  ],
+  [
+   "Ticket Validity (Trust Issues) / Open Dated Confusion / Extended Validity Inquiries",
+   "Hey <first name>, I'm sorry for the confusion caused by the dates mentioned on the tickets. 😞I assure you that your tickets can be used until <date> and you will have no trouble redeeming them on the ",
+   ""
+  ],
+  [
+   "Delay in sending tickets/ future booking",
+   "Hi <name>,Thank you for writing back to us.Your reservation is confirmed! However, because our local partner processes tickets a minimum of 7 days before the date of this particular experience, you wi",
+   ""
+  ]
+ ],
+ "Refer Macro Tags": [
+  [
+   "TP MACRO Issue Type",
+   "",
+   "SM MACRO Issue Type",
+   "",
+   "TWITTER MACRO Issue Type"
+  ],
+  [
+   "Customer Unable to trace booking",
+   "",
+   "Unable to trace",
+   "",
+   "Unable to trace booking"
+  ],
+  [
+   "To a customer asking for his/her tickets that have already been sent tickets (Resend tickets)",
+   "",
+   "Following up on DM - Unable to trace",
+   "",
+   "Following up on DM - Unable to trace the booking"
+  ],
+  [
+   "Ticket Validity (Trust Issues) / Open Dated Confusion",
+   "",
+   "Unable to trace the booking - Following Up post 48 hours of no response from guest.",
+   "",
+   "Unable to trace - following up with the guest on the thread( only for X - twitter)"
+  ],
+  [
+   "Delay in sending tickets/ future booking",
+   "",
+   "Interested in an expeirience",
+   "",
+   "Interested in an expeirience and asking for prices"
+  ]
+ ],
+ "Sheet9": [
+  [
+   ""
+  ]
+ ],
+ "Takedown Macro": [
+  [
+   "Macro Name",
+   "Takedown Macro"
+  ],
+  [
+   "",
+   "IMPORTANT NOTE: Case scenarios may vary, so please use the appropriate takedown statements below based on the situation.If the guest’s tone is inappropriate or if there have been multiple escalations,"
+  ],
+  [
+   "Full Refund + Credits",
+   "Hey <Name>,Thanks for your patience. I’ve processed a full refund using your original payment method. Depending on your bank, you should see it in 2–3 business days.To make up for the inconvenience, I"
+  ],
+  [
+   "Missed Tour Partial Refund - Guest error",
+   "Hey <Name>,Sorry to hear the experience didn’t go as planned. I understand how frustrating it must’ve been to miss seeing something you were probably really looking forward to.To help make up for it, "
+  ],
+  [
+   "Out of Policy Refund Exception",
+   "Hey <Name>,I hear you. While this is technically outside our refund policy, I’ve gone ahead and made an exception for you. A refund of (Є/$)<X> has been processed to your original payment method. It s"
+  ]
+ ],
+ "Twitter Macro": [
+  [
+   "Template Use Case",
+   "Meaning/Context of where this template is used.",
+   "Mode of Response",
+   "Content Approved Template Response",
+   "Short Version",
+   "",
+   ""
+  ],
+  [
+   "Unable to trace booking",
+   "Applies when we're unable to locate the booking and need further details for verification.",
+   "Reply to cx post",
+   "Hey <first name>, I'm very sorry for the experience you've had with us. 😕 I’d love to help resolve this for you as quickly as possible. Could you please DM us with the email address and name used to m",
+   "Hey {{name}}, so sorry you’re running into this 😕 Could you DM us your booking ID, plus the name and email used? We’ll get on it right away and help sort this out for you. Thanks so much for your pati",
+   "",
+   ""
+  ],
+  [
+   "Following up on DM - Unable to trace the booking",
+   "Follow-up case for untraceable Booking ID where guest details are still awaited.",
+   "Reply to cx post",
+   "Hey <first name> 👋, Thank you for your patience while I looked into this for you. We really appreciate it! We haven’t heard from you since we last talked <x> days ago 😞. Could you please DM us with th",
+   "Hey {{name}} 👋 Just checking in, we haven’t heard from you in a few days. Could you please DM us your booking name & email so we can help you out? Looking forward to getting this resolved ASAP! 💜 - Na",
+   "",
+   ""
+  ],
+  [
+   "Unable to trace - following up with the guest on the thread( only for X - twitter)",
+   "Used when we’re unable to locate the booking and are reaching out again on the X( Twitter) thread.",
+   "Reply to cx post",
+   "Hey <name>, I’m sorry about the inconvenience caused. Could you please share your booking ID on this thread? Once I have the required information, I’ll work to resolve this for you ASAP and update you",
+   "Hey {{name}}, sorry again for the trouble 😞 Could you drop your booking ID here on the thread? Once we have it, we’ll look into this and get back to you via email. Thanks for bearing with us! 💜 - Name",
+   "",
+   ""
+  ],
+  [
+   "Interested in an expeirience and asking for prices",
+   "Used when a guest expresses interest in an experience and inquires about pricing.",
+   "Reply to cx post",
+   "Hey <first name>, that's a great experience you've chosen to head out. You can explore this experience at <insert experience link>Best,<Name> | Team Headout",
+   "Hey {{name}}, awesome pick! 🙌 You can check out all the details and prices for this experience here: [insert link] ,let us know if you have any questions. Can’t wait for you to head out!  💜 - Name",
+   "",
+   ""
+  ]
+ ]
+}

@@ -36,8 +36,69 @@ def _keywords(text: str) -> set[str]:
     return {w for w in words if w not in _STOPWORDS}
 
 
-def _detect_cols(headers: list[str]) -> dict[str, int]:
+# A response column holds a reply; a label column holds the name of one. Both
+# match "response" on the header alone, so the header is not enough — the real
+# sheet has a "Mode of Response" column ("Reply to cx post") sitting to the LEFT
+# of "Content Approved Template Response", and first-match-wins picked the
+# label. The model then got "Reply to cx post" as a tone example.
+#
+# Length settles it. Every approved macro in the live sheet runs to hundreds of
+# characters; every label is a handful of words.
+_MIN_RESPONSE_CHARS = 120
+
+
+def _median_len(rows: list[list[str]], i: int) -> int:
+    """Median cell length in a column, counting a blank as zero.
+
+    Skipping blanks instead would let a column that is empty in most rows and
+    holds one long note — "Takedown Macro" is exactly that shape — read as a
+    column full of replies on the strength of the one. The question is whether
+    this column is MOSTLY replies, so the empties have to count.
+    """
+    if not rows:
+        return 0
+    vals = sorted(len((r[i] or "").strip()) if i < len(r) else 0 for r in rows)
+    return vals[len(vals) // 2]
+
+
+def _pick_response_col(headers: list[str], rows: list[list[str]],
+                       candidates: list[int]) -> int | None:
+    """The column that actually holds replies, of the ones whose header says so.
+
+    Ranked by what is IN the column, not by where it sits. Ties go to the
+    header that names an approved reply over one that names a channel.
+    """
+    scored = []
+    for i in candidates:
+        med = _median_len(rows, i)
+        if med < _MIN_RESPONSE_CHARS:
+            continue
+        hl = headers[i].lower() if i < len(headers) else ""
+        bonus = 2 if "approved" in hl else (1 if "template" in hl or "macro" in hl else 0)
+        scored.append((med + bonus * 50, i))
+    return max(scored)[1] if scored else None
+
+
+def _tab_is_a_mapping(headers: list[str], rows: list[list[str]],
+                      col: dict) -> bool:
+    """True for a tab that names issue types rather than holding replies.
+
+    "Refer Macro Tags" is 75 rows of TP/SM/Twitter issue-type names side by
+    side. Its header matches both keyword sets — "TP MACRO Issue Type" is a
+    situation AND a macro — so it reads as 75 perfectly good canned responses
+    whose text is a category label. Feeding those to the model as tone examples
+    is worse than sending none: it is confidently wrong, and it looks like the
+    sheet is working.
+    """
+    if "response" not in col:
+        return True
+    return _median_len(rows, col["response"]) < _MIN_RESPONSE_CHARS
+
+
+def _detect_cols(headers: list[str], rows: list[list[str]] | None = None
+                 ) -> dict[str, int]:
     col: dict[str, int] = {}
+    cands: list[int] = []
     for i, h in enumerate(headers):
         hl = h.lower().strip()
         # "issue" and "type" belong here: the live sheet's header is
@@ -49,11 +110,22 @@ def _detect_cols(headers: list[str]) -> dict[str, int]:
             col.setdefault("situation", i)
         if any(k in hl for k in ("response", "template", "reply", "message", "text",
                                  "macro", "copy")):
+            # Every match is kept, not just the first. Which one actually holds
+            # replies is decided by _pick_response_col from the column CONTENT,
+            # because two columns on the same tab can both say "response" and
+            # only one of them contains one.
             col.setdefault("response", i)
+            cands.append(i)
         if any(k in hl for k in ("l1", "category", "issue type")):
             col.setdefault("l1_hint", i)
         if any(k in hl for k in ("l2", "sub issue", "sub-issue")):
             col.setdefault("l2_hint", i)
+    # rows is optional so the header-only callers and their tests keep working;
+    # without it there is nothing to measure and first-match stands.
+    if rows and len(cands) > 1:
+        best = _pick_response_col(headers, rows, cands)
+        if best is not None:
+            col["response"] = best
     return col
 
 
@@ -83,69 +155,142 @@ def _rows_via_service_account() -> list[list[str]]:
     return [[str(c) for c in row] for row in (r.json().get("values") or [])]
 
 
-async def _fetch_rows() -> list[dict]:
-    csv_url = (
-        f"https://docs.google.com/spreadsheets/d/{CANNED_RESPONSES_SHEET_ID}"
-        f"/export?format=csv&gid=0"
-    )
-    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as c:
-        r = await c.get(csv_url)
-    raw: list[list[str]] = []
-    ctype = r.headers.get("content-type", "")
-    if r.status_code == 200 and "csv" in ctype.lower():
-        raw = list(csv.reader(io.StringIO(r.text)))
-    else:
-        # An HTML body here is Google's login page: the sheet is private.
-        import asyncio as _asyncio
-        log.warning(
-            f"[canned] CSV export not readable (HTTP {r.status_code}, {ctype}) - "
-            f"the sheet is probably not link-viewable; trying the service account")
-        raw = await _asyncio.to_thread(_rows_via_service_account)
-
-    if not raw:
-        log.warning("[canned] sheet returned no rows - responses will be drafted "
-                    "with no tone reference")
-        return []
-
+def _parse_tab(name: str, raw: list[list[str]]) -> tuple[list[dict], str]:
+    """(rows, why-it-produced-none) for one tab's cells."""
+    if len(raw) < 2:
+        return [], f"{name}: empty"
     headers = [h.strip() for h in raw[0]]
-    col = _detect_cols(headers)
-    log.info(
-        f"[canned] mapped columns: situation={col.get('situation', '?')}, "
-        f"response={col.get('response', '?')}, tab=gid:0"
-    )
-
+    body = raw[1:]
+    col = _detect_cols(headers, body)
     if "situation" not in col or "response" not in col:
-        log.error(
-            f"[canned] the sheet READ fine but its columns were not recognised. "
-            f"Headers seen: {headers}. Needed: one column naming the situation "
-            f"(situation/case/scenario/theme/issue/type/topic/category) and one "
-            f"holding the reply (response/template/reply/message/text/macro/copy). "
-            f"Every response will be drafted with no tone reference until this "
-            f"matches.")
-        return []
+        return [], (f"{name}: no situation/response columns in {headers[:4]}")
+    if _tab_is_a_mapping(headers, body, col):
+        return [], (f"{name}: reads as issue-type labels, not replies "
+                    f"(median reply {_median_len(body, col['response'])} chars)")
 
-    sit_idx  = col["situation"]
-    resp_idx = col["response"]
-
+    sit_idx, resp_idx = col["situation"], col["response"]
     rows: list[dict] = []
-    for rw in raw[1:]:
+    for rw in body:
         if max(sit_idx, resp_idx) >= len(rw):
             continue
-        sit  = rw[sit_idx].strip()
-        resp = rw[resp_idx].strip()
+        sit, resp = rw[sit_idx].strip(), rw[resp_idx].strip()
         if not sit or not resp:
             continue
         rows.append({
             "situation": sit,
             "response":  resp,
+            "tab":       name,
             "l1_hint":   rw[col["l1_hint"]].strip() if "l1_hint" in col and col["l1_hint"] < len(rw) else "",
             "l2_hint":   rw[col["l2_hint"]].strip() if "l2_hint" in col and col["l2_hint"] < len(rw) else "",
         })
+    return rows, "" if rows else f"{name}: every row was missing a situation or a reply"
 
-    log.info(f"[canned] fetched {len(rows)} rows from sheet")
-    for i, rw in enumerate(raw[1:4], 1):
-        safe = [c[:40] if len(c) > 40 else c for c in rw[:4]]
-        log.debug(f"[canned] sample row {i}: {safe}")
+
+def _tabs_via_service_account() -> list[tuple[str, list[list[str]]]]:
+    """Every tab, by name. `values/A:Z` with no sheet name reads only the FIRST
+    one, which is how a nine-tab sheet was being read as one."""
+    import json as _json
+    from google.oauth2 import service_account
+    from google.auth.transport.requests import Request as _GARequest
+    from server.config import GCP_SERVICE_ACCOUNT_JSON
+    if not GCP_SERVICE_ACCOUNT_JSON:
+        raise RuntimeError("no GCP_SERVICE_ACCOUNT_JSON to authenticate with")
+    creds = service_account.Credentials.from_service_account_info(
+        _json.loads(GCP_SERVICE_ACCOUNT_JSON),
+        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
+    creds.refresh(_GARequest())
+    hdr = {"Authorization": f"Bearer {creds.token}"}
+    base = f"https://sheets.googleapis.com/v4/spreadsheets/{CANNED_RESPONSES_SHEET_ID}"
+
+    meta = httpx.get(f"{base}?fields=sheets.properties.title", headers=hdr,
+                     timeout=15.0)
+    if meta.status_code != 200:
+        raise RuntimeError(f"Sheets API HTTP {meta.status_code} "
+                           f"({meta.text[:120]})")
+    titles = [sh["properties"]["title"]
+              for sh in (meta.json().get("sheets") or [])]
+    if not titles:
+        raise RuntimeError("the sheet reports no tabs")
+
+    out = []
+    for t in titles:
+        import urllib.parse
+        r = httpx.get(f"{base}/values/{urllib.parse.quote(t)}!A:Z", headers=hdr,
+                      timeout=15.0)
+        if r.status_code != 200:
+            log.warning(f"[canned] tab {t!r}: HTTP {r.status_code}")
+            continue
+        out.append((t, [[str(c) for c in row]
+                        for row in (r.json().get("values") or [])]))
+    return out
+
+
+async def _fetch_rows() -> list[dict]:
+    """Every tab of the sheet, not the first one.
+
+    This read `gid=0` and `values/A:Z` — both of which mean "tab one" — against
+    a sheet with nine tabs split BY CHANNEL: Trustpilot, social, Twitter,
+    email. The dashboard drafts Trustpilot replies, so whether the tone
+    reference was even the right channel came down to which tab happened to be
+    first. Two of the nine also read as valid canned responses while holding
+    issue-type labels rather than replies; _tab_is_a_mapping drops those,
+    because confidently wrong tone examples are worse than none.
+    """
+    global _last_reason
+    tabs: list[tuple[str, list[list[str]]]] = []
+    csv_url = (
+        f"https://docs.google.com/spreadsheets/d/{CANNED_RESPONSES_SHEET_ID}"
+        f"/export?format=csv&gid=0"
+    )
+    try:
+        import asyncio as _asyncio
+        tabs = await _asyncio.to_thread(_tabs_via_service_account)
+        log.info(f"[canned] read {len(tabs)} tab(s) via the service account: "
+                 f"{[t for t, _ in tabs]}")
+    except Exception as e:
+        # The public CSV export can only reach tab one. Say so rather than let
+        # a partial read look like a complete one.
+        log.warning(f"[canned] service account unavailable ({e}); falling back "
+                    f"to the public CSV export, which can only see the FIRST tab")
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as c:
+            r = await c.get(csv_url)
+        ctype = r.headers.get("content-type", "")
+        if r.status_code == 200 and "csv" in ctype.lower():
+            tabs = [("gid:0 (first tab only)", list(csv.reader(io.StringIO(r.text))))]
+        else:
+            log.warning(
+                f"[canned] CSV export not readable (HTTP {r.status_code}, {ctype}) "
+                f"- the sheet is probably not link-viewable")
+
+    if not tabs:
+        return []
+
+    rows: list[dict] = []
+    skipped: list[str] = []
+    for name, raw in tabs:
+        got, why = _parse_tab(name, raw)
+        rows.extend(got)
+        if why:
+            skipped.append(why)
+        else:
+            log.info(f"[canned] {name}: {len(got)} rows")
+
+    # Rule 1 of this codebase: a tab we could not use has to be countable, or a
+    # sheet where eight of nine tabs were dropped looks exactly like a sheet
+    # with one tab.
+    if skipped:
+        log.warning(f"[canned] {len(skipped)} tab(s) contributed nothing: "
+                    + " | ".join(skipped))
+    if not rows:
+        _last_reason = ("the sheet was read but no tab held usable replies: "
+                        + "; ".join(skipped[:3]))
+        return []
+    # Cleared here, not only in _get_rows. A function that can SET a reason
+    # and cannot clear one leaves the last failure attached to the next
+    # success — and a stale reason is read as a current one.
+    _last_reason = ""
+    log.info(f"[canned] fetched {len(rows)} rows across "
+             f"{len(tabs) - len(skipped)} of {len(tabs)} tab(s)")
     return rows
 
 
