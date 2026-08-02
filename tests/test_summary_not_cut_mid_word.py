@@ -37,13 +37,25 @@ def test_a_cut_says_it_is_ours():
 
 
 def test_a_cut_lands_on_a_word_boundary():
-    """"non-cancellable p" is unreadable in a way "non-cancellable" is not."""
+    """"non-cancellable p" is unreadable in a way "non-cancellable" is not.
+
+    Every n from 20 to 55, not one. The single case this started as put the
+    cap exactly on a space, so it passed with the boundary logic deleted —
+    mutation testing caught it. A boundary rule is only tested by a cut that
+    would otherwise land inside a word.
+    """
     s = "alpha bravo charlie delta echo foxtrot golf hotel india juliet"
-    got = _clip(s, 30)
-    body = got.split(" […cut")[0]
-    assert s.startswith(body)
-    assert s[len(body):len(body) + 1] in ("", " "), \
-        f"cut mid-word: ...{body[-12:]!r}"
+    mid_word = 0
+    for n in range(20, 56):
+        body = _clip(s, n).split(" […cut")[0]
+        assert s.startswith(body), f"n={n}: {body!r} is not a prefix"
+        assert s[len(body):len(body) + 1] in ("", " "), \
+            f"n={n} cut mid-word: ...{body[-14:]!r}"
+        if s[n:n + 1] not in ("", " ") and s[n - 1:n] != " ":
+            mid_word += 1
+    assert mid_word > 10, (
+        "none of these lengths would have landed inside a word, so this test "
+        "never exercised the boundary rule")
 
 
 def test_a_single_long_token_is_still_cut_rather_than_kept():

@@ -94,14 +94,39 @@ def test_a_macro_filed_under_the_pair_beats_one_that_shares_words():
 
 
 def test_the_right_l1_with_the_wrong_l2_is_worth_less_than_both():
+    """Three scores, and the two comparisons have to be STRICT.
+
+    `both > l1_only >= neither` passed with the L1-only bonus deleted
+    entirely — mutation caught it — because `>=` is satisfied when the middle
+    term collapses onto the bottom one. A partial category hit that is worth
+    exactly nothing is not a partial hit.
+
+    The bottom term also has to hold the L2 fixed. Comparing "right L1, wrong
+    L2" against a completely different pair measures the word overlap of two
+    different phrases as well as the bonus, and the difference could come from
+    either.
+    """
     filed = next(s for s, p in C.macro_l1l2().items() if p == PAIR)
+    other_l1 = next(l1 for l1, _ in
+                    (tuple(p) for p in C.macro_l1l2().values())
+                    if l1 != PAIR[0])
     other_l2 = next(l2 for l1, l2 in
                     (tuple(p) for p in C.macro_l1l2().values())
                     if l1 == PAIR[0] and l2 != PAIR[1])
     both = _score(filed, *PAIR)
     l1_only = _score(filed, PAIR[0], other_l2)
-    neither = _score(filed, "External Factor", "Customer Late")
-    assert both > l1_only >= neither, (both, l1_only, neither)
+    # Same L2 as l1_only, so the only thing that changed is the L1 hit.
+    neither = _score(filed, other_l1, other_l2)
+    assert both > l1_only, (
+        f"an exact L1/L2 hit ({both}) is worth no more than L1 alone "
+        f"({l1_only})")
+    assert l1_only > neither, (
+        f"the right L1 with the wrong L2 ({l1_only}) is worth no more than "
+        f"the wrong L1 with the same wrong L2 ({neither}) — the partial "
+        f"category hit counts for nothing")
+    assert l1_only - neither == C._L1_ONLY, (
+        "the gap between them is not the L1-only bonus, so this test is "
+        "measuring something else")
 
 
 def test_an_unclassified_review_gets_no_filing_bonus():

@@ -39,10 +39,22 @@ def _click_window(page, w):
 
 def test_the_panel_states_the_window_its_figures_cover(page):
     """A count with no range is not checkable. The picker states an intention;
-    this states the result."""
+    this states the result.
+
+    Read off the SCREEN, not out of the DOM. textContent is happily returned
+    for an element carrying `hidden`, so an assertion on the string alone
+    passed against a build where the line had been hidden outright — mutation
+    testing caught that. What is in the document and what the reader can see
+    are different claims.
+    """
     line = _window_line(page)
     assert line, "the insights panel does not say which window it is showing"
     assert any(ch.isdigit() for ch in line), line
+    assert page.locator(".insight-window").first.is_visible(), \
+        "the window line is in the DOM but not on the screen"
+    box = page.locator(".insight-window").first.bounding_box()
+    assert box and box["height"] > 0 and box["width"] > 0, \
+        f"the window line renders with no size: {box}"
 
 
 @pytest.mark.parametrize("w,days", [("7d", 7), ("30d", 30), ("90d", 90)])
