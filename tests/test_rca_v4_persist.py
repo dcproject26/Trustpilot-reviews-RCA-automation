@@ -519,3 +519,51 @@ def test_the_caught_exception_never_reaches_the_trail_text():
               or "log.exception" in line
               or "failure_entry(_fatal)" in line)
         assert ok, f"the exception is being formatted into the trail: {line.strip()[:90]}"
+
+
+# ── an untraceable review sends the approved macro, unedited ────────────────
+#
+# Not as a tone reference — as the reply. There is nothing to personalise: we
+# could not find the booking, so the reply is the one ask that applies to every
+# such review. Having the model rewrite it produces an unapproved paraphrase of
+# an approved reply, which is worse than either.
+
+import re as _re
+
+PIPE_SRC = open("server/pipeline.py", encoding="utf-8").read()
+
+
+def _verbatim_block():
+    i = PIPE_SRC.find("_verbatim = next((c for c in (canned_list or [])")
+    assert i != -1, "the verbatim override is gone from the pipeline"
+    return PIPE_SRC[i:i + 1400]
+
+
+def test_the_macro_is_written_to_rca_v3_not_only_the_column():
+    """_draft_dict reads the reply presence-based from rca_v3. Setting only the
+    column leaves the card showing whatever the model wrote — which is the bug
+    that let a stale 110-word reply override rule 20."""
+    b = _verbatim_block()
+    assert 'rca_v3["suggested_response"] = response_draft' in b
+
+
+def test_the_first_name_token_is_filled():
+    """`<first name>` renders as literal angle brackets on a public review
+    page. It is the one token the macro is written to have filled."""
+    b = _verbatim_block()
+    assert '"<first name>"' in b
+
+
+def test_a_missing_name_leaves_the_token_rather_than_guessing():
+    """A wrong name on a public reply is worse than a placeholder an associate
+    can see and complete."""
+    b = _verbatim_block()
+    assert "if _who:" in b, "the name is substituted unconditionally"
+
+
+def test_only_the_state_selected_macro_is_used_verbatim():
+    """Every other macro is a tone reference. If this took canned_list[0]
+    unconditionally, every matched reply would be sent as boilerplate."""
+    b = _verbatim_block()
+    assert 'c.get("why")' in b, \
+        "the verbatim path is not gated on the state-selected macro"

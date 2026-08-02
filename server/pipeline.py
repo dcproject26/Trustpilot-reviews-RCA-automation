@@ -267,10 +267,15 @@ def tone_entry(canned_list: list, l1: str, l2: str, err: Exception | None,
     # is keyed on L1/L2 and this review has neither" — which would be true and
     # entirely beside the point.
     if canned_list and (canned_list[0] or {}).get("why"):
+        # Not a voice reference. This macro IS the reply, unedited — so the
+        # line must not read like the others, or an associate will review it
+        # as model-written text and reword approved copy.
         return {"mark": "pass", "text":
-                f"<strong>Reply voice</strong> — {(canned_list[0] or {}).get('why')}, "
-                f"so the approved “{(canned_list[0] or {}).get('situation')}” macro "
-                f"was used rather than a match on the classification."}
+                f"<strong>The reply is an approved macro, sent as written</strong> "
+                f"— {(canned_list[0] or {}).get('why')}, so the “"
+                f"{(canned_list[0] or {}).get('situation')}” macro is used word "
+                f"for word rather than drafted. Only the guest's first name is "
+                f"filled in. Nothing here was generated."}
     if canned_list and l1 and l2:
         top = (canned_list[0] or {}).get("situation") or ""
         return {"mark": "pass", "text":
@@ -1976,6 +1981,32 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # The cost is the canned-response tone reference, which the RCA prompt
         # has no token for. Recovering it means adding one to the prompt body.
         response_draft = (rca_v3 or {}).get("suggested_response") or ""
+
+        # An untraceable review gets the approved macro VERBATIM, not a reply
+        # written in its register. There is nothing to personalise: we could
+        # not find the booking, so the reply is the one ask that applies to
+        # every such review — send us your booking id. The macro is signed off
+        # for exactly that, word for word, and having the model rewrite it
+        # produces an unapproved paraphrase of an approved reply, which is
+        # worse than either.
+        #
+        # `<first name>` is the one token the macro is written to have filled;
+        # leaving it renders literal angle brackets on a public review page.
+        # Filled only when a name is actually known — a wrong name is worse
+        # than a placeholder an associate can see and complete.
+        _verbatim = next((c for c in (canned_list or []) if c.get("why")), None)
+        if _verbatim and _verbatim.get("response"):
+            response_draft = _verbatim["response"]
+            _who = (review.author or "").strip().split(" ")[0]
+            if _who:
+                response_draft = response_draft.replace("<first name>", _who)
+            # Written into rca_v3 too. _draft_dict reads the reply presence-
+            # based from there now, so setting only the column would leave the
+            # card showing whatever the model wrote instead.
+            if isinstance(rca_v3, dict):
+                rca_v3["suggested_response"] = response_draft
+            log.info(f"[pipeline] {review_id}: untraceable — using the approved "
+                     f"“{_verbatim.get('situation')}” macro verbatim")
 
         _progress(review_id, 8, "saving")
         # ── 14. Save ──────────────────────────────────────────────────────────
