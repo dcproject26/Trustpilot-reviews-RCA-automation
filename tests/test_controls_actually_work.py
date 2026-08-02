@@ -428,3 +428,61 @@ def test_whitespace_is_not_a_reply(page):
     can tell the reader which kind of empty it is."""
     got = _reply_state(page, "   \n  ")
     assert "curate the response yourself" in got["placeholder"], got["placeholder"]
+
+
+# ── the blank reply is a decision, and has to read as one ───────────────────
+#
+# Prompt rule 20: with no approved macro, the model returns null rather than
+# writing a reply, because an invented one is indistinguishable from an
+# approved one on this card and Send puts it on a public review. That only
+# works if the empty box SAYS so — otherwise it reads as a step that failed,
+# which is the bug this whole branch is about.
+
+def _reply_box(page, text):
+    return page.evaluate("""(t) => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keep = r.rca.reply;
+      r.rca.reply = t; renderRcaCol();
+      const ta = document.querySelector('.reply-text');
+      const meta = document.querySelector('.reply-meta');
+      const out = {value: ta ? ta.value : null,
+                   placeholder: ta ? ta.placeholder : null,
+                   meta: meta ? meta.innerText : null};
+      r.rca.reply = keep; renderRcaCol();
+      return out; }""", text)
+
+
+def test_a_blank_reply_says_to_write_it_yourself(page):
+    got = _reply_box(page, "")
+    assert got["value"] == ""
+    assert "curate the response yourself" in got["placeholder"], got["placeholder"]
+
+
+def test_a_blank_reply_says_why_it_is_blank(page):
+    """"Nothing was drafted" is a fact about the box. "No approved macro covers
+    this issue" is the reason, and it is the difference between a working
+    pipeline and a broken one."""
+    got = _reply_box(page, "")
+    assert "no approved macro" in got["meta"].lower(), got["meta"]
+    assert "Write it yourself" in got["meta"]
+
+
+def test_a_blank_reply_points_at_the_trail(page):
+    got = _reply_box(page, "")
+    assert "confidence trail" in got["meta"].lower(), got["meta"]
+
+
+def test_whitespace_is_not_treated_as_a_drafted_reply(page):
+    """A model that returns " " instead of null must not turn the deliberate
+    blank into an editable box with nothing in it."""
+    got = _reply_box(page, "   \n ")
+    assert "curate the response yourself" in got["placeholder"]
+
+
+def test_a_drafted_reply_keeps_the_normal_editing_prompt(page):
+    """The inverse. If every reply carries the "write it yourself" line, the
+    line stops meaning anything."""
+    got = _reply_box(page, "Hey Lewis, I'm sorry about the meeting point.")
+    assert "curate the response yourself" not in (got["placeholder"] or "")
+    assert "Editable" in got["meta"]
+    assert "no approved macro" not in got["meta"].lower()

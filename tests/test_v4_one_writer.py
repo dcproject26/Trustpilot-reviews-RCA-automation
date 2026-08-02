@@ -276,3 +276,42 @@ def test_a_draft_with_no_v3_points_still_falls_back(app_env):
     db, api = app_env
     rid = _seed(db, area_of_improving=["written by an older pipeline"], rca_v3={})
     assert _load(db, api, rid)[0]["area_of_improving"] == ["written by an older pipeline"]
+
+
+# ── the reply is a v4 field too ─────────────────────────────────────────────
+
+def test_a_deliberately_blank_reply_is_not_overridden_by_the_column(app_env):
+    """Prompt rule 20: with no approved macro the model returns null rather
+    than inventing a reply, because an invented one is indistinguishable from
+    an approved one on the card. Read column-first, a 110-word reply from an
+    earlier run comes straight back and undoes the decision — one Send away
+    from a public review page. Seen on a real run: rca_v3 empty, column 110
+    words."""
+    db, api = app_env
+    rid = _seed(db, suggested_response="a 110-word reply from an earlier run",
+                rca_v3={"suggested_response": None})
+    assert _load(db, api, rid)[0]["suggested_response"] == "", \
+        "the stale column resurrected an unapproved reply"
+
+
+def test_an_empty_string_reply_also_beats_the_column(app_env):
+    db, api = app_env
+    rid = _seed(db, suggested_response="stale", rca_v3={"suggested_response": ""})
+    assert _load(db, api, rid)[0]["suggested_response"] == ""
+
+
+def test_a_real_reply_still_reaches_the_card(app_env):
+    """The inverse. Over-correcting empties every reply, which looks exactly
+    like rule 20 firing on every review."""
+    db, api = app_env
+    rid = _seed(db, suggested_response="stale",
+                rca_v3={"suggested_response": "Hey Lewis, I am sorry."})
+    assert _load(db, api, rid)[0]["suggested_response"] == "Hey Lewis, I am sorry."
+
+
+def test_a_draft_predating_v4_still_reads_its_column(app_env):
+    """rca_v3 never mentions the key, so the column is all there is. Without
+    this the reply vanishes from every old draft."""
+    db, api = app_env
+    rid = _seed(db, suggested_response="written by an older pipeline", rca_v3={})
+    assert _load(db, api, rid)[0]["suggested_response"] == "written by an older pipeline"

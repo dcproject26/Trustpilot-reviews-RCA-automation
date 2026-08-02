@@ -591,3 +591,71 @@ def test_the_review_is_scored_against_the_situation_not_the_reply_body(monkeypat
     assert got, "nothing matched at all"
     assert "Meeting point" in got[0]["situation"], \
         f"a macro won on boilerplate its body happens to contain: {got[0]}"
+
+
+# ── the three parts of matching that survived the first mutation run ────────
+#
+# Every test above still passed with the channel preference removed, with
+# stemming removed, and with scoring moved back onto the reply body — because
+# in each case the right macro happened to win anyway. "It works on the
+# example I picked" is not the same as "the mechanism is load-bearing".
+
+def test_the_trustpilot_voice_wins_even_when_another_channel_scores_higher(monkeypatch):
+    """The case the earlier test missed. "Unable to trace" scores 8 on a
+    Macros-for-SM row and 7 on the Trustpilot one, so ranking on score alone
+    hands a Trustpilot reply the social voice — 280 characters where a
+    paragraph belongs."""
+    got = _match(monkeypatch, "", "Unable To Trace",
+                 "I cannot find my booking anywhere")
+    assert got, "no macro matched at all"
+    assert C.TP_TAB_HINT in got[0]["tab"], \
+        f"top match came from {got[0]['tab']!r} at score {got[0]['score']}"
+    off = [g for g in got if C.TP_TAB_HINT not in g["tab"]]
+    assert off and off[0]["score"] >= got[0]["score"], \
+        "this fixture no longer has an off-channel row scoring at or above " \
+        "the Trustpilot one, so it proves nothing about the preference"
+
+
+def test_the_plural_in_a_classification_still_reaches_a_singular_macro():
+    """The taxonomy says "Refund Issues"; the macro is filed under "Delay In
+    Refund". Without stemming that is 4 points instead of 6, and a bar of 4
+    turns a good match into no match on an 's'."""
+    row = {"situation": "SP issue - Meeting point issue// Venue Related Issue",
+           "response": "x"}
+    with_stem = C._score_row(row, "", "Meeting Point Issues", None, set())
+    real = C._stem
+    C._stem = lambda w: w
+    try:
+        without = C._score_row(row, "", "Meeting Point Issues", None, set())
+    finally:
+        C._stem = real
+    assert with_stem > without, (with_stem, without)
+    assert with_stem >= C.MATCH_MIN
+
+    # And the case where the 's' is the whole difference between a match and
+    # no match at all — the bar is 4, so one lost token can decide it.
+    tight = {"situation": "Refund issue", "response": "x"}
+    C._stem = real
+    assert C._score_row(tight, "", "Refund Issues", None, set()) >= C.MATCH_MIN
+    C._stem = lambda w: w
+    try:
+        assert C._score_row(tight, "", "Refund Issues", None, set()) < C.MATCH_MIN
+    finally:
+        C._stem = real
+
+
+def test_a_macro_is_scored_on_its_situation_not_its_reply_body():
+    """Every macro shares the same boilerplate — sorry, booking, team, help —
+    so scoring the body lets that boilerplate carry a match and everything
+    looks equally relevant. The situation is the only part that says what the
+    macro is FOR."""
+    right = {"situation": "Meeting point issue at the venue",
+             "response": "Hey there, thanks for writing in."}
+    wrong = {"situation": "Coupon code did not apply",
+             "response": "Sorry about the meeting point issue at the venue, "
+                         "we will fix the meeting point."}
+    kw = C._toks("the meeting point was wrong")
+    assert C._score_row(right, "", "", None, kw) > C._score_row(wrong, "", "", None, kw), \
+        "a macro about coupons outscored one about meeting points"
+    assert C._score_row(wrong, "", "", None, kw) == 0, \
+        "the reply body is being scored"

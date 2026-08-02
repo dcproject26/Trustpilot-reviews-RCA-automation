@@ -211,3 +211,70 @@ def test_a_disclosure_claim_triggers_a_sweep_of_all_guest_facing_copy():
     assert "check EVERY piece of guest-facing copy" in out
     assert "Know Before You Go" in out
     assert "its own CONTENT flag" in out
+
+
+# ── plain English ───────────────────────────────────────────────────────────
+#
+# Rule 9 caps LENGTH and says nothing about vocabulary, so a sentence could sit
+# inside the word limit and still be unreadable. Both of these came off a real
+# card and both obeyed every rule that existed:
+#
+#   "SP cancelled the guest's booking and the refund was denied despite the
+#    cancellation being vendor-initiated, not guest-initiated."
+#   "Confirm vendor-initiated cancellation from booking record and process full
+#    refund per standing policy; flag vendor cancellation rate for RO review."
+
+def test_the_prompt_carries_a_plain_english_rule():
+    out = _prompt()
+    assert "PLAIN ENGLISH" in out
+    assert "WRITE IT THE WAY YOU WOULD SAY IT" in out
+
+
+def test_the_rule_shows_the_rewrite_not_just_the_ban():
+    """A list of banned words teaches avoidance. A before/after teaches the
+    register — and these are the actual sentences that prompted it."""
+    out = " ".join(_prompt().split())
+    assert "vendor-initiated, not guest-initiated" in out, "the NO example is gone"
+    assert "The vendor cancelled the booking, then we refused the refund." in out, \
+        "the YES rewrite is gone, so the rule only says what not to do"
+
+
+def test_the_passive_voice_ban_says_why():
+    """"was denied" hides who did it, which is the one thing an RCA exists to
+    show. A ban with no reason is the first thing dropped in an edit."""
+    out = " ".join(_prompt().split())
+    assert "hide the person responsible" in out
+
+
+def test_the_worst_offenders_are_named():
+    out = " ".join(_prompt().split())
+    for phrase in ("per standing policy", "in a timely manner", "-initiated",
+                   "process a refund", "flag for review"):
+        assert phrase in out, f"{phrase!r} is not banned by name"
+
+
+def test_internal_shorthand_is_allowed_where_the_reader_uses_it():
+    """Over-correcting is the inverse bug: expanding SP and RO for an audience
+    that says them daily adds the length this rule exists to remove."""
+    out = " ".join(_prompt().split())
+    assert "Internal shorthand is fine" in out
+    assert "SP, RO, CE, DSS, BID, TGID" in out
+
+
+def test_the_guest_facing_field_is_exempted_from_shorthand():
+    out = " ".join(_prompt().split())
+    assert "read by a GUEST, so none of it appears there" in out
+
+
+def test_the_word_ceilings_came_down():
+    out = " ".join(_prompt().split())
+    assert "Target 8–14 words; 20 is the hard ceiling" in out
+
+
+def test_the_tldr_template_shows_the_rewrite_too():
+    """The two worst sentences on the card were both TL;DR fields, so the
+    template itself carries the before/after — a rule 40 lines away is one the
+    model reads once and the field template is read at the moment of writing."""
+    out = " ".join(_prompt().split())
+    assert "The vendor cancelled the booking, then we refused the refund." in out
+    assert "max 14 words" in out

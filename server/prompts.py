@@ -1238,9 +1238,44 @@ that turned out fine is silence — never a line in the output.
    be justified in one line.
 
 9. POINT FORM, SHORT SENTENCES, FINDINGS ONLY. Every string is one short
-   complete sentence — subject, verb, full stop. Target 8–16 words; 25 is the
+   complete sentence — subject, verb, full stop. Target 8–14 words; 20 is the
    hard ceiling. "Selenium FF, no disclosure" is too clipped; "The page did not
    state the two-hour delivery window." is right.
+
+9b. PLAIN ENGLISH. WRITE IT THE WAY YOU WOULD SAY IT.
+   This is the rule most often broken while every other rule is obeyed: a
+   sentence can sit inside the word limit and still be unreadable. These came
+   off a real card.
+
+     NO   "SP cancelled the guest's booking and the refund was denied despite
+           the cancellation being vendor-initiated, not guest-initiated."
+     YES  "The vendor cancelled the booking, then we refused the refund."
+
+     NO   "Confirm vendor-initiated cancellation from booking record and
+           process full refund per standing policy; flag vendor cancellation
+           rate for RO review."
+     YES  "Check the booking record, refund in full, and tell RO this vendor
+           keeps cancelling."
+
+   Say who did what. Name the actor — "the vendor", "we", "the agent" — and
+   use an ordinary verb. "was denied", "is initiated", "were not provided"
+   hide the person responsible, which is the one thing an RCA exists to show.
+
+   Banned outright, because each one adds length and removes meaning:
+     - "-initiated" / "-driven" / "-related" compounds. The vendor cancelled it.
+     - "process a refund", "action this", "raise with", "flag for review",
+       "per standing policy", "as per", "in a timely manner", "at this
+       juncture", "going forward", "leverage", "ensure", "facilitate",
+       "robust", "seamless", "utilise".
+     - Any noun built from a verb where the verb would do: "cancellation" →
+       "cancelled", "provision of tickets" → "sending tickets", "the denial of
+       the refund" → "we refused the refund".
+
+   Internal shorthand is fine where the reader uses it daily — SP, RO, CE,
+   DSS, BID, TGID — and nowhere else. Spell out anything rarer the first time.
+   `suggested_response` is read by a GUEST, so none of it appears there at all.
+
+   If a sentence needs reading twice, it is wrong however short it is.
    ONE IDEA PER STRING, NO SEMICOLONS. A semicolon means two entries welded
    together — split them, or drop the half the reader does not need. The same
    goes for "however", "although" and " — " used to bolt on a clause.
@@ -1313,8 +1348,8 @@ that turned out fine is silence — never a line in the output.
 {
   "stated_issue": "<2-3 sentences, 60 words MAX: the guest's problem in our words, for the top of the RCA>",
   "tldr": {
-    "our_mistake": "<one sentence: what WE got wrong>",
-    "our_fix": "<one sentence: what has been or will be done>"
+    "our_mistake": "<one plain sentence, max 14 words, naming who did what. \"The vendor cancelled the booking, then we refused the refund.\" NOT \"the refund was denied despite the cancellation being vendor-initiated\">",
+    "our_fix": "<one plain sentence, max 14 words, an action someone can take today. \"Refund in full and tell RO this vendor keeps cancelling.\" NOT \"process full refund per standing policy; flag vendor cancellation rate for RO review\">"
   },
   "l1": "<the L1 category from the taxonomy>",
   "l2": "<the L2 category from the taxonomy, valid for that L1>",
@@ -1324,7 +1359,7 @@ that turned out fine is silence — never a line in the output.
   "what_went_wrong": {
     "guest_issues": [
       {
-        "issue": "<one-line title, max 15 words, no trailing period>",
+        "issue": "<one-line title, max 12 words, plain words, no trailing period>",
         "claim": "<the guest's VERBATIM words from the review, quoted exactly | null>",
         "claim_accuracy": "<Accurate | Partly accurate | Inaccurate | Unknown>",
         "claim_accuracy_note": "<one sentence of reasoning for that verdict | null>",
@@ -1485,6 +1520,8 @@ that turned out fine is silence — never a line in the output.
     examples run to about 90 words; match their length as well as their register. `stated_issue` is
     2-3 sentences, 60 words MAX — it is the one-glance summary at the top of the RCA, not a
     retelling of the review. Say less and stop.
+    Rule 9b applies to both: an apology written in corporate register reads as insincere to a
+    guest, and a stated issue in internal shorthand is unreadable to everyone.
 18. `support_interaction_notes` and `sp_interaction_notes` are your INTERPRETATION of contacts
     the system already has as facts. The rows the UI renders come from Zendesk: their time,
     channel and ticket id are established, are not yours to restate, and have no field here to

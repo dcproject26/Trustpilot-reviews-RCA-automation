@@ -339,7 +339,15 @@ def _draft_dict(d: RcaDraft) -> dict:
         "slack_mentions":        d.slack_mentions or [],
 
         "template_name":      d.template_name or "",
-        "suggested_response": d.suggested_response or "",
+        # Presence-based, like every other v4 field — and for the same reason,
+        # only sharper. Prompt rule 20 has the model return NULL for the reply
+        # when no approved macro covers the issue, so a blank here is a
+        # decision. Read column-first, a stale 110-word reply from an earlier
+        # run overrides that decision and puts an unapproved reply back on the
+        # card, one Send away from a public review page. `"suggested_response"
+        # in rca_v3` wins whatever the value — including "" and None.
+        "suggested_response": _v4(d, "suggested_response",
+                                  "suggested_response", ""),
         "final_response":     d.final_response or "",
         "generated_at":       d.generated_at.isoformat() if d.generated_at else None,
         "sent_at":            d.sent_at.isoformat() if d.sent_at else None,
