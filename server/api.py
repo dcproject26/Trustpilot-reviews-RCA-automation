@@ -349,6 +349,10 @@ def _draft_dict(d: RcaDraft) -> dict:
         "suggested_response": _v4(d, "suggested_response",
                                   "suggested_response", ""),
         "final_response":     d.final_response or "",
+        # Which prompt body wrote this row. It is what makes "did the new rule
+        # run?" answerable, and a copied draft without it reads as the legacy
+        # v3 shape — a migration that silently ages every row it moves.
+        "rca_prompt_version": d.rca_prompt_version or "",
         "generated_at":       d.generated_at.isoformat() if d.generated_at else None,
         "sent_at":            d.sent_at.isoformat() if d.sent_at else None,
 
