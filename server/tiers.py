@@ -20,8 +20,11 @@ SENT = "sent"
 IDENTIFIED = "identified"
 CANDIDATES = "candidates"
 UNTRACEABLE = "untraceable"
+# A review whose pipeline has not written a draft row. NOT untraceable: the
+# search has not run, so nothing has been found or not found yet.
+PROCESSING = "processing"
 
-BUCKETS = (SENT, IDENTIFIED, CANDIDATES, UNTRACEABLE)
+BUCKETS = (SENT, IDENTIFIED, CANDIDATES, UNTRACEABLE, PROCESSING)
 
 # API tab name -> bucket. The tab names are the dashboard's, kept for the
 # existing query parameters.
@@ -29,6 +32,7 @@ TAB_TO_BUCKET = {
     "bid": IDENTIFIED,
     "possible_matches": CANDIDATES,
     "untraceable": UNTRACEABLE,
+    "processing": PROCESSING,
     "sent": SENT,
 }
 
@@ -54,7 +58,22 @@ def classify(review, draft) -> str:
     if getattr(review, "status", "") == SENT:
         return SENT
     if draft is None:
-        return UNTRACEABLE
+        # NOT untraceable. Untraceable is a RESULT — we looked for the booking
+        # and did not find it — and it can only be reached by a run that got
+        # as far as writing a draft row, which happens at step 5b, after BID
+        # extraction and the BigQuery search.
+        #
+        # A review with no draft row has not been searched. Filing it under
+        # Untraceable made "we are still working on this" and "we searched and
+        # found nothing" the same tab, named after the second one. Press
+        # Refresh from Slack and fifteen reviews appear in Untraceable at
+        # once, then drain out as their runs finish — which reads as fifteen
+        # failed matches, and was reported as one.
+        #
+        # Whether the run is still going or died before saving is a different
+        # question, answered per review by is_running() below. Both belong
+        # here rather than in Untraceable, because neither has looked yet.
+        return PROCESSING
 
     confirmed_bid = getattr(draft, "selected_candidate_bid", None)
     picker_open = bool(getattr(draft, "candidate_state", False)) and not confirmed_bid
@@ -72,6 +91,42 @@ def classify(review, draft) -> str:
         return CANDIDATES
 
     return UNTRACEABLE
+
+
+def processing_state(review, draft) -> tuple[str, str]:
+    """(state, sentence) for a review with no draft row. ("", "") otherwise.
+
+    Two things wear the same blank card, and they need opposite responses:
+
+      running  the pipeline is working. Wait. Re-running now would only start
+               a second one.
+      stalled  the run ended without writing a draft row. That is a BUG — the
+               draft is written before anything that can fail — so it needs a
+               re-run and probably a look at the log.
+
+    PIPELINE_PROGRESS is in-process, so after a server restart a run that was
+    genuinely in flight reads as stalled. That is the safe direction: it says
+    "re-run it", and re-running a finished review is cheap while waiting
+    forever on a dead one is not. It is also stated, rather than presented as
+    a diagnosis.
+    """
+    if draft is not None:
+        return "", ""
+    try:
+        from server.pipeline import PIPELINE_PROGRESS
+        p = PIPELINE_PROGRESS.get(getattr(review, "id", None))
+    except Exception:
+        p = None
+    if p:
+        return "running", (
+            f"Step {p.get('step', '?')} of {p.get('total', '?')} — "
+            f"{p.get('stage', 'working')}. Nothing has been searched for yet, "
+            f"so this is not a failed match.")
+    return "stalled", (
+        "No draft row was ever written, and no run is in progress on this "
+        "server. The draft is saved before anything that can fail, so this is "
+        "a run that died early or a server that restarted mid-run — not a "
+        "booking we could not find. Re-run it.")
 
 
 def tier_label(draft) -> str:

@@ -400,15 +400,16 @@ def heartbeat(db: Session = Depends(get_session)):
 def list_reviews(status: str | None = None, tab: str | None = None,
                   db: Session = Depends(get_session)):
     """
-    tab: bid | possible_matches | untraceable | sent
-    Filters by match_tier + candidate_state.
+    tab: bid | possible_matches | processing | untraceable | sent
+    Filters by the one bucket rule in server/tiers.py.
     """
     q = db.query(Review).order_by(Review.received_at.desc())
     if status:
         q = q.filter(Review.status == status)
     rows = q.limit(200).all()
 
-    from server.tiers import classify, tier_label, is_unverified, TAB_TO_BUCKET
+    from server.tiers import (classify, tier_label, is_unverified,
+                              TAB_TO_BUCKET, processing_state as _pstate)
 
     result = []
     for r in rows:
@@ -439,12 +440,22 @@ def list_reviews(status: str | None = None, tab: str | None = None,
             "bucket":      bucket,
             "tier_label":  tier_label(draft),
             "unverified":  is_unverified(draft),
+            # For a review with no draft row: is the run going, or did it die?
+            # Both render as an empty card and they need opposite responses —
+            # wait, versus re-run and read the log.
+            "processing_state":  _pstate(r, draft)[0],
+            "processing_reason": _pstate(r, draft)[1],
             # The three facts the bucket rule turns on. Sent so a client can
             # reproduce the decision exactly rather than approximate it from
             # match_tier - approximating is what put confirmed candidates in
             # the wrong tab.
             "has_booking":    bool((draft.booking or {}).get("id")) if draft else False,
             "has_candidates": bool(draft.candidates_list) if draft else False,
+            # The fact the processing bucket turns on. Without it a client
+            # falling back to its own derivation cannot tell "no draft row"
+            # from "a draft row with nothing in it", which is the whole
+            # distinction.
+            "has_draft":      draft is not None,
             "confirmed":      bool(draft.selected_candidate_bid) if draft else False,
             # Chip 1 is "reviews with a BID", so the inbox has to know whether
             # the id came from the review (attachment/manual/regex) or was

@@ -1161,6 +1161,7 @@
           <button class="inbox-tab active" data-tab="all">All <span class="num" id="cnt-all">0</span></button>
           <button class="inbox-tab" data-tab="identified">Matched <span class="num" id="cnt-identified">0</span></button>
           <button class="inbox-tab" data-tab="candidates">Confirm <span class="num" id="cnt-candidates">0</span></button>
+          <button class="inbox-tab" data-tab="processing">Processing <span class="num" id="cnt-processing">0</span></button>
           <button class="inbox-tab" data-tab="untraceable">Untraceable <span class="num" id="cnt-untraceable">0</span></button>
           <button class="inbox-tab" data-tab="sent">Sent <span class="num" id="cnt-sent">0</span></button>
         </div>
@@ -1242,6 +1243,9 @@ function _bucketFallback(row, tier, candState) {
   // field; kept in lockstep because a second, differently-worded copy of this
   // rule is what misfiled confirmed candidates.
   if (row.status === 'sent') return 'sent';
+  // No draft row is NOT untraceable — see server/tiers.py. Untraceable is a
+  // result; this is a run that has not produced one yet.
+  if (row.has_draft === false) return 'processing';
   const pickerOpen = !!candState && !row.confirmed;
   if (pickerOpen) return 'candidates';
   if (row.has_booking) return 'identified';
@@ -1252,6 +1256,13 @@ function _bucketFallback(row, tier, candState) {
 function _matchTitle(row, tier, candState) {
   const bucket = row.bucket || _bucketFallback(row, tier, candState);
   if (bucket === 'candidates') return 'Possible matches — associate to confirm';
+  // "Untraceable" is a claim about the booking. This one is a claim about the
+  // run, and saying the first when you mean the second sends someone looking
+  // for a booking nobody has searched for.
+  if (bucket === 'processing')
+    return row.processing_state === 'stalled'
+      ? 'The run stopped before it searched'
+      : 'Still running — nothing has been searched yet';
   if (bucket === 'untraceable') return 'Untraceable';
   if (row.unverified) return 'BID from the review — not verified in BigQuery';
   return _bidFromReview(row) ? 'Direct match' : 'Matched from Zendesk';
@@ -1289,6 +1300,11 @@ async function fetchInbox() {
           type:           row.bucket || _bucketFallback(row, t, c),
           tier:           row.tier_label || (t ? `T${t}` : '—'),
           unverified:     !!row.unverified,
+          // Which kind of not-yet-searched this is: a run in flight, or one
+          // that ended without writing a draft. Same blank card, opposite
+          // responses — wait, versus re-run and read the log.
+          processingState:  row.processing_state || '',
+          processingReason: row.processing_reason || '',
           matchTitle:     _matchTitle(row, t, c),
         };
       }
@@ -1311,6 +1327,11 @@ async function fetchInbox() {
         type:           row.bucket || _bucketFallback(row, tier, row.candidate_state),
         tier:           row.tier_label || (tier ? `T${tier}` : '—'),
         unverified:     !!row.unverified,
+        // Which kind of not-yet-searched this is: a run in flight, or one
+        // that ended without writing a draft. Same blank card, opposite
+        // responses — wait, versus re-run and read the log.
+        processingState:  row.processing_state || '',
+        processingReason: row.processing_reason || '',
         experience:     row.experience || '',
         channel:        'orm',
         original:       row.snippet || '',
@@ -1755,6 +1776,7 @@ function inTab(r, tab) {
   if (tab === 'identified') return r.type === 'identified' && r.status !== 'sent';
   if (tab === 'candidates') return r.type === 'candidates';
   if (tab === 'untraceable') return r.type === 'untraceable';
+  if (tab === 'processing') return r.type === 'processing';
   if (tab === 'sent') return r.status === 'sent';
   return false;
 }
@@ -1806,6 +1828,7 @@ function renderInbox() {
   // which is "where is it".
   const TABS = [['all', 'cnt-all'], ['identified', 'cnt-identified'],
                 ['candidates', 'cnt-candidates'],
+                ['processing', 'cnt-processing'],
                 ['untraceable', 'cnt-untraceable'], ['sent', 'cnt-sent']];
   const perTab = {};
   for (const [tab, id] of TABS) {
@@ -1844,8 +1867,15 @@ function renderInbox() {
 
   // One stage chip per card, coloured by what it asks of the reader:
   // green = nothing to do, amber = a human must confirm, red = stuck.
+  // Coloured by what the row asks of the reader: green = nothing to do,
+  // amber = a human must act, red = stuck. A review still being processed
+  // asks for nothing but patience, so it must not be red — it was, because it
+  // was being filed as Untraceable.
   const stageOf = (r) => r.status === 'sent'          ? ['Sent', 'ok']
                        : r.type === 'candidates'      ? ['Confirm match', 'warn']
+                       : r.type === 'processing'      ?
+                           (r.processingState === 'stalled'
+                              ? ['Run stopped', 'bad'] : ['Processing', ''])
                        : r.type === 'untraceable'     ? ['Untraceable', 'bad']
                        :                                ['Draft ready', 'ok'];
   list.innerHTML = filtered.map(r => {
@@ -2063,7 +2093,11 @@ function renderReviewCol() {
 
   const col = document.getElementById('review-col');
 
-  if (r.type === 'untraceable') {
+  // Processing shares this layout: neither has a booking to render, and the
+  // traceable branch below would dereference one. What differs is the CLAIM
+  // the panel makes — "no booking found" is a result, and a run that has not
+  // searched yet has produced no result to report.
+  if (r.type === 'untraceable' || r.type === 'processing') {
     col.innerHTML = `
       <div class="col-label">The facts</div>
 
@@ -2085,12 +2119,19 @@ function renderReviewCol() {
           <div class="match-top">
             <span class="match-tier-badge untr">—</span>
             <div>
-              <div class="match-title">No booking found</div>
-              <div class="match-method">No venue, date or name usable for search</div>
+              <div class="match-title">${r.type === 'processing'
+                ? (r.processingState === 'stalled'
+                     ? 'The run stopped before it searched'
+                     : 'Still running — nothing searched yet')
+                : 'No booking found'}</div>
+              <div class="match-method">${r.type === 'processing' ? ''
+                : 'No venue, date or name usable for search'}</div>
             </div>
           </div>
-          <div class="match-warn">${r.untraceableReason
-            || 'No trail was recorded — the pipeline never reached matching. Re-run the match; if it stays empty the run fails before matching.'}</div>
+          <div class="match-warn">${r.type === 'processing'
+            ? esc(r.processingReason || 'This review has no draft row yet.')
+            : (r.untraceableReason
+            || 'No trail was recorded — the pipeline never reached matching. Re-run the match; if it stays empty the run fails before matching.')}</div>
         <!-- Reads r.confidenceTrail, the trail the pipeline actually writes.
              This panel used to read r.untraceableChecks, which nothing in the
              client ever assigns - so it was empty on every untraceable review
@@ -5534,7 +5575,8 @@ document.querySelector('.add-manual-btn').addEventListener('click', openManualRe
 
 function _tabLabel(tab) {
   return {all: 'All', identified: 'Matched', candidates: 'Confirm',
-          untraceable: 'Untraceable', sent: 'Sent'}[tab] || tab;
+          processing: 'Processing', untraceable: 'Untraceable',
+          sent: 'Sent'}[tab] || tab;
 }
 
 document.querySelectorAll('.inbox-tab').forEach(tab => {
@@ -5542,14 +5584,13 @@ document.querySelectorAll('.inbox-tab').forEach(tab => {
     state.filter = tab.dataset.tab;
     document.querySelectorAll('.inbox-tab').forEach(t => t.classList.toggle('active', t === tab));
     // Auto-select first in tab
-    const inTab = REVIEWS.filter(r => {
-      if (state.filter === 'identified') return r.type === 'identified' && r.status !== 'sent';
-      if (state.filter === 'candidates') return r.type === 'candidates';
-      if (state.filter === 'untraceable') return r.type === 'untraceable';
-      if (state.filter === 'sent') return r.status === 'sent';
-      return false;
-    });
-    state.selected = inTab[0]?.id || null;
+    // The shared rule, not a third copy of it. This one had no 'processing'
+    // branch and returned false, so clicking the new tab selected nothing and
+    // the panel went blank — a tab that looks broken on the day it ships.
+    // It also silently disagreed with the count above it, which is exactly
+    // how confirmed candidates ended up in the wrong tab for weeks.
+    const hits = REVIEWS.filter(r => state.filter !== 'all' && inTab(r, state.filter));
+    state.selected = hits[0]?.id || null;
     renderInbox();
     renderReviewCol();
     renderRcaCol();

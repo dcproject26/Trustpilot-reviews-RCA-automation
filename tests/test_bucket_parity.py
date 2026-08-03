@@ -38,6 +38,11 @@ def test_client_fallback_matches_the_server_rule():
             "has_booking": bool(b.get("id")),
             "has_candidates": bool(getattr(draft, "candidates_list", None)) if draft else False,
             "confirmed": bool(getattr(draft, "selected_candidate_bid", None)) if draft else False,
+            # The fact the processing bucket turns on. Left out, the client
+            # sees `undefined`, `undefined === false` is false, and a queued
+            # review falls through to untraceable — which is the bug, back,
+            # in the one place that is supposed to catch it.
+            "has_draft": draft is not None,
         }})
 
     script = _client_fallback_source() + "\nconst cases = " + json.dumps(rows) + ";\n" + """
@@ -59,7 +64,8 @@ def test_the_api_sends_every_fact_the_fallback_needs():
     degrades to guessing."""
     api = open(os.path.join(os.path.dirname(__file__), "..", "server", "api.py")).read()
     for field in ('"bucket"', '"has_booking"', '"has_candidates"', '"confirmed"',
-                  '"tier_label"', '"unverified"'):
+                  '"tier_label"', '"unverified"', '"has_draft"',
+                  '"processing_state"'):
         assert field in api, f"the reviews list no longer sends {field}"
 
 

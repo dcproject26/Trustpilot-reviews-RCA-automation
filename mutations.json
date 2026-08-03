@@ -1,14 +1,14 @@
 [
   {
-    "file": "server/prompts.py",
-    "name": "the prompt stops protecting two-letter names",
-    "find": "     \"Bo\" and \"Ng\" are real names.",
-    "replace": "     are real names."
+    "file": "server/api.py",
+    "name": "has_draft is not sent, so the client fallback cannot tell",
+    "find": "            \"has_draft\":      draft is not None,",
+    "replace": "            \"has_draft\":      True,"
   },
   {
-    "file": "server/names.py",
-    "name": "a two-letter surname is rejected",
-    "find": "    return len(t) == 1 and t.isalpha()",
-    "replace": "    return len(t) <= 2 and t.isalpha()"
+    "file": "server/api.py",
+    "name": "processing_state is a constant",
+    "find": "            \"processing_state\":  _pstate(r, draft)[0],",
+    "replace": "            \"processing_state\":  \"\","
   }
 ]
