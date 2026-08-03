@@ -75,7 +75,6 @@ class DraftPatchV2(BaseModel):
     actions_taken:              dict | None = None
     resolution:                 str  | None = None
     final_response:             str  | None = None
-    tldr:                       str  | None = None
     wwr_chain:                  list | None = None
     wwr_scenarios:              list | None = None
     prevention:                 str  | None = None
@@ -99,7 +98,6 @@ class DraftPatchV2(BaseModel):
     # human's version is final_response, which is already patchable. Two
     # editable stores for one piece of text is the same bug in miniature.
     guest_issues:               list | None = None
-    sop_compliance:             dict | None = None
     booking_logs:               list | None = None
     flags:                      list | None = None
     takedown:                   dict | None = None
@@ -293,7 +291,6 @@ def _draft_dict(d: RcaDraft) -> dict:
         "flag_to_biz_state":           d.flag_to_biz_state,
         "flag_to_biz_message":         d.flag_to_biz_message,
 
-        "tldr":                        d.tldr,
         "rca_v3":                      d.rca_v3 or {},
 
         # ── RCA v4 ──
@@ -302,7 +299,6 @@ def _draft_dict(d: RcaDraft) -> dict:
         # they are the FALLBACK - reading them first would let a stale
         # denormalised value shadow an edit someone just made.
         "guest_issues":     _v4(d, "guest_issues", "what_went_wrong.guest_issues", []),
-        "sop_compliance":   _v4(d, "sop_compliance", "sop_compliance", {}),
         "booking_logs":     _v4(d, "booking_logs", "booking_logs", []),
         "flags":            _v4(d, "flags", "flags", []),
         "takedown":         _v4(d, "takedown", "takedown", {}),
@@ -849,7 +845,6 @@ def get_taxonomy():
 # touches it.
 _V4_SECTIONS = {
     "guest_issues":   ("what_went_wrong", "guest_issues"),
-    "sop_compliance": ("sop_compliance",),
     "booking_logs":   ("booking_logs",),
     "flags":          ("flags",),
     "takedown":       ("takedown",),
@@ -883,7 +878,7 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
         "support_interaction_frames", "support_summary",
         "sp_interaction_frames", "area_of_improving",
         "actions_taken", "resolution", "final_response",
-        "tldr", "wwr_chain", "wwr_scenarios", "prevention", "evidence",
+        "wwr_chain", "wwr_scenarios", "prevention", "evidence",
         "issue_specific_answers", "checklist_answers", "slack_thread_override",
         "rca_v3",
     ):
@@ -1341,12 +1336,6 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
     d.rca_v3 = rca_v3
     from server.prompts import RCA_PROMPT_VERSION
     d.rca_prompt_version = RCA_PROMPT_VERSION
-    _tldr = rca_v3.get("tldr")
-    if isinstance(_tldr, dict):
-        d.tldr = (f"Our mistake: {_tldr.get('our_mistake', '')} "
-                  f"Our fix: {_tldr.get('our_fix', '')}").strip()
-    elif _tldr:
-        d.tldr = _tldr
     _prev = rca_v3.get("prevention")
     if isinstance(_prev, list):
         _prev = "\n".join(f"• {p}" for p in _prev if p)
@@ -1424,7 +1413,7 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
     d.generated_at           = datetime.utcnow()
     for _col in ("rca_v3", "overlay_scenarios", "issue_specific_answers",
                  "checklist_answers", "area_of_improving",
-                 "guest_issues", "sop_compliance", "booking_logs", "flags",
+                 "guest_issues", "booking_logs", "flags",
                  # Belt and braces, and NOT load-bearing: the assignment
                  # above builds a new list, and SQLAlchemy detects a new
                  # object without help. It would be load-bearing the moment
@@ -1440,7 +1429,7 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
     return {"ok": True, "rca_v3": rca_v3,
             "primary_scenario": d.primary_scenario,
             "overlay_scenarios": d.overlay_scenarios,
-            "tldr": d.tldr, "prevention": d.prevention,
+            "prevention": d.prevention,
             "issue_specific_answers": d.issue_specific_answers,
             "suggested_response": d.suggested_response or "",
             "resolution": d.resolution or "",
@@ -2085,7 +2074,6 @@ def vs_intake(body: VsIntake, x_vs_key: str | None = Header(default=None),
         wwr_scenarios=rca.get("wwr_scenarios") or [],
         timeline=body.timeline or [],
         ticket_facts=body.ticket_facts or None,
-        tldr=rca.get("tldr") or "",
         wwr_chain=rca.get("wwr_chain") or [],
         prevention=rca.get("prevention") or "",
         evidence=rca.get("evidence") or [],

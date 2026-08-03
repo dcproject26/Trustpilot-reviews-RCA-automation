@@ -12,6 +12,7 @@ the rest of the suite rather than reporting a red it cannot fix.
 """
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -550,14 +551,29 @@ def test_the_section_picker_is_collapsed_by_default(page):
     """Twelve checkboxes were a wall of clutter above the post itself."""
     got = _picker(page)
     assert got["chips"] == 0, "the chips are showing before anyone asked"
-    assert "12 of 12 sections included" in got["summary"]
+    assert " sections included" in got["summary"]
     assert got["btn"] == "customize"
 
 
+def _n_sections(page):
+    """How many sections the composer publishes.
+
+    Derived, not hardcoded. It was 12; TL;DR and SOP compliance were removed
+    from the RCA and it became 10, and three tests failed on the number rather
+    than on the behaviour they were about. The composer is the one definition
+    of the list, so ask it.
+    """
+    m = re.search(r"of (\d+) sections included", _picker(page)["summary"] or "")
+    assert m, f"the picker does not state a total: {_picker(page)['summary']!r}"
+    return int(m.group(1))
+
+
 def test_customize_reveals_the_chips_and_done_collapses_them(page):
+    n = _n_sections(page)
+    assert n, "the composer published no section list"
     page.click("[data-slack-customize]")
     page.wait_for_timeout(400)
-    assert _picker(page)["chips"] == 12
+    assert _picker(page)["chips"] == n
     assert _picker(page)["btn"] == "done"
     page.click("[data-slack-customize]")
     page.wait_for_timeout(400)
@@ -566,15 +582,16 @@ def test_customize_reveals_the_chips_and_done_collapses_them(page):
 
 def test_the_collapsed_line_still_states_the_current_count(page):
     """A collapsed picker must not hide that sections are switched off."""
+    n = _n_sections(page)
     page.click("[data-slack-customize]")
     page.wait_for_timeout(300)
     page.click(".slack-sec-chip:has(input[data-slack-section='insights'])")
     page.wait_for_timeout(600)
-    assert "11 of 12" in _picker(page)["summary"]
+    assert f"{n - 1} of {n}" in _picker(page)["summary"]
     page.click("[data-slack-customize]")
     page.wait_for_timeout(400)
     got = _picker(page)
-    assert got["chips"] == 0 and "11 of 12" in got["summary"]
+    assert got["chips"] == 0 and f"{n - 1} of {n}" in got["summary"]
     # restore
     page.click("[data-slack-customize]"); page.wait_for_timeout(300)
     page.click(".slack-sec-chip:has(input[data-slack-section='insights'])")

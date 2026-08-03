@@ -177,11 +177,20 @@ def test_a_real_contact_survives():
 
 # ── enums elsewhere ─────────────────────────────────────────────────────────
 
-def test_sop_and_takedown_fall_back_inside_their_enums():
-    out, _ = validate(_ok(sop_compliance={"verdict": "mostly followed"},
-                          takedown={"verdict": "maybe"}))
-    assert out["sop_compliance"]["verdict"] == "unknown"
+def test_takedown_falls_back_inside_its_enum():
+    out, _ = validate(_ok(takedown={"verdict": "maybe"}))
     assert out["takedown"]["verdict"] == "Untraceable"
+
+
+def test_the_removed_sections_are_not_projected():
+    """TL;DR and SOP compliance were removed from the RCA. A model still
+    emitting them — an older prompt cached somewhere, a hand-edited draft —
+    must not put them back into the projection, or the UI grows a section
+    nobody asked for and the reader cannot tell it from a live one."""
+    out, _ = validate(_ok(tldr={"our_mistake": "x", "our_fix": "y"},
+                          sop_compliance={"verdict": "deviated"}))
+    assert "tldr" not in out
+    assert "sop_compliance" not in out
 
 
 def test_overlays_never_repeat_a_scenario():

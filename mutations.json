@@ -1,14 +1,56 @@
 [
   {
-    "file": "server/api.py",
-    "name": "has_draft is not sent, so the client fallback cannot tell",
-    "find": "            \"has_draft\":      draft is not None,",
-    "replace": "            \"has_draft\":      True,"
+    "file": "server/prompts.py",
+    "name": "the backend check on operational_failure is dropped",
+    "find": "6. AN OPERATIONAL FAILURE IS SOMETHING THE RECORD SHOWS.",
+    "replace": "6. OPERATIONAL FAILURE."
   },
   {
-    "file": "server/api.py",
-    "name": "processing_state is a constant",
-    "find": "            \"processing_state\":  _pstate(r, draft)[0],",
-    "replace": "            \"processing_state\":  \"\","
+    "file": "server/prompts.py",
+    "name": "operational_failure no longer needs the guest's claim to match",
+    "find": "     (c) IT MATCHES THE GUEST'S CLAIM on this issue.",
+    "replace": "     (c) [removed] on this issue."
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the backend systems are no longer named",
+    "find": "         record or the experience page shows what was actually done",
+    "replace": "         record shows what was actually done"
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "null stops being stated as a finding",
+    "find": "   reason goes in `claim_accuracy_note`. Null is a finding.",
+    "replace": "   reason goes in `claim_accuracy_note`."
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "flags no longer need a support interaction behind them",
+    "find": "10a. EVERY FLAG MUST SIT ON A SUPPORT INTERACTION THAT ACTUALLY HAPPENED.",
+    "replace": "10a. Flags."
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the rule stops saying what is NOT a flag",
+    "find": "      NOT a flag: what nobody did because the guest never wrote in. No contact, no flag.",
+    "replace": "      Use judgement."
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "issue answers stop needing a backend source",
+    "find": "12a. ANSWER EACH ONE FROM THE BACKEND, and say which.",
+    "replace": "12a. Answer each one."
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "a No answer becomes an operational failure automatically",
+    "find": "12b. A \"No\" ON A QUESTION IS NOT AUTOMATICALLY AN OPERATIONAL FAILURE.",
+    "replace": "12b. Answers."
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "a correct denial can be written up as a miss again",
+    "find": "   correct denial is never a CE miss.",
+    "replace": "   denial may be a CE miss."
   }
 ]

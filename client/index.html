@@ -1346,7 +1346,7 @@ async function fetchInbox() {
           areaOfImproving: '',
           actionsTaken: {sp:[],customer:[],business:[],product:[],ce:[]},
           resolution: '',
-          tldr: '', v3: {}, wwrChain: [], wwrScenarios: [], prevention: '',
+          v3: {}, wwrChain: [], wwrScenarios: [], prevention: '',
           evidence: [], issueSpecificAnswers: {}, checklistAnswers: [],
           checks: [], reply: '', reasoning: '',
           primaryScenario: '',
@@ -1479,7 +1479,6 @@ async function loadDraftOverlays() {
       r.rca.subThemes = draft.sub_themes || (draft.sub_theme ? [draft.sub_theme] : []);
       r.rca.scenarios = draft.scenarios ||
         [draft.primary_scenario, ...(draft.overlay_scenarios || [])].filter(Boolean);
-      r.rca.tldr      = draft.tldr      || '';
       r.rca.v3        = draft.rca_v3    || {};
       r.insightsRaw   = draft.insights  || {};
       r.untraceableReason  = (draft.extracted_signals || {}).untraceable_reason || '';
@@ -3575,16 +3574,6 @@ function renderRcaCol() {
       : `${i + 1}. ${l.time ? l.time + ' — ' : ''}${l.what || ''}` +
         (l.detail ? `; ${l.detail}` : ''))).join(nl) || '—';
 
-    const sopText = (() => {
-      const sop = v3d.sop_compliance;
-      if (!sop) return '';
-      return ['• verdict: ' + (sop.verdict || 'unknown') +
-              (sop.dss_available ? ' (DSS needle used)' : ' (DSS needle unavailable)') +
-              (sop.zd_ref ? ' (' + sop.zd_ref + ')' : ''),
-              sop.expected ? '• expected: ' + sop.expected : '',
-              sop.actual ? '• actual: ' + sop.actual : '',
-              sop.detail ? '• ' + sop.detail : ''].filter(Boolean).join(nl);
-    })();
 
     const takedownText = (() => {
       const td = v3d.takedown || {};
@@ -3607,18 +3596,11 @@ function renderRcaCol() {
         nl + 'window: ' + _insightsWindowLabel(r) + '```'
       : '—';
 
-    const tl = (rca.v3 || {}).tldr;
-    const tldrText = (tl && typeof tl === 'object')
-      ? ['• Our mistake: ' + (tl.our_mistake || '—'), '• Our fix: ' + (tl.our_fix || '—')].join(nl)
-      : (rca.tldr || '');
-
     // Ordered so a reader gets the verdict first and the evidence after.
     const SECTIONS = [
-      ['tldr',      'TL;DR',                 tldrText],
       ['wwr',       'What went wrong',       wwrText],
       ['logs',      'Booking logs',          logsText],
       ['flags',     'Flags',                 flagsText],
-      ['sop',       'SOP compliance',        sopText],
       ['support',   'Customer / CE interactions', supportText],
       ['sp',        'SP interaction',        spText],
       ['aoi',       'Area of improvement',   aoiText],
@@ -3772,25 +3754,9 @@ function renderRcaCol() {
     </div>
   `;
 
-  // ── v3 new-shape sections (WWR, booking timeline, flags, SOP) ───────────
+  // ── v3 new-shape sections (WWR, booking timeline, flags) ───────────────
   let _flagsHtml = '';
-  const newShapeBlock = (v3d.what_went_wrong || v3d.flags || v3d.sop_compliance) ? (() => {
-    const t = (typeof v3d.tldr === 'object' && v3d.tldr) ? v3d.tldr : null;
-    // TL;DR is a mandated heading, so an absent one is reported rather than
-    // dropped - a missing headline that leaves no gap reads as "no mistake
-    // was made" instead of "the model did not answer".
-    const tldrHtml = `
-    <div class="section" id="rca-tldr-section">
-      <div class="section-label">TL;DR<span class="section-chev">▾</span></div>
-      ${t ? `<div class="field-block rca-kv">
-        <span style="color:var(--muted-2)">Our mistake</span><span class="editable-text" contenteditable="true" spellcheck="false"
-              role="textbox" aria-label="TL;DR our mistake" data-v3p="tldr.our_mistake">${esc(t.our_mistake)}</span>
-        <span style="color:var(--muted-2)">Our fix</span><span class="editable-text" contenteditable="true" spellcheck="false"
-              role="textbox" aria-label="TL;DR our fix" data-v3p="tldr.our_fix">${esc(t.our_fix)}</span>
-      </div>`
-      : `<div class="field-block rca-empty">No TL;DR was returned. Re-run the RCA — if it stays empty the model's answer was cut short.</div>`}
-    </div>`;
-
+  const newShapeBlock = (v3d.what_went_wrong || v3d.flags) ? (() => {
     const w = v3d.what_went_wrong || {};
     const wh = w.what_happened || {};
     const spx = w.sp_escalation || {};
@@ -4096,32 +4062,12 @@ function renderRcaCol() {
       <button class="row-add" data-flag-add>+ Add flag</button>
     </div>`;
 
-    const sop = v3d.sop_compliance || null;
-    const sopHtml = sop ? `
-    <div class="section" id="rca-sop-section">
-      <div class="section-label">SOP Compliance<span class="section-chev">▾</span></div>
-      <div class="field-block rca-stack">
-        <!-- §9 the same treatment as the WWR accuracy chip: one closed
-             vocabulary, recolouring live. A select styled as a form control
-             read as a setting; the verdict is a finding. -->
-        <div><select class="chip-sel chip-sop-sel ${sop.verdict === 'followed' ? 'ok' : sop.verdict === 'deviated' ? 'bad' : 'unk'}"
-              data-v3sel="sop_compliance.verdict">
-            ${['followed','deviated','unknown'].map(o => `<option value="${o}"${(sop.verdict || 'unknown') === o ? ' selected' : ''}>${o[0].toUpperCase() + o.slice(1)}</option>`).join('')}
-          </select>
-          <span style="color:var(--muted-2);font-size:11px;margin-left:6px">${sop.dss_available ? 'DSS needle used' : 'no DSS row matched'}</span>
-          ${sop.zd_ref ? ' · ' + zdLink(sop.zd_ref) : ''}</div>
-        <div class="chk-ev"><strong>Expected:</strong> ${edSpan('sop_compliance.expected', sop.expected)}</div>
-        <div class="chk-ev"><strong>Actual:</strong> ${edSpan('sop_compliance.actual', sop.actual)}</div>
-        ${sop.detail ? `<div class="chk-ev">${edSpan('sop_compliance.detail', sop.detail)}</div>` : ''}
-      </div>
-    </div>` : '';
-
     _flagsHtml = flagsHtml;
-    return tldrHtml + eventsTimelineHtml(r) + wwrHtml + sopHtml;
+    return eventsTimelineHtml(r) + wwrHtml;
   })() : '';
 
-  // ── v3 sections (legacy shape, gated on tldr presence) ────────────────────
-  const v3Block = newShapeBlock ? newShapeBlock : (rca.tldr || (rca.wwrScenarios || []).length) ? `
+  // ── v3 sections (legacy shape) ─────────────────────────────────────────
+  const v3Block = newShapeBlock ? newShapeBlock : (rca.wwrScenarios || []).length ? `
     <div class="section" id="rca-wwr-section">
       <div class="section-label">What Went Wrong<span class="section-chev">▾</span></div>
       ${(rca.wwrScenarios || []).length ? `
@@ -4841,7 +4787,6 @@ function renderRcaCol() {
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.detail || 'regen failed');
       rca.v3 = data.rca_v3 || {};
-      rca.tldr = data.tldr || rca.tldr;
       rca.prevention = data.prevention || rca.prevention;
       rca.issueSpecificAnswers = data.issue_specific_answers || {};
       if (data.area_of_improving) rca.areaOfImproving = data.area_of_improving;

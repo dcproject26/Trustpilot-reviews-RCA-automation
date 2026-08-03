@@ -468,9 +468,9 @@ async def generate_rca_v3(
 ) -> dict:
     """
     Returns the RCA v3 shape:
-      {tldr {our_mistake, our_fix}, what_went_wrong (5 headings),
+      {what_went_wrong (5 headings),
        booking_logs, flags (failures only), support_interaction,
-       sp_interaction, sop_compliance, issue_specific_answers, takedown}
+       sp_interaction, issue_specific_answers, takedown}
 
     checklist: {"general": ..., "ce": [...], "ro": [...], "scenarios": {...}}
     timeline_raw: raw Zendesk ticket comment bodies.
@@ -487,8 +487,6 @@ async def generate_rca_v3(
     if is_fixture and not is_live("anthropic"):
         # Known demo fixture — plausible static stub in the new shape
         return {
-            "tldr": {"our_mistake": f"Gap led to {l2 or 'an issue'} on a {l1 or 'classified'} booking.",
-                     "our_fix": "Resolution offered; gap routed to the owning team."},
             "what_went_wrong": {
                 "guest_issues": [{"issue": l2 or "reported issue",
                                   "claim_accuracy": "Unknown",
@@ -505,8 +503,6 @@ async def generate_rca_v3(
             "flags": [],
             "support_interaction": [],
             "sp_interaction": {"raised": "N/A", "records": []},
-            "sop_compliance": {"dss_available": False, "expected": "", "actual": "",
-                               "verdict": "unknown", "detail": "mock fixture", "zd_ref": ""},
             "issue_specific_answers": {"tickets_sent_on_time": "Yes", "guest_arrived_on_time": "Unknown"},
             "takedown": {"verdict": "No"},
         }

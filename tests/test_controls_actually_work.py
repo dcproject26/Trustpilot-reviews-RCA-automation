@@ -23,7 +23,7 @@ from tests.test_rca_ui_rendered import page, CHROME          # noqa: E402,F401
 
 
 SECTIONS = ["#rca-events-timeline-section", "#rca-flags-section",
-            "#rca-wwr5-section", "#rca-tldr-section", "#rca-sop-section",
+            "#rca-wwr5-section",
             "#rca-issue-answers-section"]
 
 

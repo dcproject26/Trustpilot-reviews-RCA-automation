@@ -984,10 +984,10 @@ def rca_v3_prompt(
     canned_list: list = None,
 ) -> str:
     """
-    Generates the RCA v3 shape: tldr {our_mistake, our_fix}, what_went_wrong
+    Generates the RCA v3 shape: what_went_wrong
     (the 5 mandated headings), booking_logs, flags (checklist run silently,
-    failures only), support_interaction / sp_interaction / sop_compliance
-    (each carrying zd_ref), issue_specific_answers, takedown.
+    failures only), support_interaction / sp_interaction (each carrying
+    zd_ref), issue_specific_answers, takedown.
 
     Benched against a real draft in tools/try_rca_prompt.py before shipping;
     that file carries the same template - edit there first, ship here after
@@ -1259,17 +1259,32 @@ that turned out fine is silence — never a line in the output.
    The verdict follows the source, never what seems plausible. A claim whose
    source is unreachable is "Unknown".
 
-6. SOP NEEDLE. Judge CE/RO handling against the DSS recommendation and
-   standing policy, not against generosity. STANDING POLICY: an out-of-policy
-   cancellation/modification request is DENIED first — a correct denial is
-   never a CE miss. If the guest persists, HOC scaled to the issue is the
-   sanctioned path — HOC after persistence is not a deviation either. Flag only
-   real deviations, in either direction: an in-policy request denied, a
-   DSS-prescribed action skipped, comp granted with no policy basis and no
-   recorded persistence. Where DSS policy forks on "social media": every case
-   here IS a public review, so the social-media variant always applies. If DSS
-   is empty or match_score is 0, judge against standing policy and the scenario
-   checklist only — never invent policy.
+6. AN OPERATIONAL FAILURE IS SOMETHING THE RECORD SHOWS. Do not infer one
+   from the guest being unhappy, and do not infer one from a question you
+   could not answer. Before writing `operational_failure` on an issue, THREE
+   things must line up, and you must be able to point at each:
+
+     (a) THE BACKEND SAYS SO. A Zendesk ticket, the booking record, the BMS
+         record or the experience page shows what was actually done — the
+         reply that went out, the refund that was or was not issued, the field
+         that held the wrong value. Check it before you write.
+     (b) IT MATCHES THE CONTEXT of this booking and this contact. A failure on
+         a different ticket, a different booking or a different date is not
+         this issue's failure.
+     (c) IT MATCHES THE GUEST'S CLAIM on this issue. If the guest complained
+         about the meeting point, a slow refund is not the operational failure
+         for that issue — it belongs to its own issue, or nowhere.
+
+   If any of the three is missing, `operational_failure` is null and the
+   reason goes in `claim_accuracy_note`. Null is a finding. An invented
+   operational failure is worse than none, because it reads as verified and
+   sends somebody to correct a person who did nothing wrong.
+
+   STANDING POLICY, so a correct action is not written up as a failure: an
+   out-of-policy cancellation or modification request is DENIED first — a
+   correct denial is never a CE miss. If the guest persists, HOC scaled to the
+   issue is the sanctioned path, and HOC after persistence is not a deviation
+   either.
 
 7. SUPPORT-FAILURE SUPERSEDES. If an external event occurred but CE or RO
    mishandled the contact, the root cause is the mishandling. What did the
@@ -1391,10 +1406,6 @@ that turned out fine is silence — never a line in the output.
 
 {
   "stated_issue": "<2-3 sentences, 60 words MAX: the guest's problem in our words, for the top of the RCA>",
-  "tldr": {
-    "our_mistake": "<THE GAP, first. One plain sentence, max 14 words: the step that failed on our side, named. \"We refused a refund on a booking the vendor had cancelled.\" NOT a summary of the complaint, NOT \"the guest was unhappy\", NOT \"the refund was denied despite the cancellation being vendor-initiated\". If no gap on our side exists, say exactly what did happen instead: \"No gap on our side — the guest arrived after the slot closed.\">",
-    "our_fix": "<one plain sentence, max 14 words, an action someone can take today, addressing the gap named above. \"Refund in full and tell RO this vendor keeps cancelling.\" NOT \"process full refund per standing policy; flag vendor cancellation rate for RO review\">"
-  },
   "l1": "<the L1 category from the taxonomy>",
   "l2": "<the L2 category from the taxonomy, valid for that L1>",
   "sub_themes": ["<sub-theme from the L1::L2 framework, e.g. 'C. Ticket Delayed'>"],
@@ -1432,13 +1443,6 @@ that turned out fine is silence — never a line in the output.
       "ref": "<record URL or ZD-xxxxx | null>"
     }
   ],
-  "sop_compliance": {
-    "verdict": "<followed | deviated | unknown>",
-    "expected": "<what the SOP required>",
-    "actual": "<what actually happened>",
-    "detail": "<qualifier or exception note | null>",
-    "zd_ref": "<ZD-xxxxx | null>"
-  },
   "support_interaction_notes": [
     {
       "zd_ref": "<ZD-xxxxx — the ticket this note is about; this is the join key | null>",
@@ -1529,13 +1533,27 @@ that turned out fine is silence — never a line in the output.
    that issue is the other one's consequence. Merge it.
    Every entry must trace to something the guest SAID OR IMPLIED. Our own process gaps are not
    guest issues however serious — an out-of-policy refund, a missed SOP step, a DSS path not
-   followed go to `flags` and `sop_compliance`. `claim` is null only where the review implies
+   followed go to `flags`. `claim` is null only where the review implies
    the issue without words, or on a rule 13 routed-scenario coverage row; a `guest_issues` entry
    with no claim and no routed scenario behind it renders as a numbered guest complaint with an
    empty Claim block, and leadership reads it as something the guest said. They did not.
    Do not repeat in `guest_issues` anything you have already raised in `flags`.
 10. `flags` contains failures only — things a named team must act on. An empty array means
     everything was checked and nothing needed raising; return `[]`, not a placeholder entry.
+10a. EVERY FLAG MUST SIT ON A SUPPORT INTERACTION THAT ACTUALLY HAPPENED. A flag names
+    something a person or a system did during a contact with THIS guest about THIS booking,
+    and the contact has to be in the data above — a Zendesk ticket, a chat, an email, an SP
+    exchange. Point at it: `zd_ref` carries the ticket, `evidence` carries what was said or
+    done in it.
+      NOT a flag: what nobody did because the guest never wrote in. No contact, no flag.
+      NOT a flag: a general process improvement, a policy you would prefer, a pattern across
+        other bookings. Those are `area_of_improving`.
+      NOT a flag: something that happened on a different booking or a different guest's
+        ticket, however similar.
+      NOT a flag: the guest's dissatisfaction. That is the review, not a failure.
+    A flag with no contact behind it cannot be checked by the team it is raised against, and
+    they will spend the time proving a negative. If the only support record is one you cannot
+    tie to this booking, raise nothing.
 11. If a section genuinely has nothing (no SP contact, no support contact), return an empty
     array. Do NOT fabricate a row whose summary says nothing was found. The REVIEW ITSELF is
     never a support contact: it is the artefact being analysed, not a channel the guest reached
@@ -1548,14 +1566,27 @@ that turned out fine is silence — never a line in the output.
     answer with a sentence in the verdict field ("28 minutes (…)" is an evidence value, not a
     verdict). If a question cannot be answered from the data, verdict is Unknown with the
     reason in `evidence` — never omit the question.
+12a. ANSWER EACH ONE FROM THE BACKEND, and say which. Every Yes or No must rest on a record
+    you can name: `source` is the system you checked and `ref` is the row in it — the ZD id,
+    the booking id, the window an insights count covers. A verdict with no source is a guess
+    wearing a verdict's clothes, and it is read as verified.
+    "Unknown" is a legitimate answer and the RIGHT one whenever the record does not settle it.
+    Never resolve a question from the guest's account alone: what they say happened is a
+    claim, and the question is asking what the record shows.
+12b. A "No" ON A QUESTION IS NOT AUTOMATICALLY AN OPERATIONAL FAILURE. It becomes one only
+    when rule 6 is satisfied — the backend shows it, it belongs to this booking and this
+    contact, and it matches what the guest actually complained about on that issue. A question
+    answered No about a step nobody was required to take, or about something the guest never
+    raised, records the fact and stops there. Do not carry it into `operational_failure` and
+    do not raise a flag for it.
 13. Every scenario in SCENARIOS_ROUTED must be covered by at least one guest issue: its root
     cause and fix live on that issue. Do NOT emit a separate per-scenario block, and do not
     drop a routed scenario — if a routed scenario is not supported by the review or the data,
     return a guest issue for it with `claim_accuracy: "Inaccurate"` or `"Unknown"` and say why
     in `claim_accuracy_note`.
 14. `dss.prescribes` states what the matched DSS row prescribes for this scenario, in its own
-    words — it is reference data, not your analysis, so do not add whether we complied (that is
-    `sop_compliance`) and do not restate the row's L1/L2/sub-theme (the UI derives that from the
+    words — it is reference data, not your analysis, so do not add whether we complied, and
+    do not restate the row's L1/L2/sub-theme (the UI derives that from the
     classification). Evidence drawn from the DSS sheet uses `"source": "dss"` — never
     `"insights"` (a DSS needle is a playbook lookup, not a warehouse aggregate).
 15. `l1`, `l2` and `sub_themes` must come from the taxonomy verbatim (including any letter

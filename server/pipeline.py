@@ -2138,7 +2138,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # attribute (empty dict when RCA generation failed or returned nothing)
         _v3 = rca_v3 or {}
         # The whole new-shape object (what_went_wrong 5 headings, booking_logs,
-        # flags, interactions, sop_compliance) lives in rca_fields; a failed
+        # flags, interactions) lives in rca_fields; a failed
         # generation keeps the previous one rather than wiping it.
         draft.rca_v3                  = _v3 or draft.rca_v3 or {}
         # Stamped only when this run actually produced an RCA. A failed
@@ -2146,12 +2146,6 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # version too - claiming v4 over v3 content is worse than no stamp.
         if _v3:
             draft.rca_prompt_version  = prompts.RCA_PROMPT_VERSION
-        _tldr = _v3.get("tldr")
-        if isinstance(_tldr, dict):
-            draft.tldr = (f"Our mistake: {_tldr.get('our_mistake', '')} "
-                          f"Our fix: {_tldr.get('our_fix', '')}").strip()
-        else:
-            draft.tldr = _tldr or draft.tldr
         # v4 does not emit wwr_chain or prevention — the chain moved onto each
         # guest issue. Keep whatever a v3-era run left rather than blanking it,
         # so a rollback to v3 finds its data intact.
@@ -2205,7 +2199,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
             "area_of_improving", "actions_taken", "overlay_scenarios", "wwr_scenarios",
             "wwr_chain", "evidence", "issue_specific_answers", "checklist_answers",
             "ticket_facts", "rca_v3", "area_of_improving",
-            "guest_issues", "sop_compliance", "booking_logs", "flags",
+            "guest_issues", "booking_logs", "flags",
             "takedown", "dss",
         ):
             try:

@@ -69,15 +69,23 @@ def _draft(**over):
 REVIEW = SimpleNamespace(rating=1, author="David")
 
 
-def test_the_twelve_sections_still_frame_the_post():
-    """The section structure and the include-picker keys are unchanged by v4 —
-    only the What went wrong body was rebuilt."""
+def test_the_sections_still_frame_the_post():
+    """The section structure and the include-picker keys, minus the two that
+    were removed from the RCA."""
     out = format_rca_slack(REVIEW, _draft())
     for must in ("*What went wrong*", "1. 22 Jul 15:22 — Booking-in-progress email sent",
                  "2. 22 Jul 15:50 — Tickets issued",
-                 "*Booking logs*", "*Flags*", "*SOP compliance*",
+                 "*Booking logs*", "*Flags*",
                  "*Review takedown*", "*Experience insights*"):
         assert must in out, f"missing: {must!r}"
+
+
+def test_the_removed_sections_are_not_posted():
+    """A heading with nothing under it is worse in Slack than on the card —
+    it goes to the whole team and reads as a section that failed to fill."""
+    out = format_rca_slack(REVIEW, _draft())
+    assert "*TL;DR*" not in out
+    assert "*SOP compliance*" not in out
 
 
 def test_pointer_lists_never_print_as_comma_runs():

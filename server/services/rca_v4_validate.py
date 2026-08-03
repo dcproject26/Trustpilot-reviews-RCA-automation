@@ -15,7 +15,6 @@ from server.taxonomy import L1_CATEGORIES, L2_OPTIONS
 
 CLAIM_ACCURACY = ("Accurate", "Partly accurate", "Inaccurate", "Unknown")
 ISA_VERDICT    = ("Yes", "No", "Unknown")
-SOP_VERDICT    = ("followed", "deviated", "unknown")
 SOURCES        = ("booking", "bms", "zendesk", "insights", "dss", "exp-page")
 TAKEDOWN       = ("Yes", "No", "Untraceable")
 OWNERS         = ("Content", "CE", "SP", "RO", "Product", "Biz", "Ops")
@@ -52,14 +51,13 @@ def zd_key(v) -> str:
 # separate copies of this projection, and one of them fell behind.
 V4_PROJECTION = {
     "guest_issues":           ("what_went_wrong", "guest_issues"),
-    "sop_compliance":         ("sop_compliance",),
     "booking_logs":           ("booking_logs",),
     "flags":                  ("flags",),
     "takedown":               ("takedown",),
     "dss":                    ("dss",),
     "issue_specific_answers": ("issue_specific_answers",),
 }
-_V4_EMPTY = {"guest_issues": list, "sop_compliance": dict, "booking_logs": list,
+_V4_EMPTY = {"guest_issues": list, "booking_logs": list,
              "flags": list, "takedown": dict, "dss": dict,
              "issue_specific_answers": list}
 
@@ -442,7 +440,6 @@ def validate(rca: dict, scenarios_routed=None) -> tuple[dict, list]:
                 notes.append(f"{_f} is {_w} words, over the {_cap}-word ceiling — "
                              f"trim before it goes out")
 
-    sop = _obj(rca.get("sop_compliance"))
     dss = _obj(rca.get("dss"))
     # Accept the pre-split key so a draft written before this change, and a
     # model still reaching for the old name, both keep their interpretation.
@@ -459,23 +456,12 @@ def validate(rca: dict, scenarios_routed=None) -> tuple[dict, list]:
 
     return {
         "stated_issue":      _clean(rca.get("stated_issue")),
-        "tldr": {
-            "our_mistake": _clean(_obj(rca.get("tldr")).get("our_mistake")),
-            "our_fix":     _clean(_obj(rca.get("tldr")).get("our_fix")),
-        },
         **_taxonomy(rca, notes),
         "sub_themes":        [s for s in (rca.get("sub_themes") if isinstance(rca.get("sub_themes"), list) else []) if _clean(s)],
         "scenarios":         scenarios,
         "overlay_scenarios": overlays,
         "what_went_wrong":   {"guest_issues": issues},
         "issue_specific_answers": _answers(rca.get("issue_specific_answers"), notes),
-        "sop_compliance": {
-            "verdict":  _enum(sop.get("verdict"), SOP_VERDICT, "unknown"),
-            "expected": _clean(sop.get("expected")),
-            "actual":   _clean(sop.get("actual")),
-            "detail":   _clean(sop.get("detail")),
-            "zd_ref":   _clean(sop.get("zd_ref")),
-        },
         # INTERPRETATION, not facts. The rows the UI renders come from the
         # pipeline's Zendesk-derived frames - their time, channel and ticket id
         # are verifiable. What the model adds is summary / detail / ce_miss,

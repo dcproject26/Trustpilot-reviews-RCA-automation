@@ -204,9 +204,14 @@ def test_the_isa_source_trails_the_evidence():
 
 # ── §9 SOP, §8 flag team, §12 DSS ───────────────────────────────────────────
 
-def test_the_sop_verdict_recolours_like_every_other_verdict():
-    assert 'data-v3sel="sop_compliance.verdict"' in CLIENT
-    assert "chip-sop-sel" in CLIENT
+def test_the_sop_section_is_gone_from_the_card():
+    """Removed from the RCA. A section left rendering after its data stopped
+    being produced shows an empty box forever, and an empty box is exactly
+    what a broken section looks like."""
+    assert 'data-v3sel="sop_compliance.verdict"' not in CLIENT
+    assert 'id="rca-sop-section"' not in CLIENT
+    assert 'id="rca-tldr-section"' not in CLIENT
+    assert 'data-v3p="tldr.our_mistake"' not in CLIENT
 
 
 def test_the_flag_team_is_a_closed_list():

@@ -745,14 +745,6 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
     if scen_all:
         cls_line += f"{nl}*Scenarios:* " + ", ".join(scen_all)
 
-    tldr = v3.get("tldr")
-    if isinstance(tldr, dict):
-        sections.append(("TL;DR",
-                         f"• Our mistake: {tldr.get('our_mistake', '—')}{nl}"
-                         f"• Our fix: {tldr.get('our_fix', '—')}"))
-    elif draft.tldr:
-        sections.append(("TL;DR", draft.tldr))
-
     w = v3.get("what_went_wrong") or {}
     if w:
         def sub_lines(v):
@@ -840,18 +832,6 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
         + (f" — {f['evidence']}" if f.get("evidence") else "")
         + (f" ({f['zd_ref']})" if f.get("zd_ref") else "")
         for f in flags) if flags else "No flags raised"))
-
-    sop = v3.get("sop_compliance") or {}
-    if sop:
-        sl = [f"• verdict: {sop.get('verdict', 'unknown')}"
-              + (" (DSS needle used)" if sop.get("dss_available") else " (DSS needle unavailable)")
-              + (f" ({sop['zd_ref']})" if sop.get("zd_ref") else "")]
-        for k, label in (("expected", "expected"), ("actual", "actual")):
-            if sop.get(k):
-                sl.append(f"• {label}: {sop[k]}")
-        if sop.get("detail"):
-            sl.append(f"• {sop['detail']}")
-        sections.append(("SOP compliance", nl.join(sl)))
 
     # Facts and interpretation, merged. The rows come from the pipeline's
     # Zendesk-derived frames - their time, channel and ticket id are verifiable

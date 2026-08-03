@@ -41,9 +41,8 @@ COLUMNS = [
     "booking_id", "tid", "vid", "tgid", "experience", "vendor", "visit_date",
     "match_tier", "match_method",
     "l1", "l2", "sub_themes", "scenarios",
-    "tldr_our_mistake", "tldr_our_fix",
     "issue_count", "issues", "owners", "claim_accuracy",
-    "sop_verdict", "resolution", "takedown", "flags",
+    "resolution", "takedown", "flags",
     "zendesk_tickets", "rca_posted_at", "sent_at",
     "final_response", "rca_prompt_version", "exported_at",
 ]
@@ -76,9 +75,7 @@ def row_for(review, draft, now: datetime | None = None) -> dict:
     d = draft
     v3 = (getattr(d, "rca_v3", None) or {}) if d else {}
     bk = (getattr(d, "booking", None) or {}) if d else {}
-    tldr = v3.get("tldr") if isinstance(v3.get("tldr"), dict) else {}
     issues = (v3.get("what_went_wrong") or {}).get("guest_issues") or []
-    sop = v3.get("sop_compliance") or {}
     takedown = v3.get("takedown") or {}
 
     return {
@@ -106,9 +103,6 @@ def row_for(review, draft, now: datetime | None = None) -> dict:
         "sub_themes":    (getattr(d, "sub_themes", None) or []) if d else [],
         "scenarios":     (getattr(d, "scenarios", None) or []) if d else [],
 
-        "tldr_our_mistake": tldr.get("our_mistake") or "",
-        "tldr_our_fix":     tldr.get("our_fix") or "",
-
         # The count AND the titles. A count alone cannot be checked against the
         # card; the titles alone cannot be summed.
         "issue_count":   len(issues),
@@ -118,7 +112,6 @@ def row_for(review, draft, now: datetime | None = None) -> dict:
         "claim_accuracy": [i.get("claim_accuracy") for i in issues
                            if isinstance(i, dict) and i.get("claim_accuracy")],
 
-        "sop_verdict":   sop.get("verdict") or "",
         "resolution":    getattr(d, "resolution", "") if d else "",
         "takedown":      takedown.get("verdict") or "",
         "flags":         [f.get("flag") for f in (v3.get("flags") or [])

@@ -41,7 +41,6 @@ DIRTY_RCA = {
         {"question": "How long until first reply?",
          "verdict": "28 minutes (first agent)"},            # → evidence
     ],
-    "sop_compliance": {"verdict": "mostly followed"},       # → unknown
     "booking_logs": [{"time": "Unknown", "what": "Fulfilment attempted"}],
     "flags": [{"team": "Growth", "flag": "No alert on failed fulfilment",
                "evidence": "Three retries, no page."}],     # team → null
@@ -143,7 +142,6 @@ def test_regenerating_runs_the_validator_rather_than_storing_raw_output(app_env)
     assert v3["what_went_wrong"]["guest_issues"][0]["evidence"][0]["source"] == "booking"
     assert v3["issue_specific_answers"][0]["verdict"] == "Unknown"
     assert "28 minutes" in v3["issue_specific_answers"][0]["evidence"]
-    assert v3["sop_compliance"]["verdict"] == "unknown"
     assert v3["takedown"]["verdict"] == "Untraceable"
     assert v3["booking_logs"][0]["time"] is None
     assert v3["flags"][0]["team"] == "OTHER"
@@ -168,7 +166,6 @@ def test_the_v4_columns_are_written_on_regeneration(app_env):
     d = _reload(db, rid)
 
     assert d.guest_issues and d.guest_issues[0]["issue"] == "Voucher never delivered"
-    assert d.sop_compliance["verdict"] == "unknown"
     assert d.booking_logs and d.booking_logs[0]["what"] == "Fulfilment attempted"
     assert d.takedown["verdict"] == "Untraceable"
     assert d.dss["prescribes"] == "Refund in full."
@@ -265,7 +262,6 @@ def test_the_projection_maps_every_column_to_its_place_in_the_rca():
     from server.services.rca_v4_validate import project_v4
     out = project_v4({
         "what_went_wrong": {"guest_issues": [{"issue": "x"}]},
-        "sop_compliance": {"verdict": "deviated"},
         "booking_logs": [{"what": "issued"}],
         "flags": [{"team": "CE", "flag": "late"}],
         "takedown": {"verdict": "No"},
@@ -273,7 +269,6 @@ def test_the_projection_maps_every_column_to_its_place_in_the_rca():
         "issue_specific_answers": [{"question": "q", "verdict": "Yes"}],
     })
     assert out["guest_issues"] == [{"issue": "x"}]
-    assert out["sop_compliance"] == {"verdict": "deviated"}
     assert out["booking_logs"] == [{"what": "issued"}]
     assert out["flags"] == [{"team": "CE", "flag": "late"}]
     assert out["takedown"] == {"verdict": "No"}
@@ -286,7 +281,7 @@ def test_an_absent_section_projects_to_its_empty_type():
     out = __import__("server.services.rca_v4_validate", fromlist=["x"]).project_v4({})
     assert out["guest_issues"] == [] and out["booking_logs"] == []
     assert out["flags"] == [] and out["issue_specific_answers"] == []
-    assert out["sop_compliance"] == {} and out["takedown"] == {} and out["dss"] == {}
+    assert out["takedown"] == {} and out["dss"] == {}
 
 
 def test_the_projection_never_raises_on_a_malformed_rca():

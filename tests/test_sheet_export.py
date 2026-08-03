@@ -126,10 +126,17 @@ def test_a_review_with_no_draft_still_exports():
 
 def test_the_rca_fields_are_pulled_out_of_rca_v3():
     row = SX.row_for(R(), D())
-    assert row["tldr_our_mistake"].startswith("We refused")
     assert row["issue_count"] == 2
-    assert row["sop_verdict"] == "deviated"
     assert row["takedown"] == "No"
+    assert row["flags"] == ["Vendor cancels at a meaningful rate"]
+
+
+def test_the_removed_sections_have_no_columns():
+    """TL;DR and SOP compliance were removed from the RCA. Leaving their
+    columns would put a permanently empty column in every export, which reads
+    as data the pipeline stopped producing rather than a section that is
+    gone."""
+    assert not [c for c in SX.COLUMNS if "tldr" in c or c.startswith("sop")]
 
 
 def test_lists_become_one_cell_each():

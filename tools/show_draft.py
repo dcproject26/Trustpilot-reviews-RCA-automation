@@ -30,14 +30,14 @@ from server.db import SessionLocal, RcaDraft, Review          # noqa: E402
 from server.prompts import RCA_PROMPT_FAMILY, RCA_PROMPT_VERSION  # noqa: E402
 from server.services.rca_v4_validate import (                 # noqa: E402
     CHANNELS, CLAIM_ACCURACY, FLAG_TEAMS, ISA_VERDICT, OWNERS,
-    SOP_VERDICT, SOURCES, TAKEDOWN,
+    SOURCES, TAKEDOWN,
 )
 
 # field → what the UI needs from it. Ordered as the RCA reads on screen.
 TOP_LEVEL = [
-    "stated_issue", "tldr", "l1", "l2", "sub_themes", "scenarios",
+    "stated_issue", "l1", "l2", "sub_themes", "scenarios",
     "overlay_scenarios", "what_went_wrong", "issue_specific_answers",
-    "sop_compliance", "support_interaction_notes", "sp_interaction_notes",
+    "support_interaction_notes", "sp_interaction_notes",
     "booking_logs",
     "flags", "area_of_improving", "resolution", "suggested_response",
     "takedown", "dss",
@@ -132,7 +132,6 @@ def _enum_problems(rca):
         bad.append("issue_specific_answers is the v3 {question: answer} map, not an array")
     for n, a in enumerate((isa or []) if isinstance(isa, list) else [], 1):
         chk(f"issue_specific_answers[{n}].verdict", (a or {}).get("verdict"), ISA_VERDICT)
-    chk("sop_compliance.verdict", (rca.get("sop_compliance") or {}).get("verdict"), SOP_VERDICT)
     chk("takedown.verdict", (rca.get("takedown") or {}).get("verdict"), TAKEDOWN)
     for n, f in enumerate((rca.get("flags") or []), 1):
         chk(f"flags[{n}].team", (f or {}).get("team"), FLAG_TEAMS)
@@ -241,7 +240,7 @@ def main():
                   f"{', '.join(sorted(extra))}{OFF}")
 
         print(f"\n{DIM}── the columns the pipeline writes alongside it ──{OFF}")
-        for k in ("guest_issues", "sop_compliance", "booking_logs", "flags",
+        for k in ("guest_issues", "booking_logs", "flags",
                   "takedown", "dss", "issue_specific_answers",
                   "resolution", "suggested_response"):
             v = getattr(d, k, None)
@@ -308,7 +307,6 @@ def main():
         if not a.issue:
             _dump("flags", rca.get("flags"))
             _dump("dss", rca.get("dss"))
-            _dump("sop_compliance", rca.get("sop_compliance"))
             _dump("sp_interaction_notes", rca.get("sp_interaction_notes"))
             _dump("support_interaction_notes", rca.get("support_interaction_notes"))
             print(f"\n{DIM}── confidence trail ──{OFF}")

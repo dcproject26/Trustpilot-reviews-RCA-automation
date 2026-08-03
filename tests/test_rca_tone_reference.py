@@ -163,7 +163,7 @@ def test_a_guest_issue_must_trace_to_the_guest():
     leadership reads it as something the guest said."""
     out = _prompt()
     assert "must trace to something the guest SAID OR IMPLIED" in out
-    assert "go to `flags` and `sop_compliance`" in out
+    assert "go to `flags`" in out
     assert "Do not repeat in `guest_issues` anything you have already raised in `flags`" in out
 
 
@@ -271,10 +271,22 @@ def test_the_word_ceilings_came_down():
     assert "Target 8–14 words; 20 is the hard ceiling" in out
 
 
-def test_the_tldr_template_shows_the_rewrite_too():
-    """The two worst sentences on the card were both TL;DR fields, so the
-    template itself carries the before/after — a rule 40 lines away is one the
-    model reads once and the field template is read at the moment of writing."""
+def test_the_plain_english_rewrite_is_still_shown():
+    """The two worst sentences on the card were TL;DR fields, and that section
+    has been removed — but the rewrite they motivated is the whole of rule 9b
+    and applies to every string in the RCA. A rule that only says "write
+    plainly" is one the model agrees with and then ignores; the before/after
+    is what makes it actionable."""
     out = " ".join(_prompt().split())
     assert "The vendor cancelled the booking, then we refused the refund." in out
-    assert "max 14 words" in out
+    assert "PLAIN ENGLISH" in out
+
+
+def test_the_removed_sections_are_not_asked_for():
+    """A section removed from the schema but still described in the rules gets
+    returned anyway, and then dropped by the validator — the model spends
+    tokens on it and nobody ever sees the result."""
+    out = _prompt()
+    assert "tldr" not in out
+    assert "sop_compliance" not in out
+    assert "TL;DR" not in out
