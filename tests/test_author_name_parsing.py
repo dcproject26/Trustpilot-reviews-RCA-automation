@@ -17,6 +17,7 @@ copies agreed, which is how a second copy always starts.
 import pytest
 
 from server.names import name_tokens, parse_author, search_tokens
+from tests.conftest import live_db                            # noqa: F401
 
 
 # ── the name from the card ──────────────────────────────────────────────────
@@ -70,6 +71,21 @@ def test_titles_and_suffixes_are_not_names():
 
 
 # ── the cases that must produce nothing rather than a guess ─────────────────
+
+@pytest.mark.parametrize("name,first,last", [
+    ("Li Wang", "Li", "Wang"),
+    ("Bo Andersson", "Bo", "Andersson"),
+    ("Jo Ng", "Jo", "Ng"),
+    ("Wang Li Chen", "Wang", "Chen"),
+])
+def test_a_two_letter_name_is_a_name_not_an_initial(name, first, last):
+    """"Li", "Bo" and "Ng" are surnames people actually have. Widening the
+    initial test to two characters would discard them, and the fault would
+    show up as a poor search for one demographic and nobody else's."""
+    assert parse_author(name) == (first, last)
+    assert last in search_tokens(name), \
+        f"{last!r} was dropped as though it were an initial"
+
 
 def test_a_name_of_only_initials_yields_no_surname():
     """No surname is better than a letter, because the score would rest on
@@ -138,8 +154,23 @@ def _query_names(monkeypatch, author, first, last):
 
 
 def test_the_middle_name_reaches_the_zendesk_query(monkeypatch):
-    q = _query_names(monkeypatch, "Bhayani Salim F", "Bhayani", "Salim")
-    assert "Salim" in q, f"the middle name is still not searched: {q}"
+    """A name whose middle token is NEITHER the first nor the surname.
+
+    "Bhayani Salim F" cannot show this: once the parser is fixed it returns
+    ("Bhayani", "Salim"), so "Salim" reaches the query through author_last
+    whether or not the full name is used at all. Mutation testing proved it —
+    deleting the full-name path entirely left this green. Three real tokens
+    are needed before the difference exists.
+    """
+    q = _query_names(monkeypatch, "Fredrik Martin Olsen", "Fredrik", "Olsen")
+    assert "Martin" in q, f"the middle name is still not searched: {q}"
+    assert "Fredrik Martin Olsen" in q, q
+
+
+def test_a_fourth_token_reaches_it_too(monkeypatch):
+    q = _query_names(monkeypatch, "Maria Jose Garcia Lopez", "Maria", "Lopez")
+    for tok in ("Maria", "Jose", "Garcia", "Lopez"):
+        assert tok in q, f"{tok!r} was dropped: {q}"
 
 
 def test_the_initial_does_not_reach_the_zendesk_query(monkeypatch):
@@ -161,3 +192,53 @@ def test_a_caller_that_passes_no_full_name_still_works(monkeypatch):
     """Older callers, and anything that only has the split pair."""
     q = _query_names(monkeypatch, None, "Fredrik", "Olsen")
     assert "Fredrik Olsen" in q
+
+
+def test_the_pipeline_hands_the_display_name_to_the_search(live_db, monkeypatch):
+    """The link between the two halves, and the one that was untested.
+
+    A parser that returns the middle name and a search that never receives it
+    look identical from the card — and mutation testing showed exactly that:
+    deleting `full_name=_full` from the pipeline's call left the whole suite
+    green. So this runs process_review for real and reads what
+    find_bids_by_requester_name was actually handed.
+    """
+    import asyncio
+    from datetime import datetime
+    db = live_db
+    s = db.SessionLocal()
+    try:
+        s.add(db.Review(id="tp_name", slack_ts="7.0", slack_channel="C1",
+                        rating=1, author="Fredrik Martin Olsen",
+                        body_original="the tour never turned up",
+                        reference_number=None, status="new",
+                        received_at=datetime.utcnow()))
+        s.commit()
+    finally:
+        s.close()
+
+    import importlib
+    import server.pipeline as P
+    importlib.reload(P)
+    seen = {}
+
+    async def _spy(first, last, lookback_days=None, with_context=False,
+                   full_name=None):
+        seen["first"], seen["last"], seen["full"] = first, last, full_name
+        return ([], []) if with_context else []
+
+    monkeypatch.setattr(P, "verify_bid", lambda bid: None, raising=False)
+    monkeypatch.setattr(P.zendesk, "find_bids_by_requester_name", _spy)
+    monkeypatch.setattr(P, "is_live", lambda k: k in ("zendesk", "bigquery"),
+                        raising=False)
+    try:
+        asyncio.run(P.process_review("tp_name"))
+    except Exception:
+        pass                      # later steps may fail; the call is the point
+
+    if not seen:
+        pytest.skip("the Zendesk name path did not run in this configuration")
+    assert seen["full"] == "Fredrik Martin Olsen", (
+        f"the pipeline passed full_name={seen['full']!r} — the display name "
+        f"never reaches the search, so the middle name is dropped again")
+    assert seen["last"] != "Olsen" or seen["first"] == "Fredrik"

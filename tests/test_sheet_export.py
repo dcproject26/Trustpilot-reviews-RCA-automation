@@ -252,6 +252,29 @@ def test_a_blank_id_in_the_sheet_is_not_treated_as_a_review():
     assert out["appended"] == 1 and out["updated"] == 0
 
 
+def test_a_row_with_no_id_does_not_overwrite_a_blank_row():
+    """The case the test above cannot reach.
+
+    Every review HAS an id, so a review never looks up "" — which meant
+    indexing the sheet's blank rows by "" changed no outcome, and mutation
+    testing proved it by removing the guard and killing nothing. A row with no
+    review_id does look up "", and without the guard it would silently
+    overwrite whatever blank row came first, destroying a spreadsheet row
+    nobody asked it to touch.
+    """
+    io = FakeSheet(header=list(SX.COLUMNS), ids=["tp_1", "", "tp_2"])
+    out = SX.export(io, [{"author": "no id at all"}], apply=True)
+    assert out["updated"] == 0, "it matched a row on an empty id"
+    assert out["appended"] == 1
+    assert io.updated == [], f"it wrote over row {io.updated}"
+
+
+def test_a_whitespace_id_is_treated_the_same_as_a_blank_one():
+    io = FakeSheet(header=list(SX.COLUMNS), ids=["  ", "tp_1"])
+    out = SX.export(io, [{"review_id": "   ", "author": "x"}], apply=True)
+    assert out["updated"] == 0 and io.updated == []
+
+
 def test_the_header_is_written_into_an_empty_sheet():
     io = FakeSheet(header=[], ids=[])
     out = SX.export(io, [SX.row_for(R(), D())], apply=True)
