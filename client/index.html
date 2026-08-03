@@ -149,6 +149,31 @@
     font-size: 11px; padding: 3px 9px; text-transform: none;
     letter-spacing: 0; font-weight: 400;
   }
+  /* Search. Sits above the tabs because it cuts across them — a review you
+     are looking for is usually in a tab you are not on. */
+  .inbox-search-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .inbox-search {
+    font: inherit; font-size: 12px; flex: 1; min-width: 0;
+    padding: 6px 9px; border-radius: 7px;
+    border: 1px solid var(--input-bd); background: var(--card); color: var(--text);
+  }
+  .inbox-search::placeholder { color: var(--dim); }
+  .inbox-search:focus { outline: none; border-color: var(--accent); }
+  .inbox-search-clear {
+    font: inherit; font-size: 15px; line-height: 1; cursor: pointer;
+    padding: 3px 8px; border-radius: 7px;
+    border: 1px solid var(--input-bd); background: var(--card); color: var(--muted);
+  }
+  /* A tab holding matches you cannot see from here. Without it, searching in
+     the wrong tab reads as "this review does not exist". */
+  .inbox-tab.has-hits { border-color: var(--accent); color: var(--accent); }
+  .inbox-elsewhere { margin-top: 8px; font-size: 11.5px; color: var(--muted-2); }
+  .inbox-elsewhere button {
+    font: inherit; font-size: 11.5px; cursor: pointer; padding: 2px 7px;
+    margin-left: 4px; border-radius: 6px;
+    border: 1px solid var(--input-bd); background: var(--card); color: var(--accent);
+  }
+
   .inbox-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
   .inbox-tab {
     font: inherit; font-size: 11.5px; padding: 5px 9px; border-radius: 7px;
@@ -1120,6 +1145,18 @@
             <button class="bulk-cancel" id="bulk-cancel">cancel</button>
           </div>
         </div>
+        <div class="inbox-search-row">
+          <!-- type=text, not type=search. Chromium clears a search input on
+               Escape by itself, which made our own Escape handler redundant
+               there and load-bearing everywhere else — a behaviour difference
+               no test would catch, because the test runs in Chromium. It also
+               draws a second native clear button next to ours. -->
+          <input id="inbox-search" class="inbox-search" type="text"
+                 autocomplete="off" spellcheck="false"
+                 placeholder="Search name, BID, ZD-…, review text, L1/L2">
+          <button class="inbox-search-clear" id="inbox-search-clear"
+                  title="Clear the search" hidden>×</button>
+        </div>
         <div class="inbox-tabs">
           <button class="inbox-tab active" data-tab="all">All <span class="num" id="cnt-all">0</span></button>
           <button class="inbox-tab" data-tab="identified">Matched <span class="num" id="cnt-identified">0</span></button>
@@ -1670,6 +1707,10 @@ const state = {
   // and listed one review. The two it hid were the ones that need a human:
   // the unconfirmed match and the untraceable one.
   filter: 'all',
+  // What is typed in the inbox search box. Empty means no search — which is
+  // not the same as a search that matched nothing, and the empty state below
+  // says which.
+  search: '',
   actionTab: 'sp',
   dssEdit: false,
   rawErrOpen: {},
@@ -1706,25 +1747,98 @@ const state = {
   if (state.selected) renderRcaCol();
 })();
 
+// Which tab a review belongs to. One expression, used by the list AND by the
+// counts, because those two disagreeing is what made the dashboard claim to
+// show everything while listing one review.
+function inTab(r, tab) {
+  if (tab === 'all') return true;
+  if (tab === 'identified') return r.type === 'identified' && r.status !== 'sent';
+  if (tab === 'candidates') return r.type === 'candidates';
+  if (tab === 'untraceable') return r.type === 'untraceable';
+  if (tab === 'sent') return r.status === 'sent';
+  return false;
+}
+
+// Does this review match what was typed?
+//
+// Searched across everything the reader might have to hand — the guest's
+// name, the booking id, a ZD ticket number, the review text, the
+// classification, the review id. A search that only looked at the author
+// would answer "no such review" to somebody holding a ticket number, which is
+// the same sentence as "it is not here" and means something completely
+// different.
+//
+// Every term must match SOMETHING (AND across terms, OR across fields), so
+// "lewis refund" narrows rather than widens.
+function matchesSearch(r, q) {
+  const query = String(q || '').trim().toLowerCase();
+  if (!query) return true;
+  const rca = r.rca || {};
+  const hay = [
+    r.author, r.id, r.lang, r.status, r.type,
+    r.original, r.originalText, r.english,
+    (r.booking || {}).id, (r.booking || {}).bid,
+    (r.booking || {}).experienceName, (r.booking || {}).vendorName,
+    rca.issueL1, rca.issueL2, rca.subTheme,
+    ...(r.zendeskTicketIds || []),
+    ...(rca.subThemes || []),
+    ...(rca.scenarios || []),
+  ].filter(v => v != null).join('  ').toLowerCase();
+  // ZD-34125496 and 34125496 have to find the same review — the prefix is
+  // ours, and half the people searching will paste it and half will not.
+  // Stripping it from the TERM is enough in both directions, because a stored
+  // "ZD-34125496" contains "34125496" as a substring anyway. Stripping it from
+  // the haystack as well was a second line that changed no outcome, which
+  // mutation testing proved by deleting it and killing nothing.
+  return query.split(/\s+/).every(term =>
+    hay.includes(term) || hay.includes(term.replace(/^zd-/, '')));
+}
+
 function renderInbox() {
   const list = document.getElementById('inbox-list');
-  const filtered = REVIEWS.filter(r => {
-    if (state.filter === 'all') return true;
-    if (state.filter === 'identified') return r.type === 'identified' && r.status !== 'sent';
-    if (state.filter === 'candidates') return r.type === 'candidates';
-    if (state.filter === 'untraceable') return r.type === 'untraceable';
-    if (state.filter === 'sent') return r.status === 'sent';
-    return false;
-  });
+  const q = state.search;
+  const hits = REVIEWS.filter(r => matchesSearch(r, q));
+  const filtered = hits.filter(r => inTab(r, state.filter));
 
-  document.getElementById('cnt-all').textContent = REVIEWS.length;
-  document.getElementById('cnt-identified').textContent = REVIEWS.filter(r => r.type === 'identified' && r.status !== 'sent').length;
-  document.getElementById('cnt-candidates').textContent = REVIEWS.filter(r => r.type === 'candidates').length;
-  document.getElementById('cnt-untraceable').textContent = REVIEWS.filter(r => r.type === 'untraceable').length;
-  document.getElementById('cnt-sent').textContent = REVIEWS.filter(r => r.status === 'sent').length;
+  // While searching, the tab numbers count MATCHES, not totals — otherwise
+  // "Untraceable 12" sits above an empty list and the reader concludes the
+  // list is broken. They also answer the question a search actually asks,
+  // which is "where is it".
+  const TABS = [['all', 'cnt-all'], ['identified', 'cnt-identified'],
+                ['candidates', 'cnt-candidates'],
+                ['untraceable', 'cnt-untraceable'], ['sent', 'cnt-sent']];
+  const perTab = {};
+  for (const [tab, id] of TABS) {
+    perTab[tab] = hits.filter(r => inTab(r, tab)).length;
+    document.getElementById(id).textContent = perTab[tab];
+    const btn = document.querySelector(`.inbox-tab[data-tab="${tab}"]`);
+    if (btn) btn.classList.toggle('has-hits', !!q && perTab[tab] > 0
+                                                && tab !== state.filter);
+  }
+  const clearBtn = document.getElementById('inbox-search-clear');
+  if (clearBtn) clearBtn.hidden = !q;
 
   if (filtered.length === 0) {
-    list.innerHTML = `<div class="empty-state">No reviews in this tab.</div>`;
+    // Three different nothings, and they were all one sentence. "No reviews
+    // in this tab" told somebody searching for a guest that the guest does
+    // not exist, when the review was one tab across.
+    if (!q) {
+      list.innerHTML = `<div class="empty-state">No reviews in this tab.</div>`;
+    } else if (perTab.all === 0) {
+      list.innerHTML = `<div class="empty-state">Nothing matches
+        “${esc(q)}” in any tab — searched name, booking id, ticket number,
+        review text and classification across all ${REVIEWS.length}
+        review(s).</div>`;
+    } else {
+      const others = TABS.filter(([t]) => t !== state.filter && t !== 'all'
+                                          && perTab[t] > 0);
+      list.innerHTML = `<div class="empty-state">No match for “${esc(q)}”
+        in this tab.</div>
+        <div class="inbox-elsewhere">${perTab.all} elsewhere:
+        ${others.map(([t]) =>
+          `<button data-goto-tab="${t}">${_tabLabel(t)} (${perTab[t]})</button>`
+        ).join('')}</div>`;
+    }
     return;
   }
 
@@ -5380,6 +5494,48 @@ function openManualReviewModal() {
 }
 
 document.querySelector('.add-manual-btn').addEventListener('click', openManualReviewModal);
+
+// ── Inbox search ────────────────────────────────────────────────────────────
+//
+// Bound once, at the top level: the box lives outside the list that
+// renderInbox redraws, so it cannot be un-bound by a re-render — and it must
+// not be, or typing would stop working after the first keystroke.
+(function wireInboxSearch() {
+  const box = document.getElementById('inbox-search');
+  const clear = document.getElementById('inbox-search-clear');
+  if (!box) return;
+  let t = null;
+  const apply = () => {
+    state.search = box.value;
+    renderInbox();
+  };
+  box.addEventListener('input', () => {
+    // Debounced: renderInbox rebuilds every card, and doing that per
+    // keystroke on a few hundred reviews makes the box feel broken.
+    clearTimeout(t);
+    t = setTimeout(apply, 120);
+  });
+  box.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape') { box.value = ''; clearTimeout(t); apply(); }
+  });
+  if (clear) clear.addEventListener('click', () => {
+    box.value = ''; clearTimeout(t); apply(); box.focus();
+  });
+  // "3 elsewhere: Untraceable (2)" — jumping there is the point of saying it.
+  document.addEventListener('click', ev => {
+    const b = ev.target.closest && ev.target.closest('[data-goto-tab]');
+    if (!b) return;
+    state.filter = b.dataset.gotoTab;
+    document.querySelectorAll('.inbox-tab').forEach(x =>
+      x.classList.toggle('active', x.dataset.tab === state.filter));
+    renderInbox();
+  });
+})();
+
+function _tabLabel(tab) {
+  return {all: 'All', identified: 'Matched', candidates: 'Confirm',
+          untraceable: 'Untraceable', sent: 'Sent'}[tab] || tab;
+}
 
 document.querySelectorAll('.inbox-tab').forEach(tab => {
   tab.addEventListener('click', () => {

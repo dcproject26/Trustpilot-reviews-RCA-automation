@@ -663,10 +663,11 @@ async def process_review(review_id: str, force_candidates: bool = False):
                         # a SUBSTRING name check with a 2-char minimum ("ole"
                         # matched "Olsen") and let a visit date landing anywhere
                         # in a 30-day window promote to Tier 1 unaided.
+                        from server.names import parse_author as _pa
                         from server.services.zendesk import _name_score as _nsc
-                        _ap = (review.author or "").strip().split()
-                        _af = _ap[0] if _ap else None
-                        _al = _ap[-1] if len(_ap) > 1 else None
+                        # The SECOND copy of the first/last split, and it had
+                        # the same fault. One rule, one place.
+                        _af, _al = _pa(review.author or "")
                         verify_hits = []
 
                         pgn = bq_row.get("primary_guest_name") or ""
@@ -807,17 +808,11 @@ async def process_review(review_id: str, force_candidates: bool = False):
                     f"not_resolved={_ctr['t2_venue_not_resolved']}"
                 )
 
-                # Author parsing
-                def _parse_author(name: str):
-                    if not name:
-                        return None, None
-                    parts = name.strip().split()
-                    if not parts:
-                        return None, None
-                    if len(parts) == 1:
-                        t = parts[0]
-                        return (t, None) if t.isalpha() and len(t) >= 2 else (None, None)
-                    return parts[0], parts[-1]
+                # Author parsing — server/names.py, because this rule was
+                # written twice and both copies took the LAST token as the
+                # surname. On "Bhayani Salim F" that made the surname "F" and
+                # threw "Salim" away entirely.
+                from server.names import parse_author as _parse_author
 
                 author_first, author_last = _parse_author(review.author or "")
                 # The Trustpilot display name is often not the name the booking
@@ -852,10 +847,17 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 # Search identities, in priority order: the Trustpilot display
                 # name, then the booker name extracted from the review body.
                 # Deduped so a review where both agree costs one Zendesk search.
+                # Triples, not pairs: the DISPLAY NAME travels with the split so
+                # the search can use every token in it. "Bhayani Salim F" was
+                # reduced to ("Bhayani", "F") here and the middle name was gone
+                # for good — the search never saw it, and neither did the card.
                 search_identities = []
-                for _f, _l in ((author_first, author_last), (ind_first, ind_last)):
-                    if _name_parseable(_f, _l) and (_f, _l) not in search_identities:
-                        search_identities.append((_f, _l))
+                for _f, _l, _full in ((author_first, author_last, review.author or ""),
+                                      (ind_first, ind_last,
+                                       str(indicators.get("guest_name") or ""))):
+                    if _name_parseable(_f, _l) and \
+                            (_f, _l) not in [(a, b) for a, b, _ in search_identities]:
+                        search_identities.append((_f, _l, _full))
                 name_parseable = bool(search_identities)
 
                 # ── Shared helpers ────────────────────────────────────────────
@@ -986,15 +988,22 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 # ── Legacy requester lookup (only if the shortlist found none) ──
                 if name_parseable and not cascade_done:
                     _ctr["t2_zendesk_lookup_attempted"] += 1
+                    # What was ACTUALLY sent, not a reconstruction of it. The
+                    # card read "Searched Zendesk as 'Bhayani F'" and that was
+                    # true — which is how the dropped middle name was spotted.
+                    # It stays exact for the same reason.
+                    from server.names import search_tokens as _stoks
                     _names_str = ", ".join(
-                        f"'{f}{(' ' + l) if l else ''}'" for f, l in search_identities)
+                        "'" + (" ".join(_stoks(full)) or
+                               f"{f}{(' ' + l) if l else ''}") + "'"
+                        for f, l, full in search_identities)
                     confidence_trail.append({"mark": "pass",
                         "text": f"<strong>Zendesk lookup:</strong> {_names_str}"})
                     zd_bids = []
                     bid_ticket_text = {}   # bid -> subject+body of its source ticket
                     bid_name_score  = {}   # bid -> 0..1 requester-name confidence
                     bid_signals     = {}   # bid -> ticket custom-field facts
-                    for _f, _l in search_identities:
+                    for _f, _l, _full in search_identities:
                         try:
                             # No lookback_days — the service defaults to since
                             # Jan 1 of the current year. Passing 60 here silently
@@ -1002,7 +1011,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
                             # older than 60 days (guests review months later),
                             # which is how a requester's real BID went unharvested.
                             _hits, _trecs = await zendesk.find_bids_by_requester_name(
-                                _f, _l, with_context=True)
+                                _f, _l, with_context=True, full_name=_full)
                             for _tr in _trecs:
                                 for _tb in _tr.get("bids", []):
                                     if _tb not in bid_ticket_text:

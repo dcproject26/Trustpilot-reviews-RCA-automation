@@ -1502,6 +1502,7 @@ async def find_bids_by_requester_name(
     author_last: str | None,
     lookback_days: int | None = None,
     with_context: bool = False,
+    full_name: str | None = None,
 ):
     """
     Search Zendesk for tickets by requester name.
@@ -1534,7 +1535,26 @@ async def find_bids_by_requester_name(
             return f'"{name}"'
         return name
 
-    name_str = f"{author_first} {author_last}".strip() if author_last else author_first
+    # Every name token, not two of them.
+    #
+    # "Bhayani Salim F" was searched as "Bhayani F": the parser kept the first
+    # and last tokens, so the middle name never reached Zendesk and a single
+    # letter stood in for the surname. Where the caller passes the display
+    # name, all its tokens are used — a middle name is often the most
+    # distinctive thing about a guest, and it was the one part being discarded.
+    from server.names import search_tokens as _stoks
+    _all = _stoks(full_name) if full_name else []
+    # Two or more, only. Dropping to a SINGLE token would undo a decision
+    # already made above and paid for: requester:Bhayani matches every user
+    # carrying that token, their tickets yield real booking ids that verify in
+    # BigQuery, and strangers' bookings become indistinguishable candidates.
+    # "A Bhayani" must not become "Bhayani" just because the first token is an
+    # initial. This only ever ADDS tokens the old split threw away.
+    if len(_all) >= 2:
+        name_str = " ".join(_all)
+    else:
+        name_str = (f"{author_first} {author_last}".strip()
+                    if author_last else author_first)
     # No created> clause by default. A date window silently drops the ticket
     # that actually matches — guests review long after the visit, and the window
     # cannot know how long. lookback_days is honoured only if explicitly passed.

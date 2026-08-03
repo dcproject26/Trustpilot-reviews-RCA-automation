@@ -1,46 +1,122 @@
 [
-  {"file": "tools/migrate_db.py",
-   "name": "NULL unique values are treated as duplicates again",
-   "find": "                if any(v is None for v in vals):\n                    continue",
-   "replace": "                pass"},
-
-  {"file": "tools/migrate_db.py",
-   "name": "unique INDEXES are not consulted",
-   "find": "        for ix in (inspect(src).get_indexes(tbl) or []):",
-   "replace": "        for ix in []:"},
-
-  {"file": "tools/migrate_db.py",
-   "name": "one refused row aborts the whole table again",
-   "find": "            try:\n                with dst.begin() as c:\n                    c.execute(t.insert().values(\n                        **{k: v for k, v in r.items() if k in t.c}))\n                copied_here += 1\n            except Exception as e:",
-   "replace": "            if True:\n                with dst.begin() as c:\n                    c.execute(t.insert().values(\n                        **{k: v for k, v in r.items() if k in t.c}))\n                copied_here += 1\n            for e in []:"},
-
-  {"file": "client/index.html",
-   "name": "the L1 list goes back to the hardcoded placeholder",
-   "find": "              ${L1_CATEGORIES.map(o =>\n                  `<option${o === rc.issueL1 ? ' selected' : ''}>${esc(o)}</option>`).join('')}",
-   "replace": "              ${['Operations Issue','SP issue','CO miss','Fulfilment','Product/UX','Customer error','Pricing','Other'].map(o =>\n                  `<option${o === rc.issueL1 ? ' selected' : ''}>${esc(o)}</option>`).join('')}"},
-
-  {"file": "client/index.html",
-   "name": "the taxonomy is fetched but L1/L2 are not taken from it",
-   "find": "    L1_CATEGORIES = t.l1_categories || [];\n    L2_OPTIONS = t.l2_options || {};",
-   "replace": "    ;"},
-
-  {"file": "client/index.html",
-   "name": "the classification selects are unbound again",
-   "find": "  const sel = ev.target.closest && ev.target.closest('[data-classify]');\n  if (!sel) return;",
-   "replace": "  const sel = null;\n  if (!sel) return;"},
-
-  {"file": "client/index.html",
-   "name": "changing the L1 keeps an L2 that does not belong to it",
-   "find": "    const valid = L2_OPTIONS[sel.value] || [];\n    if (!valid.includes(rca.issueL2)) rca.issueL2 = valid[0] || '';",
-   "replace": "    ;"},
-
-  {"file": "client/index.html",
-   "name": "a classification the taxonomy lacks is dropped from the select",
-   "find": "              ${(rc.issueL1 && !L1_CATEGORIES.includes(rc.issueL1)\n                  ? `<option>${esc(rc.issueL1)}</option>` : '')}",
-   "replace": "              ${''}"},
-
-  {"file": "client/index.html",
-   "name": "the classification change is not saved",
-   "find": "  await saveDraft(r.id, {l1: rca.issueL1, l2: rca.issueL2,\n                         sub_themes: rca.subThemes});",
-   "replace": "  ;"}
+  {
+    "file": "client/index.html",
+    "name": "escape does not clear the search",
+    "find": "    if (ev.key === 'Escape') { box.value = ''; clearTimeout(t); apply(); }",
+    "replace": "    ;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the ZD- prefix stops being optional",
+    "find": "    hay.includes(term) || hay.includes(term.replace(/^zd-/, '')));",
+    "replace": "    hay.includes(term));"
+  },
+  {
+    "file": "server/services/sheet_export.py",
+    "name": "a mismatched header is written into anyway",
+    "find": "    why = check_header(header)\n    if why:\n        out[\"refused\"] = why\n        return out",
+    "replace": "    why = \"\"\n    if why:\n        out[\"refused\"] = why\n        return out"
+  },
+  {
+    "file": "server/services/sheet_export.py",
+    "name": "a reordered header is accepted",
+    "find": "    if have == COLUMNS:\n        return \"\"",
+    "replace": "    if sorted(have) == sorted(COLUMNS):\n        return \"\""
+  },
+  {
+    "file": "server/services/sheet_export.py",
+    "name": "an existing review is appended instead of updated",
+    "find": "        n = at.get(str(r.get(\"review_id\") or \"\").strip())",
+    "replace": "        n = None"
+  },
+  {
+    "file": "server/services/sheet_export.py",
+    "name": "the row number forgets the header row",
+    "find": "            at[rid] = i + 2          # +1 for 0-based, +1 for the header row",
+    "replace": "            at[rid] = i + 1"
+  },
+  {
+    "file": "server/services/sheet_export.py",
+    "name": "a blank id in the sheet matches a review",
+    "find": "        if rid and rid not in at:",
+    "replace": "        if rid not in at:"
+  },
+  {
+    "file": "server/services/sheet_export.py",
+    "name": "a missing field is dropped rather than left empty",
+    "find": "    return [_s(row.get(c)) for c in COLUMNS]",
+    "replace": "    return [_s(row[c]) for c in COLUMNS if c in row]"
+  },
+  {
+    "file": "server/services/sheet_export.py",
+    "name": "None renders as the word None",
+    "find": "    if v is None:\n        return \"\"",
+    "replace": "    if v is None:\n        return str(v)"
+  },
+  {
+    "file": "server/services/sheet_export.py",
+    "name": "duplicates already in the sheet are not reported",
+    "find": "    out[\"duplicates\"] = duplicate_ids(ids)",
+    "replace": "    out[\"duplicates\"] = []"
+  },
+  {
+    "file": "server/services/sheet_export.py",
+    "name": "a dry run writes anyway",
+    "find": "    if apply:\n        io.update_rows(updates)\n        io.append_rows(appends)",
+    "replace": "    io.update_rows(updates)\n    io.append_rows(appends)"
+  },
+  {
+    "file": "server/services/sheet_export.py",
+    "name": "the write asks for a readonly scope",
+    "find": "SCOPE_RW = \"https://www.googleapis.com/auth/spreadsheets\"",
+    "replace": "SCOPE_RW = \"https://www.googleapis.com/auth/spreadsheets.readonly\""
+  },
+  {
+    "file": "server/names.py",
+    "name": "an initial is taken as the surname again",
+    "find": "    surname = next((t for t in reversed(toks[1:]) if not _is_initial(t)), None)",
+    "replace": "    surname = toks[-1]"
+  },
+  {
+    "file": "server/names.py",
+    "name": "initials are searched on",
+    "find": "    return [t for t in name_tokens(name) if not _is_initial(t)]",
+    "replace": "    return name_tokens(name)"
+  },
+  {
+    "file": "server/names.py",
+    "name": "a two-letter token counts as an initial",
+    "find": "    return len(t) == 1 and t.isalpha()",
+    "replace": "    return len(t) <= 2 and t.isalpha()"
+  },
+  {
+    "file": "server/names.py",
+    "name": "titles and suffixes are treated as names",
+    "find": "        if t.lower() in _NOISE:\n            continue",
+    "replace": "        pass"
+  },
+  {
+    "file": "server/names.py",
+    "name": "a single letter is accepted as a first name",
+    "find": "        ok = len(re.sub(r\"[^\\w]\", \"\", t)) >= 2 and not t.isdigit()",
+    "replace": "        ok = True"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "the full name is ignored by the search",
+    "find": "    if len(_all) >= 2:\n        name_str = \" \".join(_all)",
+    "replace": "    if False:\n        name_str = \" \".join(_all)"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "the search collapses to a single token",
+    "find": "    if len(_all) >= 2:",
+    "replace": "    if len(_all) >= 1:"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the display name never reaches the search",
+    "find": "                                _f, _l, with_context=True, full_name=_full)",
+    "replace": "                                _f, _l, with_context=True)"
+  }
 ]
