@@ -846,11 +846,35 @@ REVIEW (posted {review_date or "unknown"}):
 {review_text}
 
 Return JSON:
-- guest_name — copy the REVIEWER NAME above verbatim, unless the text clearly
-  names a different person as the booker, in which case use that. It is often
-  the only indicator available, so never omit it. If and only if the reviewer
-  name is "(not provided)" and the text names nobody, return null — never the
-  word "unknown".
+- guest_name — the REVIEWER NAME above, unless the text clearly names a
+  different person as the booker, in which case use that. It is often the only
+  indicator available, so never omit it. If and only if the reviewer name is
+  "(not provided)" and the text names nobody, return null — never the word
+  "unknown".
+
+  This name is searched against the Zendesk requester, so it must be the NAME
+  and nothing else. Two rules, both of which have cost a match:
+
+  1. DROP SALUTATIONS AND SUFFIXES. "Mr", "Mrs", "Ms", "Miss", "Dr", "Prof",
+     "Sir", "Jr", "Sr", "II", "III" are not part of anyone's name and match no
+     Zendesk requester.
+       "Mrs Fredrik Olsen"      -> "Fredrik Olsen"
+       "Dr. Salim Bhayani Jr"   -> "Salim Bhayani"
+
+  2. KEEP EVERY NAME TOKEN, INCLUDING THE MIDDLE ONE. Do not shorten a name to
+     first-and-last. The middle name is frequently the most distinctive part
+     of it, and dropping it is what turns a single confident match into ten
+     weak ones.
+       "Bhayani Salim F"        -> "Bhayani Salim"     NOT "Bhayani F"
+       "Fredrik Martin Olsen"   -> "Fredrik Martin Olsen"
+
+     A bare INITIAL is not a name token. Drop a standalone single letter —
+     "F", "F." — because searching on one letter matches a great many people
+     and ranks none of them. Keep everything of two letters or more: "Li",
+     "Bo" and "Ng" are real names.
+
+  Copy the tokens you keep verbatim, in the order they appear. Do not reorder
+  them, do not correct the spelling, and do not expand an initial into a guess.
 - experience_or_venue — what they visited/booked, in their words
   (e.g. "Eiffel Tower summit", "Rome catacombs tour").
   IMPORTANT: the review may end with a line like "Reference number: <text>".
@@ -905,7 +929,9 @@ Return ONLY valid JSON, no markdown:
 
 Every field above is consumed by the matcher:
 1. guest_name — searched in Zendesk as the ticket requester, alongside the
-   Trustpilot display name.
+   Trustpilot display name. EVERY token you return is searched, so a salutation
+   left in narrows the search to nothing and a middle name left out widens it
+   to everyone sharing a surname.
 2. experience_or_venue + city_or_country — resolved to TGIDs, and scored by
    significant-word overlap against each candidate's experience name (weight 2x).
 3. visit_date_hint — scored by closeness to each candidate's visit date, falling

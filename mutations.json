@@ -1,26 +1,14 @@
 [
   {
-    "file": "server/services/sheet_export.py",
-    "name": "a blank id in the sheet matches a review",
-    "find": "        if rid and rid not in at:",
-    "replace": "        if rid not in at:"
+    "file": "server/prompts.py",
+    "name": "the prompt stops protecting two-letter names",
+    "find": "     \"Bo\" and \"Ng\" are real names.",
+    "replace": "     are real names."
   },
   {
     "file": "server/names.py",
-    "name": "a two-letter token counts as an initial",
+    "name": "a two-letter surname is rejected",
     "find": "    return len(t) == 1 and t.isalpha()",
     "replace": "    return len(t) <= 2 and t.isalpha()"
-  },
-  {
-    "file": "server/services/zendesk.py",
-    "name": "the full name is ignored by the search",
-    "find": "    if len(_all) >= 2:\n        name_str = \" \".join(_all)",
-    "replace": "    if False:\n        name_str = \" \".join(_all)"
-  },
-  {
-    "file": "server/pipeline.py",
-    "name": "the display name never reaches the search",
-    "find": "                                _f, _l, with_context=True, full_name=_full)",
-    "replace": "                                _f, _l, with_context=True)"
   }
 ]
