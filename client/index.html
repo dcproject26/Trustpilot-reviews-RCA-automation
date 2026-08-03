@@ -1141,16 +1141,22 @@
 </div>
 
 <script>
-// L2 placeholder catalogue per L1 — to be replaced with real list from CX team
-const L2_OPTIONS = {
-  'SP issue': ['Venue closure', 'Did not receive tickets', 'Redemption denied at venue', 'SP did not pick up calls', 'SP cancelled last-minute', 'Wrong tickets issued', 'SP system outage'],
-  'CO miss': ['Wrong canned response', 'No response within SLA', 'Wrong info given', 'Minded AI wrong guidance', 'Failed escalation'],
-  'Fulfilment': ['Voucher not delivered', 'QR code missing', 'Wrong booking details on voucher'],
-  'Product/UX': ['Misleading listing name', 'Unclear inclusions', 'Confusing checkout', 'Time slot UX'],
-  'Customer error': ['Wrong date booked', 'No-show', 'Misread voucher', 'Misunderstood inclusions'],
-  'Pricing': ['Price mismatch vs competitor', 'Hidden fees', 'Currency confusion'],
-  'Other': ['(placeholder)'],
-};
+// The REAL L1/L2 catalogue, from /api/taxonomy — the same source the
+// classifier, the macro filing and the support-tag lookup all read.
+//
+// What was here was a placeholder catalogue written before the taxonomy
+// existed, and its own comment said so: "to be replaced with real list from
+// CX team". It shipped. Its L1 keys — 'SP issue', 'CO miss', 'Fulfilment',
+// 'Product/UX' — are not L1s. There was no entry for 'Operations Issue' or
+// any other real one, so the L2 dropdown was EMPTY on every review, and the
+// L1 dropdown offered seven categories that would classify a review into a
+// bucket nothing downstream can match: no macro, no support tags, no
+// sub-themes. The card then reported "no support-tag mapping" and was right.
+//
+// Empty until it loads, exactly like SUB_THEME_OPTIONS and SCENARIO_OPTIONS
+// below — the selects still show the current classification meanwhile.
+let L1_CATEGORIES = [];
+let L2_OPTIONS = {};
 
 // Keyed "L1::L2" -> ["A. Name", …, "N. Irrelevant"].
 // Populated from /api/taxonomy (which already returns `sub_theme_frameworks`
@@ -1173,6 +1179,11 @@ async function loadSubThemeOptions() {
       SUB_THEME_OPTIONS[key] = opts;
     }
     SCENARIO_OPTIONS = t.scenarios || [];
+    // The classification catalogue, from the same call. Everything else in
+    // this function was already taxonomy-driven; L1/L2 were the one pair
+    // still hardcoded, and they were hardcoded WRONG.
+    L1_CATEGORIES = t.l1_categories || [];
+    L2_OPTIONS = t.l2_options || {};
   } catch (e) { /* leave empty — row still shows the assigned sub_theme */ }
   // re-render so the sub-theme row appears once options are available
   if (typeof renderRcaCol === 'function' && state.selected) renderRcaCol();
@@ -2496,17 +2507,19 @@ function renderReviewCol() {
         <div class="col-label" style="margin-bottom:10px">Classification</div>
         <div class="classify-selects">
           <label class="classify-row">L1
-            <select class="classify-select">
-              <option>${esc(rc.issueL1 || '')}</option>
-              ${['Operations Issue','SP issue','CO miss','Fulfilment','Product/UX','Customer error','Pricing','Other']
-                  .filter(o => o !== rc.issueL1).map(o => `<option>${o}</option>`).join('')}
+            <select class="classify-select" data-classify="l1">
+              ${(rc.issueL1 && !L1_CATEGORIES.includes(rc.issueL1)
+                  ? `<option>${esc(rc.issueL1)}</option>` : '')}
+              ${L1_CATEGORIES.map(o =>
+                  `<option${o === rc.issueL1 ? ' selected' : ''}>${esc(o)}</option>`).join('')}
             </select>
           </label>
           <label class="classify-row">L2
-            <select class="classify-select">
-              <option>${esc(rc.issueL2 || '')}</option>
-              ${(L2_OPTIONS[rc.issueL1] || []).filter(o => o !== rc.issueL2)
-                  .map(o => `<option>${esc(o)}</option>`).join('')}
+            <select class="classify-select" data-classify="l2">
+              ${(rc.issueL2 && !(L2_OPTIONS[rc.issueL1] || []).includes(rc.issueL2)
+                  ? `<option>${esc(rc.issueL2)}</option>` : '')}
+              ${(L2_OPTIONS[rc.issueL1] || []).map(o =>
+                  `<option${o === rc.issueL2 ? ' selected' : ''}>${esc(o)}</option>`).join('')}
             </select>
           </label>
         </div>
@@ -2874,6 +2887,50 @@ document.addEventListener('click', ev => {
   if (!t) return;
   state.tlShowInternal = !state.tlShowInternal;
   if (state.selected) renderRcaCol();
+});
+
+// ── Classification (L1 / L2) ────────────────────────────────────────────────
+//
+// Both selects rendered and neither was bound to anything: no data- hook, no
+// listener. Changing the L1 or L2 on the card did nothing, silently — which
+// is also how the L2 dropdown being EMPTY went unnoticed, because a control
+// nobody can operate cannot report that its options are missing.
+//
+// DELEGATED, and that is the point. The first fix bound these inside
+// renderRcaCol while the block itself is drawn by renderReviewCol, so the
+// first change worked and every one after it did nothing: the L2 handler
+// called renderReviewCol, which replaced the selects with unbound copies.
+// Exactly the §13 failure again — rendered by one function, bound by another,
+// and only the first click ever lands. A delegated listener cannot come
+// unbound by a re-render, whichever function does the rendering.
+//
+// Everything downstream is keyed on this pair — the macro filing, the
+// support-tag comparison, the sub-theme framework — so a re-classification
+// has to reach the server AND redraw the chips below it.
+document.addEventListener('change', async ev => {
+  const sel = ev.target.closest && ev.target.closest('[data-classify]');
+  if (!sel) return;
+  const r = REVIEWS.find(x => x.id === state.selected);
+  if (!r || !r.rca) return;
+  const rca = r.rca;
+  if (sel.dataset.classify === 'l1') {
+    rca.issueL1 = sel.value;
+    // The old L2 belongs to the old L1. Carrying it over produces a pair that
+    // exists nowhere in the taxonomy — the state that makes every downstream
+    // lookup correctly report that it found nothing.
+    const valid = L2_OPTIONS[sel.value] || [];
+    if (!valid.includes(rca.issueL2)) rca.issueL2 = valid[0] || '';
+  } else {
+    rca.issueL2 = sel.value;
+  }
+  // The sub-theme framework is keyed "L1::L2", so a pair change makes the
+  // sub-themes wrong rather than merely stale.
+  const stillValid = SUB_THEME_OPTIONS[`${rca.issueL1}::${rca.issueL2}`] || [];
+  rca.subThemes = (rca.subThemes || []).filter(s => stillValid.includes(s));
+  rca.subTheme = rca.subThemes[0] || null;
+  await saveDraft(r.id, {l1: rca.issueL1, l2: rca.issueL2,
+                         sub_themes: rca.subThemes});
+  renderReviewCol();
 });
 
 function renderRcaCol() {

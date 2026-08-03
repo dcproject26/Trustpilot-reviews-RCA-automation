@@ -72,6 +72,24 @@ def main():
 
     from sqlalchemy import create_engine, text, inspect, select, Table, MetaData
 
+    # An EMPTY url is not a malformed url, and saying "Could not parse
+    # SQLAlchemy URL from string ''" sends someone to look at a url they never
+    # typed. It means an unset shell variable — the command was pasted without
+    # the line above it that sets one. That has now happened twice, which
+    # makes it this tool's problem rather than the reader's.
+    for val, flag, side in ((a.src, "--from", "source"),
+                            (a.dst, "--to", "target")):
+        if not (val or "").strip():
+            print(f"{flag} is empty, so the {side} was never opened.")
+            print("  An unset shell variable expands to nothing, so the "
+                  "command ran with no url at all.")
+            print("  Paste the connection string straight into the command "
+                  "rather than through a variable:")
+            print('    python3 tools/migrate_db.py --from "postgresql://..." '
+                  '--to "postgresql://..."')
+            print("\nNothing was read and nothing was written.")
+            return 2
+
     def _engine(url, side):
         try:
             return create_engine(_norm(url), pool_pre_ping=True)
@@ -133,16 +151,77 @@ def main():
             print(f"  {tbl:20s} has no primary key — cannot tell a duplicate "
                   f"from a new row, so it is skipped rather than doubled")
             continue
+        # EVERY unique key, not just the primary one. reviews.slack_ts is
+        # unique, and skipping on the id alone let a row through that the
+        # target already held under a different id — the insert then raised
+        # IntegrityError, aborted the whole run, and left the earlier tables
+        # committed. "Safe to run twice" was true only for the collisions I
+        # happened to think of.
+        keysets = [list(pk)]
+        for uc in (inspect(src).get_unique_constraints(tbl) or []):
+            cols = uc.get("column_names") or []
+            if cols and cols not in keysets:
+                keysets.append(list(cols))
+        for ix in (inspect(src).get_indexes(tbl) or []):
+            cols = ix.get("column_names") or []
+            if ix.get("unique") and cols and all(cols) and cols not in keysets:
+                keysets.append(list(cols))
+
+        # Only keys the TARGET actually has. A target whose schema is behind
+        # cannot be matched on a column it does not carry, and asking anyway
+        # raised "no such column" from inside the duplicate check — which
+        # reads as the migration being broken rather than the schema being
+        # out of date, and hid the real message two lines further down.
+        dst_cols = {c["name"] for c in inspect(dst).get_columns(tbl)}
+        usable, unusable = [], []
+        for keys in keysets:
+            (usable if set(keys) <= dst_cols else unusable).append(keys)
+        if not usable:
+            print(f"  {tbl:20s} the target has none of this table's key "
+                  f"columns — its schema is behind; run the app once against "
+                  f"it so init_db() catches up, then re-run me")
+            return 1
+        for keys in unusable:
+            print(f"  {tbl:20s} cannot match on {'+'.join(keys)} — the target "
+                  f"has no such column, so a row already there under that key "
+                  f"will be attempted and refused rather than skipped")
+        keysets = usable
+
+        present = []
         with dst.connect() as c:
-            have = {tuple(r._mapping[k] for k in pk)
-                    for r in c.execute(text(f"SELECT {', '.join(pk)} FROM {tbl}"))}
-        new = [r for r in rows if tuple(r[k] for k in pk) not in have]
+            for keys in keysets:
+                present.append({
+                    tuple(r._mapping[k] for k in keys)
+                    for r in c.execute(text(
+                        f"SELECT {', '.join(keys)} FROM {tbl}"))})
+
+        def _already_there(row):
+            for keys, have in zip(keysets, present):
+                vals = tuple(row[k] for k in keys)
+                # SQL unique constraints permit any number of NULLs, so two
+                # rows that both have slack_ts NULL are not duplicates — and
+                # slack_ts IS nullable, because a review added by hand has no
+                # Slack message behind it. Treating (None,) as a match would
+                # copy the first manual review and silently drop every one
+                # after it, counted as "already on target". Data quietly not
+                # copied, reported as success, is the worst outcome this tool
+                # has available.
+                if any(v is None for v in vals):
+                    continue
+                if vals in have:
+                    return True
+            return False
+
+        new = [r for r in rows if not _already_there(r)]
         skipped = len(rows) - len(new)
         total_new += len(new)
         total_skipped += skipped
         plan.append((tbl, new, pk))
+        extra = ("" if len(keysets) == 1 else
+                 f"  (matched on {len(keysets)} key(s): "
+                 + "; ".join("+".join(k) for k in keysets) + ")")
         print(f"  {tbl:20s} {len(rows):5d} on source · {len(new):5d} new · "
-              f"{skipped:5d} already on target")
+              f"{skipped:5d} already on target{extra}")
 
     print(f"\n{total_new} row(s) would be copied, {total_skipped} skipped as "
           f"already present.")
@@ -158,22 +237,83 @@ def main():
     # matters: re-running finishes the job instead of doubling it.
     md = MetaData()
     done = 0
+    refused = []
+    orphaned = []
     for tbl, new, pk in plan:
         if not new:
             continue
         t = Table(tbl, md, autoload_with=dst)
-        with dst.begin() as c:
-            for r in new:
-                c.execute(t.insert().values(
-                    **{k: v for k, v in r.items() if k in t.c}))
-        done += len(new)
-        print(f"  copied {len(new):5d} into {tbl}")
+
+        # A child whose parent was skipped must not be copied. The reviews
+        # pass skips a row the target already holds under a different id, and
+        # its draft was still copied — pointing at a review that is not there.
+        # SQLite does not enforce foreign keys by default, so this does not
+        # even raise: it writes a draft the dashboard's join will never find,
+        # which is a blank card with no explanation. Checked explicitly, and
+        # the ones held back are named.
+        fks = []
+        for fk in (inspect(src).get_foreign_keys(tbl) or []):
+            cols = fk.get("constrained_columns") or []
+            ref_t = fk.get("referred_table")
+            ref_c = fk.get("referred_columns") or []
+            if cols and ref_t and ref_c and ref_t in d_tables:
+                with dst.connect() as c:
+                    have = {tuple(row._mapping[k] for k in ref_c)
+                            for row in c.execute(text(
+                                f"SELECT {', '.join(ref_c)} FROM {ref_t}"))}
+                fks.append((cols, ref_t, have))
+
+        copied_here = 0
+        for r in new:
+            missing = next(((cols, ref_t) for cols, ref_t, have in fks
+                            if tuple(r[k] for k in cols) not in have), None)
+            if missing:
+                orphaned.append((tbl, r.get(pk[0], "?"), missing[1],
+                                 tuple(r[k] for k in missing[0])))
+                continue
+            # One transaction per row. A single row the target refuses used to
+            # abort the table and everything after it, forty lines of
+            # traceback deep, having already committed the tables before it —
+            # so the run both failed and half-succeeded, and said neither.
+            try:
+                with dst.begin() as c:
+                    c.execute(t.insert().values(
+                        **{k: v for k, v in r.items() if k in t.c}))
+                copied_here += 1
+            except Exception as e:
+                refused.append((tbl, r.get(pk[0], "?"),
+                                " ".join(str(e).split())[:120]))
+        done += copied_here
+        print(f"  copied {copied_here:5d} into {tbl}")
 
     print(f"\n{done} row(s) copied.")
-    print("Now set the deployment's DATABASE_URL to the target and republish, "
+    if refused:
+        # Rule one: what could NOT be done is counted and said. A migration
+        # that quietly drops rows looks exactly like a complete one until
+        # somebody goes looking for a review that is not there.
+        print(f"\n{len(refused)} row(s) were REFUSED by the target and are "
+              f"still only on the source:")
+        for tbl, key, why in refused[:12]:
+            print(f"  {tbl}  {key}  — {why}")
+        if len(refused) > 12:
+            print(f"  ... and {len(refused) - 12} more")
+        print("  Nothing was lost: the source is untouched. Re-run after "
+              "resolving the conflict and only these will be attempted.")
+    if orphaned:
+        print(f"\n{len(orphaned)} row(s) were held back because their parent "
+              f"row is not on the target:")
+        for tbl, key, ref_t, ref_key in orphaned[:12]:
+            print(f"  {tbl}  {key}  — no {ref_t} with key {ref_key}")
+        if len(orphaned) > 12:
+            print(f"  ... and {len(orphaned) - 12} more")
+        print("  Copying them would write rows the dashboard's join can never "
+              "find, which renders as a blank card with no reason given.")
+        print("  Usually this means the target already holds that review "
+              "under a different id — check it before forcing anything.")
+    print("\nNow set the deployment's DATABASE_URL to the target and republish, "
           "then run tools/doctor.py on BOTH surfaces and check the identity "
           "line matches. Nothing else proves they share a database.")
-    return 0
+    return 1 if (refused or orphaned) else 0
 
 
 if __name__ == "__main__":

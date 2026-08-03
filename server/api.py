@@ -778,11 +778,30 @@ def get_version():
     except Exception as e:
         db_info["error"] = str(e)[:200]
 
+    # WHICH CONNECTORS THIS PROCESS HAS. Deployment secrets are a separate
+    # store from workspace secrets, so a connector configured in the repl can
+    # be absent in the published app — and the only visible symptom is every
+    # review the deployment processes landing in Untraceable with "BigQuery is
+    # not live on this server". That reads as a matching failure. From outside
+    # the container there was no way to tell it apart from one, because the
+    # only place the difference showed was a log nobody could reach.
+    #
+    # Booleans, not values: this endpoint is public to anyone with the URL.
+    try:
+        from server.config import is_live as _is_live
+        connectors = {k: _is_live(k) for k in
+                      ("bigquery", "zendesk", "anthropic", "slack_inbound",
+                       "slack_outbound", "dss", "canned", "checklist",
+                       "apps_script")}
+    except Exception as e:                       # never fail the endpoint
+        connectors = {"error": str(e)[:120]}
+
     return {
         "commit":     sha,
         "short":      sha[:7],
         "fingerprint": fingerprint,
         "db":         db_info,
+        "connectors": connectors,
         # What is checked out right now. If it differs from commit, the files
         # have moved on and this process has not - which is the entire failure
         # mode this endpoint exists to catch, and which it previously hid by

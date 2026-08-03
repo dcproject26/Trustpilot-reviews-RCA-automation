@@ -1,21 +1,46 @@
 [
-  {"file": "server/api.py",
-   "name": "the post ignores the text it was sent",
-   "find": "    sent = ((body.text if body else None) or \"\").strip()",
-   "replace": "    sent = \"\""},
+  {"file": "tools/migrate_db.py",
+   "name": "NULL unique values are treated as duplicates again",
+   "find": "                if any(v is None for v in vals):\n                    continue",
+   "replace": "                pass"},
 
-  {"file": "server/api.py",
-   "name": "posting does not save what it posted",
-   "find": "        d.slack_thread_override = sent",
-   "replace": "        pass"},
+  {"file": "tools/migrate_db.py",
+   "name": "unique INDEXES are not consulted",
+   "find": "        for ix in (inspect(src).get_indexes(tbl) or []):",
+   "replace": "        for ix in []:"},
 
-  {"file": "server/api.py",
-   "name": "an empty text wipes the saved post",
-   "find": "    text = sent or (d.slack_thread_override or \"\").strip() or format_rca_slack(r, d)",
-   "replace": "    text = (d.slack_thread_override or \"\").strip() or format_rca_slack(r, d)\n    sent = sent or ' '"},
+  {"file": "tools/migrate_db.py",
+   "name": "one refused row aborts the whole table again",
+   "find": "            try:\n                with dst.begin() as c:\n                    c.execute(t.insert().values(\n                        **{k: v for k, v in r.items() if k in t.c}))\n                copied_here += 1\n            except Exception as e:",
+   "replace": "            if True:\n                with dst.begin() as c:\n                    c.execute(t.insert().values(\n                        **{k: v for k, v in r.items() if k in t.c}))\n                copied_here += 1\n            for e in []:"},
 
   {"file": "client/index.html",
-   "name": "an empty section is read back as a deselection",
-   "find": "      if (!body) continue;                 // absent because empty, not chosen",
-   "replace": "      ;"}
+   "name": "the L1 list goes back to the hardcoded placeholder",
+   "find": "              ${L1_CATEGORIES.map(o =>\n                  `<option${o === rc.issueL1 ? ' selected' : ''}>${esc(o)}</option>`).join('')}",
+   "replace": "              ${['Operations Issue','SP issue','CO miss','Fulfilment','Product/UX','Customer error','Pricing','Other'].map(o =>\n                  `<option${o === rc.issueL1 ? ' selected' : ''}>${esc(o)}</option>`).join('')}"},
+
+  {"file": "client/index.html",
+   "name": "the taxonomy is fetched but L1/L2 are not taken from it",
+   "find": "    L1_CATEGORIES = t.l1_categories || [];\n    L2_OPTIONS = t.l2_options || {};",
+   "replace": "    ;"},
+
+  {"file": "client/index.html",
+   "name": "the classification selects are unbound again",
+   "find": "  const sel = ev.target.closest && ev.target.closest('[data-classify]');\n  if (!sel) return;",
+   "replace": "  const sel = null;\n  if (!sel) return;"},
+
+  {"file": "client/index.html",
+   "name": "changing the L1 keeps an L2 that does not belong to it",
+   "find": "    const valid = L2_OPTIONS[sel.value] || [];\n    if (!valid.includes(rca.issueL2)) rca.issueL2 = valid[0] || '';",
+   "replace": "    ;"},
+
+  {"file": "client/index.html",
+   "name": "a classification the taxonomy lacks is dropped from the select",
+   "find": "              ${(rc.issueL1 && !L1_CATEGORIES.includes(rc.issueL1)\n                  ? `<option>${esc(rc.issueL1)}</option>` : '')}",
+   "replace": "              ${''}"},
+
+  {"file": "client/index.html",
+   "name": "the classification change is not saved",
+   "find": "  await saveDraft(r.id, {l1: rca.issueL1, l2: rca.issueL2,\n                         sub_themes: rca.subThemes});",
+   "replace": "  ;"}
 ]
