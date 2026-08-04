@@ -496,6 +496,32 @@ def test_evidence_keeps_its_source_and_reference_in_the_post(page):
     assert "- [exp-page] No timeline on the page. (https://www.headout.com/tour/22238)" in _post(page)
 
 
+def test_the_fix_object_is_written_out_rather_than_stringified(page):
+    """`fix` is an object now. Left in the generic label loop beside root_cause
+    and pattern it stringified to "[object Object]" and went out on the post —
+    the action, the owner, the gap it closes and the count that sized it all
+    replaced by seven characters of nothing. It reached a real post and
+    surfaced only when an unrelated fixture moved, so it is worth pinning from
+    both ends: the parts are present, and the stringification is absent.
+    """
+    txt = _post(page)
+    assert "[object Object]" not in txt, \
+        txt[txt.find("*What went wrong*"):][:600]
+    assert "• Fix: Add the two-hour delivery window to the page (owner: Content)" \
+        in txt, txt[txt.find("*What went wrong*"):][:600]
+    assert "- closes: The experience page states no delivery window" in txt
+    assert "- sized by: 41 negative reviews in the window" in txt
+
+
+def test_an_issue_carries_one_fix_line(page):
+    """Two fix lines for one fix is the same defect wearing a valid string:
+    the object path and a fallback path both firing, so the post says the fix
+    twice and the reader cannot tell which one the pipeline believes."""
+    txt = _post(page)
+    block = txt.split("*1. Delivery window not disclosed*")[1].split("\n\n")[0]
+    assert block.count("• Fix:") == 1, block
+
+
 def test_the_guest_reply_is_never_in_the_post(page):
     """The RCA thread is internal; the reply goes to Trustpilot by hand. It is
     a field that would look entirely plausible in the output."""
