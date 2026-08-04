@@ -104,6 +104,79 @@ def test_the_three_fields_with_no_other_source_are_drawn(page):
         _restore(page)
 
 
+# The card has two branches — a contact joined to a Zendesk frame, and one
+# with no frame behind it — and they build their markup separately. Every test
+# above drives note 0, which is the MATCHED one. Deleting the narrative from
+# the unmatched branch passed all of them and the whole 1081-test suite; a
+# mutation run is what found it.
+#
+# It is the branch that matters more, too: an off-Zendesk contact has no frame
+# supplying a per-event guestSaid, so the narrative is the only account of it
+# anywhere on the card.
+ORPHAN = 1                                      # ZD-99999 in the fixture
+
+
+def test_the_fixture_orphan_is_really_unmatched(page):
+    """If this note ever gains a frame the tests below would silently start
+    driving the matched branch again — which is how the gap arose."""
+    why = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      return (r.rca.supportNotes[%d] || {}).zd_ref; }""" % ORPHAN)
+    assert why and "99999" in str(why), f"note {ORPHAN} is not the orphan: {why}"
+    assert "unmatched ZD reference" in _section_html(page), \
+        "the unmatched branch is not being rendered at all"
+
+
+@pytest.mark.parametrize("field,label", [
+    ("guest_said",     "Guest said"),
+    ("we_said",        "We said"),
+    ("wait_for_human", "Wait for human"),
+    ("guest_replied",  "Guest replied"),
+    ("outcome",        "Outcome"),
+])
+def test_an_unmatched_contact_draws_its_narrative_too(page, field, label):
+    try:
+        _inject(page, which=ORPHAN)
+        _open_all(page)
+        html = _section_html(page)
+        assert label in html, f"{field} has no label on the unmatched contact"
+        assert NARR[field] in html, (
+            f"{field} is drawn for a matched contact and not for an unmatched "
+            f"one — and the unmatched branch has no frame to fall back on")
+    finally:
+        _restore(page)
+
+
+def test_an_unmatched_contact_s_narrative_is_editable(page):
+    """It is the branch whose edit indexing has already been wrong once, when
+    it used a position in the filtered orphan list instead of the real one."""
+    try:
+        _inject(page, which=ORPHAN)
+        _open_all(page)
+        for f in NARR:
+            paths = page.evaluate(
+                """(f) => [...document.querySelectorAll('[data-v3p]')]
+                     .map(e => e.dataset.v3p)
+                     .filter(p => p.endsWith('.' + f))""", f)
+            assert any(p == f"support_interaction_notes.{ORPHAN}.{f}"
+                       for p in paths), (
+                f"{f} on the unmatched contact is not editable at its own "
+                f"index — found {paths}")
+    finally:
+        _restore(page)
+
+
+def test_a_null_field_on_an_unmatched_contact_draws_nothing(page):
+    try:
+        _inject(page, {"wait_for_human": None}, which=ORPHAN)
+        _open_all(page)
+        html = _section_html(page)
+        assert "Wait for human" not in html
+        assert NARR["outcome"] in html, "the fields that came back stopped drawing"
+    finally:
+        _restore(page)
+
+
 def test_a_null_field_draws_nothing_at_all(page):
     """The rule tells the model to leave an undetectable field null and write
     nothing. A row of empty labels would report five blanks as five things we
