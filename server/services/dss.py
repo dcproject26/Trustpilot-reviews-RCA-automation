@@ -107,13 +107,25 @@ def _load_unified() -> dict:
         return {}
     out: dict[str, list[dict]] = {}
     for tab in (payload.get("tabs") or {}).values():
+        t = tab.get("type") or "other"
         for row in tab.get("rows") or []:
-            out.setdefault(tab.get("type") or "other", []).append({
+            selector = row.get("selector") or ""
+            new = {
                 "_unified": True,
                 "_column": row.get("column") or "",
-                "scenarios": row.get("selector") or "",
+                "scenarios": selector,
                 "dss": row.get("dss") or "",
-            })
+            }
+            # The scorer reads the selector out of the column THAT TAB uses -
+            # `cancelation_reason` for cancellations, `scenarios` for meeting
+            # point. The export has one shape for every tab, so a cancellation
+            # row carrying its scenario under `scenarios` scored 0 against
+            # every review while still superseding the live row it replaced:
+            # guidance removed and nothing put back, reported as
+            # "No DSS available" - the same sentence a tab with no coverage
+            # gets. Store it under both names.
+            new.setdefault(TABS.get(t, "scenarios"), selector)
+            out.setdefault(t, []).append(new)
     n = sum(len(v) for v in out.values())
     log.info(f"[dss] unified export: {n} row(s) across {len(out)} type(s)")
     return out

@@ -208,3 +208,127 @@ def test_an_empty_export_leaves_the_live_sheet_alone(monkeypatch):
                  live_rows=[{"scenarios": SCEN, "dss": "OLD guidance"}],
                  unified_rows={})
     assert "OLD guidance" in str(got)
+
+
+# ── the export's one shape against four tabs' four selector columns ────────
+
+def _drive_tab(monkeypatch, tab, live_rows, unified_rows, l1, l2, review):
+    """As `_drive`, but the live rows land in the named tab.
+
+    Cancellations and delays score on their own columns, not on `scenarios`,
+    so a merge that only works for meeting-point rows passes every test above.
+    """
+    import asyncio
+    import server.services.dss as dss
+
+    async def fake_tabs():
+        empty = {"meetingPointIssue": [], "cancelation": [],
+                 "supplyPartnerIssue": [], "delay_fulfilment": []}
+        return {**empty, tab: live_rows}
+
+    monkeypatch.setattr(dss, "_get_tabs", fake_tabs)
+    monkeypatch.setattr(dss, "is_live", lambda *a, **k: True)
+    monkeypatch.setattr(dss, "_UNIFIED", unified_rows)
+    return asyncio.run(dss.get_recommendation(
+        booking={"id": "1", "isPartnered": "Yes", "amountUSD": 50},
+        review_id="tp_1", l1=l1, l2=l2, review_text=review))
+
+
+CASES = {
+    "cancelation": ("Cancellations", "Cancellation Issues",
+                    "Supplier cancelled last minute",
+                    "the supplier cancelled my booking at the last minute"),
+    "delay_fulfilment": ("Operations Issue", "Delay in Fulfilment",
+                         "Tickets delivered after the experience date",
+                         "the tickets were delivered after the experience date"),
+}
+
+
+@pytest.mark.parametrize("tab", sorted(CASES))
+def test_an_export_row_is_reachable_in_the_tab_it_landed_in(monkeypatch, tab):
+    """The export writes every scenario under `scenarios`. The scorer reads
+    the column THAT TAB uses — `cancelation_reason`, `delay_fulfilment_reason`.
+
+    So the export's cancellation rows superseded their live counterparts and
+    then scored 0 against every review: the guidance was removed and nothing
+    put back. The panel said "No DSS available", which is also what a tab with
+    no coverage says — a broken merge and an out-of-scope L2 reading the same.
+    63 cancellation rows and 24 delay rows were in that state.
+    """
+    l1, l2, scen, review = CASES[tab]
+    import server.services.dss as dss
+    got = _drive_tab(
+        monkeypatch, tab,
+        live_rows=[{dss.TABS[tab]: scen, "dss": "OLD guidance"}],
+        unified_rows={tab: [{"_unified": True, "scenarios": scen,
+                             dss.TABS[tab]: scen, "dss": "NEW guidance"}]},
+        l1=l1, l2=l2, review=review)
+    assert got.get("action") == "NEW guidance", got
+    assert got.get("match_score"), "the export row matched nothing"
+
+
+@pytest.mark.parametrize("tab", ["cancelation", "delay_fulfilment",
+                                 "meetingPointIssue", "supplyPartnerIssue"])
+def test_the_loaded_rows_carry_the_column_their_tab_scores_on(tab):
+    """The same guarantee against the real export rather than a fixture. A
+    loader that stores the selector under one name only leaves whole tabs
+    unmatchable while every count and every "rows imported" line looks right.
+    """
+    from server.services.dss import TABS
+    rows = _UNIFIED.get(tab) or []
+    assert rows, f"{tab} has no rows from the export"
+    missing = [r for r in rows if not r.get(TABS[tab])]
+    assert not missing, (
+        f"{len(missing)} of {len(rows)} {tab} rows have no {TABS[tab]} — "
+        f"they supersede the live row and then score 0 against every review")
+
+
+def test_the_export_row_wins_a_tie_with_a_live_row(monkeypatch):
+    """Two rows for different-but-equivalent scenarios score the same, and the
+    scorer keeps the FIRST at that score. Which one that is, is the whole
+    instruction: put the live sheet in front and "follow the new one" becomes
+    "follow whichever the sheet ordered", silently.
+
+    Neither row supersedes the other here — the wording differs — so ordering
+    is the only thing deciding it.
+    """
+    got = _drive_tab(
+        monkeypatch, "meetingPointIssue",
+        live_rows=[{"scenarios": "Guide absent from meeting point",
+                    "dss": "LIVE guidance"}],
+        unified_rows={"meetingPointIssue": [
+            {"_unified": True, "scenarios": "Meeting point guide absent",
+             "dss": "UNIFIED guidance"}]},
+        l1="Operations Issue", l2="Meeting Point Issues",
+        review="the guide was absent from the meeting point")
+    assert got.get("action") == "UNIFIED guidance", got
+
+
+def test_a_blank_scenario_in_the_export_supersedes_nothing(monkeypatch, caplog):
+    """An export row with an empty scenario cell has an empty selector key,
+    and so does every live row whose selector column is blank or absent. Left
+    in the set, one stray spacer row drops all of them.
+
+    They are unmatchable rows either way, so what this catches is the count:
+    the trail would report a three-row supersede where one row was superseded.
+    A number in the trail that is not the number is worse than no number.
+
+    The real row in the same run is what makes this test able to fail — a
+    merge that superseded nothing at all would otherwise pass it.
+    """
+    import logging
+    caplog.set_level(logging.INFO, logger="server.services.dss")
+    _drive_tab(
+        monkeypatch, "meetingPointIssue",
+        live_rows=[{"scenarios": SCEN, "dss": "OLD guidance"},
+                   {"scenarios": "", "dss": "blank selector"},
+                   {"dss": "no selector column at all"}],
+        unified_rows={"meetingPointIssue": [
+            {"_unified": True, "scenarios": "", "dss": "spacer row"},
+            {"_unified": True, "scenarios": SCEN, "dss": "NEW guidance"}]},
+        l1="Operations Issue", l2="Meeting Point Issues",
+        review="the guide was not present at the meeting point")
+    said = [r.message for r in caplog.records if "supersedes" in r.message]
+    assert said, "the merge superseded nothing — this test proves nothing"
+    assert "supersedes 1 live-sheet row(s)" in said[0], (
+        f"{said[0]} — the blank-selector live rows were counted as superseded")

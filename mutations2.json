@@ -1,0 +1,80 @@
+[
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "a claim we disproved still gets a root cause",
+    "find": "    _diagnosable = acc in (\"Accurate\", \"Partly accurate\")",
+    "replace": "    _diagnosable = acc in (\"Accurate\", \"Partly accurate\", \"Inaccurate\", \"Unknown\")"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "a fix survives a verdict with nothing to fix",
+    "find": "        \"fix\":                  _fix_obj(raw.get(\"fix\"), notes) if _diagnosable else None,",
+    "replace": "        \"fix\":                  _fix_obj(raw.get(\"fix\"), notes),"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the dropped causal fields are dropped silently",
+    "find": "                notes.append(f\"{_f} dropped — {acc} leaves nothing to diagnose\")",
+    "replace": "                pass"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "evidence that was never about the claim is read as refuting it",
+    "find": "            \"backs_claim\": _enum(e.get(\"backs_claim\"), (\"Yes\", \"No\"), None),",
+    "replace": "            \"backs_claim\": _enum(e.get(\"backs_claim\"), (\"Yes\", \"No\"), \"No\"),"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "a fix with an owner and no action is still a fix",
+    "find": "    if not out[\"action\"]:\n        return None",
+    "replace": "    if False:\n        return None"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the fix owner stops being a team",
+    "find": "    out[\"owner\"] = _enum(out[\"owner\"], OWNERS, None)",
+    "replace": "    out[\"owner\"] = out[\"owner\"]"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "an owner we rewrote reaches nobody",
+    "find": "        notes.append(f\"fix.owner {raw.get('owner')!r} is not a team → null\")",
+    "replace": "        pass"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "a pre-object draft loses its fix entirely",
+    "find": "        raw = {\"action\": raw}",
+    "replace": "        raw = {}"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the fix object goes out on the post as [object Object]",
+    "find": "        if (fx && fx.action) {",
+    "replace": "        if (g.fix) { block.push('• Fix: ' + g.fix); } else if (fx && fx.action) {"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the owner is read from the old top-level field only",
+    "find": "        const meta = [g.claim_accuracy, (fx && fx.owner) || g.owner].filter(Boolean);",
+    "replace": "        const meta = [g.claim_accuracy, g.owner].filter(Boolean);"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "the new view goes behind the live sheet",
+    "find": "        candidates = _new + _kept",
+    "replace": "        candidates = _kept + _new"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "an empty selector supersedes every live row",
+    "find": "        _superseded.discard(\"\")",
+    "replace": "        pass"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "an export row never reaches the column its tab scores on",
+    "find": "            new.setdefault(TABS.get(t, \"scenarios\"), selector)",
+    "replace": "            pass"
+  }
+]
