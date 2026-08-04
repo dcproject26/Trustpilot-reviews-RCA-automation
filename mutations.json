@@ -184,5 +184,53 @@
     "name": "the worked example of a sentence vs a fragment is dropped",
     "find": "\"Waited 18 minutes before an agent picked it up\", not \"18\n    minutes\".",
     "replace": "Be complete."
+  },
+  {
+    "file": "client/index.html",
+    "name": "the reason control shows on every verdict",
+    "find": "        if (cur !== 'Yes') return '';",
+    "replace": "        if (false) return '';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the reason option carries the text as its value",
+    "find": "              ${reasons.map(r => `<option value=\"${esc(r.key)}\"${",
+    "replace": "              ${reasons.map(r => `<option value=\"${esc(r.text)}\"${"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a ground is pre-selected for the associate",
+    "find": "              <option value=\"\"${chosen ? '' : ' selected'}>— pick a reason —</option>",
+    "replace": ""
+  },
+  {
+    "file": "client/index.html",
+    "name": "the verdict handler wipes the rest of the object again",
+    "find": "    const td = {...(rca.v3.takedown || {}), verdict: tdRec.value};",
+    "replace": "    const td = {verdict: tdRec.value};"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a stale ground survives the verdict changing",
+    "find": "    if (td.verdict !== 'Yes') delete td.reason;",
+    "replace": "    ;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "picking Yes does not redraw, so the reason control never appears",
+    "find": "    await persistV3(tdRec);\n    // The reason control appears and disappears with the verdict, so the\n    // section has to be redrawn - without this, picking Yes saves fine and\n    // shows no way to say why until the next load.\n    renderRcaCol();",
+    "replace": "    await persistV3(tdRec);"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the chosen ground is not saved",
+    "find": "    if (tdWhy.value) td.reason = tdWhy.value; else delete td.reason;",
+    "replace": "    ;"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the dashboard is served no takedown grounds",
+    "find": "        \"takedown_reasons\": TAKEDOWN_REASONS,",
+    "replace": "        \"takedown_reasons\": [],"
   }
 ]
