@@ -188,14 +188,14 @@
   {
     "file": "client/index.html",
     "name": "the reason control shows on every verdict",
-    "find": "        if (cur !== 'Yes') return '';",
+    "find": "        if (cur !== 'Yes' || !TAKEDOWN_REASONS.length) return '';",
     "replace": "        if (false) return '';"
   },
   {
     "file": "client/index.html",
-    "name": "the reason option carries the text as its value",
-    "find": "              ${reasons.map(r => `<option value=\"${esc(r.key)}\"${",
-    "replace": "              ${reasons.map(r => `<option value=\"${esc(r.text)}\"${"
+    "name": "a ground is offered when the copy file defines none",
+    "find": "if (cur !== 'Yes' || !TAKEDOWN_REASONS.length) return '';",
+    "replace": "if (cur !== 'Yes') return '';"
   },
   {
     "file": "client/index.html",
@@ -232,5 +232,83 @@
     "name": "the dashboard is served no takedown grounds",
     "find": "        \"takedown_reasons\": TAKEDOWN_REASONS,",
     "replace": "        \"takedown_reasons\": [],"
+  },
+  {
+    "file": "server/services/insights.py",
+    "name": "the TGID recurrence scope is the TID+VID one under another name",
+    "find": "    _rev_scope_tgid   = \"b.experience_id = @tgid\"",
+    "replace": "    _rev_scope_tgid   = \"b.tour_id = @tid AND f.vendor_id = @vid\""
+  },
+  {
+    "file": "server/services/insights.py",
+    "name": "the TGID support scope narrows to the vendor too",
+    "find": "    _sup_scope_tgid   = \"b.experience_id = @tgid\"",
+    "replace": "    _sup_scope_tgid   = \"b.tour_id = @tid AND b.vendor_id = @vid\""
+  },
+  {
+    "file": "server/services/insights.py",
+    "name": "the reviews query stops returning booking ids",
+    "find": "    _rev_ids = \"ARRAY_AGG(DISTINCT CAST(r.booking_id AS STRING) LIMIT 20) AS ids\"",
+    "replace": "    _rev_ids = \"NULL AS ids\""
+  },
+  {
+    "file": "server/services/insights.py",
+    "name": "the support query stops returning booking ids",
+    "find": "    _sup_ids = \"ARRAY_AGG(DISTINCT sq.booking_id LIMIT 20) AS ids\"",
+    "replace": "    _sup_ids = \"NULL AS ids\""
+  },
+  {
+    "file": "server/services/insights.py",
+    "name": "the recurrence id list loses its bound",
+    "find": "    _sup_ids = \"ARRAY_AGG(DISTINCT sq.booking_id LIMIT 20) AS ids\"",
+    "replace": "    _sup_ids = \"ARRAY_AGG(DISTINCT sq.booking_id) AS ids\""
+  },
+  {
+    "file": "server/services/insights.py",
+    "name": "the TGID half is gated on the tid/vid pair it does not need",
+    "find": "    skip_a_tgid = not tgid or not variants",
+    "replace": "    skip_a_tgid = not pair or not tgid or not variants"
+  },
+  {
+    "file": "server/services/insights.py",
+    "name": "the zero path drops the recurrence block",
+    "find": "        \"recurrence\": {\n            \"tidvid\": {\"reviews\": 0, \"reviews_total\": 0, \"review_ids\": [],",
+    "replace": "        \"_recurrence_removed\": {\n            \"tidvid\": {\"reviews\": 0, \"reviews_total\": 0, \"review_ids\": [],"
+  },
+  {
+    "file": "server/services/insights.py",
+    "name": "TID+VID completion is scoped to the vendor only",
+    "find": "sql_h3 = f\"{_ff_select}WHERE b.tour_id = @tid AND b.vendor_id = @vid AND {_win}{_ff_excl}\"",
+    "replace": "sql_h3 = f\"{_ff_select}WHERE b.vendor_id = @vid AND {_win}{_ff_excl}\""
+  },
+  {
+    "file": "server/services/insights.py",
+    "name": "the result names fall out of step with the queries",
+    "find": "        \"reviews_tgid\", \"reviews_total_tgid\",\n        \"support_tgid\", \"support_total_tgid\",\n        \"completion_tidvid\",",
+    "replace": "        \"reviews_tgid\", \"reviews_total_tgid\","
+  },
+  {
+    "file": "client/index.html",
+    "name": "both recurrence groups read the same scope",
+    "find": "            ${_pair(rec.tgid, 'reviews_tgid', 'reviews_total_tgid',\n                    'support_tgid', 'support_total_tgid')}",
+    "replace": "            ${_pair(rec.tidvid, 'reviews', 'reviews_total',\n                    'support', 'support_total')}"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the recurrence tiles stop showing booking ids",
+    "find": "                           qRev, qRevTot) + _ids(r.review_ids),",
+    "replace": "                           qRev, qRevTot),"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the flag button goes back to the tile that is gone",
+    "find": "            ${_ffAttnTv || _ffAttn",
+    "replace": "            ${_ffAttn"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the completion tile goes back to TGID",
+    "find": "            ${_tile('Completion · TID · VID',\n                    _rate(li.tidvid_completion_rate,",
+    "replace": "            ${_tile('Completion · TGID',\n                    _rate(li.tidvid_completion_rate,"
   }
 ]
