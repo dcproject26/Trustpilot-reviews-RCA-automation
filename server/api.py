@@ -201,6 +201,28 @@ def _bucket_of(d: RcaDraft) -> str:
     return classify(getattr(d, "review", None), d)
 
 
+def _scenario_routing(d: RcaDraft) -> dict:
+    """Where the primary came from, and whether it still agrees with routing.
+
+    Provenance and the removed-overlay list live in rca_v3 rather than in
+    columns: they are draft state the dashboard writes, and the existing
+    data-v3p saver already carries anything under rca_v3 without a migration.
+    """
+    from server import scenario_override as so
+    v3 = d.rca_v3 if isinstance(d.rca_v3, dict) else {}
+    sub = ", ".join(d.sub_themes or ([d.sub_theme] if d.sub_theme else []))
+    return so.apply(
+        d.l1, d.l2, sub or None,
+        stored_primary=d.primary_scenario,
+        source=v3.get("scenario_source"),
+        ticket_facts=d.ticket_facts, booking=d.booking,
+        removed=v3.get("overlays_removed"),
+        guest_issues=((v3.get("what_went_wrong") or {}).get("guest_issues")
+                      if isinstance(v3.get("what_went_wrong"), dict) else None),
+        rca_scenarios=v3.get("scenarios"),
+    )
+
+
 def _draft_dict(d: RcaDraft) -> dict:
     _tf = d.ticket_facts or {}
     _bk = d.booking or {}
@@ -269,6 +291,16 @@ def _draft_dict(d: RcaDraft) -> dict:
         "primary_scenario":            d.primary_scenario or "",
         "scenarios":                   d.scenarios or ([d.primary_scenario] if d.primary_scenario else []),
         "overlay_scenarios":           d.overlay_scenarios or [],
+        # How the primary got there, and how it stands against what routing
+        # would say NOW. Computed here rather than in the client so the card,
+        # the regenerate endpoint and the trail cannot each reach a slightly
+        # different answer — which is how a TGID tile once showed TID+VID data.
+        #
+        # `diverged` is the whole point: a static "set by hand" tag is
+        # provenance, and what actually bites is an override whose reason no
+        # longer holds. The comparison fires the moment L1/L2 moves, while the
+        # person still remembers why they set it.
+        "scenario_routing":            _scenario_routing(d),
         "wwr_scenarios":               d.wwr_scenarios or [],
         "l1_reasoning":                d.l1_reasoning,
         "diagnostic_checks":           d.diagnostic_checks or [],
@@ -910,6 +942,35 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
         d.sub_themes = [patch.sub_theme] if patch.sub_theme else []
     if patch.primary_scenario is not None and patch.scenarios is None:
         d.scenarios = [s for s in ([patch.primary_scenario] + (d.overlay_scenarios or [])) if s]
+
+    # ── who set the primary, and what happens when L1/L2 moves ──────────────
+    # Setting a scenario from the dashboard is a JUDGEMENT about how the case
+    # should be read, and it outranks routing from then on. Without recording
+    # that, the next L1/L2 correction would silently overwrite it — and an
+    # overwritten judgement leaves no trace that one was ever made.
+    _sets_scenario = (patch.primary_scenario is not None
+                      or patch.scenarios is not None)
+    _sets_class = (patch.l1 is not None or patch.l2 is not None
+                   or patch.sub_theme is not None or patch.sub_themes is not None)
+    if _sets_scenario or (_sets_class and not _sets_scenario):
+        from server import scenario_override as so
+        _v3 = dict(d.rca_v3 or {})
+        if _sets_scenario:
+            _v3["scenario_source"] = so.MANUAL
+        elif _v3.get("scenario_source") != so.MANUAL:
+            # A routed primary follows the classification. Re-routed here
+            # rather than left to the client, because the prompt, the DSS
+            # lookup and the Slack post all read the stored scalar and would
+            # otherwise carry a scenario for the OLD classification.
+            _re = so.reconcile(d.primary_scenario, _v3.get("scenario_source"),
+                               d.l1, d.l2,
+                               ", ".join(d.sub_themes or []) or d.sub_theme)
+            if _re["primary"] != d.primary_scenario:
+                d.primary_scenario = _re["primary"]
+                d.scenarios = [s for s in ([_re["primary"]]
+                                           + (d.overlay_scenarios or [])) if s]
+        d.rca_v3 = _v3
+        flag_modified(d, "rca_v3")
 
     # A v4 section patch edits rca_v3, never the column of the same name. The
     # columns are the pipeline's projection; giving the client a second way to
