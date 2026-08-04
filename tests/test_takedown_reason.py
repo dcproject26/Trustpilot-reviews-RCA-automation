@@ -105,23 +105,11 @@ def _reason_select(page):
     return page.locator("[data-takedown-reason]")
 
 
-def test_the_reason_control_is_always_visible(page):
-    """Both dropdowns are always on the row, per the design handoff. An
-    earlier build showed the reason only on a Yes; defaulting it to "Not
-    applicable" instead makes a No read as ANSWERED rather than blank, and a
-    control that appears and disappears is one people do not learn."""
+def test_the_reason_control_is_on_the_row(page):
     for verdict in ("No", "Yes", "Untraceable"):
         _set_verdict(page, verdict)
         assert _reason_select(page).count() == 1, verdict
     _set_verdict(page, "No")
-
-
-def test_a_no_reads_as_answered_not_blank(page):
-    try:
-        _set_verdict(page, "No")
-        assert _reason_select(page).input_value() == "Not applicable"
-    finally:
-        _set_verdict(page, "No")
 
 
 def test_it_offers_every_ground_the_copy_file_defines(page):
@@ -131,7 +119,7 @@ def test_it_offers_every_ground_the_copy_file_defines(page):
         values = page.evaluate(
             "() => [...document.querySelectorAll('[data-takedown-reason] option')]"
             ".map(o => o.value).filter(Boolean)")
-        assert values == ["Not applicable", *TAKEDOWN_REASONS], values
+        assert values == list(TAKEDOWN_REASONS), values
     finally:
         _set_verdict(page, "No")
 
@@ -147,14 +135,27 @@ def test_the_control_carries_nothing_but_the_grounds(page):
         _set_verdict(page, "No")
 
 
-def test_no_trustpilot_ground_is_pre_selected(page):
-    """"Not applicable" is a legitimate default — it is the answer "no ground
-    applies". A real GROUND pre-selected would be recorded as though somebody
-    had chosen it."""
+def test_no_ground_is_pre_selected(page):
+    """A pre-selected ground is one nobody chose, and it would be recorded as
+    though somebody had. The blank first entry is the unset state, not an
+    extra option — a select with no blank reports its first ground silently."""
     try:
         _set_verdict(page, "Yes")
-        assert _reason_select(page).input_value() == "Not applicable", \
-            "a Trustpilot ground was pre-selected for the associate"
+        assert _reason_select(page).input_value() == "", \
+            "a ground was pre-selected for the associate"
+    finally:
+        _set_verdict(page, "No")
+
+
+def test_no_option_beyond_the_supplied_grounds(page):
+    """No "Not applicable", no "Other". The list is exactly what was given."""
+    from server.prompts import TAKEDOWN_REASONS
+    try:
+        _set_verdict(page, "Yes")
+        labels = page.evaluate(
+            "() => [...document.querySelectorAll('[data-takedown-reason] option')]"
+            ".map(o => o.textContent.trim())")
+        assert labels == ["—", *TAKEDOWN_REASONS], labels
     finally:
         _set_verdict(page, "No")
 

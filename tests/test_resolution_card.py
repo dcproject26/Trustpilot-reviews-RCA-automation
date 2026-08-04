@@ -12,10 +12,8 @@ on the way past. That is the TL;DR failure and the area-of-improvement failure
 for a third time, so every control here is driven in a browser through to a
 reload.
 
-The other thing under test is the pair of DSS absences. `dss` missing means
-the lookup never ran, which is a pipeline failure; `prescribes: null` means no
-row covers this scenario, which is a fact about the case. They must never
-render alike — collapsing them is what this codebase is organised against.
+The DSS block above it is deliberately unchanged — it stays as it was, not as
+the handoff redrew it.
 """
 import pytest
 
@@ -54,8 +52,7 @@ def _v3(page, path):
 # ── order ──────────────────────────────────────────────────────────────────
 
 def test_the_three_parts_are_in_the_handoff_s_order(page):
-    """Policy, then what was done, then the decision. A remedy stated before
-    the policy it is measured against reads as the analyst's opinion."""
+    """Policy, then what was given, then the decision."""
     try:
         _set_v3(page, {"dss": {"prescribes": "Refund inside policy."},
                        "resolution": {"text": "Refunded."},
@@ -65,61 +62,12 @@ def test_the_three_parts_are_in_the_handoff_s_order(page):
             .find(s => /Resolution/.test(s.textContent));
           return [...sec.querySelectorAll('.dss-label,.res-label')]
             .map(e => e.textContent.trim()); }""")
-        assert order == ["DSS prescribes", "Resolution", "Takedown request"], order
+        assert order == ["DSS", "Resolution", "Takedown request"], order
     finally:
         _restore(page)
 
 
 # ── 1. the two DSS absences are different things ───────────────────────────
-
-def test_a_prescription_renders_with_its_source_rail(page):
-    try:
-        _set_v3(page, {"dss": {"prescribes": "Fast-track fulfilment, then refund.",
-                               "ref": "https://example.invalid/dss"}})
-        html = page.locator(".dss-block").inner_html()
-        assert "Fast-track fulfilment" in html
-        assert "dss-src" in html, "no linked source rail"
-    finally:
-        _restore(page)
-
-
-def test_no_row_covering_the_scenario_says_the_remedy_is_the_analyst_s(page):
-    try:
-        _set_v3(page, {"dss": {"prescribes": None}})
-        txt = page.locator(".dss-block").inner_text()
-        assert "No DSS row covers this scenario" in txt
-        assert "analyst's, not policy" in txt
-    finally:
-        _restore(page)
-
-
-def test_a_lookup_that_never_ran_says_so_and_says_to_re_run(page):
-    try:
-        _set_v3(page, {"dss": None})
-        txt = page.locator(".dss-block").inner_text()
-        assert "not consulted" in txt
-        assert "Re-run" in txt
-    finally:
-        _restore(page)
-
-
-def test_the_two_absences_do_not_render_alike(page):
-    """The whole point. One is a fact about the case, the other is a pipeline
-    failure, and a reader has to be able to tell without asking."""
-    try:
-        _set_v3(page, {"dss": {"prescribes": None}})
-        a = page.locator(".dss-block").inner_text()
-        cls_a = page.evaluate(
-            "() => document.querySelector('.dss-block').innerHTML")
-        _set_v3(page, {"dss": None})
-        b = page.locator(".dss-block").inner_text()
-        cls_b = page.evaluate(
-            "() => document.querySelector('.dss-block').innerHTML")
-        assert a != b, "no-row and never-ran read identically"
-        assert ("dss-none" in cls_a) and ("dss-broken" in cls_b), (cls_a, cls_b)
-    finally:
-        _restore(page)
-
 
 def test_the_dss_row_stub_is_never_rendered(page):
     """"DSS row: — / —" was the old empty state. A negative check, in a
@@ -275,14 +223,6 @@ def test_the_resolution_line_saves_and_survives_a_reload(page):
         page.wait_for_timeout(1500)
 
 
-def test_the_trustpilot_note_is_editable(page):
-    try:
-        _set_v3(page, {"takedown": {"verdict": "Yes"}})
-        assert page.locator('[data-v3p="takedown.note"]').count() == 1
-    finally:
-        _restore(page)
-
-
 # ── older drafts ───────────────────────────────────────────────────────────
 
 def test_a_draft_whose_resolution_is_a_bare_string_still_shows_it(page):
@@ -329,13 +269,11 @@ def test_editing_a_string_shaped_resolution_actually_saves(page):
         _restore(page)
 
 
-# ── the fourth state ───────────────────────────────────────────────────────
+# ── the DSS block, unchanged from what it was ──────────────────────────────
 
 def test_an_unclassified_review_says_there_is_nothing_to_look_up(page):
-    """The handoff names three states; this is a fourth it does not cover.
-    With no L1/L2 there is nothing to look up, which is NOT the same as
-    looking and finding no row — reporting "no DSS row covers this scenario"
-    would describe a lookup that never had anything to look up."""
+    """With no L1/L2 there is nothing to look up, which is NOT the same as
+    looking and finding no row."""
     try:
         page.evaluate("""() => {
           const r = REVIEWS.find(x => x.id === state.selected);

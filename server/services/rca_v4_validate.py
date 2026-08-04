@@ -26,18 +26,16 @@ FLAG_TEAMS     = ("CE", "RO", "SP", "CONTENT", "PRODUCT", "BIZ", "TECH", "OTHER"
 # exchanges a person took part in.
 CONTACT_CHANNELS = ("chat", "email", "call", "web", "app")
 
-# One contact: support type, when, what they said, what we said, and whether
-# we raised it internally. The first four keys are the join and the
-# interpretation; the rest are what the card shows.
+# One contact: when, what type, and a SUMMARY of the interaction. The card
+# shows the timestamp and a channel pill on the head row, and the summary
+# underneath - so `summary` carries the account and there are no separate
+# columns for what the guest said, what we said, or whether it was raised.
+# Those are things the summary has to COVER, stated in the prompt.
 #
-# `raised_internally` exists nowhere else in the pipeline - no frame carries
-# it - so a field missing from this tuple is a field the model can answer and
-# nobody can ever read. It matters most where we told the guest to give us
-# time: the promise is on the ticket, and whether anything was actually raised
-# behind it is the whole question.
-CONTACT_FIELDS = ("zd_ref", "summary", "detail", "ce_miss",
-                  "time", "channel", "guest_said", "we_said",
-                  "raised_internally")
+# `time` and `channel` are here because a contact with no Zendesk frame has no
+# frame to take them from, and striking them rendered a dash - the same dash a
+# broken lookup renders. Where a frame exists, the frame wins.
+CONTACT_FIELDS = ("zd_ref", "summary", "detail", "ce_miss", "time", "channel")
 
 # Where an unclassifiable review lands. Not a guess dressed as a category -
 # "Vague review" is the taxonomy's own name for "we could not tell".

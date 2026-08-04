@@ -83,9 +83,7 @@ def test_it_says_what_a_wrong_inclusion_costs():
 
 # ── what to say about each ─────────────────────────────────────────────────
 
-@pytest.mark.parametrize("field", [
-    "channel", "time", "guest_said", "we_said", "raised_internally",
-])
+@pytest.mark.parametrize("field", ["time", "channel", "summary"])
 def test_every_field_the_projection_keeps_is_asked_for(field):
     """The other half of this pairing: CONTACT_FIELDS is what survives
     validation, and a field kept there but never requested is a column that
@@ -99,7 +97,7 @@ def test_the_projection_and_the_prompt_ask_for_the_same_things():
     direction the parametrize cannot catch."""
     from server.services.rca_v4_validate import CONTACT_FIELDS
     for field in CONTACT_FIELDS:
-        if field in ("zd_ref", "summary", "detail", "ce_miss"):
+        if field in ("zd_ref", "detail", "ce_miss"):
             continue                       # the join and the interpretation
         assert f"`{field}`" in SEG, (
             f"{field} survives validation and nothing ever asks the model "
@@ -112,47 +110,44 @@ def test_skylar_is_identified_as_a_bot():
     assert "SKYLAR IS AN AI BOT" in SEG
 
 
-def test_it_asks_whether_we_raised_it_internally():
-    """The case where it matters: we told the guest to give us time. The
-    promise is on the ticket; whether anything was raised behind it is the
-    question, and a blank there is not the same as a no."""
+def test_the_summary_covers_what_the_interaction_was():
+    """The section is a SUMMARY, not a form. These are things the summary has
+    to cover, not fields to fill in."""
     flat = " ".join(SEG.split())
-    assert "did we raise it INTERNALLY" in flat
-    assert "give the guest time" in flat or "give us time" in flat
-    assert "raised nothing, SAY THAT" in flat or "raised nothing, SAY THAT" in SEG
+    assert "WHAT THE SUMMARY COVERS" in flat
+    for part in ("what the guest reached out with", "what we replied",
+                 "what the guest said back", "RAISED INTERNALLY"):
+        assert part in flat, part
 
 
-def test_it_says_when_a_blank_there_is_not_a_failure():
-    """Not every contact needs an escalation. Without this the model reports
-    a missing one on every routine exchange."""
+def test_it_says_where_to_look_for_an_internal_escalation():
+    """"how will you check if anything has been raised or not? you will look
+    at internal notes or zendesk tickets by bots stating this for the same
+    bid." Without the method the model infers it from what we PROMISED the
+    guest, which is not evidence that anything happened."""
     flat = " ".join(SEG.split())
-    assert "never asked for time and never needed to raise anything" in flat
+    assert "Do not infer it from what we promised" in flat
+    assert "INTERNAL NOTE on the ticket" in flat
+    assert "opened by a bot against the SAME BOOKING ID" in flat
+
+
+def test_an_unverified_absence_is_not_reported_as_a_finding():
+    flat = " ".join(SEG.split())
+    assert "an absence you did not verify is not a finding" in flat
+
+
+def test_it_asks_whether_dss_was_followed():
+    assert "whether DSS was followed" in " ".join(SEG.split())
 
 
 def test_the_entries_are_chronological():
     assert "Chronological" in SEG or "chronological" in SEG
 
 
-def test_one_short_sentence_each():
-    assert "ONE SENTENCE EACH" in SEG
-
-
-def test_the_fields_are_asked_for_as_bullets_not_form_answers():
-    """Each one renders as a bullet in a summary of the contact, so "18
-    minutes" is not an answer — it is a value with its label missing. The card
-    no longer draws labels, so a bare fragment reads as a stray phrase."""
+def test_it_is_concise_bullets_in_single_sentences():
     flat = " ".join(SEG.split())
-    assert "THESE ARE BULLETS, NOT FORM ANSWERS" in flat
-    assert "COMPLETE SHORT SENTENCE that stands on its own" in flat
-    assert "not as a value after a label" in flat
-
-
-def test_it_shows_the_model_the_difference():
-    """A rule stated abstractly and never shown is one the model satisfies in
-    form and misses in substance."""
-    flat = " ".join(SEG.split())
-    assert ('"Skylar answered with the cancellation policy link", not "policy link"'
-            in flat)
+    assert "CONCISE BULLET POINTS, SINGLE SENTENCES, CHRONOLOGICAL" in flat
+    assert "No paragraphs" in flat
 
 
 # ── time and channel: precedence, not judgement ────────────────────────────
@@ -179,8 +174,8 @@ def test_a_time_in_the_prose_is_not_a_substitute_for_the_field():
 
 # ── silence ────────────────────────────────────────────────────────────────
 
-def test_an_undetectable_field_is_left_null():
-    assert "IF YOU CANNOT DETERMINE A FIELD, LEAVE IT NULL" in SEG
+def test_an_undetectable_thing_is_left_out():
+    assert "IF YOU CANNOT DETERMINE SOMETHING, WRITE NOTHING FOR IT" in SEG
     assert "worse than a blank" in " ".join(SEG.split())
 
 

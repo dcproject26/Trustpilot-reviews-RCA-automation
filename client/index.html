@@ -1307,10 +1307,6 @@ let SCENARIO_OPTIONS = [];
 // until it loads, and an empty list draws no control at all rather than an
 // empty dropdown - a select with nothing in it reads as a broken lookup.
 let TAKEDOWN_REASONS = [];
-// The default reason, and not a Trustpilot ground — it is the answer "no
-// ground applies", which is why it is here and not in the copy file. It has
-// to be an option so a No reads as ANSWERED rather than blank.
-const NOT_APPLICABLE = 'Not applicable';
 
 async function loadSubThemeOptions() {
   try {
@@ -3479,33 +3475,6 @@ function renderRcaCol() {
     ..._orphans.map((n, k) => ({kind: 'orphan', note: n, i: _groups.length + k})),
   ];
 
-  // The contact, as concise bullets in the order it happened: what they came
-  // with, what we said, and whether we raised it internally. One short
-  // sentence each. The support type and the timestamp are on the head row
-  // above, not repeated here.
-  //
-  // Not a labelled field grid. "Guest said: …" / "We said: …" down the card
-  // turns a conversation into a form, and the ask was to SUMMARISE the
-  // interaction — the labels were mine, not the spec's.
-  //
-  // The keys stay separate underneath because the model needs them to be told
-  // what to cover, and because each stays individually correctable. Only the
-  // presentation is a bullet list.
-  const _NARR = ['guest_said', 'we_said', 'raised_internally'];
-  const _narrative = (note, nIdx) => {
-    if (!note) return '';
-    // Only what came back. The rule tells the model to leave an undetectable
-    // field null and write nothing, so an empty bullet would report silence
-    // as something we looked for and failed to find.
-    const lines = _NARR
-      .filter(k => String(note[k] == null ? '' : note[k]).trim())
-      .map(k => `<li class="convo-bullet">${
-        nIdx >= 0 ? edSpan(`support_interaction_notes.${nIdx}.${k}`, note[k])
-                  : `<span>${esc(note[k])}</span>`}</li>`);
-    return lines.length
-      ? `<ul class="convo-narr">${lines.join('')}</ul>` : '';
-  };
-
   const _contactRow = (row) => {
     const i = row.i;
     const open = !!state.ixOpen[i];
@@ -3539,7 +3508,6 @@ function renderRcaCol() {
             <span class="convo-chevron">${open ? '▾' : '▸'}</span>
           </div>
           <div class="convo-body">
-            ${_narrative(note, oIdx)}
             ${note.detail ? `<div class="convo-detail">${edSpan(`support_interaction_notes.${oIdx}.detail`, note.detail)}</div>` : ''}
             ${note.ce_miss ? `<div class="convo-gap">⚠ CE miss: ${edSpan(`support_interaction_notes.${oIdx}.ce_miss`, note.ce_miss)}</div>` : ''}
           </div>
@@ -3570,7 +3538,6 @@ function renderRcaCol() {
           <span class="convo-chevron">${open ? '▾' : '▸'}</span>
         </div>
         <div class="convo-body">
-          ${_narrative(row.note, nIdx)}
           ${rows.map(fr => `
             <div class="convo-line">
               <span class="convo-ev-time">${esc(fr.time || '—')}</span>
@@ -4509,49 +4476,30 @@ function renderRcaCol() {
            defensible against the DSS row above it, so the policy is stated
            first and the remedy reads as an answer to it. -->
 
+      <!-- §12 DSS has a home instead of the "DSS row: — / —" stub. It is
+           reference data, not analysis - an operator reads it to check their
+           resolution against the playbook - so it is read-only until ✎ Edit.
+           Never render "DSS row: — / —": with no classification there is
+           nothing to look up, and the neutral empty state says that. -->
       ${(() => {
-        // ── 1. DSS prescribes ────────────────────────────────────────────
-        // Three states, decided by the PAYLOAD and never by a UI flag. The
-        // two absences must never look alike: `dss` absent means the lookup
-        // did not run (a pipeline failure), `prescribes: null` means no row
-        // covers this scenario (a fact). Collapsing them is the defect this
-        // whole codebase is organised against.
-        const hasDss = v3d.dss !== undefined && v3d.dss !== null;
-        if (!hasDss) {
-          return `<div class="dss-block">
-            <div class="dss-broken">DSS was not consulted — the lookup did not
-              run on this draft. Re-run before posting.</div>
-          </div>`;
-        }
         const dss = v3d.dss || {};
         const row = [rca.issueL1, rca.issueL2, rca.subTheme].filter(Boolean).join(' / ');
-        // A FOURTH state the handoff's three do not cover, and dropping it
-        // was the same collapse it warns about: with no classification there
-        // is nothing to look up, which is not the same as looking and finding
-        // no row. Rendering "no DSS row covers this scenario" here would
-        // report a lookup that never had anything to look up.
-        if (!row) {
-          return `<div class="dss-block">
-            <div class="dss-none">The review is not classified yet — there is no DSS row to look up.</div>
-          </div>`;
-        }
-        if (!dss.prescribes) {
-          return `<div class="dss-block">
-            <div class="dss-none">No DSS row covers this scenario — the remedy
-              below is the analyst's, not policy.</div>
-          </div>`;
-        }
         const src = dss.ref
           ? `<a class="dss-src" href="${esc(dss.ref)}" target="_blank" rel="noopener">dss</a>`
           : `<span class="dss-src">dss</span>`;
         return `<div class="dss-block">
           <div class="dss-head">
-            <span class="dss-label">DSS prescribes</span>${src}
+            <span class="dss-label">DSS</span>${src}
             <span class="dss-row">${row ? esc(row) : ''}</span>
             <button class="btn" style="font-size:11px;padding:2px 9px" data-dss-edit>${
               state.dssEdit ? '✓ Done' : '✎ Edit'}</button>
           </div>
-          <div class="dss-panel">${state.dssEdit ? edSpan('dss.prescribes', dss.prescribes) : esc(dss.prescribes)}</div>
+          ${row ? `<div class="dss-panel"><span class="k">DSS says:</span> ${
+            dss.prescribes
+              ? (state.dssEdit ? edSpan('dss.prescribes', dss.prescribes) : esc(dss.prescribes))
+              : `<span class="rca-empty">No DSS row was matched for this classification.</span>`
+          }</div>`
+          : `<div class="dss-panel"><span class="rca-empty">The review is not classified yet — there is no DSS row to look up.</span></div>`}
         </div>`;
       })()}
 
@@ -4592,20 +4540,25 @@ function renderRcaCol() {
               ${amt.trim() ? '' : '<span class="res-amount-unknown">amount unknown</span>'}
             `}
           </div>
+          <!-- One line, what has been given so far: "CE gave 25% HOC",
+               "Refund issued", "Refund denied". Not a paragraph and not a
+               recommendation - the record of what the guest has had. -->
           <div class="res-line">${edSpan('resolution.text', res.text,
-            'Click to write what the guest actually received, and who approved it')}</div>
+            'Click to write what has been given so far, in one line')}</div>
         </div>`;
       })()}
 
       ${(() => {
         // ── 3. Takedown request ──────────────────────────────────────────
-        // Both controls always visible. The reason defaults to "Not
-        // applicable" so a No reads as ANSWERED rather than blank — an empty
-        // control reads as a question nobody got to.
+        // The verdict, and the ground for it. The grounds are exactly the
+        // list in content/orm_macros.yaml and nothing else - no extra option,
+        // no default ground. The blank first entry is not a choice; it is the
+        // unset state, because a select with no blank silently reports its
+        // first option as though somebody had picked it.
         const td = v3d.takedown || {};
         const cur = td.verdict || (td.recommended === true ? 'Yes'
                                  : td.recommended === false ? 'No' : 'No');
-        const chosen = td.reason || NOT_APPLICABLE;
+        const chosen = td.reason || '';
         return `<div class="res-block">
           <div class="res-head">
             <span class="res-label">Takedown request</span>
@@ -4614,13 +4567,11 @@ function renderRcaCol() {
                 `<option${cur === o ? ' selected' : ''}>${esc(o)}</option>`).join('')}
             </select>
             <select class="res-reason" data-takedown-reason>
-              ${[NOT_APPLICABLE, ...TAKEDOWN_REASONS].map(o =>
+              <option value=""${chosen ? '' : ' selected'}>—</option>
+              ${TAKEDOWN_REASONS.map(o =>
                 `<option${chosen === o ? ' selected' : ''}>${esc(o)}</option>`).join('')}
             </select>
           </div>
-          <div class="res-note"><span class="res-note-label">Note for Trustpilot</span>
-            ${edSpan('takedown.note', td.note,
-                     'Click to write what specifically breaches this ground')}</div>
         </div>`;
       })()}
     </div>
@@ -5267,10 +5218,7 @@ function renderRcaCol() {
   const tdWhy = col.querySelector('[data-takedown-reason]');
   if (tdWhy) tdWhy.addEventListener('change', async () => {
     const td = {...(rca.v3.takedown || {})};
-    // "Not applicable" is an ANSWER, so it is stored like any other. Deleting
-    // the key instead would make a deliberate "no ground applies" read as a
-    // question nobody got to on the next load.
-    td.reason = tdWhy.value || NOT_APPLICABLE;
+    if (tdWhy.value) td.reason = tdWhy.value; else delete td.reason;
     rca.v3.takedown = td;
     await persistV3(tdWhy);
   });

@@ -1,9 +1,12 @@
 """The guest's conversations with us — every field of them reaches a reader.
 
-"all i need is support type, timestamp, what did the guest say ... our
-response, did we raise it internally if we asked for some time etc"
+"customer interaction will be time stamp and pill followed by the summary of
+of the interaction like i had stated in the first message."
 
-So: `channel`, `time`, `guest_said`, `we_said`, `raised_internally`.
+So: `time`, `channel`, `summary`. The card shows the timestamp and a channel
+pill on the head row, and the summary underneath. What the summary has to
+COVER — the guest's issue, our reply, whether it was raised internally — is
+stated in the prompt, not split into columns here.
 
 The projection in `rca_v4_validate` accepted four keys — zd_ref, summary,
 detail, ce_miss — and dropped everything else on the floor, silently. `_rows`
@@ -12,11 +15,10 @@ is this codebase's first rule exactly: a model that answered and a model that
 did not produced an identical card, so no run could ever show the rule was not
 working.
 
-`raised_internally` is the load-bearing one. No frame carries it and nothing
-else in the pipeline computes it, so if the projection drops it there is no
-second source and the field is unreadable by construction. It is also the one
-that matters most: where we told the guest to give us time, the promise is on
-the ticket and whether anything was raised behind it is the finding.
+`time` and `channel` are the ones that had been struck. A contact with no
+Zendesk frame has no frame to take them from, so striking them rendered a
+dash — the same dash a broken lookup renders, on a contact where we knew the
+answer perfectly well.
 
 Driven through `validate_rca_v4`, not asserted at source: a field name present
 in a tuple proves nothing about whether a row carrying it survives.
@@ -38,8 +40,7 @@ def _rca(**over):
     note = {"zd_ref": "ZD-4491", "summary": "Guest asked to cancel",
             "time": "22 Jul 15:41", "channel": "chat",
             "guest_said": "Wants to cancel, unwell",
-            "we_said": "Skylar replied with the policy link",
-            "raised_internally": "Raised as an ops task after we promised 24 hours"}
+            }
     note.update(over)
     return {"support_interaction_notes": [note]}
 
@@ -53,22 +54,8 @@ def _contact(rca=None, **over):
 
 # ── the narrative survives the projection ──────────────────────────────────
 
-@pytest.mark.parametrize("field,value", [
-    ("guest_said",        "Wants to cancel, unwell"),
-    ("we_said",           "Skylar replied with the policy link"),
-    ("raised_internally", "Raised as an ops task after we promised 24 hours"),
-])
-def test_each_narrative_field_reaches_the_reader(field, value):
-    assert _contact()[field] == value, (
-        f"{field} was dropped by the projection. The model can answer it and "
-        f"nobody can ever read it.")
-
-
-def test_the_field_nothing_else_computes_is_kept():
-    """`raised_internally` has no second source. A frame carries a time, a
-    channel and a per-event guestSaid; nothing anywhere carries whether we
-    raised the case internally — which is the whole point of asking."""
-    assert _contact().get("raised_internally")
+def test_the_summary_reaches_the_reader():
+    assert _contact()["summary"] == "Guest asked to cancel"
 
 
 def test_the_old_four_fields_still_work():
@@ -81,14 +68,14 @@ def test_the_old_four_fields_still_work():
 def test_a_field_the_model_left_null_stays_null():
     """The rule tells it to leave an undetectable field blank. A blank that
     comes back as a string would be a value nobody wrote."""
-    c = _contact(raised_internally=None)
-    assert c["raised_internally"] is None
+    c = _contact(detail=None)
+    assert c["detail"] is None
 
 
 def test_non_values_are_not_smuggled_in_as_text():
-    """"Unknown" rendered as an escalation reads as one we looked up."""
+    """"Unknown" rendered as detail reads as something we looked up."""
     for junk in ("Unknown", "N/A", "-", "TBD", "?"):
-        assert _contact(raised_internally=junk)["raised_internally"] is None, junk
+        assert _contact(detail=junk)["detail"] is None, junk
 
 
 # ── time and channel ───────────────────────────────────────────────────────
@@ -155,13 +142,12 @@ def test_a_real_contact_is_not_swallowed_by_that_guard():
 
 def test_a_contact_with_only_a_narrative_field_still_counts():
     """`_rows` drops a row where every column is empty. A contact carrying
-    nothing but an escalation note is thin, not empty — and before the
+    nothing but a timestamp is thin, not empty — and before the
     projection was widened it WAS empty, so it vanished."""
     out = validate_rca_v4({"support_interaction_notes": [
-        {"raised_internally": "Nothing was raised despite the 24-hour promise"}]})
+        {"time": "22 Jul 15:41"}]})
     assert len(out["support_interaction_notes"]) == 1
-    assert out["support_interaction_notes"][0]["raised_internally"] == \
-        "Nothing was raised despite the 24-hour promise"
+    assert out["support_interaction_notes"][0]["time"] == "22 Jul 15:41"
 
 
 def test_every_declared_field_is_actually_projected():
