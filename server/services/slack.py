@@ -757,7 +757,12 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
         # list and the reader could not tell which cause belonged to which.
         for n, g in enumerate(gi, 1):
             head = f"*{n}. {g.get('issue', '(untitled)')}*"
-            meta = [x for x in (g.get("claim_accuracy"), g.get("owner")) if x]
+            # Owner rides the FIX now, not the issue. Reading the old key
+            # here left every issue title bare — the verdict with no team
+            # beside it, which is the one thing leadership scans for.
+            _fx = g.get("fix") if isinstance(g.get("fix"), dict) else None
+            meta = [x for x in (g.get("claim_accuracy"),
+                                (_fx or {}).get("owner") or g.get("owner")) if x]
             if meta:
                 head += "  \u00b7  " + "  \u00b7  ".join(meta)
             block = [head]
@@ -776,10 +781,24 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
             for key, label in (("root_cause", "Root cause"),
                                ("operational_failure", "Operational failure"),
                                ("sop_gap", "SOP gap"),
-                               ("pattern", "Pattern"),
-                               ("fix", "Fix")):
+                               ("pattern", "Pattern")):
                 if g.get(key):
                     block.append(f"\u2022 {label}: {g[key]}")
+            # The fix is an object now: the action, who does it, and the gap it
+            # closes. Printing only the action would drop the two halves that
+            # make it checkable — a reader cannot tell an invented fix from a
+            # derived one without the gap it is the negative of.
+            if isinstance(_fx, dict) and _fx.get("action"):
+                line = f"\u2022 Fix: {_fx['action']}"
+                if _fx.get("owner"):
+                    line += f" (owner: {_fx['owner']})"
+                block.append(line)
+                if _fx.get("because"):
+                    block.append(f"   - closes: {_fx['because']}")
+                if _fx.get("sized_by"):
+                    block.append(f"   - sized by: {_fx['sized_by']}")
+            elif isinstance(g.get("fix"), str) and g["fix"]:
+                block.append(f"\u2022 Fix: {g['fix']}")     # pre-object drafts
             for e in (g.get("evidence") or []):
                 if isinstance(e, str):
                     block.append(f"   - {e}")

@@ -328,12 +328,19 @@ def test_the_data_gap_guard_applies_here_too():
         "6b no longer inherits rule 6's evidence rules; it only repeats two of them"
 
 
-def test_the_schema_points_at_the_rule():
+def test_the_schema_says_what_sop_gap_is_for():
     """A one-line field description with a method 200 lines away is one the
-    model answers from the description."""
+    model answers from the description.
+
+    It used to point at "rule 6b" by name. The description now states the JOB
+    — why nothing caught it, the control that should have — which is what the
+    model needs at the point of writing, and a cross-reference to a rule
+    number survives a renumbering by pointing at the wrong rule.
+    """
     schema = TEXT[TEXT.index("## OUTPUT FORMAT"):]
     assert '"sop_gap"' in schema
-    assert "see rule 6b" in schema
+    assert "why nothing caught it" in schema
+    assert "the control that should have" in schema
 
 
 # ── the four jobs the SOP NEEDLE rule was doing ─────────────────────────────

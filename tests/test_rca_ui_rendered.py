@@ -44,7 +44,15 @@ RCA = {
     "what_went_wrong": {"guest_issues": [{
         "issue": "Delivery window not disclosed",
         "claim": "I never heard this before I paid for them.",
-        "claim_accuracy": "Accurate", "owner": "Content",
+        "claim_accuracy": "Accurate",
+        # Owner rides the FIX now, per the what_went_wrong spec. Left at the
+        # top level it does not survive projection, and the Slack post loses
+        # the team beside the verdict — which is the line leadership scans.
+        "fix": {"action": "Add the two-hour delivery window to the page",
+                "owner": "Content",
+                "because": "The experience page states no delivery window",
+                "source": "exp-page",
+                "sized_by": "41 negative reviews in the window"},
         "root_cause": "The page did not state the window.",
         # Three refs, three shapes, because the renderer treats them
         # differently and only one of them used to work: a URL, a ZD id (which

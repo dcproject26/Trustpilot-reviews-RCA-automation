@@ -17,7 +17,8 @@ def _ok(**over):
         "what_went_wrong": {"guest_issues": [{
             "issue": "Voucher never delivered",
             "claim": "I waited two hours and nothing came.",
-            "claim_accuracy": "Accurate", "owner": "RO",
+            "claim_accuracy": "Accurate",
+            "fix": {"action": "Watch the fulfilment queue", "owner": "RO"},
             "root_cause": "The fulfilment run failed silently.",
             "evidence": [{"text": "Fulfilment log shows three failed retries.",
                           "source": "bms", "ref": "https://x/1"}],
@@ -38,7 +39,9 @@ def test_the_v3_vocabulary_maps_onto_the_v4_enum():
                       ("No", "Inaccurate"), ("Accurate", "Accurate"),
                       ("inaccurate", "Inaccurate"), ("Partly accurate", "Partly accurate")):
         out, _ = validate(_ok(what_went_wrong={"guest_issues": [
-            {"issue": "x", "claim_accuracy": raw, "root_cause": "y", "owner": "CE"}]}))
+            {"issue": "x", "claim": "the guest said so", "claim_accuracy": raw,
+             "root_cause": "y",
+             "fix": {"action": "do the thing", "owner": "CE"}}]}))
         got = out["what_went_wrong"]["guest_issues"][0]["claim_accuracy"]
         assert got == want, f"{raw!r} → {got!r}, expected {want!r}"
 
@@ -47,7 +50,7 @@ def test_a_sentence_verdict_keeps_its_tail_instead_of_losing_it():
     """"Partially True — booking status shows…" put a sentence in a 140px
     chip. The verdict is the enum; the reasoning belongs in the note."""
     out, _ = validate(_ok(what_went_wrong={"guest_issues": [{
-        "issue": "x", "root_cause": "y", "owner": "CE",
+        "issue": "x", "root_cause": "y", "fix": {"action": "do the thing", "owner": "CE"},
         "claim_accuracy": "Partially True — booking status shows a refund",
     }]}))
     iss = out["what_went_wrong"]["guest_issues"][0]
@@ -58,7 +61,7 @@ def test_a_sentence_verdict_keeps_its_tail_instead_of_losing_it():
 
 def test_an_unrecognisable_verdict_becomes_unknown_not_a_raw_pill():
     out, notes = validate(_ok(what_went_wrong={"guest_issues": [
-        {"issue": "x", "root_cause": "y", "owner": "CE", "claim_accuracy": "probably fine tbh"}]}))
+        {"issue": "x", "claim": "the guest said so", "root_cause": "y", "fix": {"action": "do the thing", "owner": "CE"}, "claim_accuracy": "probably fine tbh"}]}))
     assert out["what_went_wrong"]["guest_issues"][0]["claim_accuracy"] == "Unknown"
     assert any("claim_accuracy" in n for n in notes)
 
@@ -70,7 +73,7 @@ def test_the_guest_quote_is_never_trimmed():
                   "take two hours to arrive, which meant we stood outside in the "
                   "rain with two small children for the whole afternoon.")
     out, _ = validate(_ok(what_went_wrong={"guest_issues": [
-        {"issue": "x", "root_cause": "y", "owner": "CE", "claim": long_quote}]}))
+        {"issue": "x", "root_cause": "y", "fix": {"action": "do the thing", "owner": "CE"}, "claim": long_quote}]}))
     assert out["what_went_wrong"]["guest_issues"][0]["claim"] == long_quote
 
 
@@ -78,7 +81,8 @@ def test_the_guest_quote_is_never_trimmed():
 
 def test_a_legacy_string_evidence_becomes_a_row():
     out, _ = validate(_ok(what_went_wrong={"guest_issues": [{
-        "issue": "x", "root_cause": "y", "owner": "CE",
+        "issue": "x", "claim": "the guest said so", "root_cause": "y",
+        "fix": {"action": "do the thing", "owner": "CE"},
         "evidence": ["[booking] The booking shows two adult tickets."]}]}))
     ev = out["what_went_wrong"]["guest_issues"][0]["evidence"][0]
     assert ev["text"] == "The booking shows two adult tickets."
@@ -90,7 +94,8 @@ def test_a_source_prefix_is_stripped_out_of_the_sentence():
     """source and ref are structured fields; a prefix inside text renders the
     marker twice, once as the rail and once in the words."""
     out, _ = validate(_ok(what_went_wrong={"guest_issues": [{
-        "issue": "x", "root_cause": "y", "owner": "CE",
+        "issue": "x", "claim": "the guest said so", "root_cause": "y",
+        "fix": {"action": "do the thing", "owner": "CE"},
         "evidence": [{"text": "[insights] Twelve similar reviews in 90 days.",
                       "source": "insights", "ref": None}]}]}))
     assert out["what_went_wrong"]["guest_issues"][0]["evidence"][0]["text"] \
@@ -99,7 +104,8 @@ def test_a_source_prefix_is_stripped_out_of_the_sentence():
 
 def test_an_unknown_source_becomes_null_rather_than_a_broken_rail():
     out, _ = validate(_ok(what_went_wrong={"guest_issues": [{
-        "issue": "x", "root_cause": "y", "owner": "CE",
+        "issue": "x", "claim": "the guest said so", "root_cause": "y",
+        "fix": {"action": "do the thing", "owner": "CE"},
         "evidence": [{"text": "A finding.", "source": "guesswork", "ref": "-"}]}]}))
     ev = out["what_went_wrong"]["guest_issues"][0]["evidence"][0]
     assert ev["source"] is None and ev["ref"] is None
@@ -306,7 +312,7 @@ def test_the_document_level_v3_fields_are_not_carried_forward():
     them at document level again would render nothing and hide the move."""
     out, _ = validate(_ok(what_went_wrong={
         "what_happened": "old shape", "root_causes": ["old"],
-        "guest_issues": [{"issue": "x", "root_cause": "y", "owner": "CE"}]}))
+        "guest_issues": [{"issue": "x", "root_cause": "y", "fix": {"action": "do the thing", "owner": "CE"}}]}))
     assert set(out["what_went_wrong"]) == {"guest_issues"}
 
 
@@ -357,19 +363,19 @@ def test_a_legitimate_unknown_verdict_is_not_reported_as_a_coercion():
     inverted, and it costs the same thing: a reader who stops believing the
     trail."""
     _, notes = validate(_ok(what_went_wrong={"guest_issues": [
-        {"issue": "x", "root_cause": "y", "owner": "CE", "claim_accuracy": "Unknown"}]}))
+        {"issue": "x", "claim": "the guest said so", "root_cause": "y", "fix": {"action": "do the thing", "owner": "CE"}, "claim_accuracy": "Unknown"}]}))
     assert not any("claim_accuracy" in n for n in notes), notes
 
 
 def test_a_case_only_difference_is_not_a_coercion_either():
     _, notes = validate(_ok(what_went_wrong={"guest_issues": [
-        {"issue": "x", "root_cause": "y", "owner": "CE", "claim_accuracy": "accurate"}]}))
+        {"issue": "x", "claim": "the guest said so", "root_cause": "y", "fix": {"action": "do the thing", "owner": "CE"}, "claim_accuracy": "accurate"}]}))
     assert not any("claim_accuracy" in n for n in notes), notes
 
 
 def test_a_real_coercion_is_still_reported():
     _, notes = validate(_ok(what_went_wrong={"guest_issues": [
-        {"issue": "x", "root_cause": "y", "owner": "CE", "claim_accuracy": "probably fine"}]}))
+        {"issue": "x", "claim": "the guest said so", "root_cause": "y", "fix": {"action": "do the thing", "owner": "CE"}, "claim_accuracy": "probably fine"}]}))
     assert any("claim_accuracy" in n for n in notes)
 
 
@@ -407,12 +413,22 @@ def test_the_sp_reason_survives():
 # ── our findings are not the guest's complaints ─────────────────────────────
 
 def _finding(**over):
+    """A finding about US wearing a guest issue's clothes: no claim, no owner,
+    no operational failure.
+
+    `owner` is a kwarg for the caller's convenience and lands on the FIX,
+    which is where owner lives now. Passing it at the top level would set a
+    key nothing reads, and the test would then prove the opposite of its name.
+    """
+    owner = over.pop("owner", None)
     base = {"issue": "Out-of-policy refund issued after booking was non-refundable",
-            "claim": None, "owner": None, "operational_failure": None,
+            "claim": None, "fix": None, "operational_failure": None,
             "root_cause": "The refund was a discretionary exception by CE.",
             "evidence": [{"text": "is_cancellable is false.", "source": "exp-page",
                           "ref": "https://x/22238"}]}
     base.update(over)
+    if owner:
+        base["fix"] = {"action": "Review the refund exception", "owner": owner}
     return base
 
 
@@ -433,7 +449,9 @@ def test_the_finding_survives_as_a_flag():
     f = out["flags"][0]
     assert f["flag"] == "Out-of-policy refund issued after booking was non-refundable"
     assert f["team"] == "OTHER"
-    assert "discretionary exception" in f["evidence"]
+    # The flag carries the issue's EVIDENCE, not its root cause — the record
+    # that showed it, which is what the team it lands on has to check.
+    assert "is_cancellable is false" in f["evidence"]
     assert f["zd_ref"] == "https://x/22238"
 
 
@@ -455,13 +473,43 @@ def test_an_issue_with_a_claim_is_never_demoted():
 
 
 def test_an_issue_with_an_owner_is_never_demoted():
-    out, _ = validate(_ok(what_went_wrong={"guest_issues": [_finding(owner="CE")]}))
+    """An owner means somebody decided this is a guest issue with a fix. The
+    verdict has to be diagnosable, because Inaccurate and Unknown null the fix
+    — and a nulled fix takes its owner with it."""
+    out, _ = validate(_ok(what_went_wrong={"guest_issues": [
+        _finding(owner="CE", claim_accuracy="Accurate")]}))
     assert len(out["what_went_wrong"]["guest_issues"]) == 1
 
 
 def test_an_issue_with_an_operational_failure_is_never_demoted():
     out, _ = validate(_ok(what_went_wrong={"guest_issues": [
-        _finding(operational_failure="the agent skipped the check")]}))
+        _finding(operational_failure="the agent skipped the check",
+                 claim_accuracy="Accurate")]}))
+    assert len(out["what_went_wrong"]["guest_issues"]) == 1
+
+
+def test_an_undiagnosable_verdict_leaves_nothing_to_hold_a_claimless_issue():
+    """The interaction the two tests above had to be corrected for, pinned so
+    it is a decision rather than a surprise.
+
+    Inaccurate and Unknown null root_cause, operational_failure, sop_gap and
+    fix. An issue with no claim then has nothing marking it as the GUEST's —
+    no claim, no owner, no operational failure — so it is filed as our finding
+    instead. That is right: "we cannot tell, and the guest never said it" is
+    not a guest issue. It matters that it is deliberate, because the same
+    three nulls used to mean something else.
+    """
+    out, _ = validate(_ok(what_went_wrong={"guest_issues": [
+        _finding(owner="CE", claim_accuracy="Unknown")]}))
+    assert out["what_went_wrong"]["guest_issues"] == []
+    assert out["flags"], "the finding was deleted rather than re-filed"
+
+
+def test_a_claim_keeps_an_undiagnosable_issue_where_it_is():
+    """The guest DID say it, and we could not settle it. That is a guest issue
+    with an Unknown verdict, not a finding about us."""
+    out, _ = validate(_ok(what_went_wrong={"guest_issues": [
+        _finding(claim="the guide was rude", claim_accuracy="Unknown")]}))
     assert len(out["what_went_wrong"]["guest_issues"]) == 1
 
 
@@ -471,7 +519,7 @@ def test_a_routed_scenario_coverage_row_is_exempt():
     for the opposite reason. Demoting it deletes the audit trail."""
     out, _ = validate(
         _ok(what_went_wrong={"guest_issues": [
-            {"issue": "Refund not processed", "claim": None, "owner": None,
+            {"issue": "Refund not processed", "claim": None, "fix": None,
              "operational_failure": None, "claim_accuracy": "Inaccurate",
              "root_cause": "The booking data shows the refund settled on 23 Jul."}]}),
         scenarios_routed=["Refund not processed"])

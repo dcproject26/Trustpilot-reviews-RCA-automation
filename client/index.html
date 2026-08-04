@@ -334,12 +334,9 @@
     font-size: 11.5px; line-height: 1.5;
   }
   .content-mismatch .reconcile-text { flex: 1; min-width: 140px; }
-  /* Reached-but-unsettleable. Amber, not the grey of Unknown: one is
-     finished work, the other is work outstanding, and a shared colour is what
-     made them the same fact on the card. */
-  .chip.unver, .verdict-chip.unver {
-    background: var(--amber-bg); color: var(--amber);
-  }
+  /* The fix, kept visually with the analysis it comes from rather than as a
+     fourth free-standing line: it is the negative of a gap stated above it. */
+  .wwr-fix { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--dashed); }
   .trail-toggle {
     font: inherit; font-size: 11px; padding: 1px 0; margin-top: 3px;
     border: none; background: none; color: var(--muted-2); cursor: pointer;
@@ -3972,14 +3969,28 @@ function renderRcaCol() {
       // issues, so two complaints with different root causes were flattened
       // into one list and the reader could not tell which belonged to which.
       gi.forEach((g, n) => {
-        const meta = [g.claim_accuracy, g.owner].filter(Boolean);
+        // Owner rides the FIX now. Read off the old top-level key this line
+        // printed the verdict with no team beside it — the one thing
+        // leadership scans the post for.
+        const fx = (g.fix && typeof g.fix === 'object') ? g.fix : null;
+        const meta = [g.claim_accuracy, (fx && fx.owner) || g.owner].filter(Boolean);
         const block = ['*' + (n + 1) + '. ' + (g.issue || '(untitled)') + '*'
                        + (meta.length ? '  ·  ' + meta.join('  ·  ') : '')];
         if (g.claim) block.push('• Guest: “' + g.claim + '”');
         if (g.claim_accuracy_note) block.push('• Why that verdict: ' + g.claim_accuracy_note);
         [['root_cause', 'Root cause'], ['operational_failure', 'Operational failure'],
-         ['sop_gap', 'SOP / process gap'], ['pattern', 'Pattern'], ['fix', 'Fix']]
+         ['sop_gap', 'SOP / process gap'], ['pattern', 'Pattern']]
           .forEach(([k, label]) => { if (g[k]) block.push('• ' + label + ': ' + g[k]); });
+        // `fix` is an object. Left in the list above it stringified to
+        // "[object Object]" and went out on the post — the action, the owner
+        // and the gap all replaced by seven characters of nothing.
+        if (fx && fx.action) {
+          block.push('• Fix: ' + fx.action + (fx.owner ? ' (owner: ' + fx.owner + ')' : ''));
+          if (fx.because)  block.push('   - closes: ' + fx.because);
+          if (fx.sized_by) block.push('   - sized by: ' + fx.sized_by);
+        } else if (typeof g.fix === 'string' && g.fix) {
+          block.push('• Fix: ' + g.fix);          // pre-object drafts
+        }
         (g.evidence || []).forEach(e => {
           if (typeof e === 'string') { block.push('   - ' + e); return; }
           if (!e || !e.text) return;
@@ -4288,17 +4299,11 @@ function renderRcaCol() {
     // to sit on still renders as its own row, so nothing is dropped.
     // §1 closed vocabularies. The chip is a select, so the only values that
     // can reach the screen are these - a sentence-length verdict cannot.
-    // Five, not four. "Unverifiable" is a verdict we REACHED - we looked and no
-    // record we hold can settle the claim - and "Unknown" is the absence of
-    // one. They were the same chip, so a finished check and an outstanding one
-    // read identically, and the reader could not tell which needed more work.
-    const ACC  = ['Accurate', 'Partly accurate', 'Inaccurate', 'Unverifiable',
-                  'Unknown'];
+    const ACC  = ['Accurate', 'Partly accurate', 'Inaccurate', 'Unknown'];
     const OWNS = ['Content', 'CE', 'SP', 'RO', 'Product', 'Biz', 'Ops'];
     const accCls = a => { const t = String(a || '').toLowerCase();
       return t.startsWith('accur') ? 'ok' : t.startsWith('part') ? 'part'
            : t.startsWith('inacc') ? 'bad'
-           : t.startsWith('unver') || t.startsWith('cannot verify') ? 'unver'
            : 'unk'; };
     // A select renders only its options, so an unrecognised value has to be
     // mapped onto one - the raw string stays in title, never in the chip.
@@ -4310,10 +4315,10 @@ function renderRcaCol() {
       if (t.startsWith('accur') || t.startsWith('yes') || t.startsWith('true')) return 'Accurate';
       if (t.startsWith('part')) return 'Partly accurate';
       // Before the Inaccurate branch: "No record of this" starts with "no",
-      // and the generic prefix would report "we could not check" as "the
-      // guest is wrong" — contradicting a guest on no evidence.
+      // and the generic prefix would report "we could not check" as "the guest
+      // is wrong" — contradicting a guest on no evidence at all.
       if (t.startsWith('unver') || t.startsWith('not verifiable')
-          || t.startsWith('cannot verify') || t.startsWith('no record')) return 'Unverifiable';
+          || t.startsWith('cannot verify') || t.startsWith('no record')) return 'Unknown';
       if (t.startsWith('inacc') || t.startsWith('no') || t.startsWith('false')) return 'Inaccurate';
       return 'Unknown';
     };
@@ -4361,12 +4366,16 @@ function renderRcaCol() {
       ['operational_failure', 'Operational failure', 'what a person or system did wrong'],
       ['sop_gap',             'SOP / process gap',   'the missing or deficient process step'],
       ['pattern',             'Pattern',             'recurrence evidence, with counts and window'],
-      ['fix',                 'Fix',                 'Team: action (owner: Team)'],
     ];
+    // `fix` is no longer one of these. It is an object — action, owner, the
+    // gap it closes, where that gap was read, and the count that sizes it —
+    // and flattening it back to a line would drop the halves that make it
+    // checkable. A reader cannot tell an invented fix from a derived one
+    // without the gap it is supposed to be the negative of.
 
     const causesList = wh.root_causes || [];
     const gIssues = w.guest_issues || [];
-    const legacyPaired = gIssues.some(g => !g.root_cause && !g.owner);
+    const legacyPaired = gIssues.some(g => !g.root_cause && !(g.fix || {}).owner && !g.owner);
     const rowCount = Math.max(gIssues.length, legacyPaired ? causesList.length : 0);
     const wwrRows = Array.from({length: rowCount}, (_, i) => {
       const gi = gIssues[i] || {};
@@ -4379,7 +4388,7 @@ function renderRcaCol() {
       const causePath  = hasOwnCause
         ? `what_went_wrong.guest_issues.${i}.root_cause`
         : `what_went_wrong.what_happened.root_causes.${i}.cause`;
-      const owner = gi.owner || rcLegacy.classification || '';
+      const owner = (gi.fix || {}).owner || gi.owner || rcLegacy.classification || '';
       const claim = gi.claim;
       const acc   = accCanon(gi.claim_accuracy);
       // The legacy tail parser is a net, not a path: claim_accuracy_note is a
@@ -4425,7 +4434,7 @@ function renderRcaCol() {
             <div class="wwr-analysis">
               <div class="wwr-analysis-head">
                 ${chipSel(`${bp}.claim_accuracy`, acc, ACC, accCls(acc), 'chip-acc-sel', rawAcc)}
-                ${chipSel(`${bp}.owner`, owner, OWNS, 'unk', 'chip-owner-sel', owner || 'unassigned')}
+                ${chipSel(`${bp}.fix.owner`, owner, OWNS, 'unk', 'chip-owner-sel', owner || 'unassigned')}
               </div>
               ${tail ? `<div class="wwr-analysis-note">${esc(tail)}</div>` : ''}
               <div class="wwr-aline">
@@ -4444,6 +4453,26 @@ function renderRcaCol() {
               ${absent.length ? `<div class="wwr-addrow">${absent.map(([k, label]) =>
                 `<button class="row-add wwr-add" data-aline-add="${i}:${k}">+ ${esc(label)}</button>`
               ).join('')}</div>` : ''}
+              ${(() => {
+                // The fix, as its own block. `because` is the gap and `action`
+                // closes it — shown together because that pairing is the only
+                // way to tell a derived fix from an invented one. `sized_by`
+                // is the count that justifies a structural change and is null
+                // on a one-off, so it draws nothing rather than "no pattern".
+                const fx = gi.fix;
+                if (!fx || typeof fx !== 'object') return '';
+                const rows = [
+                  ['action',   'Fix'],
+                  ['because',  'Closes'],
+                  ['sized_by', 'Sized by'],
+                ].filter(([k]) => String(fx[k] || '').trim());
+                if (!rows.length) return '';
+                return `<div class="wwr-fix">${rows.map(([k, label]) => `
+                  <div class="wwr-aline">
+                    <span class="wwr-aline-key">${label}:</span>
+                    <span class="wwr-aline-val">${edSpan(`${bp}.fix.${k}`, fx[k])}</span>
+                  </div>`).join('')}</div>`;
+              })()}
             </div>
           </div>
         </div>` : ''}

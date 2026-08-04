@@ -1224,10 +1224,129 @@ that turned out fine is silence — never a line in the output.
    handles, timestamps or amounts; use [placeholder] if a value is unknown.
    Trust VERIFIED TICKET FACTS over re-deriving them.
 
-2. EVERY ISSUE, SEPARATELY. A review can raise several distinct complaints.
-   Return one `guest_issues` object per complaint. Each carries its OWN
-   root_cause, operational_failure, sop_gap, pattern and fix — never pooled,
-   never merged. Do not invent a second issue when the guest raised one.
+2. ONE BLOCK HOLDS ONE VERDICT AND ONE FIX. The test is NOT "how many things
+   did the guest mention". It is:
+
+       Does this need a SECOND VERDICT, or a SECOND FIX WITH A DIFFERENT OWNER?
+
+   Either one means a second block. Neither means ONE block, however many
+   sentences the guest spent on it.
+
+   TWO BLOCKS — different fixes:
+     "tickets took two hours"           fix: Selenium failure alert   owner RO
+     "I never heard this before I paid" fix: window on the page       owner Content
+   Two gaps, two owners. The guest wrote one grumble; it lands on two desks.
+
+   TWO BLOCKS — different verdicts:
+     "I booked the summit"       Inaccurate — the booking shows 2nd floor
+     "the listing is confusing"  Partly accurate — the variant names are close
+   One block cannot carry both, because `claim_accuracy` is a single value.
+
+   ONE BLOCK — same fix:
+     "tickets arrived late and I was left standing outside the venue"
+   The waiting is the CONSEQUENCE of the lateness, not a separate grievance.
+   Consequences belong in `claim`, not in a block of their own.
+
+   ONE BLOCK — one gap described twice:
+     "the guide never showed up, we waited 40 minutes for nobody"
+   Same fact, said twice for emphasis.
+
+   YOU SPLIT ON VERDICTS AND FIXES, NEVER ON CAUSES. A failed run, no
+   monitoring and no DSS path is ONE gap at three depths, not three blocks.
+   When unsure, write the fix for each candidate block. If you find yourself
+   writing the same action twice, it was one block.
+
+2a. FILL IT IN THIS ORDER: `claim` (the guest's words, verbatim, no quote
+   marks — null if you inferred the complaint rather than them stating it),
+   then `evidence` (read the records BEFORE any verdict), then
+   `claim_accuracy` (the verdict follows the evidence, never what seems
+   plausible), then everything else.
+
+   AND `claim_accuracy` DECIDES HOW MUCH OF IT EXISTS:
+     Accurate, Partly accurate  ->  root_cause, operational_failure, sop_gap
+                                    and fix are REQUIRED
+     Inaccurate, Unknown        ->  ALL FOUR ARE NULL
+   The guest is wrong, or we cannot tell — nothing to diagnose, nothing to
+   fix. Do not fill them to look thorough. A root cause under an Inaccurate
+   verdict is the shape of diligence with nothing behind it, and somebody
+   acts on it.
+
+2c. THE THREE CAUSAL FIELDS ARE THREE DEPTHS.
+     `root_cause`          WHAT BROKE. The mechanism.
+     `operational_failure` WHY IT BROKE. Why that mechanism could fail.
+     `sop_gap`             WHY NOTHING CAUGHT IT. The control that should have.
+
+   Each is a level beneath the last. IF TWO OF THEM COULD BE THE SAME
+   SENTENCE, TWO OF THEM ARE WRONG.
+
+   YES  root_cause           The Selenium run returned no ticket URLs.
+        operational_failure  Nothing watches Selenium runs, so nobody knew.
+        sop_gap              No DSS path covers a same-day booking with a
+                             failed run.
+
+   NO   root_cause           Selenium fulfilment failed.
+        operational_failure  The Selenium run did not complete.
+        sop_gap              Selenium failure was not caught.
+   Three sentences, one fact. Ask of each: WHAT DOES THIS ADD THAT THE ONE
+   ABOVE IT DID NOT SAY? If nothing, that field is null.
+
+2d. `fix` IS THE NEGATIVE OF A GAP YOU FOUND. `because` restates the gap;
+   `action` closes it. Read them together — the action must be the negative of
+   the gap, or the fix is invented.
+
+     YES  because  The experience page states no delivery window
+          action   Add the two-hour delivery window to the experience page
+     NO   because  We replied to the guest in four minutes
+          action   Improve response times
+
+   IF NO EVIDENCE ENTRY SHOWS A GAP, there is nothing for `because` to point
+   at and `fix` is null. The fix addresses WHAT THE EVIDENCE SHOWS, not what
+   would have made the guest happy — not "notify guests earlier", not "review
+   the SLA". Those are opinions about a better world, not corrections to a
+   documented gap.
+
+   `sized_by` is the INSIGHTS count that justifies a structural fix. On a
+   one-off it is null: `pattern` already says there is no pattern, and a field
+   named for a count must not carry a sentence saying there is not one.
+
+2f. `sop_gap` COMES FROM DSS. Look up the needle for this scenario BEFORE you
+   answer.
+     A path exists and was followed  ->  null. Say nothing.
+     A path exists and was skipped   ->  name the STEP, not the outcome.
+     No path covers this scenario    ->  that ABSENCE is itself the gap. Say so.
+     DSS unavailable                 ->  null, and name the source in
+                                         `claim_accuracy_note`.
+   NEVER write a step you cannot find in DSS. An invented process produces a
+   deviation from nothing, and the team is sent to fix a rule that does not
+   exist.
+
+2g. DO NOT REPEAT. The commonest failure is one fact restated across the
+   block. Each field earns its place by saying something the others do not.
+     * NEVER RESTATE THE REVIEW. `claim` holds the guest's words; every other
+       field says something the review does not contain.
+     * NEVER RESTATE `root_cause` in `operational_failure` or `sop_gap`.
+     * SAY AN ABSENCE ONCE, in `claim_accuracy_note`. Other fields are null,
+       not a repeated explanation of what the absence prevents.
+     * `claim_accuracy_note` IS THE INFERENCE, `evidence` IS THE FACTS. The
+       note says how the facts reach the verdict; it does not list them again.
+     * `fix.because` restates THE GAP, not the whole diagnosis. One line, drawn
+       from one evidence entry.
+     * A ONE-LINE REVIEW PRODUCES A ONE-LINE RCA. Length comes from the case
+       having more in it, never from saying the same thing more ways.
+
+2e. `backs_claim` — DOES THIS ENTRY SHOW THE GUEST WAS RIGHT?
+     Yes   the guest is right about this
+     No    the guest is wrong about this
+     null  NOT ABOUT THE CLAIM — it establishes mechanism or sizes a pattern
+
+   CHECK THE TIMING BEFORE ANSWERING No. This is where it goes wrong:
+     claim        "I never heard this before I paid for them"
+     evidence     "The booking confirmation email states tickets arrive within
+                   two hours" — sent 15:22, payment 15:21
+     backs_claim  null, NOT "No"
+   The email went out AFTER payment, so it disproves nothing about what they
+   knew at checkout. A wrong No is worse than none, because it reads as
+   settled.
 
 2b. EVIDENCE IS SHORT AND ON THE CLAIM. Each `evidence[]` entry is ONE short
    sentence — target 15 words, 25 is the ceiling — and it must bear on the
@@ -1517,19 +1636,25 @@ that turned out fine is silence — never a line in the output.
       {
         "issue": "<one-line title, max 12 words, plain words, no trailing period>",
         "claim": "<the guest's VERBATIM words from the review, quoted exactly | null>",
-        "claim_accuracy": "<Accurate | Partly accurate | Inaccurate | Unverifiable | Unknown>",
-        "claim_accuracy_note": "<one sentence of reasoning for that verdict | null>",
-        "owner": "<Content | CE | SP | RO | Product | Biz | Ops>",
-        "root_cause": "<the failing step, 1-2 sentences>",
-        "operational_failure": "<what a person or system did wrong on THIS issue | null>",
-        "sop_gap": "<the process step that was skipped or is missing, checked against DSS — see rule 6b | null>",
-        "pattern": "<recurrence evidence for THIS issue, with counts and window | null>",
-        "fix": "<'Team: action (owner: Team)' for THIS issue | null>",
+        "claim_accuracy": "<Accurate | Partly accurate | Inaccurate | Unknown>",
+        "claim_accuracy_note": "<one sentence: how the evidence gets you to that verdict>",
+        "root_cause": "<what broke — the mechanism | null>",
+        "operational_failure": "<why it broke — why that mechanism could fail | null>",
+        "sop_gap": "<why nothing caught it — the control that should have | null>",
+        "pattern": "<counts and window from INSIGHTS | null>",
+        "fix": {
+          "action":   "<what to do>",
+          "owner":    "<Content | CE | SP | RO | Product | Biz | Ops>",
+          "because":  "<the gap this fixes, restated from the evidence>",
+          "source":   "<booking | bms | zendesk | insights | dss | exp-page>",
+          "sized_by": "<the count that justifies it | null on a one-off>"
+        },
         "evidence": [
           {
-            "text": "<one sentence stating the finding, no source prefix, no URL>",
+            "text": "<what the record says, at its own grain — no source prefix, no URL>",
             "source": "<booking | bms | zendesk | insights | dss | exp-page>",
-            "ref": "<record URL or ZD-xxxxx | null>"
+            "ref": "<record URL or ZD-xxxxx | null>",
+            "backs_claim": "<Yes | No | null>"
           }
         ]
       }

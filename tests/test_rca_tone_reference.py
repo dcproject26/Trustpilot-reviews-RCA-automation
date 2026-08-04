@@ -1,3 +1,4 @@
+import re
 """Approved replies reach the model as VOICE, and never as content.
 
 Dropping the standalone drafter bought grounding at the cost of brand voice.
@@ -136,8 +137,13 @@ def test_owner_is_never_a_guest():
     t = prompts.RCA_V4_TEMPLATE
     assert "`owner` is null — never \"Guest\"" in t, \
         "nothing tells the model what to do when no internal team owns the issue"
-    assert "Guest" not in t.split('"owner": "<')[1].split(">")[0], \
-        "Guest must not be in the owner enum"
+    # Found by regex, not by splitting on an exact `"owner": "<`. The owner
+    # moved into the `fix` object, whose keys are aligned — so the literal
+    # gained spaces and the split raised IndexError. A test that dies on
+    # whitespace was never checking the enum.
+    m = re.search(r'"owner":\s*"<([^>]*)>"', t)
+    assert m, "the owner enum is not in the schema at all"
+    assert "Guest" not in m.group(1), "Guest must not be in the owner enum"
 
 
 def test_the_review_itself_is_never_a_support_contact():

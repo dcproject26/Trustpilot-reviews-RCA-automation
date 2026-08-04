@@ -13,14 +13,11 @@ import re
 
 from server.taxonomy import L1_CATEGORIES, L2_OPTIONS
 
-# Five, not four. "Unverifiable" and "Unknown" are different answers and were
-# the same value: a claim we CHECKED and no record can settle, against a claim
-# nobody established. Collapsing them is this codebase's first rule exactly —
-# "I ran and found nothing" reading identically to "I did not run" — and it
-# costs a reader the one thing that decides what to do next. An unverifiable
-# claim is finished work; an unknown one is work outstanding.
-CLAIM_ACCURACY = ("Accurate", "Partly accurate", "Inaccurate",
-                  "Unverifiable", "Unknown")
+# Four. "Unknown" carries both "we checked and nothing can settle it" and "we
+# did not check" — the difference lives in `claim_accuracy_note`, which the
+# spec requires on every verdict. A fifth enum value was tried and removed:
+# the note already has to say WHICH, so the verdict does not also need to.
+CLAIM_ACCURACY = ("Accurate", "Partly accurate", "Inaccurate", "Unknown")
 ISA_VERDICT    = ("Yes", "No", "Unknown")
 SOURCES        = ("booking", "bms", "zendesk", "insights", "dss", "exp-page")
 TAKEDOWN       = ("Yes", "No", "Untraceable")
@@ -188,9 +185,8 @@ def _accuracy(raw):
     re-run of an old review should not produce a grey chip for a verdict the
     model actually gave.
 
-    "Unverifiable" is a REACHED verdict: we looked and no record can settle
-    it. "Unknown" is the absence of one. Anything unrecognised falls to
-    Unknown, never to Unverifiable — claiming we checked is not a fallback.
+    Anything unrecognised falls to Unknown. The note is where the reader
+    learns whether that means "checked, unsettleable" or "not checked".
     """
     if not isinstance(raw, str):
         return "Unknown", None
@@ -205,16 +201,27 @@ def _accuracy(raw):
     # verifiable" both start with "no", so the generic prefix claimed them and
     # reported "we could not check" as "the guest is wrong" — the worst of the
     # three possible readings, because it contradicts a guest on no evidence.
+    # "No record of this" and "Not verifiable" both start with "no", and both
+    # mean we could not settle it — NOT that the guest is wrong. Caught before
+    # the Inaccurate prefix, which would otherwise contradict a guest on no
+    # evidence at all. They land on Unknown; the note says which kind.
     if low.startswith(("unverifiable", "not verifiable", "cannot verify",
                        "can't verify", "no record", "unconfirmable")):
-        return "Unverifiable", tail
+        return "Unknown", tail
     if low.startswith(("inaccurate", "no", "false")):
         return "Inaccurate", tail
     return "Unknown", tail or (first or None)
 
 
 def _evidence_rows(raw):
-    """evidence[] as {text, source, ref}. Legacy strings are wrapped."""
+    """evidence[] as {text, source, ref, backs_claim}.
+
+    `backs_claim` is Yes / No / null, and NULL IS A REAL ANSWER: the entry is
+    not about the claim at all — it establishes mechanism or sizes a pattern.
+    Anything unrecognised lands on null rather than No, because a wrong No
+    reads as settled and contradicts a guest on evidence that was never about
+    them. Legacy strings are wrapped and get null.
+    """
     out = []
     for e in (raw if isinstance(raw, list) else []):
         if isinstance(e, str):
@@ -226,7 +233,8 @@ def _evidence_rows(raw):
             if m and m.group(1).lower() in SOURCES:
                 src, txt = m.group(1).lower(), _clean(m.group(2))
             if txt:
-                out.append({"text": txt, "source": src, "ref": None})
+                out.append({"text": txt, "source": src, "ref": None,
+                            "backs_claim": None})
             continue
         if not isinstance(e, dict):
             continue
@@ -240,7 +248,34 @@ def _evidence_rows(raw):
             "text":   txt,
             "source": _enum(e.get("source"), SOURCES, None),
             "ref":    _clean(e.get("ref")),
+            "backs_claim": _enum(e.get("backs_claim"), ("Yes", "No"), None),
         })
+    return out
+
+
+# `fix` is an object now: what to do, who does it, the gap it closes, where
+# that gap was read, and the count that justifies it. It used to be one string
+# beside a separate `owner`, so nothing tied the action to the evidence it came
+# from — and an invented fix reads exactly like a derived one.
+FIX_FIELDS = ("action", "owner", "because", "source", "sized_by")
+
+
+def _fix_obj(raw, notes):
+    """The fix, or None. A fix with no action is not a fix."""
+    if isinstance(raw, str):
+        # Pre-object drafts hold a bare string. Keep the words rather than drop
+        # them; the missing halves stay null and read as missing, not as absent
+        # on purpose.
+        raw = {"action": raw}
+    if not isinstance(raw, dict):
+        return None
+    out = {k: _clean(raw.get(k)) for k in FIX_FIELDS}
+    if not out["action"]:
+        return None
+    out["owner"] = _enum(out["owner"], OWNERS, None)
+    if raw.get("owner") and not out["owner"]:
+        notes.append(f"fix.owner {raw.get('owner')!r} is not a team → null")
+    out["source"] = _enum(out["source"], SOURCES, None)
     return out
 
 
@@ -258,6 +293,18 @@ def _issue(raw, notes):
     if isinstance(_given, str) and _given.strip() and _given.strip().lower() != acc.lower():
         notes.append(f"claim_accuracy {_given!r} → {acc}")
     note = _clean(raw.get("claim_accuracy_note")) or tail
+
+    # The guest is wrong, or we cannot tell: there is nothing to diagnose and
+    # nothing to fix. Cleared here rather than trusted to the model, because a
+    # root cause under an Inaccurate verdict reads as a real finding — it is
+    # the shape of thoroughness with nothing behind it, and somebody acts on it.
+    _diagnosable = acc in ("Accurate", "Partly accurate")
+    if not _diagnosable:
+        for _f in ("root_cause", "operational_failure", "sop_gap", "fix"):
+            if _clean(raw.get(_f)) or isinstance(raw.get(_f), dict):
+                notes.append(f"{_f} dropped — {acc} leaves nothing to diagnose")
+                break
+
     return {
         "issue":                _clean(raw.get("issue")) or "Untitled issue",
         # Verbatim guest words at whatever length they wrote - never trimmed.
@@ -267,12 +314,15 @@ def _issue(raw, notes):
         "claim_accuracy_raw":   raw.get("claim_accuracy")
                                 if raw.get("claim_accuracy") != acc else None,
         "claim_accuracy_note":  note,
-        "owner":                _enum(raw.get("owner"), OWNERS, None),
-        "root_cause":           _clean(raw.get("root_cause")),
-        "operational_failure":  _clean(raw.get("operational_failure")),
-        "sop_gap":              _clean(raw.get("sop_gap")),
+        # Owner lives on the fix now, not on the issue. It was in both places
+        # and nothing reconciled them: a model judgement about who owns the
+        # ISSUE beside a keyword rule about who owns each ACTION, free to
+        # disagree on the same row with no way to tell which was meant.
+        "root_cause":           _clean(raw.get("root_cause")) if _diagnosable else None,
+        "operational_failure":  _clean(raw.get("operational_failure")) if _diagnosable else None,
+        "sop_gap":              _clean(raw.get("sop_gap")) if _diagnosable else None,
         "pattern":              _clean(raw.get("pattern")),
-        "fix":                  _clean(raw.get("fix")),
+        "fix":                  _fix_obj(raw.get("fix"), notes) if _diagnosable else None,
         "evidence":             _evidence_rows(raw.get("evidence")),
     }
 
@@ -316,7 +366,13 @@ def _demote_findings(issues, flags, notes, routed=None):
     _routed = [str(r).lower() for r in (routed or []) if r]
     kept, moved = [], []
     for i in issues:
-        if (i.get("claim") or i.get("owner") or i.get("operational_failure")):
+        # Owner moved onto the fix. Reading the old top-level key here made
+        # EVERY issue look ownerless, so every one was demoted to flags and the
+        # guest-issues list came back empty — the section silently emptied by a
+        # field that had moved, not by anything the model did.
+        _owner = (i.get("fix") or {}).get("owner") if isinstance(i.get("fix"), dict) \
+            else i.get("owner")
+        if (i.get("claim") or _owner or i.get("operational_failure")):
             kept.append(i)
             continue
         _text = f"{i.get('issue') or ''} {i.get('root_cause') or ''}".lower()
