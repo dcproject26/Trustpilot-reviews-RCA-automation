@@ -105,22 +105,21 @@ def _reason_select(page):
     return page.locator("[data-takedown-reason]")
 
 
-def test_no_reason_control_on_a_no(page):
-    try:
-        _set_verdict(page, "No")
-        assert _reason_select(page).count() == 0, \
-            "a reason is being asked for on a takedown we are not requesting"
-    finally:
-        _set_verdict(page, "No")
+def test_the_reason_control_is_always_visible(page):
+    """Both dropdowns are always on the row, per the design handoff. An
+    earlier build showed the reason only on a Yes; defaulting it to "Not
+    applicable" instead makes a No read as ANSWERED rather than blank, and a
+    control that appears and disappears is one people do not learn."""
+    for verdict in ("No", "Yes", "Untraceable"):
+        _set_verdict(page, verdict)
+        assert _reason_select(page).count() == 1, verdict
+    _set_verdict(page, "No")
 
 
-def test_the_reason_control_appears_on_a_yes(page):
-    """It has to appear on the same interaction. Saving Yes and showing no way
-    to say why until the next load is a control nobody finds."""
+def test_a_no_reads_as_answered_not_blank(page):
     try:
-        _set_verdict(page, "Yes")
-        assert _reason_select(page).count() == 1, \
-            "picking Yes offers no way to record the ground"
+        _set_verdict(page, "No")
+        assert _reason_select(page).input_value() == "Not applicable"
     finally:
         _set_verdict(page, "No")
 
@@ -132,13 +131,13 @@ def test_it_offers_every_ground_the_copy_file_defines(page):
         values = page.evaluate(
             "() => [...document.querySelectorAll('[data-takedown-reason] option')]"
             ".map(o => o.value).filter(Boolean)")
-        assert values == list(TAKEDOWN_REASONS), values
+        assert values == ["Not applicable", *TAKEDOWN_REASONS], values
     finally:
         _set_verdict(page, "No")
 
 
 def test_the_control_carries_nothing_but_the_grounds(page):
-    """No hint column, no second field. The ask was a dropdown."""
+    """No hint column beside it. The grounds carry no gloss."""
     try:
         _set_verdict(page, "Yes")
         assert page.locator(".takedown-reason-hint").count() == 0, \
@@ -148,13 +147,14 @@ def test_the_control_carries_nothing_but_the_grounds(page):
         _set_verdict(page, "No")
 
 
-def test_it_starts_unset_rather_than_defaulting_to_the_first_ground(page):
-    """A pre-selected ground is one nobody chose, and it would be recorded as
-    though somebody had."""
+def test_no_trustpilot_ground_is_pre_selected(page):
+    """"Not applicable" is a legitimate default — it is the answer "no ground
+    applies". A real GROUND pre-selected would be recorded as though somebody
+    had chosen it."""
     try:
         _set_verdict(page, "Yes")
-        assert _reason_select(page).input_value() == "", \
-            "a ground was pre-selected for the associate"
+        assert _reason_select(page).input_value() == "Not applicable", \
+            "a Trustpilot ground was pre-selected for the associate"
     finally:
         _set_verdict(page, "No")
 

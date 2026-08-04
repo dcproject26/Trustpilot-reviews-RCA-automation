@@ -780,7 +780,50 @@
   /* The ground for a takedown, under the verdict it belongs to. Same grid as
      the row above so the control lines up with the verdict select rather than
      starting a second visual column. */
-  .takedown-reason-row { margin-top: 10px; }
+  /* Resolution & takedown: three stacked parts, each a wrapping flex row so
+     the whole card survives a 320px column. No fixed grids. */
+  .res-block { margin-top: 12px; }
+  .res-block:first-of-type { margin-top: 0; }
+  .res-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .res-label {
+    flex: none; font-size: 10.5px; font-weight: 650; text-transform: uppercase;
+    letter-spacing: .05em; color: var(--muted-2);
+  }
+  .chip-select {
+    flex: none; font: inherit; font-size: 10.5px; font-weight: 700;
+    padding: 1px 5px; border-radius: 5px; border: 1px solid transparent;
+    background: var(--hover-fill); color: var(--muted); cursor: pointer;
+  }
+  .chip-select.td-yes { background: var(--green-bg); color: var(--green); }
+  .chip-select.td-untraceable { background: var(--amber-bg); color: var(--amber); }
+  .res-amount {
+    flex: none; width: 64px; font: inherit; font-size: 12px; text-align: right;
+    padding: 3px 6px; border-radius: 6px; border: 1px solid var(--input-bd);
+    background: var(--facts-bg); color: var(--text);
+  }
+  .res-unit { flex: none; font-size: 10.5px; color: var(--dim); }
+  /* A legitimate state, never an error: we know a HOC was issued and not how
+     much. Styled as absence, not as a problem. */
+  .res-amount-unknown { flex: none; font-size: 11px; font-style: italic; color: var(--empty); }
+  .res-reason {
+    flex: 1 1 auto; min-width: 120px; font: inherit; font-size: 12px;
+    padding: 4px 7px; border-radius: 6px; border: 1px solid var(--input-bd);
+    background: var(--facts-bg); color: var(--text);
+  }
+  .res-line { margin-top: 5px; font-size: 12px; color: var(--body);
+              line-height: 1.55; overflow-wrap: anywhere; }
+  .res-note { margin-top: 5px; font-size: 11.5px; line-height: 1.5;
+              overflow-wrap: anywhere; }
+  .res-note-label { color: var(--dim); margin-right: 5px; }
+  /* The two DSS absences, rendered differently ON PURPOSE. One is a fact, the
+     other is a pipeline failure, and they must never look alike. */
+  .dss-none { font-size: 12px; font-style: italic; color: var(--muted);
+              line-height: 1.55; }
+  .dss-broken {
+    font-size: 12px; line-height: 1.5; color: var(--amber);
+    background: var(--amber-bg); border-radius: 8px; padding: 7px 10px;
+  }
+  .dss-panel { overflow-wrap: anywhere; }
 
 
   /* response to guest — the only purple-bordered card */
@@ -1264,6 +1307,10 @@ let SCENARIO_OPTIONS = [];
 // until it loads, and an empty list draws no control at all rather than an
 // empty dropdown - a select with nothing in it reads as a broken lookup.
 let TAKEDOWN_REASONS = [];
+// The default reason, and not a Trustpilot ground — it is the answer "no
+// ground applies", which is why it is here and not in the copy file. It has
+// to be an option so a No reads as ANSWERED rather than blank.
+const NOT_APPLICABLE = 'Not applicable';
 
 async function loadSubThemeOptions() {
   try {
@@ -1456,6 +1503,15 @@ function trailStep(st, key) {
 
 // Hoisted so both columns can use it: §13 moves the booking timeline into the
 // facts column, and its rows are editable. It closes over nothing but esc().
+// Resolution as an object, whatever shape the draft holds. Drafts written
+// before the split store it as a bare string; reading `.text` off one would
+// return undefined and blank the line on every older review.
+function _resObj(raw) {
+  if (raw && typeof raw === 'object') return raw;
+  return {text: typeof raw === 'string' ? raw : '',
+          compensation_type: null, amount: null};
+}
+
 function edSpan(path, text, ph = 'click to write') {
   const empty = !String(text == null ? '' : text).trim();
   return `<span class="editable-text${empty ? ' is-placeholder' : ''}" contenteditable="true"
@@ -4448,64 +4504,123 @@ function renderRcaCol() {
 
     <div class="section">
       <div class="section-label"><span>Resolution &amp; takedown</span><span class="section-chev">▾</span></div>
-      <div class="wrapup-grid">
-        <label class="wrapup-field">Resolution
-          <textarea class="field-textarea" style="min-height:64px"
-                    placeholder="Comp / refund / explanation offered to the guest">${esc(rca.resolution || '')}</textarea>
-        </label>
-        <label class="wrapup-field">Takedown request
-          <select data-takedown-rec>
-            ${(() => {
-              const td = v3d.takedown || {};
-              const cur = td.verdict || (td.recommended === true ? 'Yes' : td.recommended === false ? 'No' : 'No');
-              return ['No','Yes','Untraceable'].map(o => `<option${cur === o ? ' selected' : ''}>${o}</option>`).join('');
-            })()}
-          </select>
-        </label>
-      </div>
-      <!-- The ground for the takedown, shown only on a Yes. An empty
-           reason under a No reads as a question nobody answered, when it
-           simply does not apply. Options come from content/orm_macros.yaml
-           via /api/taxonomy - edited there, not here. -->
+      <!-- Three parts, in this order: what policy prescribes, what the guest
+           actually got, then the takedown decision. A resolution is only
+           defensible against the DSS row above it, so the policy is stated
+           first and the remedy reads as an answer to it. -->
+
       ${(() => {
-        const td = v3d.takedown || {};
-        const cur = td.verdict || (td.recommended === true ? 'Yes' : 'No');
-        if (cur !== 'Yes' || !TAKEDOWN_REASONS.length) return '';
-        const chosen = td.reason || '';
-        return `<div class="wrapup-grid takedown-reason-row">
-          <label class="wrapup-field">Reason for takedown
-            <select data-takedown-reason>
-              <option value=""${chosen ? '' : ' selected'}>— pick a reason —</option>
-              ${TAKEDOWN_REASONS.map(r => `<option${
-                chosen === r ? ' selected' : ''}>${esc(r)}</option>`).join('')}
-            </select>
-          </label>
-        </div>`;
-      })()}
-      <!-- §12 DSS has a home instead of the "DSS row: — / —" stub. It is
-           reference data, not analysis - an operator reads it to check their
-           resolution against the playbook - so it is read-only until ✎ Edit.
-           Never render "DSS row: — / —": with no classification there is
-           nothing to look up, and the neutral empty state says that. -->
-      ${(() => {
+        // ── 1. DSS prescribes ────────────────────────────────────────────
+        // Three states, decided by the PAYLOAD and never by a UI flag. The
+        // two absences must never look alike: `dss` absent means the lookup
+        // did not run (a pipeline failure), `prescribes: null` means no row
+        // covers this scenario (a fact). Collapsing them is the defect this
+        // whole codebase is organised against.
+        const hasDss = v3d.dss !== undefined && v3d.dss !== null;
+        if (!hasDss) {
+          return `<div class="dss-block">
+            <div class="dss-broken">DSS was not consulted — the lookup did not
+              run on this draft. Re-run before posting.</div>
+          </div>`;
+        }
         const dss = v3d.dss || {};
         const row = [rca.issueL1, rca.issueL2, rca.subTheme].filter(Boolean).join(' / ');
+        // A FOURTH state the handoff's three do not cover, and dropping it
+        // was the same collapse it warns about: with no classification there
+        // is nothing to look up, which is not the same as looking and finding
+        // no row. Rendering "no DSS row covers this scenario" here would
+        // report a lookup that never had anything to look up.
+        if (!row) {
+          return `<div class="dss-block">
+            <div class="dss-none">The review is not classified yet — there is no DSS row to look up.</div>
+          </div>`;
+        }
+        if (!dss.prescribes) {
+          return `<div class="dss-block">
+            <div class="dss-none">No DSS row covers this scenario — the remedy
+              below is the analyst's, not policy.</div>
+          </div>`;
+        }
         const src = dss.ref
           ? `<a class="dss-src" href="${esc(dss.ref)}" target="_blank" rel="noopener">dss</a>`
           : `<span class="dss-src">dss</span>`;
         return `<div class="dss-block">
           <div class="dss-head">
-            <span class="dss-label">DSS</span>${src}
+            <span class="dss-label">DSS prescribes</span>${src}
             <span class="dss-row">${row ? esc(row) : ''}</span>
             <button class="btn" style="font-size:11px;padding:2px 9px" data-dss-edit>${
               state.dssEdit ? '✓ Done' : '✎ Edit'}</button>
           </div>
-          ${row ? `<div class="dss-panel"><span class="k">DSS says:</span> ${
-            dss.prescribes
-              ? (state.dssEdit ? edSpan('dss.prescribes', dss.prescribes) : esc(dss.prescribes))
-              : `<span class="rca-empty">No DSS row was matched for this classification.</span>`
-          }</div>`
-          : `<div class="dss-panel"><span class="rca-empty">The review is not classified yet — there is no DSS row to look up.</span></div>`}
+          <div class="dss-panel">${state.dssEdit ? edSpan('dss.prescribes', dss.prescribes) : esc(dss.prescribes)}</div>
+        </div>`;
+      })()}
+
+      ${(() => {
+        // ── 2. Resolution ────────────────────────────────────────────────
+        // What the guest ACTUALLY received, plus who approved it. Where
+        // nothing has been given yet the DSS-based suggestion goes here
+        // instead — suggested from DSS only, never a remedy the sheet does
+        // not prescribe.
+        //
+        // Older drafts store `resolution` as a bare string. Read through a
+        // shape that accepts both, or every draft written before today loses
+        // its resolution line the moment this renders.
+        const res = _resObj(v3d.resolution);
+        // The scalar column is the pre-split home of this text. Fall back to
+        // it so a draft that never had an rca_v3.resolution still shows the
+        // line the pipeline wrote.
+        if (!res.text) res.text = rca.resolution || '';
+        const type = res.compensation_type || 'None';
+        // The unit follows the type. HOC and a discount code are percentages;
+        // a refund is an amount of money. "25" with no unit is a number
+        // nobody can act on.
+        const unit = (type === 'HOC' || type === 'Discount code') ? '%'
+                   : type === 'Refund to card' ? 'USD' : '';
+        const amt = res.amount == null ? '' : String(res.amount);
+        return `<div class="res-block">
+          <div class="res-head">
+            <span class="res-label">Resolution</span>
+            <select class="chip-select" data-res-type>
+              ${['HOC', 'Refund to card', 'Discount code', 'None'].map(o =>
+                `<option${o === type ? ' selected' : ''}>${esc(o)}</option>`).join('')}
+            </select>
+            ${type === 'None' ? '' : `
+              ${unit === 'USD' ? '<span class="res-unit">USD</span>' : ''}
+              <input class="res-amount" data-res-amount value="${esc(amt)}"
+                     inputmode="decimal" placeholder="—">
+              ${unit === '%' ? '<span class="res-unit">%</span>' : ''}
+              ${amt.trim() ? '' : '<span class="res-amount-unknown">amount unknown</span>'}
+            `}
+          </div>
+          <div class="res-line">${edSpan('resolution.text', res.text,
+            'Click to write what the guest actually received, and who approved it')}</div>
+        </div>`;
+      })()}
+
+      ${(() => {
+        // ── 3. Takedown request ──────────────────────────────────────────
+        // Both controls always visible. The reason defaults to "Not
+        // applicable" so a No reads as ANSWERED rather than blank — an empty
+        // control reads as a question nobody got to.
+        const td = v3d.takedown || {};
+        const cur = td.verdict || (td.recommended === true ? 'Yes'
+                                 : td.recommended === false ? 'No' : 'No');
+        const chosen = td.reason || NOT_APPLICABLE;
+        return `<div class="res-block">
+          <div class="res-head">
+            <span class="res-label">Takedown request</span>
+            <select class="chip-select td-${cur.toLowerCase()}" data-takedown-rec>
+              ${['No', 'Yes', 'Untraceable'].map(o =>
+                `<option${cur === o ? ' selected' : ''}>${esc(o)}</option>`).join('')}
+            </select>
+            <select class="res-reason" data-takedown-reason>
+              ${[NOT_APPLICABLE, ...TAKEDOWN_REASONS].map(o =>
+                `<option${chosen === o ? ' selected' : ''}>${esc(o)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="res-note"><span class="res-note-label">Note for Trustpilot</span>
+            ${edSpan('takedown.note', td.note,
+                     'Click to write what specifically breaches this ground')}</div>
         </div>`;
       })()}
     </div>
@@ -5152,10 +5267,42 @@ function renderRcaCol() {
   const tdWhy = col.querySelector('[data-takedown-reason]');
   if (tdWhy) tdWhy.addEventListener('change', async () => {
     const td = {...(rca.v3.takedown || {})};
-    if (tdWhy.value) td.reason = tdWhy.value; else delete td.reason;
+    // "Not applicable" is an ANSWER, so it is stored like any other. Deleting
+    // the key instead would make a deliberate "no ground applies" read as a
+    // question nobody got to on the next load.
+    td.reason = tdWhy.value || NOT_APPLICABLE;
     rca.v3.takedown = td;
     await persistV3(tdWhy);
-    renderRcaCol();          // the hint beside it follows the choice
+  });
+
+  // ── the compensation pair ───────────────────────────────────────────────
+  // Type and amount are the record of what the guest received. The old
+  // Resolution control was a textarea that rendered, accepted typing, and was
+  // saved by NOTHING - type in it, click away, reload, gone. Every control
+  // here saves on change or blur.
+  const resType = col.querySelector('[data-res-type]');
+  if (resType) resType.addEventListener('change', async () => {
+    const res = {...(_resObj(rca.v3.resolution))};
+    res.compensation_type = resType.value;
+    // "None" means nothing was given, so an amount left behind would say
+    // otherwise. Cleared deliberately rather than hidden.
+    if (resType.value === 'None') res.amount = null;
+    rca.v3.resolution = res;
+    await persistV3(resType);
+    renderRcaCol();          // the unit and the amount field follow the type
+  });
+
+  const resAmt = col.querySelector('[data-res-amount]');
+  if (resAmt) resAmt.addEventListener('blur', async () => {
+    const res = {...(_resObj(rca.v3.resolution))};
+    const v = resAmt.value.trim();
+    // Empty stays NULL, never 0. "0%" is a compensation decision somebody
+    // made; blank is "we know a HOC went out and not how much", and the card
+    // says so in words.
+    res.amount = v === '' ? null : v;
+    rca.v3.resolution = res;
+    await persistV3(resAmt);
+    renderRcaCol();
   });
 
   // Generic path saver: every editable span carries data-v3p, a dot path
@@ -5172,6 +5319,13 @@ function renderRcaCol() {
         // normalise via asPoints, so writes must do the same or the path
         // indexes into a string and the edit corrupts it.
         if (typeof obj[key] === 'string' && nextIsIdx) obj[key] = asPoints(obj[key]);
+        // The same problem one shape over. `resolution` used to be a bare
+        // string and is now an object with `text` alongside the compensation
+        // type and amount. Writing `resolution.text` on an old draft assigned
+        // a property to a STRING PRIMITIVE, which is a silent no-op - the
+        // field took the edit, showed a green tick, and saved nothing. The
+        // string is the text, exactly as _resObj reads it.
+        else if (typeof obj[key] === 'string' && !nextIsIdx) obj[key] = {text: obj[key]};
         if (obj[key] == null) obj[key] = nextIsIdx ? [] : {};
         obj = obj[key];
       }

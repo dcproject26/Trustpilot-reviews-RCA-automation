@@ -169,21 +169,21 @@
   },
   {
     "file": "client/index.html",
-    "name": "the reason control shows on every verdict",
-    "find": "        if (cur !== 'Yes' || !TAKEDOWN_REASONS.length) return '';",
-    "replace": "        if (false) return '';"
+    "name": "a No stops reading as answered",
+    "find": "        const chosen = td.reason || NOT_APPLICABLE;",
+    "replace": "        const chosen = td.reason || '';"
   },
   {
     "file": "client/index.html",
-    "name": "a ground is offered when the copy file defines none",
-    "find": "if (cur !== 'Yes' || !TAKEDOWN_REASONS.length) return '';",
-    "replace": "if (cur !== 'Yes') return '';"
+    "name": "the reason control hides again unless the verdict is Yes",
+    "find": "            <select class=\"res-reason\" data-takedown-reason>",
+    "replace": "            ${cur !== 'Yes' ? '' : ''}<select class=\"res-reason\" data-takedown-reason>"
   },
   {
     "file": "client/index.html",
-    "name": "a ground is pre-selected for the associate",
-    "find": "              <option value=\"\"${chosen ? '' : ' selected'}>— pick a reason —</option>",
-    "replace": ""
+    "name": "a real Trustpilot ground is pre-selected",
+    "find": "              ${[NOT_APPLICABLE, ...TAKEDOWN_REASONS].map(o =>",
+    "replace": "              ${[...TAKEDOWN_REASONS].map(o =>"
   },
   {
     "file": "client/index.html",
@@ -206,7 +206,7 @@
   {
     "file": "client/index.html",
     "name": "the chosen ground is not saved",
-    "find": "    if (tdWhy.value) td.reason = tdWhy.value; else delete td.reason;",
+    "find": "    td.reason = tdWhy.value || NOT_APPLICABLE;",
     "replace": "    ;"
   },
   {
@@ -316,5 +316,65 @@
     "name": "a takedown ground is split in two again",
     "find": "        \"reasons\": [\"Content issues, booking/support issues\",\n                    \"Personal emergency, health issue\"],",
     "replace": "        \"reasons\": [\"Content issues\", \"Booking / support issues\",\n                    \"Personal emergency, health issue\"],"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the two DSS absences collapse into one",
+    "find": "        const hasDss = v3d.dss !== undefined && v3d.dss !== null;\n        if (!hasDss) {",
+    "replace": "        const hasDss = true;\n        if (!hasDss) {"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an unclassified review reports a lookup that found no row",
+    "find": "        if (!row) {\n          return `<div class=\"dss-block\">\n            <div class=\"dss-none\">The review is not classified yet — there is no DSS row to look up.</div>\n          </div>`;\n        }\n",
+    "replace": "        "
+  },
+  {
+    "file": "client/index.html",
+    "name": "a never-run lookup renders as a plain absence",
+    "find": "            <div class=\"dss-broken\">DSS was not consulted",
+    "replace": "            <div class=\"dss-none\">DSS was not consulted"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the unit stops following the type",
+    "find": "        const unit = (type === 'HOC' || type === 'Discount code') ? '%'\n                   : type === 'Refund to card' ? 'USD' : '';",
+    "replace": "        const unit = 'USD';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "None grows an amount field",
+    "find": "            ${type === 'None' ? '' : `",
+    "replace": "            ${false ? '' : `"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an emptied amount is coerced to zero",
+    "find": "    res.amount = v === '' ? null : v;",
+    "replace": "    res.amount = v === '' ? 0 : v;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "switching to None leaves a stale amount behind",
+    "find": "    if (resType.value === 'None') res.amount = null;",
+    "replace": "    ;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an unknown amount stops saying so",
+    "find": "              ${amt.trim() ? '' : '<span class=\"res-amount-unknown\">amount unknown</span>'}",
+    "replace": ""
+  },
+  {
+    "file": "client/index.html",
+    "name": "a string-shaped resolution stops being read",
+    "find": "  if (raw && typeof raw === 'object') return raw;\n  return {text: typeof raw === 'string' ? raw : '',",
+    "replace": "  if (raw && typeof raw === 'object') return raw;\n  return {text: '',"
+  },
+  {
+    "file": "client/index.html",
+    "name": "writing through a string primitive silently does nothing again",
+    "find": "        else if (typeof obj[key] === 'string' && !nextIsIdx) obj[key] = {text: obj[key]};",
+    "replace": "        ;"
   }
 ]
