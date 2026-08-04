@@ -109,13 +109,13 @@
   },
   {
     "file": "client/index.html",
-    "name": "empty narrative fields draw a label anyway",
-    "find": "      .filter(([k]) => String(note[k] == null ? '' : note[k]).trim())",
+    "name": "empty narrative fields draw an empty bullet",
+    "find": "      .filter(k => String(note[k] == null ? '' : note[k]).trim())",
     "replace": "      .filter(() => true)"
   },
   {
     "file": "client/index.html",
-    "name": "the narrative is drawn as dead text, not editable",
+    "name": "the summary is drawn as dead text, not editable",
     "find": "        nIdx >= 0 ? edSpan(`support_interaction_notes.${nIdx}.${k}`, note[k])",
     "replace": "        false ? edSpan(`support_interaction_notes.${nIdx}.${k}`, note[k])"
   },
@@ -144,24 +144,6 @@
     "replace": "    const ch = String((row.note || {}).channel || '').trim() || (first.thread || '').trim();"
   },
   {
-    "file": "server/services/slack.py",
-    "name": "the narrative is left out of the Slack post on a matched contact",
-    "find": "        rows.extend(_contact_narrative(note))\n        if note and note.get(\"ce_miss\"):",
-    "replace": "        if note and note.get(\"ce_miss\"):"
-  },
-  {
-    "file": "server/services/slack.py",
-    "name": "the narrative is left out of the Slack post on an unmatched contact",
-    "find": "        rows.extend(_contact_narrative(note))\n        if note.get(\"ce_miss\"):",
-    "replace": "        if note.get(\"ce_miss\"):"
-  },
-  {
-    "file": "server/services/slack.py",
-    "name": "a blank narrative field is printed as a measured one",
-    "find": "        val = str(note.get(key) or \"\").strip()\n        if val:",
-    "replace": "        val = str(note.get(key) or \"—\").strip()\n        if True:"
-  },
-  {
     "file": "server/prompts.py",
     "name": "the time/channel precedence rule is dropped",
     "find": "    `time` AND `channel` ARE READ OFF THE TICKET, NOT JUDGED.",
@@ -172,5 +154,35 @@
     "name": "the model is no longer told the frame wins",
     "find": "the dashboard shows the FRAME's time and channel, not yours",
     "replace": "use your judgement"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the summary goes back to a labelled form",
+    "find": "      .map(k => `<li class=\"convo-bullet\">${",
+    "replace": "      .map(k => `<li class=\"convo-bullet\"><span class=\"k\">${k}</span>${"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the bullets collapse into one line",
+    "find": "    return lines.length\n      ? `<ul class=\"convo-narr\">${lines.join('')}</ul>` : '';",
+    "replace": "    return lines.length\n      ? `<ul class=\"convo-narr\"><li class=\"convo-bullet\">${lines.join(' ')}</li></ul>` : '';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the bullets come out in a different order",
+    "find": "  const _NARR = ['guest_said', 'we_said', 'wait_for_human', 'guest_replied',\n                 'outcome'];",
+    "replace": "  const _NARR = ['outcome', 'guest_replied', 'wait_for_human', 'we_said',\n                 'guest_said'];"
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the model may answer with fragments instead of sentences",
+    "find": "    THESE ARE BULLETS, NOT FORM ANSWERS.",
+    "replace": "    Answer each field."
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the worked example of a sentence vs a fragment is dropped",
+    "find": "\"Waited 18 minutes before an agent picked it up\", not \"18\n    minutes\".",
+    "replace": "Be complete."
   }
 ]

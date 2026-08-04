@@ -689,35 +689,6 @@ def _note_for(key: str, notes):
     return None
 
 
-# What the guest came with, what we said, how long they waited for a human,
-# what they said back, how it ended. Only the fields that came back: the prompt
-# tells the model to leave an undetectable field null and write nothing, so a
-# printed "wait for human: —" would report a blank as something we measured.
-_CONTACT_NARRATIVE = (
-    ("guest_said",     "guest"),
-    ("we_said",        "we"),
-    ("wait_for_human", "wait for human"),
-    ("guest_replied",  "guest replied"),
-    ("outcome",        "outcome"),
-)
-
-
-def _contact_narrative(note, indent: str = "   "):
-    """The model's per-contact story, as Slack lines. [] when it said nothing.
-
-    Empty for a note that carries none of these, which is a different thing
-    from a contact with no note at all - that one never reaches here.
-    """
-    if not isinstance(note, dict):
-        return []
-    out = []
-    for key, label in _CONTACT_NARRATIVE:
-        val = str(note.get(key) or "").strip()
-        if val:
-            out.append(f"{indent}{label}: {val}")
-    return out
-
-
 def _contacts(frames):
     """Frames grouped into contacts. Returns [(key, [frame, ...]), ...].
 
@@ -908,7 +879,6 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
             gap = (fr.get("gap") or "").strip()
             if gap:
                 rows.append(f"     \u26a0 {gap}")
-        rows.extend(_contact_narrative(note))
         if note and note.get("ce_miss"):
             rows.append(f"   \u26a0 CE miss: {note['ce_miss']}")
     # A contact the model reports and Zendesk has no frame for still renders,
@@ -933,7 +903,6 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
         if nkey:
             head += f" (ZD-{nkey})"
         rows.append(head + f" ({why})")
-        rows.extend(_contact_narrative(note))
         if note.get("ce_miss"):
             rows.append(f"   \u26a0 CE miss: {note['ce_miss']}")
     sections.append(("Customer / CE interactions",

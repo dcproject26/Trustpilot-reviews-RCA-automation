@@ -71,22 +71,63 @@ def _section_html(page):
 
 # ── it draws ───────────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("field,label", [
-    ("guest_said",     "Guest said"),
-    ("we_said",        "We said"),
-    ("wait_for_human", "Wait for human"),
-    ("guest_replied",  "Guest replied"),
-    ("outcome",        "Outcome"),
-])
-def test_each_narrative_field_is_drawn(page, field, label):
+@pytest.mark.parametrize("field", list(NARR))
+def test_each_narrative_field_is_drawn(page, field):
     try:
         _inject(page)
         _open_all(page)
         html = _section_html(page)
-        assert label in html, f"{field} has no label on the card"
         assert NARR[field] in html, (
             f"{field} survived validation and is not drawn — the model's "
             f"answer has no reader")
+    finally:
+        _restore(page)
+
+
+def test_the_summary_is_bullets_not_a_labelled_form(page):
+    """The ask was to summarise the interaction in concise bullet points, one
+    sentence each. A "Guest said: … / We said: …" grid turns a conversation
+    into a form — it reads as five fields somebody has to fill rather than as
+    an account of what happened."""
+    try:
+        _inject(page)
+        _open_all(page)
+        html = _section_html(page)
+        assert "convo-bullet" in html, "the summary is not rendered as bullets"
+        for label in ("Guest said", "We said", "Wait for human",
+                      "Guest replied", "Outcome"):
+            assert label not in html, (
+                f"{label!r} is drawn as a field label — this is the labelled "
+                f"form again, not a summary")
+    finally:
+        _restore(page)
+
+
+def test_each_bullet_is_its_own_list_item(page):
+    """Five sentences run into one bullet is not a chronological summary."""
+    try:
+        _inject(page)
+        _open_all(page)
+        n = page.evaluate(
+            "() => document.querySelectorAll('.convo-narr .convo-bullet').length")
+        assert n >= len(NARR), f"expected {len(NARR)} bullets, found {n}"
+    finally:
+        _restore(page)
+
+
+def test_the_bullets_keep_the_order_the_contact_happened_in(page):
+    """Came with, we said, waited, said back, ended. Out of order it stops
+    being chronological, which is the one thing that was asked for."""
+    try:
+        _inject(page)
+        _open_all(page)
+        texts = page.evaluate(
+            "() => [...document.querySelectorAll('.convo-narr .convo-bullet')]"
+            ".map(e => e.textContent.trim())")
+        want = [NARR[k] for k in ("guest_said", "we_said", "wait_for_human",
+                                  "guest_replied", "outcome")]
+        got = [t for t in texts if t in want]
+        assert got == want, f"bullets are out of order: {got}"
     finally:
         _restore(page)
 
@@ -127,19 +168,12 @@ def test_the_fixture_orphan_is_really_unmatched(page):
         "the unmatched branch is not being rendered at all"
 
 
-@pytest.mark.parametrize("field,label", [
-    ("guest_said",     "Guest said"),
-    ("we_said",        "We said"),
-    ("wait_for_human", "Wait for human"),
-    ("guest_replied",  "Guest replied"),
-    ("outcome",        "Outcome"),
-])
-def test_an_unmatched_contact_draws_its_narrative_too(page, field, label):
+@pytest.mark.parametrize("field", list(NARR))
+def test_an_unmatched_contact_draws_its_narrative_too(page, field):
     try:
         _inject(page, which=ORPHAN)
         _open_all(page)
         html = _section_html(page)
-        assert label in html, f"{field} has no label on the unmatched contact"
         assert NARR[field] in html, (
             f"{field} is drawn for a matched contact and not for an unmatched "
             f"one — and the unmatched branch has no frame to fall back on")
@@ -171,7 +205,7 @@ def test_a_null_field_on_an_unmatched_contact_draws_nothing(page):
         _inject(page, {"wait_for_human": None}, which=ORPHAN)
         _open_all(page)
         html = _section_html(page)
-        assert "Wait for human" not in html
+        assert NARR["wait_for_human"] not in html
         assert NARR["outcome"] in html, "the fields that came back stopped drawing"
     finally:
         _restore(page)
@@ -185,10 +219,10 @@ def test_a_null_field_draws_nothing_at_all(page):
         _inject(page, {"wait_for_human": None, "guest_replied": None})
         _open_all(page)
         html = _section_html(page)
-        assert "Wait for human" not in html, \
-            "an empty label was drawn for a field the model left blank"
-        assert "Guest replied" not in html
-        assert "Outcome" in html, "the fields that DID come back stopped drawing"
+        assert NARR["wait_for_human"] not in html, \
+            "a bullet was drawn for a field the model left blank"
+        assert NARR["guest_replied"] not in html
+        assert NARR["outcome"] in html, "the fields that DID come back stopped drawing"
     finally:
         _restore(page)
 

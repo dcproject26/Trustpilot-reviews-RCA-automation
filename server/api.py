@@ -28,6 +28,7 @@ _STARTED_AT = datetime.now(_tz.utc).isoformat()   # when THIS process booted
 from server.db import get_session, Review, RcaDraft, ReviewMetric
 from server.taxonomy import L1_CATEGORIES, L2_OPTIONS, DIAGNOSTIC_CHECKS, ACTION_TABS, SUB_THEME_REGISTRY
 from server.checklist import SCENARIO_CHECKS
+from server.prompts import TAKEDOWN_REASONS
 from server.config import status_summary, is_live, MOCK_MODE
 from server.services.slack import format_rca_slack, post_to_thread
 from server.services.claude import flag_to_biz_message
@@ -835,6 +836,11 @@ def get_taxonomy():
         # instead of a read-only chip. SCENARIO_CHECKS keys are the routing
         # targets; "general" is the routers' explicit fallback.
         "scenarios": sorted(SCENARIO_CHECKS) + ["general"],
+        # The grounds for a takedown, from the copy file. Served rather than
+        # hardcoded in the client so the list is a content change: the key is
+        # what a draft stores, the text is only what it shows, so renaming a
+        # ground in the copy file does not orphan a verdict already recorded.
+        "takedown_reasons": TAKEDOWN_REASONS,
     }
 
 

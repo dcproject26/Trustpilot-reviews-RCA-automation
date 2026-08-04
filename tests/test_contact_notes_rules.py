@@ -122,8 +122,25 @@ def test_the_entries_are_chronological():
     assert "Chronological" in SEG or "chronological" in SEG
 
 
-def test_one_short_sentence_per_field():
-    assert "ONE SHORT SENTENCE PER FIELD" in SEG
+def test_one_short_sentence_each():
+    assert "ONE SENTENCE EACH" in SEG
+
+
+def test_the_fields_are_asked_for_as_bullets_not_form_answers():
+    """Each one renders as a bullet in a summary of the contact, so "18
+    minutes" is not an answer — it is a value with its label missing. The card
+    no longer draws labels, so a bare fragment reads as a stray phrase."""
+    flat = " ".join(SEG.split())
+    assert "THESE ARE BULLETS, NOT FORM ANSWERS" in flat
+    assert "COMPLETE SHORT SENTENCE that stands on its own" in flat
+    assert "not as a value after a label" in flat
+
+
+def test_it_shows_the_model_the_difference():
+    """A rule stated abstractly and never shown is one the model satisfies in
+    form and misses in substance."""
+    flat = " ".join(SEG.split())
+    assert '"Waited 18 minutes before an agent picked it up", not "18 minutes"' in flat
 
 
 # ── time and channel: precedence, not judgement ────────────────────────────

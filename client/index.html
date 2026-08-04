@@ -684,13 +684,21 @@
     background: var(--red-bg); color: var(--red); font-size: 11px;
     padding: 4px 8px; border-radius: 5px; margin-top: 6px;
   }
-  /* The per-contact narrative: what they came with, what we said, how long
-     they waited, what they said back, how it ended. Same .convo-line/.k
-     vocabulary the body already uses - a second visual language for the same
-     kind of content is how a card stops reading as one card. */
-  .convo-narr { margin-top: 6px; display: grid; gap: 3px; }
-  .convo-narr .convo-line { display: flex; gap: 8px; align-items: baseline; }
-  .convo-narr .k { flex: none; width: 84px; }
+  /* The per-contact summary: concise bullets, one sentence each, in the order
+     the contact happened. Same type scale and colour as .convo-line so the
+     card still reads as one card. */
+  .convo-narr {
+    margin: 6px 0 0; padding: 0 0 0 16px; list-style: none;
+    display: grid; gap: 3px;
+  }
+  .convo-bullet {
+    position: relative; font-size: 12px; color: var(--body);
+    line-height: 1.6; overflow-wrap: anywhere;
+  }
+  .convo-bullet::before {
+    content: "·"; position: absolute; left: -12px; color: var(--dim);
+    font-weight: 700;
+  }
   .sp-frame { border-bottom: 1px solid var(--hairline); padding: 9px 0; }
   .sp-frame:last-of-type { border-bottom: none; }
   .sp-frame-head { display: flex; align-items: center; gap: 10px; font-size: 12px; }
@@ -753,6 +761,14 @@
     border: 1px solid var(--input-bd); background: var(--facts-bg); color: var(--text);
   }
   .resolution-block { background: none; border: none; padding: 0; }
+  /* The ground for a takedown, under the verdict it belongs to. Same grid as
+     the row above so the control lines up with the verdict select rather than
+     starting a second visual column. */
+  .takedown-reason-row { margin-top: 10px; }
+  .takedown-reason-hint {
+    justify-content: flex-end; font-size: 11px; color: var(--dim);
+    line-height: 1.5;
+  }
 
   /* response to guest — the only purple-bordered card */
   .reply-block {
@@ -1231,6 +1247,10 @@ const SUB_THEME_OPTIONS = {};
 // The scenario vocabulary from /api/taxonomy. Empty until it loads - the row
 // still shows the routed scenario; the other options fill in after.
 let SCENARIO_OPTIONS = [];
+// The grounds for a takedown, from the copy file via /api/taxonomy. Empty
+// until it loads, and an empty list draws no control at all rather than an
+// empty dropdown - a select with nothing in it reads as a broken lookup.
+let TAKEDOWN_REASONS = [];
 
 async function loadSubThemeOptions() {
   try {
@@ -1243,6 +1263,7 @@ async function loadSubThemeOptions() {
       SUB_THEME_OPTIONS[key] = opts;
     }
     SCENARIO_OPTIONS = t.scenarios || [];
+    TAKEDOWN_REASONS = t.takedown_reasons || [];
     // The classification catalogue, from the same call. Everything else in
     // this function was already taxonomy-driven; L1/L2 were the one pair
     // still hardcoded, and they were hardcoded WRONG.
@@ -3285,25 +3306,31 @@ function renderRcaCol() {
     ..._orphans.map((n, k) => ({kind: 'orphan', note: n, i: _groups.length + k})),
   ];
 
-  // The contact's own story, as rule 10b asks for it. Only fields that came
-  // back are drawn: the rule tells the model to leave an undetectable field
-  // null and write nothing, so a row of empty labels would misreport silence
-  // as five things we looked up and failed to find.
-  const _NARR = [
-    ['guest_said',     'Guest said'],
-    ['we_said',        'We said'],
-    ['wait_for_human', 'Wait for human'],
-    ['guest_replied',  'Guest replied'],
-    ['outcome',        'Outcome'],
-  ];
+  // The contact, as concise bullets in the order it happened: what they came
+  // with, what we said, how long they waited for a human, what they said back,
+  // how it ended. One short sentence each.
+  //
+  // Not a labelled field grid. "Guest said: …" / "We said: …" down the card
+  // turns a conversation into a form, and the ask was to SUMMARISE the
+  // interaction — the labels were mine, not the spec's.
+  //
+  // The keys stay separate underneath because the model needs them to be told
+  // what to cover, and because each stays individually correctable. Only the
+  // presentation is a bullet list.
+  const _NARR = ['guest_said', 'we_said', 'wait_for_human', 'guest_replied',
+                 'outcome'];
   const _narrative = (note, nIdx) => {
     if (!note) return '';
+    // Only what came back. The rule tells the model to leave an undetectable
+    // field null and write nothing, so an empty bullet would report silence
+    // as something we looked for and failed to find.
     const lines = _NARR
-      .filter(([k]) => String(note[k] == null ? '' : note[k]).trim())
-      .map(([k, label]) => `<div class="convo-line"><span class="k">${label}</span>${
+      .filter(k => String(note[k] == null ? '' : note[k]).trim())
+      .map(k => `<li class="convo-bullet">${
         nIdx >= 0 ? edSpan(`support_interaction_notes.${nIdx}.${k}`, note[k])
-                  : `<span>${esc(note[k])}</span>`}</div>`);
-    return lines.length ? `<div class="convo-narr">${lines.join('')}</div>` : '';
+                  : `<span>${esc(note[k])}</span>`}</li>`);
+    return lines.length
+      ? `<ul class="convo-narr">${lines.join('')}</ul>` : '';
   };
 
   const _contactRow = (row) => {
@@ -4319,6 +4346,36 @@ function renderRcaCol() {
           </select>
         </label>
       </div>
+      <!-- The ground for asking Trustpilot to take it down. Only shown on a
+           Yes: an empty reason sitting under a No reads as a question nobody
+           answered, when in fact it does not apply. Options come from
+           /api/taxonomy, which reads the copy file, so the list is edited in
+           content/orm_macros.yaml and not here.
+
+           The option VALUE is the stable key and the label is the display
+           text, so renaming a ground in the copy file leaves an already
+           recorded verdict pointing at the same ground. -->
+      ${(() => {
+        const td = v3d.takedown || {};
+        const cur = td.verdict || (td.recommended === true ? 'Yes' : 'No');
+        if (cur !== 'Yes') return '';
+        const reasons = TAKEDOWN_REASONS;
+        if (!reasons.length) return '';
+        const chosen = td.reason || '';
+        return `<div class="wrapup-grid takedown-reason-row">
+          <label class="wrapup-field">Reason for takedown
+            <select data-takedown-reason>
+              <option value=""${chosen ? '' : ' selected'}>— pick a reason —</option>
+              ${reasons.map(r => `<option value="${esc(r.key)}"${
+                chosen === r.key ? ' selected' : ''}>${esc(r.text)}</option>`).join('')}
+            </select>
+          </label>
+          <div class="wrapup-field takedown-reason-hint">${(() => {
+            const hit = reasons.find(r => r.key === chosen);
+            return hit && hit.when ? `<span>${esc(hit.when)}</span>` : '';
+          })()}</div>
+        </div>`;
+      })()}
       <!-- §12 DSS has a home instead of the "DSS row: — / —" stub. It is
            reference data, not analysis - an operator reads it to check their
            resolution against the playbook - so it is read-only until ✎ Edit.
@@ -4969,8 +5026,30 @@ function renderRcaCol() {
 
   const tdRec = col.querySelector('[data-takedown-rec]');
   if (tdRec) tdRec.addEventListener('change', async () => {
-    rca.v3.takedown = {verdict: tdRec.value};
+    // Keep the rest of the object. This used to REPLACE it, which was
+    // harmless while `verdict` was the only key and silently dropped the
+    // reason the moment there was one to drop - switch Yes to No and back and
+    // the ground was gone, with the control showing "pick a reason" as though
+    // nobody had.
+    const td = {...(rca.v3.takedown || {}), verdict: tdRec.value};
+    // A reason only means anything on a Yes. Leaving a stale one behind on a
+    // No stores a ground for a takedown we are not requesting.
+    if (td.verdict !== 'Yes') delete td.reason;
+    rca.v3.takedown = td;
     await persistV3(tdRec);
+    // The reason control appears and disappears with the verdict, so the
+    // section has to be redrawn - without this, picking Yes saves fine and
+    // shows no way to say why until the next load.
+    renderRcaCol();
+  });
+
+  const tdWhy = col.querySelector('[data-takedown-reason]');
+  if (tdWhy) tdWhy.addEventListener('change', async () => {
+    const td = {...(rca.v3.takedown || {})};
+    if (tdWhy.value) td.reason = tdWhy.value; else delete td.reason;
+    rca.v3.takedown = td;
+    await persistV3(tdWhy);
+    renderRcaCol();          // the hint beside it follows the choice
   });
 
   // Generic path saver: every editable span carries data-v3p, a dot path
