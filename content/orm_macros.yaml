@@ -79,8 +79,12 @@ takedown:
   # Edit here, not in the client: the dashboard builds the control from this
   # list, so adding or renaming a ground is a content change, not a code one.
   reasons:
-    - "Content issues, booking/support issues"
-    - "Personal emergency, health issue"
+    - "Review Takedown Sent"
+    - "Final Resolution WIP"
+    - "Severe negative experience (HO Led) - content issues, booking/support issues"
+    - "Sensitive cases - Uncontrollable - personal emergency, health issues"
+    - "Untraceable"
+    - "Other - not listed here"
 
 # ── Untraceable reply ────────────────────────────────────────────────────────
 # Sent unchanged on any review with no traceable booking. Nothing here is

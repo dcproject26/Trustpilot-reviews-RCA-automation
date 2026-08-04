@@ -40,17 +40,20 @@ def test_no_policy_text_is_invented_alongside_them():
         assert isinstance(r, str), f"{r!r} carries more than the ground itself"
 
 
-def test_the_grounds_are_the_lines_from_the_screenshot_not_a_split_of_them():
-    """"Content issues, booking/support issues" is ONE ground, as written.
-    It was split into two on the reasoning that they were separable — the
-    instruction was to expand the abbreviation "sup", not to make a second
-    ground out of half a line. Splitting a supplied vocabulary invents an
-    option nobody approved, and an associate picking it records a ground
-    Trustpilot never listed."""
+def test_the_grounds_are_the_six_from_the_screenshot():
+    """Six options, not two. An earlier version carried only the two lines
+    that happened to be legible mid-scroll and treated them as the whole
+    vocabulary — so four real grounds, including "Untraceable" and "Other -
+    not listed here", could not be recorded at all. A short list does not look
+    truncated; it looks like the list."""
     from server.prompts import TAKEDOWN_REASONS
     assert list(TAKEDOWN_REASONS) == [
-        "Content issues, booking/support issues",
-        "Personal emergency, health issue",
+        "Review Takedown Sent",
+        "Final Resolution WIP",
+        "Severe negative experience (HO Led) - content issues, booking/support issues",
+        "Sensitive cases - Uncontrollable - personal emergency, health issues",
+        "Untraceable",
+        "Other - not listed here",
     ], TAKEDOWN_REASONS
 
 
@@ -81,12 +84,21 @@ def test_the_api_serves_them():
 
 def test_the_client_does_not_hardcode_the_list():
     """A second copy of the list in the client is a second place to edit, and
-    the one that will be missed. Negative assertion — a string that appears
-    nowhere cannot be absent for the wrong reason."""
+    the one that will be missed.
+
+    Only the DISTINCTIVE grounds are checked. "Untraceable" is also a takedown
+    VERDICT and an inbox bucket, so its presence in the client says nothing
+    about whether the ground list was duplicated — asserting on it would fail
+    for a reason that has nothing to do with what this test is about, which is
+    its own kind of false signal.
+    """
     from server.prompts import TAKEDOWN_REASONS
     client = open("client/index.html", encoding="utf-8").read()
-    for r in TAKEDOWN_REASONS:
-        assert f'"{r}"' not in client, f"{r!r} is hardcoded in the client"
+    distinctive = [r for r in TAKEDOWN_REASONS if " " in r]
+    assert len(distinctive) >= 4, \
+        f"only {len(distinctive)} grounds are distinctive enough to check"
+    for r in distinctive:
+        assert r not in client, f"{r!r} is hardcoded in the client"
 
 
 # ── the control ────────────────────────────────────────────────────────────
@@ -155,7 +167,7 @@ def test_no_option_beyond_the_supplied_grounds(page):
         labels = page.evaluate(
             "() => [...document.querySelectorAll('[data-takedown-reason] option')]"
             ".map(o => o.textContent.trim())")
-        assert labels == ["—", *TAKEDOWN_REASONS], labels
+        assert labels == ["Select an option", *TAKEDOWN_REASONS], labels
     finally:
         _set_verdict(page, "No")
 

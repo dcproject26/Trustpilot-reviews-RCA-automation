@@ -1553,6 +1553,49 @@ function unwrapInsights(payload) {
   return null;
 }
 
+// Everything a scenario change invalidates, re-read from the server.
+//
+// The scenario drives the checklists, the issue questions, the DSS routing and
+// the prompt, so changing it makes the RCA on screen an answer to a question
+// nobody is asking any more. It also changes `scenario_routing.diverged` and
+// the uncovered-scenario list, both computed server-side — guessing those
+// locally is how the card and the server end up disagreeing about the same
+// scenario.
+//
+// The insights go too. They are scoped by L1/L2 rather than by scenario, but a
+// scenario change usually follows a classification change, and a panel that
+// silently keeps the previous classification's figures is the exact complaint
+// this dashboard already had once.
+async function refreshAfterScenarioChange(reviewId) {
+  const r = REVIEWS.find(x => x.id === reviewId);
+  if (!r) return;
+  try {
+    const [draftResp, insResp] = await Promise.all([
+      fetch(`/api/reviews/${reviewId}`),
+      fetch(`/api/reviews/${reviewId}/insights?window=`
+            + encodeURIComponent(state.insightsWindow)),
+    ]);
+    if (draftResp.ok) {
+      const d = (await draftResp.json()).draft;
+      if (d) {
+        r.rca.scenarioRouting  = d.scenario_routing || null;
+        r.rca.primaryScenario  = d.primary_scenario || '';
+        r.rca.scenarios        = d.scenarios || [];
+        r.rca.overlayScenarios = d.overlay_scenarios || [];
+      }
+    }
+    if (insResp.ok) {
+      const ins = unwrapInsights(await insResp.json());
+      if (ins) r.liveInsights = ins;
+    }
+  } catch (e) {
+    // Leave what is on screen and say so, rather than blanking the panel:
+    // a refresh that failed is not the same as figures that are empty.
+    state.insightsError = 'The scenario was saved, but the panel could not be '
+      + 'refreshed — the figures below may be for the previous scenario.';
+  }
+}
+
 async function loadDraftOverlays() {
   await Promise.all(REVIEWS.map(async (r) => {
     if (!r.rca) return;
@@ -3270,11 +3313,37 @@ document.addEventListener('click', async ev => {
                                 .filter(x => x !== target)];
   rca.primaryScenario = target;
   await saveDraft(r.id, {scenarios: rca.scenarios, primary_scenario: target});
-  // Re-read rather than patch the local copy: `diverged` is computed
-  // server-side against current routing, and guessing it here is how the card
-  // and the server end up disagreeing about the same scenario.
-  await loadDraftOverlays();
+  // Reverting IS a scenario change, so the RCA has to be re-run against the
+  // new checklists like any other. Saving the chip and leaving the analysis
+  // written for the old scenario is the state the uncovered-scenario flag
+  // exists to report — better not to create it in the first place.
+  const st = document.querySelector('[data-scenario-regen-status]');
+  if (st) st.textContent = '⟳ re-running RCA for the routed scenario…';
+  let failed = '';
+  try {
+    const resp = await fetch(`/api/reviews/${r.id}/regenerate-rca`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({scenarios: rca.scenarios}),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || 'regen failed');
+    rca.v3 = data.rca_v3 || rca.v3;
+    rca.prevention = data.prevention || rca.prevention;
+    rca.issueSpecificAnswers = data.issue_specific_answers || {};
+    if (data.area_of_improving) rca.areaOfImproving = data.area_of_improving;
+    rca.checklistAnswers = [];
+  } catch (e) {
+    failed = '✗ RCA re-run failed — scenario saved, try again';
+  }
+  await refreshAfterScenarioChange(r.id);
   renderReviewCol(); renderRcaCol();
+  // AFTER the re-render, not before. Writing it first put the message into a
+  // node renderReviewCol then replaced, so a failed re-run reported itself for
+  // a few hundred milliseconds and then looked exactly like a success.
+  if (failed) {
+    const after = document.querySelector('[data-scenario-regen-status]');
+    if (after) after.textContent = failed;
+  }
 });
 
 document.addEventListener('change', async ev => {
@@ -4567,7 +4636,7 @@ function renderRcaCol() {
                 `<option${cur === o ? ' selected' : ''}>${esc(o)}</option>`).join('')}
             </select>
             <select class="res-reason" data-takedown-reason>
-              <option value=""${chosen ? '' : ' selected'}>—</option>
+              <option value=""${chosen ? '' : ' selected'}>Select an option</option>
               ${TAKEDOWN_REASONS.map(o =>
                 `<option${chosen === o ? ' selected' : ''}>${esc(o)}</option>`).join('')}
             </select>
@@ -5087,6 +5156,11 @@ function renderRcaCol() {
       rca.checklistAnswers = [];
       rca.primaryScenario = data.primary_scenario || rca.primaryScenario;
       rca.overlayScenarios = data.overlay_scenarios || rca.overlayScenarios;
+      // The RCA is new; so are the routing verdict and the insights panel.
+      // Re-read them rather than leaving the card showing a divergence that
+      // has just been resolved, or a recurrence count for the old
+      // classification.
+      await refreshAfterScenarioChange(r.id);
       if (regenStatus) regenStatus.textContent = '';
       renderReviewCol(); renderRcaCol();
     } catch (e) {

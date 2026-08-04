@@ -631,8 +631,14 @@ _FALLBACK = {
         # The grounds the dropdown offers. Here as well as in the YAML for
         # the same reason every other key is: someone deleting the block while
         # editing must not leave the control with no options at all.
-        "reasons": ["Content issues, booking/support issues",
-                    "Personal emergency, health issue"],
+        "reasons": [
+            "Review Takedown Sent",
+            "Final Resolution WIP",
+            "Severe negative experience (HO Led) - content issues, booking/support issues",
+            "Sensitive cases - Uncontrollable - personal emergency, health issues",
+            "Untraceable",
+            "Other - not listed here",
+        ],
     },
     "untraceable_reply": (
         "Hey {first_name},\n\nI'm sorry things didn't go as planned, and I'd love "
