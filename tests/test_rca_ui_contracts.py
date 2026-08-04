@@ -43,12 +43,32 @@ def test_legacy_card_level_content_is_still_rendered_somewhere():
 
 # ── closed vocabularies (§1, §9, §11) ───────────────────────────────────────
 
+def _client_list(name):
+    """The values of a `const NAME = [...]` array in the client."""
+    import re
+    m = re.search(rf"const {name}\s*=\s*\[(.*?)\]", CLIENT, re.S)
+    assert m, f"the client has no {name} list"
+    return re.findall(r"'([^']*)'", m.group(1))
+
+
 def test_the_verdict_and_owner_are_selects_not_free_text():
     """A chip that renders whatever the model returns is how a sentence-length
     verdict crushed the issue title to one character per line. A select can
-    only render its options."""
-    assert "const ACC  = ['Accurate', 'Partly accurate', 'Inaccurate', 'Unknown']" in CLIENT
-    assert "const OWNS = ['Content', 'CE', 'SP', 'RO', 'Product', 'Biz', 'Ops']" in CLIENT
+    only render its options.
+
+    This used to assert the exact array literal, which is a spelling check: it
+    broke the moment a fifth verdict was added legitimately, and it never
+    checked the thing that matters. What matters is that the client's list is
+    CLOSED and matches the server's — a verdict the validator can produce and
+    the select cannot render is a value that silently becomes something else
+    on screen.
+    """
+    from server.services.rca_v4_validate import CLAIM_ACCURACY, OWNERS
+    assert _client_list("ACC") == list(CLAIM_ACCURACY), (
+        f"the card offers {_client_list('ACC')} and the validator produces "
+        f"{list(CLAIM_ACCURACY)} — a verdict one side knows and the other "
+        f"does not is a value that changes meaning on the way to the screen")
+    assert _client_list("OWNS") == list(OWNERS)
     assert "data-v3sel" in CLIENT, "the chip-selects have no save path"
 
 

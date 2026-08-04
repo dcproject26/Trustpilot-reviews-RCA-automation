@@ -334,6 +334,12 @@
     font-size: 11.5px; line-height: 1.5;
   }
   .content-mismatch .reconcile-text { flex: 1; min-width: 140px; }
+  /* Reached-but-unsettleable. Amber, not the grey of Unknown: one is
+     finished work, the other is work outstanding, and a shared colour is what
+     made them the same fact on the card. */
+  .chip.unver, .verdict-chip.unver {
+    background: var(--amber-bg); color: var(--amber);
+  }
   .trail-toggle {
     font: inherit; font-size: 11px; padding: 1px 0; margin-top: 3px;
     border: none; background: none; color: var(--muted-2); cursor: pointer;
@@ -4282,17 +4288,32 @@ function renderRcaCol() {
     // to sit on still renders as its own row, so nothing is dropped.
     // §1 closed vocabularies. The chip is a select, so the only values that
     // can reach the screen are these - a sentence-length verdict cannot.
-    const ACC  = ['Accurate', 'Partly accurate', 'Inaccurate', 'Unknown'];
+    // Five, not four. "Unverifiable" is a verdict we REACHED - we looked and no
+    // record we hold can settle the claim - and "Unknown" is the absence of
+    // one. They were the same chip, so a finished check and an outstanding one
+    // read identically, and the reader could not tell which needed more work.
+    const ACC  = ['Accurate', 'Partly accurate', 'Inaccurate', 'Unverifiable',
+                  'Unknown'];
     const OWNS = ['Content', 'CE', 'SP', 'RO', 'Product', 'Biz', 'Ops'];
     const accCls = a => { const t = String(a || '').toLowerCase();
       return t.startsWith('accur') ? 'ok' : t.startsWith('part') ? 'part'
-           : t.startsWith('inacc') ? 'bad' : 'unk'; };
+           : t.startsWith('inacc') ? 'bad'
+           : t.startsWith('unver') || t.startsWith('cannot verify') ? 'unver'
+           : 'unk'; };
     // A select renders only its options, so an unrecognised value has to be
     // mapped onto one - the raw string stays in title, never in the chip.
+    //
+    // Anything unrecognised falls to Unknown and never to Unverifiable:
+    // claiming a check nobody ran is not a safe default.
     const accCanon = a => {
       const t = String(a || '').trim().toLowerCase();
       if (t.startsWith('accur') || t.startsWith('yes') || t.startsWith('true')) return 'Accurate';
       if (t.startsWith('part')) return 'Partly accurate';
+      // Before the Inaccurate branch: "No record of this" starts with "no",
+      // and the generic prefix would report "we could not check" as "the
+      // guest is wrong" — contradicting a guest on no evidence.
+      if (t.startsWith('unver') || t.startsWith('not verifiable')
+          || t.startsWith('cannot verify') || t.startsWith('no record')) return 'Unverifiable';
       if (t.startsWith('inacc') || t.startsWith('no') || t.startsWith('false')) return 'Inaccurate';
       return 'Unknown';
     };

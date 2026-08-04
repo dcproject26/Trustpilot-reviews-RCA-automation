@@ -1517,7 +1517,7 @@ that turned out fine is silence — never a line in the output.
       {
         "issue": "<one-line title, max 12 words, plain words, no trailing period>",
         "claim": "<the guest's VERBATIM words from the review, quoted exactly | null>",
-        "claim_accuracy": "<Accurate | Partly accurate | Inaccurate | Unknown>",
+        "claim_accuracy": "<Accurate | Partly accurate | Inaccurate | Unverifiable | Unknown>",
         "claim_accuracy_note": "<one sentence of reasoning for that verdict | null>",
         "owner": "<Content | CE | SP | RO | Product | Biz | Ops>",
         "root_cause": "<the failing step, 1-2 sentences>",
@@ -1586,7 +1586,17 @@ that turned out fine is silence — never a line in the output.
 2. Every field in the template must be present. Use null for unknown or absent — never the
    strings "Unknown", "N/A", "TBD", "-", "?", "none" or an empty string in any field except
    where an enum explicitly lists that value.
-3. `claim_accuracy` MUST be exactly one of: Accurate, Partly accurate, Inaccurate, Unknown.
+3. `claim_accuracy` MUST be exactly one of: Accurate, Partly accurate, Inaccurate,
+   Unverifiable, Unknown.
+   UNVERIFIABLE AND UNKNOWN ARE DIFFERENT ANSWERS, and the difference decides what
+   the reader does next. UNVERIFIABLE means you CHECKED and no record can settle it —
+   the guest says the room was cold, the guide was rude, the queue was two hours;
+   nothing we hold records any of those. That is finished work, and the note says
+   which sources you looked in. UNKNOWN means you could not establish it — the lookup
+   failed, the ticket was not retrieved, you ran out of evidence to check against.
+   That is work OUTSTANDING.
+   Never use Unverifiable as a fallback for "I did not look". Claiming a check you
+   did not run is worse than admitting the gap, because nobody will go back to it.
    Nothing else, no punctuation, no trailing explanation. Put your reasoning in
    `claim_accuracy_note`. Do NOT write "Partially True — booking status shows…" in the verdict.
 4. `claim` is the guest's own words copied from the review, inside no quote marks (the UI adds

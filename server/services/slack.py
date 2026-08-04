@@ -765,6 +765,12 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
                 block.append(f"\u2022 Guest: \u201c{g['claim']}\u201d")
             if g.get("claim_accuracy_note"):
                 block.append(f"\u2022 Why that verdict: {g['claim_accuracy_note']}")
+            # An Unverifiable verdict with no reason is indistinguishable from
+            # a claim nobody looked at, which is the distinction the verdict
+            # exists to draw. Said out loud rather than left to the reader.
+            elif g.get("claim_accuracy") == "Unverifiable":
+                block.append("\u2022 Why that verdict: checked; no record we hold "
+                             "can settle this claim")
             # Only the lines this issue actually has. A dash for every absent
             # field turns a focused block into a form with blanks in it.
             for key, label in (("root_cause", "Root cause"),

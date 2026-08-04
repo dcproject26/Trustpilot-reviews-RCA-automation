@@ -13,7 +13,14 @@ import re
 
 from server.taxonomy import L1_CATEGORIES, L2_OPTIONS
 
-CLAIM_ACCURACY = ("Accurate", "Partly accurate", "Inaccurate", "Unknown")
+# Five, not four. "Unverifiable" and "Unknown" are different answers and were
+# the same value: a claim we CHECKED and no record can settle, against a claim
+# nobody established. Collapsing them is this codebase's first rule exactly —
+# "I ran and found nothing" reading identically to "I did not run" — and it
+# costs a reader the one thing that decides what to do next. An unverifiable
+# claim is finished work; an unknown one is work outstanding.
+CLAIM_ACCURACY = ("Accurate", "Partly accurate", "Inaccurate",
+                  "Unverifiable", "Unknown")
 ISA_VERDICT    = ("Yes", "No", "Unknown")
 SOURCES        = ("booking", "bms", "zendesk", "insights", "dss", "exp-page")
 TAKEDOWN       = ("Yes", "No", "Untraceable")
@@ -174,12 +181,16 @@ def _enum(value, allowed, fallback):
 
 
 def _accuracy(raw):
-    """The four-value verdict, from whatever the model wrote.
+    """The verdict, from whatever the model wrote.
 
     Mapped by prefix rather than exact match because the v3 vocabulary
     ("Yes", "Partially True", "No") is still what older drafts hold, and a
     re-run of an old review should not produce a grey chip for a verdict the
     model actually gave.
+
+    "Unverifiable" is a REACHED verdict: we looked and no record can settle
+    it. "Unknown" is the absence of one. Anything unrecognised falls to
+    Unknown, never to Unverifiable — claiming we checked is not a fallback.
     """
     if not isinstance(raw, str):
         return "Unknown", None
@@ -190,6 +201,13 @@ def _accuracy(raw):
         return "Accurate", tail
     if low.startswith(("partly", "partial")):
         return "Partly accurate", tail
+    # BEFORE the Inaccurate branch, not after. "No record of this" and "Not
+    # verifiable" both start with "no", so the generic prefix claimed them and
+    # reported "we could not check" as "the guest is wrong" — the worst of the
+    # three possible readings, because it contradicts a guest on no evidence.
+    if low.startswith(("unverifiable", "not verifiable", "cannot verify",
+                       "can't verify", "no record", "unconfirmable")):
+        return "Unverifiable", tail
     if low.startswith(("inaccurate", "no", "false")):
         return "Inaccurate", tail
     return "Unknown", tail or (first or None)
