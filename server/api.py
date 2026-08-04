@@ -1366,23 +1366,34 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
     except Exception as e:
         canned_list = []
         log.warning(f"[regenerate-rca] canned tone lookup failed: {e}")
-    rca_v3 = await claude_svc.generate_rca_v3(
-        review_text=r.body_english or r.body_original or "",
-        booking=d.booking or {},
-        timeline=d.timeline or [],
-        insights=d.insights or {},
-        dss_rec=d.dss_rec or {},
-        l1=d.l1 or "", l2=d.l2 or "",
-        sub_theme=", ".join(d.sub_themes or ([d.sub_theme] if d.sub_theme else [])),
-        support_summary=d.support_summary or "",
-        checklist=checklist,
-        review_id=review_id,
-        timeline_raw=d.timeline_raw or [],
-        ticket_facts=d.ticket_facts or {},
-        scenarios_routed=scenarios,
-        issue_questions=issue_questions_for(scenarios),
-        canned_list=canned_list,
-    )
+    # The model call can raise as well as return nothing, and only the second
+    # was handled. An unconfigured or unreachable model came back as a bare
+    # 500 "Internal Server Error" — which tells the associate their re-run
+    # failed and nothing about why, and looks identical to a bug in the RCA
+    # itself. Named here so the reason reaches the person who has to decide
+    # whether to try again.
+    try:
+        rca_v3 = await claude_svc.generate_rca_v3(
+            review_text=r.body_english or r.body_original or "",
+            booking=d.booking or {},
+            timeline=d.timeline or [],
+            insights=d.insights or {},
+            dss_rec=d.dss_rec or {},
+            l1=d.l1 or "", l2=d.l2 or "",
+            sub_theme=", ".join(d.sub_themes or ([d.sub_theme] if d.sub_theme else [])),
+            support_summary=d.support_summary or "",
+            checklist=checklist,
+            review_id=review_id,
+            timeline_raw=d.timeline_raw or [],
+            ticket_facts=d.ticket_facts or {},
+            scenarios_routed=scenarios,
+            issue_questions=issue_questions_for(scenarios),
+            canned_list=canned_list,
+        )
+    except Exception as e:
+        log.exception(f"[regenerate-rca] model call failed: {e}")
+        raise HTTPException(502, f"RCA regeneration failed - draft unchanged "
+                                 f"({type(e).__name__}: {e})"[:300])
     if not rca_v3:
         raise HTTPException(502, "RCA regeneration returned nothing - draft unchanged")
 

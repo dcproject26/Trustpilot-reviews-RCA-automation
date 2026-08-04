@@ -1566,6 +1566,122 @@ function unwrapInsights(payload) {
 // scenario change usually follows a classification change, and a panel that
 // silently keeps the previous classification's figures is the exact complaint
 // this dashboard already had once.
+// Save the routing lists and re-run the RCA against them, for whichever
+// review is selected.
+//
+// TOP LEVEL, not a closure inside renderRcaCol, because the chip controls it
+// serves are DRAWN by renderReviewCol. A closure has to be re-created by a
+// render that runs after the markup exists, and eight callers of
+// renderReviewCol do not call renderRcaCol afterwards - so changing the
+// insights window, among others, left every scenario control on the card
+// bound to nothing. Silently: the select still opens, still shows options,
+// and does nothing when you pick one.
+async function regenerateForScenarios(reviewId) {
+  const r = REVIEWS.find(x => x.id === reviewId);
+  if (!r || !r.rca) return;
+  const rca = r.rca;
+  const scenarios = [...(rca.scenarios || []),
+                     ...(rca.overlayScenarios || [])].filter(Boolean);
+  rca.primaryScenario = scenarios[0] || '';
+  // Save first: if generation fails the chips still reflect what the person
+  // chose, instead of snapping back on the next render.
+  await saveDraft(r.id, {sub_themes: rca.subThemes || [],
+                         scenarios: rca.scenarios || [],
+                         overlay_scenarios: rca.overlayScenarios || []});
+  if (!scenarios.length) { renderReviewCol(); renderRcaCol(); return; }
+  const st = document.querySelector('[data-scenario-regen-status]');
+  if (st) st.textContent = '⟳ re-running RCA for new scenarios…';
+  let failed = '';
+  try {
+    const resp = await fetch(`/api/reviews/${r.id}/regenerate-rca`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({scenarios}),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || 'regen failed');
+    rca.v3 = data.rca_v3 || {};
+    rca.prevention = data.prevention || rca.prevention;
+    rca.issueSpecificAnswers = data.issue_specific_answers || {};
+    if (data.area_of_improving) rca.areaOfImproving = data.area_of_improving;
+    rca.checklistAnswers = [];
+    rca.primaryScenario = data.primary_scenario || rca.primaryScenario;
+    rca.overlayScenarios = data.overlay_scenarios || rca.overlayScenarios;
+  } catch (e) {
+    failed = '✗ RCA re-run failed — scenario saved, try again';
+    await saveDraft(r.id, {primary_scenario: rca.primaryScenario || null});
+  }
+  // Outside the try: the scenario was saved either way, so the routing
+  // verdict and the insights panel are stale either way.
+  await refreshAfterScenarioChange(r.id);
+  renderReviewCol(); renderRcaCol();
+  if (failed) {
+    const after = document.querySelector('[data-scenario-regen-status]');
+    if (after) after.textContent = failed;
+  }
+}
+
+// The chip controls, delegated. See regenerateForScenarios above for why.
+const _CHIP_KEYS = {
+  'data-scenario-add': 'scenarios', 'data-scenario-remove': 'scenarios',
+  'data-overlay-add': 'overlayScenarios', 'data-overlay-remove': 'overlayScenarios',
+};
+document.addEventListener('change', async ev => {
+  const sel = ev.target.closest && ev.target.closest(
+    '[data-scenario-add], [data-overlay-add]');
+  if (!sel || !sel.value) return;
+  const attr = sel.hasAttribute('data-scenario-add')
+    ? 'data-scenario-add' : 'data-overlay-add';
+  const r = REVIEWS.find(x => x.id === state.selected);
+  if (!r || !r.rca) return;
+  const key = _CHIP_KEYS[attr];
+  r.rca[key] = [...(r.rca[key] || []), sel.value];
+  await regenerateForScenarios(r.id);
+});
+document.addEventListener('click', async ev => {
+  const btn = ev.target.closest && ev.target.closest(
+    '[data-scenario-remove], [data-overlay-remove]');
+  if (!btn) return;
+  const attr = btn.hasAttribute('data-scenario-remove')
+    ? 'data-scenario-remove' : 'data-overlay-remove';
+  const r = REVIEWS.find(x => x.id === state.selected);
+  if (!r || !r.rca) return;
+  const key = _CHIP_KEYS[attr];
+  const idx = parseInt(btn.getAttribute(attr));
+  if (Number.isNaN(idx)) return;
+  r.rca[key] = (r.rca[key] || []).filter((_, i) => i !== idx);
+  await regenerateForScenarios(r.id);
+});
+
+// Sub-themes, delegated for the same reason. They do NOT re-run the RCA:
+// the sub-theme does not change the checklists, so it saves and redraws.
+async function saveSubThemes(reviewId) {
+  const r = REVIEWS.find(x => x.id === reviewId);
+  if (!r || !r.rca) return;
+  r.rca.subTheme = (r.rca.subThemes || [])[0] || null;
+  await saveDraft(r.id, {sub_themes: r.rca.subThemes || [],
+                         scenarios: r.rca.scenarios || [],
+                         overlay_scenarios: r.rca.overlayScenarios || []});
+  renderReviewCol(); renderRcaCol();
+}
+document.addEventListener('change', async ev => {
+  const sel = ev.target.closest && ev.target.closest('[data-subtheme-add]');
+  if (!sel || !sel.value) return;
+  const r = REVIEWS.find(x => x.id === state.selected);
+  if (!r || !r.rca) return;
+  r.rca.subThemes = [...(r.rca.subThemes || []), sel.value];
+  await saveSubThemes(r.id);
+});
+document.addEventListener('click', async ev => {
+  const btn = ev.target.closest && ev.target.closest('[data-subtheme-remove]');
+  if (!btn) return;
+  const r = REVIEWS.find(x => x.id === state.selected);
+  if (!r || !r.rca) return;
+  const idx = parseInt(btn.getAttribute('data-subtheme-remove'));
+  if (Number.isNaN(idx)) return;
+  r.rca.subThemes = (r.rca.subThemes || []).filter((_, i) => i !== idx);
+  await saveSubThemes(r.id);
+});
+
 async function refreshAfterScenarioChange(reviewId) {
   const r = REVIEWS.find(x => x.id === reviewId);
   if (!r) return;
@@ -5136,79 +5252,16 @@ function renderRcaCol() {
       overlay_scenarios: rca.overlayScenarios || [],
     });
   };
-  const regenRca = async () => {
-    const scenarios = [...(rca.scenarios || []), ...(rca.overlayScenarios || [])].filter(Boolean);
-    rca.primaryScenario = scenarios[0] || '';
-    await saveRouting();
-    if (!scenarios.length) { renderReviewCol(); return; }
-    if (regenStatus) regenStatus.textContent = '⟳ re-running RCA for new scenarios…';
-    try {
-      const resp = await fetch(`/api/reviews/${r.id}/regenerate-rca`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenarios }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.detail || 'regen failed');
-      rca.v3 = data.rca_v3 || {};
-      rca.prevention = data.prevention || rca.prevention;
-      rca.issueSpecificAnswers = data.issue_specific_answers || {};
-      if (data.area_of_improving) rca.areaOfImproving = data.area_of_improving;
-      rca.checklistAnswers = [];
-      rca.primaryScenario = data.primary_scenario || rca.primaryScenario;
-      rca.overlayScenarios = data.overlay_scenarios || rca.overlayScenarios;
-      // The RCA is new; so are the routing verdict and the insights panel.
-      // Re-read them rather than leaving the card showing a divergence that
-      // has just been resolved, or a recurrence count for the old
-      // classification.
-      await refreshAfterScenarioChange(r.id);
-      if (regenStatus) regenStatus.textContent = '';
-      renderReviewCol(); renderRcaCol();
-    } catch (e) {
-      if (regenStatus) regenStatus.textContent = '✗ RCA re-run failed — scenario saved, try again';
-      // Persist the routing itself even when generation failed
-      await saveDraft(r.id, { primary_scenario: rca.primaryScenario || null });
-    }
-  };
+  const regenRca = () => regenerateForScenarios(r.id);
 
   // Sub-themes, scenarios and overlays are all multi-value. Adding or
   // removing any of them saves the list and re-runs the RCA, because the
   // routing decides which scenario checklists and issue questions the model
   // answers - a chip that changed nothing downstream would be decoration.
-  const bindChips = (addAttr, removeAttr, key) => {
-    const add = document.querySelector(`[${addAttr}]`);
-    if (add) add.addEventListener('change', () => {
-      const val = add.value;
-      if (!val) return;
-      rca[key] = [...(rca[key] || []), val];
-      regenRca();
-    });
-    document.querySelectorAll(`[${removeAttr}]`).forEach(btn => {
-      btn.addEventListener('click', () => {
-        const idx = parseInt(btn.dataset[removeAttr.replace(/^data-/, '')
-          .replace(/-([a-z])/g, (_, c) => c.toUpperCase())]);
-        rca[key] = (rca[key] || []).filter((_, i) => i !== idx);
-        regenRca();
-      });
-    });
-  };
-  bindChips('data-scenario-add', 'data-scenario-remove', 'scenarios');
-  bindChips('data-overlay-add',  'data-overlay-remove',  'overlayScenarios');
-  // Sub-themes do not change the checklists, so they save without a re-run.
-  const stAdd = document.querySelector('[data-subtheme-add]');
-  if (stAdd) stAdd.addEventListener('change', async () => {
-    if (!stAdd.value) return;
-    rca.subThemes = [...(rca.subThemes || []), stAdd.value];
-    rca.subTheme = rca.subThemes[0];
-    await saveRouting(); renderReviewCol();
-  });
-  document.querySelectorAll('[data-subtheme-remove]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const idx = parseInt(btn.dataset.subthemeRemove);
-      rca.subThemes = (rca.subThemes || []).filter((_, i) => i !== idx);
-      rca.subTheme = rca.subThemes[0] || null;
-      await saveRouting(); renderReviewCol();
-    });
-  });
+  // Scenario, overlay and sub-theme chips are all delegated near
+  // regenerateForScenarios. They are drawn by renderReviewCol, and binding
+  // them from here - which is renderRcaCol - left them dead after any render
+  // that did not also call renderRcaCol. There are eight such callers.
 
   // Visible confirmation after an inline edit persists. An edit that blurred
   // into silence gave the analyst no way to tell "saved" from "lost".
