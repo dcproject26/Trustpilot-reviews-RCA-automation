@@ -37,12 +37,6 @@
   },
   {
     "file": "server/prompts.py",
-    "name": "the wait time may be estimated",
-    "find": "Read it off the timestamps; do not estimate.",
-    "replace": "Give a figure."
-  },
-  {
-    "file": "server/prompts.py",
     "name": "an undetectable field gets guessed",
     "find": "    IF YOU CANNOT DETERMINE A FIELD, LEAVE IT NULL AND WRITE NOTHING FOR IT.",
     "replace": "    Fill in what you can."
@@ -62,14 +56,8 @@
   {
     "file": "server/services/rca_v4_validate.py",
     "name": "the projection goes back to dropping the narrative",
-    "find": "CONTACT_FIELDS = (\"zd_ref\", \"summary\", \"detail\", \"ce_miss\",\n                  \"time\", \"channel\", \"guest_said\", \"we_said\",\n                  \"wait_for_human\", \"guest_replied\", \"outcome\")",
+    "find": "CONTACT_FIELDS = (\"zd_ref\", \"summary\", \"detail\", \"ce_miss\",\n                  \"time\", \"channel\", \"guest_said\", \"we_said\",\n                  \"raised_internally\")",
     "replace": "CONTACT_FIELDS = (\"zd_ref\", \"summary\", \"detail\", \"ce_miss\")"
-  },
-  {
-    "file": "server/services/rca_v4_validate.py",
-    "name": "wait_for_human alone is dropped",
-    "find": "\"wait_for_human\", \"guest_replied\", \"outcome\")",
-    "replace": "\"guest_replied\", \"outcome\")"
   },
   {
     "file": "server/services/rca_v4_validate.py",
@@ -146,13 +134,13 @@
   {
     "file": "server/prompts.py",
     "name": "the time/channel precedence rule is dropped",
-    "find": "    `time` AND `channel` ARE READ OFF THE TICKET, NOT JUDGED.",
-    "replace": "    State time and channel."
+    "find": "    `channel` AND `time` ARE READ OFF THE TICKET, NOT JUDGED.",
+    "replace": "    State channel and time."
   },
   {
     "file": "server/prompts.py",
     "name": "the model is no longer told the frame wins",
-    "find": "the dashboard shows the FRAME's time and channel, not yours",
+    "find": "the dashboard shows the FRAME's values, not yours",
     "replace": "use your judgement"
   },
   {
@@ -168,12 +156,6 @@
     "replace": "    return lines.length\n      ? `<ul class=\"convo-narr\"><li class=\"convo-bullet\">${lines.join(' ')}</li></ul>` : '';"
   },
   {
-    "file": "client/index.html",
-    "name": "the bullets come out in a different order",
-    "find": "  const _NARR = ['guest_said', 'we_said', 'wait_for_human', 'guest_replied',\n                 'outcome'];",
-    "replace": "  const _NARR = ['outcome', 'guest_replied', 'wait_for_human', 'we_said',\n                 'guest_said'];"
-  },
-  {
     "file": "server/prompts.py",
     "name": "the model may answer with fragments instead of sentences",
     "find": "    THESE ARE BULLETS, NOT FORM ANSWERS.",
@@ -182,7 +164,7 @@
   {
     "file": "server/prompts.py",
     "name": "the worked example of a sentence vs a fragment is dropped",
-    "find": "\"Waited 18 minutes before an agent picked it up\", not \"18\n    minutes\".",
+    "find": "\"Skylar answered with the cancellation policy link\", not \"policy\n    link\".",
     "replace": "Be complete."
   },
   {
@@ -235,18 +217,6 @@
   },
   {
     "file": "server/services/insights.py",
-    "name": "the TGID recurrence scope is the TID+VID one under another name",
-    "find": "    _rev_scope_tgid   = \"b.experience_id = @tgid\"",
-    "replace": "    _rev_scope_tgid   = \"b.tour_id = @tid AND f.vendor_id = @vid\""
-  },
-  {
-    "file": "server/services/insights.py",
-    "name": "the TGID support scope narrows to the vendor too",
-    "find": "    _sup_scope_tgid   = \"b.experience_id = @tgid\"",
-    "replace": "    _sup_scope_tgid   = \"b.tour_id = @tid AND b.vendor_id = @vid\""
-  },
-  {
-    "file": "server/services/insights.py",
     "name": "the reviews query stops returning booking ids",
     "find": "    _rev_ids = \"ARRAY_AGG(DISTINCT CAST(r.booking_id AS STRING) LIMIT 20) AS ids\"",
     "replace": "    _rev_ids = \"NULL AS ids\""
@@ -265,12 +235,6 @@
   },
   {
     "file": "server/services/insights.py",
-    "name": "the TGID half is gated on the tid/vid pair it does not need",
-    "find": "    skip_a_tgid = not tgid or not variants",
-    "replace": "    skip_a_tgid = not pair or not tgid or not variants"
-  },
-  {
-    "file": "server/services/insights.py",
     "name": "the zero path drops the recurrence block",
     "find": "        \"recurrence\": {\n            \"tidvid\": {\"reviews\": 0, \"reviews_total\": 0, \"review_ids\": [],",
     "replace": "        \"_recurrence_removed\": {\n            \"tidvid\": {\"reviews\": 0, \"reviews_total\": 0, \"review_ids\": [],"
@@ -284,20 +248,14 @@
   {
     "file": "server/services/insights.py",
     "name": "the result names fall out of step with the queries",
-    "find": "        \"reviews_tgid\", \"reviews_total_tgid\",\n        \"support_tgid\", \"support_total_tgid\",\n        \"completion_tidvid\",",
-    "replace": "        \"reviews_tgid\", \"reviews_total_tgid\","
-  },
-  {
-    "file": "client/index.html",
-    "name": "both recurrence groups read the same scope",
-    "find": "            ${_pair(rec.tgid, 'reviews_tgid', 'reviews_total_tgid',\n                    'support_tgid', 'support_total_tgid')}",
-    "replace": "            ${_pair(rec.tidvid, 'reviews', 'reviews_total',\n                    'support', 'support_total')}"
+    "find": "        \"same_day_total\",\n        \"completion_tidvid\",",
+    "replace": "        \"same_day_total\","
   },
   {
     "file": "client/index.html",
     "name": "the recurrence tiles stop showing booking ids",
-    "find": "                           qRev, qRevTot) + _ids(r.review_ids),",
-    "replace": "                           qRev, qRevTot),"
+    "find": "                           'reviews', 'reviews_total') + _ids(r.review_ids),",
+    "replace": "                           'reviews', 'reviews_total'),"
   },
   {
     "file": "client/index.html",
@@ -310,5 +268,53 @@
     "name": "the completion tile goes back to TGID",
     "find": "            ${_tile('Completion · TID · VID',\n                    _rate(li.tidvid_completion_rate,",
     "replace": "            ${_tile('Completion · TGID',\n                    _rate(li.tidvid_completion_rate,"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "raised_internally is dropped from the projection",
+    "find": "                  \"raised_internally\")",
+    "replace": "                  )"
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the model stops being asked whether we raised it internally",
+    "find": "      `raised_internally`\n                       did we raise it INTERNALLY, and what came of it.",
+    "replace": "      `raised_internally`\n                       anything else."
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "asking for time and raising nothing stops being a finding",
+    "find": "If we\n                       asked for time and raised nothing, SAY THAT — it is the finding.",
+    "replace": "Use judgement."
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "a routine contact with no escalation reads as a failure",
+    "find": "                       If we never asked for time and never needed to raise anything,\n                       leave it null; that is not a failure.",
+    "replace": "                       Otherwise leave it null."
+  },
+  {
+    "file": "client/index.html",
+    "name": "the card stops drawing whether we raised it internally",
+    "find": "  const _NARR = ['guest_said', 'we_said', 'raised_internally'];",
+    "replace": "  const _NARR = ['guest_said', 'we_said'];"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the recurrence bullets come out in a different order",
+    "find": "  const _NARR = ['guest_said', 'we_said', 'raised_internally'];",
+    "replace": "  const _NARR = ['raised_internally', 'we_said', 'guest_said'];"
+  },
+  {
+    "file": "server/services/insights.py",
+    "name": "recurrence widens to the whole TGID again",
+    "find": "    _rev_scope_tidvid = \"b.tour_id = @tid AND f.vendor_id = @vid\"",
+    "replace": "    _rev_scope_tidvid = \"b.experience_id = @tgid\""
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "a takedown ground is split in two again",
+    "find": "        \"reasons\": [\"Content issues, booking/support issues\",\n                    \"Personal emergency, health issue\"],",
+    "replace": "        \"reasons\": [\"Content issues\", \"Booking / support issues\",\n                    \"Personal emergency, health issue\"],"
   }
 ]
