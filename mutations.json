@@ -310,5 +310,65 @@
     "name": "an empty trail draws a zero",
     "find": "  if (!all.length) return '';",
     "replace": "  if (false) return '';"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "the new view is appended instead of replacing",
+    "find": "        candidates = _new + _kept",
+    "replace": "        candidates = candidates + _new"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "the new view goes behind the live sheet",
+    "find": "        candidates = _new + _kept",
+    "replace": "        candidates = _kept + _new"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "the selector key collapses everything to one scenario",
+    "find": "    return re.sub(r\"[^a-z0-9]+\", \" \", (text or \"\").lower()).strip()",
+    "replace": "    return \"scenario\""
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "the selector key stops normalising case",
+    "find": "    return re.sub(r\"[^a-z0-9]+\", \" \", (text or \"\").lower()).strip()",
+    "replace": "    return re.sub(r\"[^a-zA-Z0-9]+\", \" \", (text or \"\")).strip()"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "an empty selector supersedes every live row",
+    "find": "        _superseded.discard(\"\")",
+    "replace": "        pass"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "a broken export takes the whole lookup down",
+    "find": "    except Exception as e:\n        log.warning(f\"[dss] unified export could not be read ({e}) - live sheet only\")\n        return {}",
+    "replace": "    except ZeroDivisionError as e:\n        log.warning(f\"[dss] unified export could not be read ({e}) - live sheet only\")\n        return {}"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "a missing export is reported as a parse failure",
+    "find": "    except FileNotFoundError:\n        log.info(\"[dss] no unified export checked in - live sheet only\")\n        return {}",
+    "replace": "    except FileNotFoundError:\n        raise"
+  },
+  {
+    "file": "tools/import_dss.py",
+    "name": "the superseded copy is imported too",
+    "find": "        if m and m.group(1) in names:",
+    "replace": "        if False:"
+  },
+  {
+    "file": "tools/import_dss.py",
+    "name": "a skipped file is skipped silently",
+    "find": "    for s in skipped:\n        print(f\"  SKIPPED  {s}\")",
+    "replace": "    pass"
+  },
+  {
+    "file": "tools/import_dss.py",
+    "name": "an empty import reports success",
+    "find": "        print(f\"no .html exports in {a.src}\", file=sys.stderr)\n        return 1",
+    "replace": "        return 0"
   }
 ]
