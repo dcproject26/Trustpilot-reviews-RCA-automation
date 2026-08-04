@@ -232,15 +232,33 @@ def test_a_flag_team_outside_the_vocabulary_becomes_other():
     assert any("Growth" in n for n in notes)
 
 
-def test_a_note_cannot_carry_a_time_or_a_channel():
-    """Those are facts and they live on the Zendesk frames. On a real run the
-    model left both null while its prose said "chat at 15:41 IST" — a field the
-    model must not fill is a field it will fill, so the schema is the fix."""
-    out, _ = validate(_ok(support_interaction_notes=[
+def test_a_note_may_carry_a_time_and_a_channel_but_never_invent_the_channel():
+    """This used to assert the fields were struck from the schema outright,
+    because on a real run the model left both null while its prose said "chat
+    at 15:41 IST" — a field the model must not fill is a field it will fill.
+
+    That was right about PRECEDENCE and wrong about PRESENCE. A contact with
+    no Zendesk frame — a call the guest describes, an off-Zendesk exchange —
+    has no frame to take a time from, so striking the field rendered a dash:
+    the same dash a broken lookup renders, on a contact where we knew the
+    answer perfectly well.
+
+    So the fields are back and the guard moved. The model may state them; the
+    frame's value wins wherever a frame exists (driven in the browser, in
+    tests/test_contact_narrative_ui.py), and the channel is still closed to a
+    vocabulary so an invented one cannot render as a pill.
+    """
+    out, notes = validate(_ok(support_interaction_notes=[
         {"zd_ref": "ZD-1", "channel": "whatsapp", "time": "22 Jul 15:41",
          "summary": "Guest asked where the tickets were."}]))
     row = out["support_interaction_notes"][0]
-    assert "channel" not in row and "time" not in row
+    assert row["time"] == "22 Jul 15:41", \
+        "an off-Zendesk contact loses the one timestamp we had for it"
+    assert row["channel"] is None, \
+        "'whatsapp' is not in the frame vocabulary and rendered as a pill"
+    assert row["channel_raw"] == "whatsapp", "the model's word was thrown away"
+    assert any("whatsapp" in n for n in notes), \
+        "the channel was coerced with no word to the reader"
     assert row["summary"], "the interpretation still has to survive"
 
 

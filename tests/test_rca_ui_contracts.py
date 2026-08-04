@@ -146,15 +146,38 @@ def test_contacts_are_grouped_not_one_row_per_event():
     assert "30 * 60 * 1000" in CLIENT, "the time-window fallback is gone"
 
 
-def test_the_model_cannot_supply_a_time_or_a_channel_for_a_known_contact():
-    """Those come from the frame. On a real run the model left both null while
-    its prose said "chat at 15:41" — the schema no longer has the fields."""
+def test_the_frame_is_read_first_for_a_known_contact_s_time_and_channel():
+    """This used to assert the model's time and channel appeared nowhere in
+    the row at all. That cost an off-Zendesk contact — one with no frame — the
+    only timestamp anybody had for it, and drew a dash instead.
+
+    The guard is now precedence: the frame is consulted FIRST and the model's
+    value is the `||` fallback. Written the other way round the model's value
+    would displace a verifiable one, which is the failure the old assertion
+    was really about.
+
+    A source assertion, because this is client-side JavaScript — but only the
+    ordering is checked here. That the frame's time actually WINS on screen is
+    driven in a browser, in tests/test_contact_narrative_ui.py.
+    """
     i = CLIENT.find("const _contactRow = (row) => {")
     assert i > 0
-    body = CLIENT[i:i + 3000]
+    # To the end of the function, not a fixed character count. A window of
+    # 3000 chars was what this used to take, and adding a comment inside the
+    # function pushed `first.time` past the edge — the string was present and
+    # the test reported it missing, which is this repo's own rule turned on
+    # its own suite.
+    j = CLIENT.find("const sup = _rows.length", i)
+    assert j > i, "the slice lost its end marker — it would read the whole file"
+    body = CLIENT[i:j]
     assert "first.thread" in body and "first.time" in body, \
         "the pill and time are not being read from the Zendesk frame"
-    assert "note.thread" not in body and "note.time" not in body
+    for fact, label in (("thread", "channel"), ("time", "time")):
+        frame_at = body.find(f"first.{fact}")
+        model_at = body.find(f"(row.note || {{}}).{label}")
+        assert model_at > frame_at > 0, (
+            f"the model's {label} is consulted before the frame's — the "
+            f"unverifiable value would displace the verifiable one")
 
 
 def test_an_orphan_note_still_renders_and_says_why():

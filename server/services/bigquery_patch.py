@@ -129,7 +129,12 @@ def _get_client():
 _VERIFY_BID_SQL = """
 SELECT
   b.booking_id,
-  DATE(b.created_at)      AS date_of_booking,
+  -- The TIMESTAMP, not DATE(). b.created_at carries a time and DATE() threw it
+  -- away at the source, so nothing downstream could show it: the booking log
+  -- and the events timeline both rendered a bare date, and the formatter was
+  -- blamed for truncating something it never received. The visit date stays a
+  -- DATE because that is what it is — an experience is booked for a day.
+  b.created_at            AS date_of_booking,
   DATE(b.experience_date) AS date_of_visit,
   b.tour_id               AS tid,
   b.experience_id         AS tgid,

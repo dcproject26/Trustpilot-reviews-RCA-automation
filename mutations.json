@@ -1,56 +1,176 @@
 [
   {
     "file": "server/prompts.py",
-    "name": "the backend check on operational_failure is dropped",
-    "find": "6. AN OPERATIONAL FAILURE IS SOMETHING THE RECORD SHOWS.",
-    "replace": "6. OPERATIONAL FAILURE."
+    "name": "6b loses the data-gap guard",
+    "find": "   THE SAME EVIDENCE RULES APPLY as rule 6.",
+    "replace": "   Evidence."
   },
   {
     "file": "server/prompts.py",
-    "name": "operational_failure no longer needs the guest's claim to match",
-    "find": "     (c) IT MATCHES THE GUEST'S CLAIM on this issue.",
-    "replace": "     (c) [removed] on this issue."
+    "name": "the deviation list stops being exhaustive",
+    "find": "Anything outside those three is not a deviation\n      — it is a different outcome from the one you would have chosen.",
+    "replace": "Use judgement for anything else."
   },
   {
     "file": "server/prompts.py",
-    "name": "the backend systems are no longer named",
-    "find": "         record or the experience page shows what was actually done",
-    "replace": "         record shows what was actually done"
+    "name": "the social media fork is left unresolved",
+    "find": "so\n        the social-media variant always applies. Do not treat it as unresolved.",
+    "replace": "so consider it."
   },
   {
     "file": "server/prompts.py",
-    "name": "null stops being stated as a finding",
-    "find": "   reason goes in `claim_accuracy_note`. Null is a finding.",
-    "replace": "   reason goes in `claim_accuracy_note`."
+    "name": "the booking thread is allowed into support notes",
+    "find": "      * the BOOKING THREAD — Zendesk classifies it as a task, not a conversation.",
+    "replace": "      * Booking threads."
   },
   {
     "file": "server/prompts.py",
-    "name": "flags no longer need a support interaction behind them",
-    "find": "10a. EVERY FLAG MUST SIT ON A SUPPORT INTERACTION THAT ACTUALLY HAPPENED.",
-    "replace": "10a. Flags."
+    "name": "internally raised tickets are allowed in",
+    "find": "      * INTERNALLY RAISED TICKETS — a DSS follow-up, a bot ping, an ops-to-ops ticket.",
+    "replace": "      * Internal tickets."
   },
   {
     "file": "server/prompts.py",
-    "name": "the rule stops saying what is NOT a flag",
-    "find": "      NOT a flag: what nobody did because the guest never wrote in. No contact, no flag.",
-    "replace": "      Use judgement."
+    "name": "Skylar stops being identified as a bot",
+    "find": "SKYLAR IS AN AI BOT, not an agent: where Skylar\n                       answered, say so",
+    "replace": "note who answered"
   },
   {
     "file": "server/prompts.py",
-    "name": "issue answers stop needing a backend source",
-    "find": "12a. ANSWER EACH ONE FROM THE BACKEND, and say which.",
-    "replace": "12a. Answer each one."
+    "name": "the wait time may be estimated",
+    "find": "Read it off the timestamps; do not estimate.",
+    "replace": "Give a figure."
   },
   {
     "file": "server/prompts.py",
-    "name": "a No answer becomes an operational failure automatically",
-    "find": "12b. A \"No\" ON A QUESTION IS NOT AUTOMATICALLY AN OPERATIONAL FAILURE.",
-    "replace": "12b. Answers."
+    "name": "an undetectable field gets guessed",
+    "find": "    IF YOU CANNOT DETERMINE A FIELD, LEAVE IT NULL AND WRITE NOTHING FOR IT.",
+    "replace": "    Fill in what you can."
   },
   {
     "file": "server/prompts.py",
-    "name": "a correct denial can be written up as a miss again",
-    "find": "   correct denial is never a CE miss.",
-    "replace": "   denial may be a CE miss."
+    "name": "the no-contact sentence changes",
+    "find": "\"No direct interaction found between the customer and the support team.\"",
+    "replace": "\"No contact found.\""
+  },
+  {
+    "file": "server/services/bigquery_patch.py",
+    "name": "the booking timestamp is truncated again",
+    "find": "  b.created_at            AS date_of_booking,",
+    "replace": "  DATE(b.created_at)      AS date_of_booking,"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the projection goes back to dropping the narrative",
+    "find": "CONTACT_FIELDS = (\"zd_ref\", \"summary\", \"detail\", \"ce_miss\",\n                  \"time\", \"channel\", \"guest_said\", \"we_said\",\n                  \"wait_for_human\", \"guest_replied\", \"outcome\")",
+    "replace": "CONTACT_FIELDS = (\"zd_ref\", \"summary\", \"detail\", \"ce_miss\")"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "wait_for_human alone is dropped",
+    "find": "\"wait_for_human\", \"guest_replied\", \"outcome\")",
+    "replace": "\"guest_replied\", \"outcome\")"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "time and channel are struck again",
+    "find": "\"time\", \"channel\", \"guest_said\", \"we_said\",",
+    "replace": "\"guest_said\", \"we_said\","
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the channel vocabulary stops being closed",
+    "find": "enums={\"channel\": (CONTACT_CHANNELS, None)})",
+    "replace": ")"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "an invented channel falls back to a token instead of nothing",
+    "find": "enums={\"channel\": (CONTACT_CHANNELS, None)})",
+    "replace": "enums={\"channel\": (CONTACT_CHANNELS, \"chat\")})"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the nothing-found guard stops firing",
+    "find": "if not re.search(r\"\\bno (guest )?contact\\b|never (reached|contacted)\",\n                             (r.get(\"summary\") or \"\"), re.I)",
+    "replace": "if True"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the narrative is not drawn on a matched contact",
+    "find": "          ${_narrative(row.note, nIdx)}\n",
+    "replace": "          "
+  },
+  {
+    "file": "client/index.html",
+    "name": "the narrative is not drawn on an unmatched contact",
+    "find": "            ${_narrative(note, oIdx)}\n",
+    "replace": "            "
+  },
+  {
+    "file": "client/index.html",
+    "name": "empty narrative fields draw a label anyway",
+    "find": "      .filter(([k]) => String(note[k] == null ? '' : note[k]).trim())",
+    "replace": "      .filter(() => true)"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the narrative is drawn as dead text, not editable",
+    "find": "        nIdx >= 0 ? edSpan(`support_interaction_notes.${nIdx}.${k}`, note[k])",
+    "replace": "        false ? edSpan(`support_interaction_notes.${nIdx}.${k}`, note[k])"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an unmatched contact goes back to a dash for its time",
+    "find": "      const oTime = String(note.time || '').trim();",
+    "replace": "      const oTime = '';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an unmatched contact loses its channel pill",
+    "find": "      const oCh = String(note.channel || '').trim();",
+    "replace": "      const oCh = '';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the model's time overrides the ticket's",
+    "find": "    const tm = (first.time || '').trim() || String((row.note || {}).time || '').trim();",
+    "replace": "    const tm = String((row.note || {}).time || '').trim() || (first.time || '').trim();"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the model's channel overrides the ticket's",
+    "find": "    const ch = (first.thread || '').trim() || String((row.note || {}).channel || '').trim();",
+    "replace": "    const ch = String((row.note || {}).channel || '').trim() || (first.thread || '').trim();"
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "the narrative is left out of the Slack post on a matched contact",
+    "find": "        rows.extend(_contact_narrative(note))\n        if note and note.get(\"ce_miss\"):",
+    "replace": "        if note and note.get(\"ce_miss\"):"
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "the narrative is left out of the Slack post on an unmatched contact",
+    "find": "        rows.extend(_contact_narrative(note))\n        if note.get(\"ce_miss\"):",
+    "replace": "        if note.get(\"ce_miss\"):"
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "a blank narrative field is printed as a measured one",
+    "find": "        val = str(note.get(key) or \"\").strip()\n        if val:",
+    "replace": "        val = str(note.get(key) or \"—\").strip()\n        if True:"
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the time/channel precedence rule is dropped",
+    "find": "    `time` AND `channel` ARE READ OFF THE TICKET, NOT JUDGED.",
+    "replace": "    State time and channel."
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the model is no longer told the frame wins",
+    "find": "the dashboard shows the FRAME's time and channel, not yours",
+    "replace": "use your judgement"
   }
 ]

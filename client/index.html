@@ -94,9 +94,22 @@
   .status-pill.warn .dot { background: #B8860B; }
 
   .main {
-    display: flex; min-width: 1280px;
+    display: flex; min-width: 0;
     height: calc(100vh - 52px); overflow: hidden;
   }
+
+  /* ── column resize handles ───────────────────────────────────────────── */
+  /* A 5px strip sitting on the border, not beside it, so it does not shift
+     the layout by its own width. The hit area is wider than the line because
+     a 1px target is a target people miss. */
+  .col-resize {
+    flex: none; width: 5px; margin: 0 -2px; cursor: col-resize;
+    background: transparent; position: relative; z-index: 5;
+  }
+  .col-resize:hover, .col-resize.dragging { background: var(--accent); opacity: .35; }
+  /* While dragging, the pointer must not select text or flip to an I-beam
+     over whatever it passes across. */
+  body.col-dragging { cursor: col-resize; user-select: none; }
 
   /* ── buttons ─────────────────────────────────────────────────────────── */
   .btn, .refresh-slack-btn, .rerun-btn, .verify-btn, .skip-btn,
@@ -135,7 +148,7 @@
 
   /* ── column 1 · inbox ────────────────────────────────────────────────── */
   .inbox {
-    width: 300px; flex: none; background: var(--card);
+    width: var(--col-inbox, 300px); flex: none; background: var(--card);
     border-right: 1px solid var(--border);
     display: flex; flex-direction: column; min-height: 0;
   }
@@ -239,7 +252,7 @@
 
   /* ── column 2 · the facts ────────────────────────────────────────────── */
   .review-col {
-    width: 410px; flex: none; border-right: 1px solid var(--border);
+    width: var(--col-facts, 410px); flex: none; border-right: 1px solid var(--border);
     overflow-y: auto; padding: 20px 20px 60px; background: var(--facts-bg);
   }
   .col-label {
@@ -671,6 +684,13 @@
     background: var(--red-bg); color: var(--red); font-size: 11px;
     padding: 4px 8px; border-radius: 5px; margin-top: 6px;
   }
+  /* The per-contact narrative: what they came with, what we said, how long
+     they waited, what they said back, how it ended. Same .convo-line/.k
+     vocabulary the body already uses - a second visual language for the same
+     kind of content is how a card stops reading as one card. */
+  .convo-narr { margin-top: 6px; display: grid; gap: 3px; }
+  .convo-narr .convo-line { display: flex; gap: 8px; align-items: baseline; }
+  .convo-narr .k { flex: none; width: 84px; }
   .sp-frame { border-bottom: 1px solid var(--hairline); padding: 9px 0; }
   .sp-frame:last-of-type { border-bottom: none; }
   .sp-frame-head { display: flex; align-items: center; gap: 10px; font-size: 12px; }
@@ -1173,7 +1193,13 @@
       </div>
     </aside>
 
+    <div class="col-resize" data-resize="inbox" role="separator"
+         aria-orientation="vertical" tabindex="0"
+         aria-label="Resize the inbox column"></div>
     <section class="review-col" id="review-col"></section>
+    <div class="col-resize" data-resize="facts" role="separator"
+         aria-orientation="vertical" tabindex="0"
+         aria-label="Resize the facts column"></div>
     <section class="rca-col" id="rca-col"></section>
   </div>
 </div>
@@ -3259,6 +3285,27 @@ function renderRcaCol() {
     ..._orphans.map((n, k) => ({kind: 'orphan', note: n, i: _groups.length + k})),
   ];
 
+  // The contact's own story, as rule 10b asks for it. Only fields that came
+  // back are drawn: the rule tells the model to leave an undetectable field
+  // null and write nothing, so a row of empty labels would misreport silence
+  // as five things we looked up and failed to find.
+  const _NARR = [
+    ['guest_said',     'Guest said'],
+    ['we_said',        'We said'],
+    ['wait_for_human', 'Wait for human'],
+    ['guest_replied',  'Guest replied'],
+    ['outcome',        'Outcome'],
+  ];
+  const _narrative = (note, nIdx) => {
+    if (!note) return '';
+    const lines = _NARR
+      .filter(([k]) => String(note[k] == null ? '' : note[k]).trim())
+      .map(([k, label]) => `<div class="convo-line"><span class="k">${label}</span>${
+        nIdx >= 0 ? edSpan(`support_interaction_notes.${nIdx}.${k}`, note[k])
+                  : `<span>${esc(note[k])}</span>`}</div>`);
+    return lines.length ? `<div class="convo-narr">${lines.join('')}</div>` : '';
+  };
+
   const _contactRow = (row) => {
     const i = row.i;
     const open = !!state.ixOpen[i];
@@ -3272,32 +3319,49 @@ function renderRcaCol() {
       // unmatched contact then silently rewrote a matched one, and both
       // rendered as if nothing had happened.
       const why = _zdKey(note.zd_ref) ? 'unmatched ZD reference' : "guest's account, unverified";
+      const oIdx = (rca.supportNotes || []).indexOf(note);
+      // No frame means no fact to take a time or channel from, so the model's
+      // are all there is. Rendering a dash instead - which is what this row
+      // did - showed an off-Zendesk contact the same way it shows a lookup
+      // that broke. The row is already badged unverified; the badge covers
+      // these two as much as it covers the summary.
+      const oCh = String(note.channel || '').trim();
+      const oTime = String(note.time || '').trim();
       return `
         <div class="convo-frame ${open ? 'open' : ''}">
           <div class="convo-frame-head" data-ix-toggle="${i}">
             <span class="convo-num">${String(i + 1).padStart(2, '0')}</span>
-            <span class="convo-time dim">—</span>
-            <span class="interaction-summary-line">${edSpan(`support_interaction_notes.${(rca.supportNotes || []).indexOf(note)}.summary`, note.summary)}</span>
+            ${oCh ? `<span class="convo-type-pill">${esc(oCh)}</span>` : ''}
+            <span class="convo-time${oTime ? '' : ' dim'}">${esc(oTime || '—')}</span>
+            <span class="interaction-summary-line">${edSpan(`support_interaction_notes.${oIdx}.summary`, note.summary)}</span>
             <span class="convo-unverified" title="no Zendesk frame backs this contact">${esc(why)}</span>
             ${note.zd_ref ? zdLink(note.zd_ref) : ''}
             <span class="convo-chevron">${open ? '▾' : '▸'}</span>
           </div>
           <div class="convo-body">
-            ${note.detail ? `<div class="convo-detail">${edSpan(`support_interaction_notes.${(rca.supportNotes || []).indexOf(note)}.detail`, note.detail)}</div>` : ''}
-            ${note.ce_miss ? `<div class="convo-gap">⚠ CE miss: ${edSpan(`support_interaction_notes.${(rca.supportNotes || []).indexOf(note)}.ce_miss`, note.ce_miss)}</div>` : ''}
+            ${_narrative(note, oIdx)}
+            ${note.detail ? `<div class="convo-detail">${edSpan(`support_interaction_notes.${oIdx}.detail`, note.detail)}</div>` : ''}
+            ${note.ce_miss ? `<div class="convo-gap">⚠ CE miss: ${edSpan(`support_interaction_notes.${oIdx}.ce_miss`, note.ce_miss)}</div>` : ''}
           </div>
         </div>`;
     }
     const rows = row.g.rows, first = rows[0] || {};
     const nIdx = (rca.supportNotes || []).indexOf(row.note);
-    const ch = (first.thread || '').trim();
+    // Precedence, not exclusion. The frame's channel and time are verifiable
+    // and win; the model's stand in only where the frame has none, which is
+    // why the model is asked for them at all. Letting the model's value
+    // override a frame is the mistake that struck these fields from the
+    // schema in the first place - "chat at 15:41" in the prose beside two
+    // nulls - and precedence fixes that without the blank.
+    const ch = (first.thread || '').trim() || String((row.note || {}).channel || '').trim();
+    const tm = (first.time || '').trim() || String((row.note || {}).time || '').trim();
     const summary = (row.note && row.note.summary) || first.guestSaid || '';
     return `
       <div class="convo-frame ${open ? 'open' : ''}">
         <div class="convo-frame-head" data-ix-toggle="${i}">
           <span class="convo-num">${String(i + 1).padStart(2, '0')}</span>
           ${ch ? `<span class="convo-type-pill">${esc(ch)}</span>` : ''}
-          <span class="convo-time${first.time ? '' : ' dim'}">${esc(first.time || '—')}</span>
+          <span class="convo-time${tm ? '' : ' dim'}">${esc(tm || '—')}</span>
           <span class="interaction-summary-line">${nIdx >= 0
             ? edSpan(`support_interaction_notes.${nIdx}.summary`, summary)
             : esc(summary)}</span>
@@ -3306,6 +3370,7 @@ function renderRcaCol() {
           <span class="convo-chevron">${open ? '▾' : '▸'}</span>
         </div>
         <div class="convo-body">
+          ${_narrative(row.note, nIdx)}
           ${rows.map(fr => `
             <div class="convo-line">
               <span class="convo-ev-time">${esc(fr.time || '—')}</span>
@@ -5480,6 +5545,99 @@ function openManualReviewModal() {
 }
 
 document.querySelector('.add-manual-btn').addEventListener('click', openManualReviewModal);
+
+// ── Column resizing ─────────────────────────────────────────────────────────
+//
+// Two draggable boundaries: inbox|facts and facts|RCA. The RCA column is the
+// flex: 1 remainder, so it needs no width of its own — sizing the two fixed
+// columns sizes all three, and there is no third number to keep consistent.
+//
+// Widths live in CSS variables on <html> rather than on the elements, so the
+// stylesheet keeps its own defaults and this only ever overrides them. That
+// also makes "reset" a deletion rather than a second copy of the defaults.
+const COL_MIN = {inbox: 200, facts: 280};
+const COL_MAX = {inbox: 560, facts: 900};
+const COL_VAR = {inbox: '--col-inbox', facts: '--col-facts'};
+const COL_KEY = 'orm.colWidths';
+
+function _applyColWidths(w) {
+  for (const k of ['inbox', 'facts']) {
+    if (w && w[k]) document.documentElement.style.setProperty(COL_VAR[k], w[k] + 'px');
+  }
+}
+
+// Restored before the first paint so the columns do not visibly jump from the
+// stylesheet default to the saved width on every load.
+try { _applyColWidths(JSON.parse(localStorage.getItem(COL_KEY) || '{}')); } catch (_) {}
+
+function _saveColWidths() {
+  const cs = getComputedStyle(document.documentElement);
+  const out = {};
+  for (const k of ['inbox', 'facts']) {
+    const v = parseInt(cs.getPropertyValue(COL_VAR[k]), 10);
+    if (v) out[k] = v;
+  }
+  try { localStorage.setItem(COL_KEY, JSON.stringify(out)); } catch (_) {}
+}
+
+function _colWidth(which) {
+  const el = document.querySelector(which === 'inbox' ? '.inbox' : '.review-col');
+  return el ? el.getBoundingClientRect().width : COL_MIN[which];
+}
+
+function _setCol(which, px) {
+  const clamped = Math.max(COL_MIN[which], Math.min(COL_MAX[which], Math.round(px)));
+  document.documentElement.style.setProperty(COL_VAR[which], clamped + 'px');
+  return clamped;
+}
+
+document.addEventListener('pointerdown', ev => {
+  const handle = ev.target.closest && ev.target.closest('[data-resize]');
+  if (!handle) return;
+  const which = handle.dataset.resize;
+  const startX = ev.clientX;
+  const startW = _colWidth(which);
+  handle.classList.add('dragging');
+  document.body.classList.add('col-dragging');
+  // Pointer capture, so a fast drag that outruns the cursor does not drop the
+  // handle the moment it leaves the 5px strip.
+  try { handle.setPointerCapture(ev.pointerId); } catch (_) {}
+
+  const move = e => _setCol(which, startW + (e.clientX - startX));
+  const up = () => {
+    handle.classList.remove('dragging');
+    document.body.classList.remove('col-dragging');
+    document.removeEventListener('pointermove', move);
+    document.removeEventListener('pointerup', up);
+    _saveColWidths();
+  };
+  document.addEventListener('pointermove', move);
+  document.addEventListener('pointerup', up);
+  ev.preventDefault();
+});
+
+// Keyboard, because a drag-only control is unusable for anyone who cannot
+// drag, and the handles are already focusable.
+document.addEventListener('keydown', ev => {
+  const handle = ev.target.closest && ev.target.closest('[data-resize]');
+  if (!handle) return;
+  const step = ev.shiftKey ? 40 : 10;
+  const which = handle.dataset.resize;
+  if (ev.key === 'ArrowLeft')  { _setCol(which, _colWidth(which) - step); _saveColWidths(); }
+  else if (ev.key === 'ArrowRight') { _setCol(which, _colWidth(which) + step); _saveColWidths(); }
+  else return;
+  ev.preventDefault();
+});
+
+// Double-click a handle to put that column back to the stylesheet default.
+// Removing the override rather than writing the default back, so there is one
+// definition of what the default is.
+document.addEventListener('dblclick', ev => {
+  const handle = ev.target.closest && ev.target.closest('[data-resize]');
+  if (!handle) return;
+  document.documentElement.style.removeProperty(COL_VAR[handle.dataset.resize]);
+  _saveColWidths();
+});
 
 // ── Inbox search ────────────────────────────────────────────────────────────
 //

@@ -1260,31 +1260,117 @@ that turned out fine is silence — never a line in the output.
    source is unreachable is "Unknown".
 
 6. AN OPERATIONAL FAILURE IS SOMETHING THE RECORD SHOWS. Do not infer one
-   from the guest being unhappy, and do not infer one from a question you
-   could not answer. Before writing `operational_failure` on an issue, THREE
-   things must line up, and you must be able to point at each:
+   from the guest being unhappy, from a question you could not answer, or from
+   an outcome you would have handled differently. All three below must hold,
+   and you must be able to point at each.
 
-     (a) THE BACKEND SAYS SO. A Zendesk ticket, the booking record, the BMS
-         record or the experience page shows what was actually done — the
-         reply that went out, the refund that was or was not issued, the field
-         that held the wrong value. Check it before you write.
-     (b) IT MATCHES THE CONTEXT of this booking and this contact. A failure on
-         a different ticket, a different booking or a different date is not
-         this issue's failure.
-     (c) IT MATCHES THE GUEST'S CLAIM on this issue. If the guest complained
-         about the meeting point, a slow refund is not the operational failure
-         for that issue — it belongs to its own issue, or nowhere.
+   (a) THE RECORD SHOWS IT — a Zendesk ticket, the booking record, the BMS
+       record, the fulfilment log or the experience page.
+
+       AN EXPECTED THING MISSING IS ALSO A RECORD, and it is the most common
+       real failure: a ticket open four days with no agent reply, an
+       escalation never raised, a refund never issued. Cite what should be
+       there and is not — the ticket that stayed open, the field that stayed
+       empty.
+
+       BUT MISSING BECAUSE WE DID NOT LOOK IS NOT MISSING. If the source was
+       unavailable — Zendesk not searched, a failed query, a booking that
+       never resolved — you are looking at a gap in the DATA, not a gap in the
+       handling. Those two are indistinguishable unless you check which
+       happened, and reading the first as the second invents a failure out of
+       an outage. Say which in `claim_accuracy_note` and write null.
+
+   (b) IT IS THIS BOOKING'S. Name the record: the ZD id, the booking id, the
+       date. A failure on another ticket, another booking or another guest is
+       not this one's, however similar. Where a contact is involved, name
+       WHICH — "the tickets" is not a citation when there are three.
+
+       NOT EVERY FAILURE HAS A CONTACT. A wrong meeting point, a mis-set
+       field, a listing error can all fail a guest who never wrote in. Those
+       are operational failures with no ticket behind them, and (b) is met by
+       the booking or the page instead.
+
+   (c) IT EXPLAINS WHAT THE GUEST EXPERIENCED ON THIS ISSUE. The test is
+       CAUSE, not vocabulary — the guest need not have named it. "The tickets
+       never arrived", with the record showing we captured their email address
+       wrong, is a match: they described the effect and you found the cause.
+       What does NOT match is a failure that produced a different effect — a
+       slow refund is not the operational failure for a meeting-point
+       complaint. That belongs to its own issue, or to nothing.
+
+       IT MUST ALSO COME FIRST. Something we did after the review was posted
+       did not cause the review. Check the timestamps before attributing it.
+
+   WHOSE FAILURE. `operational_failure` is OURS — Headout's people or systems.
+   A vendor cancelling, a venue closing, a strike: those are facts about the
+   world and they belong in `root_cause`. They become an operational failure
+   only where WE mishandled them — see rule 7.
 
    If any of the three is missing, `operational_failure` is null and the
    reason goes in `claim_accuracy_note`. Null is a finding. An invented
    operational failure is worse than none, because it reads as verified and
    sends somebody to correct a person who did nothing wrong.
 
-   STANDING POLICY, so a correct action is not written up as a failure: an
-   out-of-policy cancellation or modification request is DENIED first — a
-   correct denial is never a CE miss. If the guest persists, HOC scaled to the
-   issue is the sanctioned path, and HOC after persistence is not a deviation
-   either.
+   A CORRECT ACTION IS NOT A FAILURE, however unhappy it left the guest. What
+   counts as correct is judged against policy and the DSS needle, and that
+   judgement is set out once in rule 6b — apply it here too rather than
+   deciding afresh.
+
+6b. `sop_gap` — WAS THERE A PROCESS, AND WAS IT FOLLOWED? Look it up before
+   you answer. This is a different question from rule 6: `operational_failure`
+   is what a person or system DID wrong; `sop_gap` is the PROCESS that was
+   skipped or was never there. The same issue can have one, both or neither.
+
+   Worked example. The guest chats asking to cancel because of a health
+   problem. Read the DSS needle for that scenario. Suppose it prescribes:
+   request documentation, then refund or HOC on medical grounds.
+
+     CE asked for documentation and applied it   -> sop_gap is null. The
+       process existed and was followed. Say nothing.
+     CE denied it flat, no documentation asked   -> operational_failure is
+       "CE denied a medical-grounds request without requesting documentation"
+       (what was done); sop_gap is "the DSS medical-grounds path was not
+       applied" (the step that was skipped). Name the step, not the outcome.
+     DSS has no row for this scenario            -> sop_gap is null, unless
+       the ABSENCE is itself the finding — say plainly "no DSS path covers a
+       medical-grounds cancellation", which is a gap in the SOP rather than a
+       gap in the handling. Never write a step you cannot find in DSS: an
+       invented process produces a deviation from nothing, and the team is
+       sent to fix a rule that does not exist.
+     DSS prescribes something that did not fit   -> sop_gap names the
+       deficiency in the process, not the agent. "The path assumes the guest
+       can reschedule; this experience is single-date."
+
+   THE SAME EVIDENCE RULES APPLY as rule 6. A step recorded nowhere as done is
+   a step not done — but only if the record was actually read. If Zendesk was
+   not searched or the DSS needle is unavailable, that is a gap in the DATA:
+   sop_gap is null and `claim_accuracy_note` says which.
+
+   HOW TO JUDGE THE HANDLING. This governs `sop_gap`, `ce_miss` and any flag
+   about how a case was handled — one standard, applied in all three.
+
+   1. AGAINST POLICY, NOT GENEROSITY. That we could have been kinder is not a
+      miss. Judge against the DSS needle and standing policy, never against
+      what a sympathetic reader would have preferred.
+
+   2. STANDING POLICY. An out-of-policy cancellation or modification request
+      is DENIED first — a correct denial is never a CE miss. If the guest
+      persists, HOC scaled to the issue is the sanctioned path, and HOC after
+      persistence is not a deviation either.
+
+   3. WHAT A REAL DEVIATION IS. Exactly one of: an in-policy request denied; a
+      DSS-prescribed action skipped; or comp granted with no policy basis and
+      no recorded persistence. Anything outside those three is not a deviation
+      — it is a different outcome from the one you would have chosen.
+
+   4. THE NEEDLE'S OWN EDGE CASES.
+      Empty DSS, or match_score 0 -> the needle did not match. Judge against
+        standing policy and the scenario checklist ONLY. NEVER invent a policy
+        to judge against: an invented standard produces a deviation from
+        nothing, and this is precisely where a plausible-sounding rule is
+        easiest to write and impossible to check.
+      DSS forks on "social media" -> every case here IS a public review, so
+        the social-media variant always applies. Do not treat it as unresolved.
 
 7. SUPPORT-FAILURE SUPERSEDES. If an external event occurred but CE or RO
    mishandled the contact, the root cause is the mishandling. What did the
@@ -1421,7 +1507,7 @@ that turned out fine is silence — never a line in the output.
         "owner": "<Content | CE | SP | RO | Product | Biz | Ops>",
         "root_cause": "<the failing step, 1-2 sentences>",
         "operational_failure": "<what a person or system did wrong on THIS issue | null>",
-        "sop_gap": "<the missing or deficient process step for THIS issue | null>",
+        "sop_gap": "<the process step that was skipped or is missing, checked against DSS — see rule 6b | null>",
         "pattern": "<recurrence evidence for THIS issue, with counts and window | null>",
         "fix": "<'Team: action (owner: Team)' for THIS issue | null>",
         "evidence": [
@@ -1446,6 +1532,13 @@ that turned out fine is silence — never a line in the output.
   "support_interaction_notes": [
     {
       "zd_ref": "<ZD-xxxxx — the ticket this note is about; this is the join key | null>",
+      "time": "<DD Mon HH:MM — when the GUEST reached out | null>",
+      "channel": "<chat | email | call | web | app | null>",
+      "guest_said": "<one sentence: what they came to us with | null>",
+      "we_said": "<one sentence: what we replied. Name Skylar where the AI bot answered | null>",
+      "wait_for_human": "<how long before a human agent picked it up, e.g. '14 min' | null>",
+      "guest_replied": "<one sentence: what they said back | null>",
+      "outcome": "<one sentence: what this contact ended in | null>",
       "summary": "<one line, what happened in this contact>",
       "detail": "<the fuller account, quoting the guest and the agent | null>",
       "ce_miss": "<what CE should have done differently | null>"
@@ -1554,6 +1647,56 @@ that turned out fine is silence — never a line in the output.
     A flag with no contact behind it cannot be checked by the team it is raised against, and
     they will spend the time proving a negative. If the only support record is one you cannot
     tie to this booking, raise nothing.
+    THIS DOES NOT MEAN THE FINDING IS LOST. Rule 6 allows an operational failure with no
+    contact behind it — a wrong meeting point, a mis-set field, a listing error can all fail a
+    guest who never wrote in. That belongs on the issue as `operational_failure`, and its
+    process fix in `area_of_improving`. It is only `flags` that is contact-bound, because a
+    flag is a request for a named team to go and look at a specific exchange.
+10b. `support_interaction_notes` — THE GUEST'S CONVERSATIONS WITH US, AND ONLY THOSE.
+    One entry per contact the GUEST initiated or took part in, in the order they happened.
+
+    WHAT COUNTS: chat, email, call, web, in-app — any channel where the guest and Headout
+    actually spoke.
+    WHAT DOES NOT, and these are the ones that pollute the section:
+      * the BOOKING THREAD — Zendesk classifies it as a task, not a conversation. It is
+        machinery: fulfilment runs, ticket dispatch, system mail. It belongs in
+        `booking_logs`, and putting it here makes it look as though somebody talked to
+        the guest when nobody did.
+      * INTERNALLY RAISED TICKETS — a DSS follow-up, a bot ping, an ops-to-ops ticket. The
+        guest was not on them.
+      * THE REVIEW ITSELF. It is the artefact being analysed, not a channel they reached
+        us on.
+    Each one you wrongly include raises the contact count, and a count that is one too
+    high reads as a guest who was handled when they were not.
+
+    FOR EACH CONTACT, in this order:
+      `time`           when the GUEST reached out. Chronological across the whole array.
+      `channel`        chat / email / call / web / app.
+      `guest_said`     what they came to us with — their issue, in their terms.
+      `we_said`        what we replied. SKYLAR IS AN AI BOT, not an agent: where Skylar
+                       answered, say so, because "we replied in 30 seconds" means
+                       something entirely different when it was the bot.
+      `wait_for_human` how long from the guest's message to a HUMAN agent picking it up.
+                       Read it off the timestamps; do not estimate.
+      `guest_replied`  what they said back.
+      `outcome`        what this contact ended in — resolved, escalated, dropped, nothing.
+
+    ONE SHORT SENTENCE PER FIELD. No paragraphs. Factual and plain: what happened, not how
+    it felt.
+
+    `time` AND `channel` ARE READ OFF THE TICKET, NOT JUDGED. Where a Zendesk frame covers
+    this contact the dashboard shows the FRAME's time and channel, not yours — yours are
+    used only for a contact Zendesk has no frame for, such as a call the guest describes.
+    So state them from the record where you have it and leave them null where you do not.
+    Never write a time into the prose as a substitute for filling `time`.
+
+    IF YOU CANNOT DETERMINE A FIELD, LEAVE IT NULL AND WRITE NOTHING FOR IT. A guessed wait
+    time or an invented reply is worse than a blank — it reads as read off the record.
+
+    IF THERE WAS NO DIRECT CONTACT AT ALL, return exactly one entry whose `summary` is
+    "No direct interaction found between the customer and the support team." and every other
+    field null. Do not pad the section with the booking thread to avoid an empty one.
+
 11. If a section genuinely has nothing (no SP contact, no support contact), return an empty
     array. Do NOT fabricate a row whose summary says nothing was found. The REVIEW ITSELF is
     never a support contact: it is the artefact being analysed, not a channel the guest reached

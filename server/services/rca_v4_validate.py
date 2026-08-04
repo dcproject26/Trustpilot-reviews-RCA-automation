@@ -19,7 +19,21 @@ SOURCES        = ("booking", "bms", "zendesk", "insights", "dss", "exp-page")
 TAKEDOWN       = ("Yes", "No", "Untraceable")
 OWNERS         = ("Content", "CE", "SP", "RO", "Product", "Biz", "Ops")
 FLAG_TEAMS     = ("CE", "RO", "SP", "CONTENT", "PRODUCT", "BIZ", "TECH", "OTHER")
-CHANNELS       = ("chat", "email", "call")
+# The channels a GUEST can reach us on, and the exact vocabulary the frames
+# already normalise to (server/services/zendesk.py::_map_channel), so a pill
+# reads the same whether the frame supplied it or the model did. "api" is in
+# that map and deliberately not here: it is machinery, and a contact row is for
+# exchanges a person took part in.
+CONTACT_CHANNELS = ("chat", "email", "call", "web", "app")
+
+# One contact, as rule 10b asks for it. The first four are the join and the
+# interpretation; the rest are the narrative the user asked to see per contact.
+# `wait_for_human`, `guest_replied` and `outcome` exist nowhere else in the
+# pipeline - no frame carries them - so a field missing from this tuple is a
+# field the model can answer and nobody can ever read.
+CONTACT_FIELDS = ("zd_ref", "summary", "detail", "ce_miss",
+                  "time", "channel", "guest_said", "we_said",
+                  "wait_for_human", "guest_replied", "outcome")
 
 # Where an unclassifiable review lands. Not a guess dressed as a category -
 # "Vague review" is the taxonomy's own name for "we could not tell".
@@ -476,12 +490,28 @@ def validate(rca: dict, scenarios_routed=None) -> tuple[dict, list]:
             # channel falls back to null, not to a token: the UI then renders
             # no pill at all. "UNKNOWN" dressed as a channel pill is one of the
             # defects the closed vocabulary exists to remove.
-            # No channel or time: those are facts, they live on the frames,
-            # and a field the model must not fill is a field it will fill. On a
-            # real run both came back null while the prose said "chat at 15:41"
-            # - the schema invited the mistake, so the schema is the fix.
-            r for r in _rows(contacts,
-                             ("zd_ref", "summary", "detail", "ce_miss"), notes)
+            #
+            # time and channel used to be struck from this list entirely, on the
+            # reasoning that they are facts, they live on the frames, and a
+            # field the model must not fill is a field it will fill - a real run
+            # had both null while the prose said "chat at 15:41".
+            #
+            # That reasoning was right about precedence and wrong about
+            # presence. A contact with no Zendesk frame - the guest's account of
+            # a call, an off-Zendesk exchange - has no frame to take a time
+            # from, so striking the field rendered a dash: the same dash a
+            # broken lookup renders. The fix is PRECEDENCE, not absence. The
+            # model may state them; the frame's value wins wherever a frame
+            # exists, and the UI marks a model-supplied time as unverified.
+            #
+            # The narrative fields are the model's alone. Nothing in the
+            # pipeline knows how long a guest waited for a human, what they said
+            # back, or how the contact ended - a frame carries neither. Dropping
+            # them here made rule 10b unenforceable in exactly the way CLAUDE.md
+            # names: the model answers, the projection discards it, and the card
+            # is indistinguishable from a model that never answered.
+            r for r in _rows(contacts, CONTACT_FIELDS, notes,
+                             enums={"channel": (CONTACT_CHANNELS, None)})
             if not re.search(r"\bno (guest )?contact\b|never (reached|contacted)",
                              (r.get("summary") or ""), re.I)
         ],

@@ -29,7 +29,7 @@ sys.path.insert(0, ".")
 from server.db import SessionLocal, RcaDraft, Review          # noqa: E402
 from server.prompts import RCA_PROMPT_FAMILY, RCA_PROMPT_VERSION  # noqa: E402
 from server.services.rca_v4_validate import (                 # noqa: E402
-    CHANNELS, CLAIM_ACCURACY, FLAG_TEAMS, ISA_VERDICT, OWNERS,
+    CONTACT_CHANNELS, CLAIM_ACCURACY, FLAG_TEAMS, ISA_VERDICT, OWNERS,
     SOURCES, TAKEDOWN,
 )
 
@@ -139,7 +139,8 @@ def _enum_problems(rca):
                  if rca.get("support_interaction_notes") is not None
                  else rca.get("support_interaction"))
     for n, c in enumerate((_contacts or []), 1):
-        chk(f"support_interaction[{n}].channel", (c or {}).get("channel"), CHANNELS)
+        chk(f"support_interaction[{n}].channel", (c or {}).get("channel"),
+            CONTACT_CHANNELS)
     return bad
 
 
