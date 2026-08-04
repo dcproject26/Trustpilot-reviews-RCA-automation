@@ -31,18 +31,6 @@
   },
   {
     "file": "server/prompts.py",
-    "name": "Skylar stops being identified as a bot",
-    "find": "SKYLAR IS AN AI BOT, not an agent: where Skylar\n                       answered, say so",
-    "replace": "note who answered"
-  },
-  {
-    "file": "server/prompts.py",
-    "name": "an undetectable field gets guessed",
-    "find": "    IF YOU CANNOT DETERMINE A FIELD, LEAVE IT NULL AND WRITE NOTHING FOR IT.",
-    "replace": "    Fill in what you can."
-  },
-  {
-    "file": "server/prompts.py",
     "name": "the no-contact sentence changes",
     "find": "\"No direct interaction found between the customer and the support team.\"",
     "replace": "\"No contact found.\""
@@ -52,18 +40,6 @@
     "name": "the booking timestamp is truncated again",
     "find": "  b.created_at            AS date_of_booking,",
     "replace": "  DATE(b.created_at)      AS date_of_booking,"
-  },
-  {
-    "file": "server/services/rca_v4_validate.py",
-    "name": "the projection goes back to dropping the narrative",
-    "find": "CONTACT_FIELDS = (\"zd_ref\", \"summary\", \"detail\", \"ce_miss\",\n                  \"time\", \"channel\", \"guest_said\", \"we_said\",\n                  \"raised_internally\")",
-    "replace": "CONTACT_FIELDS = (\"zd_ref\", \"summary\", \"detail\", \"ce_miss\")"
-  },
-  {
-    "file": "server/services/rca_v4_validate.py",
-    "name": "time and channel are struck again",
-    "find": "\"time\", \"channel\", \"guest_said\", \"we_said\",",
-    "replace": "\"guest_said\", \"we_said\","
   },
   {
     "file": "server/services/rca_v4_validate.py",
@@ -82,30 +58,6 @@
     "name": "the nothing-found guard stops firing",
     "find": "if not re.search(r\"\\bno (guest )?contact\\b|never (reached|contacted)\",\n                             (r.get(\"summary\") or \"\"), re.I)",
     "replace": "if True"
-  },
-  {
-    "file": "client/index.html",
-    "name": "the narrative is not drawn on a matched contact",
-    "find": "          ${_narrative(row.note, nIdx)}\n",
-    "replace": "          "
-  },
-  {
-    "file": "client/index.html",
-    "name": "the narrative is not drawn on an unmatched contact",
-    "find": "            ${_narrative(note, oIdx)}\n",
-    "replace": "            "
-  },
-  {
-    "file": "client/index.html",
-    "name": "empty narrative fields draw an empty bullet",
-    "find": "      .filter(k => String(note[k] == null ? '' : note[k]).trim())",
-    "replace": "      .filter(() => true)"
-  },
-  {
-    "file": "client/index.html",
-    "name": "the summary is drawn as dead text, not editable",
-    "find": "        nIdx >= 0 ? edSpan(`support_interaction_notes.${nIdx}.${k}`, note[k])",
-    "replace": "        false ? edSpan(`support_interaction_notes.${nIdx}.${k}`, note[k])"
   },
   {
     "file": "client/index.html",
@@ -133,57 +85,15 @@
   },
   {
     "file": "server/prompts.py",
-    "name": "the time/channel precedence rule is dropped",
-    "find": "    `channel` AND `time` ARE READ OFF THE TICKET, NOT JUDGED.",
-    "replace": "    State channel and time."
-  },
-  {
-    "file": "server/prompts.py",
     "name": "the model is no longer told the frame wins",
     "find": "the dashboard shows the FRAME's values, not yours",
     "replace": "use your judgement"
   },
   {
     "file": "client/index.html",
-    "name": "the summary goes back to a labelled form",
-    "find": "      .map(k => `<li class=\"convo-bullet\">${",
-    "replace": "      .map(k => `<li class=\"convo-bullet\"><span class=\"k\">${k}</span>${"
-  },
-  {
-    "file": "client/index.html",
-    "name": "the bullets collapse into one line",
-    "find": "    return lines.length\n      ? `<ul class=\"convo-narr\">${lines.join('')}</ul>` : '';",
-    "replace": "    return lines.length\n      ? `<ul class=\"convo-narr\"><li class=\"convo-bullet\">${lines.join(' ')}</li></ul>` : '';"
-  },
-  {
-    "file": "server/prompts.py",
-    "name": "the model may answer with fragments instead of sentences",
-    "find": "    THESE ARE BULLETS, NOT FORM ANSWERS.",
-    "replace": "    Answer each field."
-  },
-  {
-    "file": "server/prompts.py",
-    "name": "the worked example of a sentence vs a fragment is dropped",
-    "find": "\"Skylar answered with the cancellation policy link\", not \"policy\n    link\".",
-    "replace": "Be complete."
-  },
-  {
-    "file": "client/index.html",
-    "name": "a No stops reading as answered",
-    "find": "        const chosen = td.reason || NOT_APPLICABLE;",
-    "replace": "        const chosen = td.reason || '';"
-  },
-  {
-    "file": "client/index.html",
     "name": "the reason control hides again unless the verdict is Yes",
     "find": "            <select class=\"res-reason\" data-takedown-reason>",
     "replace": "            ${cur !== 'Yes' ? '' : ''}<select class=\"res-reason\" data-takedown-reason>"
-  },
-  {
-    "file": "client/index.html",
-    "name": "a real Trustpilot ground is pre-selected",
-    "find": "              ${[NOT_APPLICABLE, ...TAKEDOWN_REASONS].map(o =>",
-    "replace": "              ${[...TAKEDOWN_REASONS].map(o =>"
   },
   {
     "file": "client/index.html",
@@ -202,12 +112,6 @@
     "name": "picking Yes does not redraw, so the reason control never appears",
     "find": "    await persistV3(tdRec);\n    // The reason control appears and disappears with the verdict, so the\n    // section has to be redrawn - without this, picking Yes saves fine and\n    // shows no way to say why until the next load.\n    renderRcaCol();",
     "replace": "    await persistV3(tdRec);"
-  },
-  {
-    "file": "client/index.html",
-    "name": "the chosen ground is not saved",
-    "find": "    td.reason = tdWhy.value || NOT_APPLICABLE;",
-    "replace": "    ;"
   },
   {
     "file": "server/api.py",
@@ -270,70 +174,10 @@
     "replace": "            ${_tile('Completion · TGID',\n                    _rate(li.tidvid_completion_rate,"
   },
   {
-    "file": "server/services/rca_v4_validate.py",
-    "name": "raised_internally is dropped from the projection",
-    "find": "                  \"raised_internally\")",
-    "replace": "                  )"
-  },
-  {
-    "file": "server/prompts.py",
-    "name": "the model stops being asked whether we raised it internally",
-    "find": "      `raised_internally`\n                       did we raise it INTERNALLY, and what came of it.",
-    "replace": "      `raised_internally`\n                       anything else."
-  },
-  {
-    "file": "server/prompts.py",
-    "name": "asking for time and raising nothing stops being a finding",
-    "find": "If we\n                       asked for time and raised nothing, SAY THAT — it is the finding.",
-    "replace": "Use judgement."
-  },
-  {
-    "file": "server/prompts.py",
-    "name": "a routine contact with no escalation reads as a failure",
-    "find": "                       If we never asked for time and never needed to raise anything,\n                       leave it null; that is not a failure.",
-    "replace": "                       Otherwise leave it null."
-  },
-  {
-    "file": "client/index.html",
-    "name": "the card stops drawing whether we raised it internally",
-    "find": "  const _NARR = ['guest_said', 'we_said', 'raised_internally'];",
-    "replace": "  const _NARR = ['guest_said', 'we_said'];"
-  },
-  {
-    "file": "client/index.html",
-    "name": "the recurrence bullets come out in a different order",
-    "find": "  const _NARR = ['guest_said', 'we_said', 'raised_internally'];",
-    "replace": "  const _NARR = ['raised_internally', 'we_said', 'guest_said'];"
-  },
-  {
     "file": "server/services/insights.py",
     "name": "recurrence widens to the whole TGID again",
     "find": "    _rev_scope_tidvid = \"b.tour_id = @tid AND f.vendor_id = @vid\"",
     "replace": "    _rev_scope_tidvid = \"b.experience_id = @tgid\""
-  },
-  {
-    "file": "server/prompts.py",
-    "name": "a takedown ground is split in two again",
-    "find": "        \"reasons\": [\"Content issues, booking/support issues\",\n                    \"Personal emergency, health issue\"],",
-    "replace": "        \"reasons\": [\"Content issues\", \"Booking / support issues\",\n                    \"Personal emergency, health issue\"],"
-  },
-  {
-    "file": "client/index.html",
-    "name": "the two DSS absences collapse into one",
-    "find": "        const hasDss = v3d.dss !== undefined && v3d.dss !== null;\n        if (!hasDss) {",
-    "replace": "        const hasDss = true;\n        if (!hasDss) {"
-  },
-  {
-    "file": "client/index.html",
-    "name": "an unclassified review reports a lookup that found no row",
-    "find": "        if (!row) {\n          return `<div class=\"dss-block\">\n            <div class=\"dss-none\">The review is not classified yet — there is no DSS row to look up.</div>\n          </div>`;\n        }\n",
-    "replace": "        "
-  },
-  {
-    "file": "client/index.html",
-    "name": "a never-run lookup renders as a plain absence",
-    "find": "            <div class=\"dss-broken\">DSS was not consulted",
-    "replace": "            <div class=\"dss-none\">DSS was not consulted"
   },
   {
     "file": "client/index.html",
@@ -376,5 +220,95 @@
     "name": "writing through a string primitive silently does nothing again",
     "find": "        else if (typeof obj[key] === 'string' && !nextIsIdx) obj[key] = {text: obj[key]};",
     "replace": "        ;"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "refunds route away from SP again",
+    "find": "                  \"refund\", \"credit note\", \"chargeback\", \"arn\",",
+    "replace": "                  \"credit note\", \"chargeback\","
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "experience problems route away from SP again",
+    "find": "                  \"redemption\", \"redeem\", \"voucher\", \"qr\", \"entry denied\",",
+    "replace": "                  \"qr\","
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "CE stops picking up mishandling and process gaps",
+    "find": "                  \"48-72h\", \"action per dss\", \"tag\", \"tagging\", \"not handled\",\n                  \"mishandled\", \"process gap\", \"sop\"]),",
+    "replace": "                  \"48-72h\", \"action per dss\"]),"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "SP stops leading the routing order",
+    "find": "_OWNER_RULES = [\n    # SP: the supply partner",
+    "replace": "_OWNER_RULES = [\n    (\"customer\", [\"refund\"]),\n    # SP: the supply partner"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "an unroutable action is assigned anyway",
+    "find": "            owner = _owner_for_action(item)\n            if not owner:\n                continue",
+    "replace": "            owner = _owner_for_action(item) or \"ce\""
+  },
+  {
+    "file": "server/booking_match_check.py",
+    "name": "unchecked is reported as a match",
+    "find": "        return {\"state\": \"unchecked\", \"review_family\": None, \"booking_family\": bf,",
+    "replace": "        return {\"state\": \"match\", \"review_family\": None, \"booking_family\": bf,"
+  },
+  {
+    "file": "server/booking_match_check.py",
+    "name": "a booking with no experience name is reported as checked",
+    "find": "    if not exp:\n        return {\"state\": \"unchecked\",",
+    "replace": "    if not exp:\n        return {\"state\": \"match\","
+  },
+  {
+    "file": "server/booking_match_check.py",
+    "name": "generic ticket words become a product family",
+    "find": "    (\"museum\",       (r\"\\bmuseum\\b\", r\"\\bgallery\\b\", r\"\\bexhibition\\b\")),",
+    "replace": "    (\"museum\",       (r\"\\bmuseum\\b\", r\"\\bgallery\\b\", r\"\\bexhibition\\b\")),\n    (\"ticket\",       (r\"\\bticket\\b\", r\"\\bentry\\b\", r\"\\badmission\\b\")),"
+  },
+  {
+    "file": "server/api.py",
+    "name": "a broken content check takes the whole card down",
+    "find": "    except Exception as e:              # never break the card over a hint",
+    "replace": "    except ZeroDivisionError as e:      # never break the card over a hint"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the mismatch line fires on unchecked too",
+    "find": "          if (!cm || cm.state !== 'mismatch') return '';",
+    "replace": "          if (!cm) return '';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "trail text is injected raw again",
+    "find": "  return esc(String(text == null ? '' : text))",
+    "replace": "  return String(text == null ? '' : text)"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the strong tag stops being restored",
+    "find": "    .replace(/&lt;strong&gt;/g, '<strong>')",
+    "replace": "    .replace(/&lt;strong&gt;/g, '&lt;strong&gt;')"
+  },
+  {
+    "file": "client/index.html",
+    "name": "warnings are collapsed along with the passes",
+    "find": "  const notable = all.filter(s => s.mark !== 'pass');",
+    "replace": "  const notable = [];"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the full trail can no longer be opened",
+    "find": "    + `<button class=\"trail-toggle\" data-trail-toggle=\"${prefix}\">show all ${all.length} steps</button>`;",
+    "replace": "    + '';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an empty trail draws a zero",
+    "find": "  if (!all.length) return '';",
+    "replace": "  if (false) return '';"
   }
 ]

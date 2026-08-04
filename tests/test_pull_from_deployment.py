@@ -87,9 +87,19 @@ def test_the_prompt_stamp_is_in_the_payload():
     """Without it a copied draft reads as the legacy v3 shape — a migration
     that silently ages every row it moves, and show_draft would tell you to
     re-run rows that are already current."""
+    # The function's OWN source, read off the AST. This was
+    # `api_src[i:i + 9000]`, and _draft_dict grew past 9000 characters — so the
+    # string was present and the test reported it missing. A window that
+    # silently under-reads turns a passing fact into a failure, and the same
+    # slice one size smaller would have turned a real absence into a pass.
+    import ast
     api_src = open("server/api.py", encoding="utf-8").read()
-    i = api_src.find("def _draft_dict(")
-    assert '"rca_prompt_version": d.rca_prompt_version or ""' in api_src[i:i + 9000]
+    fn = next((n for n in ast.walk(ast.parse(api_src))
+               if isinstance(n, ast.FunctionDef) and n.name == "_draft_dict"), None)
+    assert fn, "_draft_dict is gone — the parse found no such function"
+    body = ast.get_source_segment(api_src, fn) or ""
+    assert len(body) > 500, f"the parsed body is {len(body)} chars — it is not the function"
+    assert '"rca_prompt_version": d.rca_prompt_version or ""' in body
 
 
 def test_the_stamp_survives_a_copy():

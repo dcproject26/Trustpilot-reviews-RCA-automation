@@ -1,0 +1,616 @@
+{
+  "_source": "DSS (New Unified View) export",
+  "_note": "Imported by tools/import_dss.py. Where a scenario appears here and in the live sheet, THIS one wins.",
+  "tabs": {
+    "DSS - Meeting point issues": {
+      "type": "meetingPointIssue",
+      "rows": [
+        {
+          "selector": "Scenarios",
+          "column": "A",
+          "dss": "Before Visit (Cx reached out before the reporting time)"
+        },
+        {
+          "selector": "Change in MP by SP",
+          "column": "A",
+          "dss": "1) Verify if any intimation was passed on to HO before about the change by SP. You can search on zendesk with their Email ID, check slack with partner name/experience name/TGID and SP inbox folder on Zendesk, Call the partner asap and confirm the change. If you can't find anything, raise on guest ops channel and tag the respective business team.2) If cx is not okay with the new MP, please check with SP if they can meet at some other point. In case SP denies the request/ do not respond, offer the guest a complete refund OR If we have availability for a 'ticket only experience', book those tickets for gx using MEET100 and refund the difference along with a coupon code (BOOK20 - 20% off capped at $30). 3) If the change in MP is permanent and will affect other bookings, raise a halp ticket and do raise it on co-escalation channel."
+        },
+        {
+          "selector": "Confirm the MP",
+          "column": "A",
+          "dss": "Share the map link with the guest and explain the redemption instructions over. Also, provide them with the contact details of SP or make a conference call for further communication. If the guest is on chat, please send it on chat. For calls and mail queries, please mail the guest"
+        },
+        {
+          "selector": "Cx running late",
+          "column": "A",
+          "dss": "I) If booking value < $125 - Request SP via call and email to give a free reschedule/ ticket only experience/ cancelation as an exception. If SP deny or do not respond, please offer 50% HO credits and and ask the guest to make a new reservation.2) I) If booking value > $125 - Request SP via call and email to give a free reschedule/ ticket only experience/ cancelation as an exception. If SP deny or do not respond, please offer 25% HO credits and and ask the guest to make a new reservation."
+        },
+        {
+          "selector": "Cx wants to modify the MP",
+          "column": "A",
+          "dss": "Call and Check with SP if we can modify the meeting point/ guest can come directly to the venue. 1. If SP doesn't respond/ denies it, inform the guest that we will not be able to confirm the modification and request them to go to the given meeting point.2. If Sp agrees, inform the guest accordingly and provide the contact details of SP or make a conference call with SP if required."
+        },
+        {
+          "selector": "Guide not present at MP",
+          "column": "A",
+          "dss": "1)If reporting time is <15 minutes, verify if the guest is at the correct meeting point. Call SP and check the whereabouts of the guide and inform the guest accordingly. If we are unable to contact SP, please follow the below steps - a) Ask the guest to wait at the meeting point till the departure time of the tour and we need to keep following up with SP meanwhile.b) If we are still not able to contact sp, offer the guest a complete refund. OR if we have availability for a 'ticket only experience', book those tickets for them using MEET100 and refund the difference along with a coupon code (unique code with 20% capped at $30). 2) If reporting time is >15 minutes, verify if the guest is at the correct meeting point and request them to wait at MP. Also, inform them the tour will start shortly and share the contact details of SP if required."
+        },
+        {
+          "selector": "HO Error wrong meeting point",
+          "column": "A",
+          "dss": "1. If we provided the wrong info offer the guest a complete refund or If we have availability for a 'ticket only experience', book those tickets for gx using MEET100 and refund the difference along with a coupon code (unique code with 20% capped at $30). 2. Raise a halp ticket and also raise on co-escalation channel to identify other affected bookings."
+        },
+        {
+          "selector": "Scenarios",
+          "column": "A",
+          "dss": "After Visit (Cx reached out after the reporting time)"
+        },
+        {
+          "selector": "Change in MP by SP",
+          "column": "A",
+          "dss": "1) Verify if any intimation was passed on to HO before about the change by SP. If not, call the partner asap and confirm the change.2) If gx is not okay with the new MP, please check with SP if they can meet at some other point. In case SP denies the request/ do not respond, offer the guest a complete refund OR If we have availability for a 'ticket only experience', book those tickets for gx using MEET100 and refund the difference along with a coupon code (BOOK20 - 20% off capped at $30). 3) If the change in MP is permanent and will affect other bookings, raise a halp ticket and do raise it on co-escalation channel."
+        },
+        {
+          "selector": "Cx running late",
+          "column": "A",
+          "dss": "1) If booking value < $125 - Request SP via call and email to give a free reschedule/ ticket only experience/ cancelation as an exception. If SP deny or do not respond, please offer 50% HO credits and and ask the guest to make a new reservation.2) I) If booking value > $125 - Request SP via call and email to give a free reschedule/ ticket only experience/ cancelation as an exception. If SP deny or do not respond, please offer 25% HO credits and and ask the guest to make a new reservation."
+        },
+        {
+          "selector": "Cx wants to modify the MP",
+          "column": "A",
+          "dss": "Call and Check with SP if we can modify the meeting point/ guest can come directly to the venue. 1. If SP doesn't respond/ denies it, inform the guest that we will not be able to confirm the modification and request them to go to the given meeting point.2. If Sp agrees, inform the guest accordingly and provide the contact details of SP or make a conference call with SP if required."
+        },
+        {
+          "selector": "Guide not present at the MP - OGC contact avaialible",
+          "column": "A",
+          "dss": "1. Collect all the necessary information from guests like a. Exact time at which they reached at MP.b. Confirm whether they were at the correct MP. c. Check if the guest can provide any supportive docs/ timestamped proofs. (if required)While requesting the customer for proof, explain that it will help us verify the details with the service provider and resolve the issue quickly.2. Make a conference call to SP and try your best to accommodate the guest for the experience. 3. If we are unable to contact SP, offer a complete refund to the guest. OR if we have availability to a 'ticket only experience', book those tickets for them using MEET100 and refund the difference along with a coupon code (unique code with 20% capped at $30). Also, escalate with SP immediately via mail mentioning all the details."
+        },
+        {
+          "selector": "Guide not present at the MP- No OGC contact avaialible / shared or not reachable",
+          "column": "A",
+          "dss": "I. If we are unable to contact SP, offer the guest a complete refund. OR if we have availability to a 'ticket only experience', book those tickets for them using MEET100 and refund the difference along with a coupon code (unique code with 20% capped at $30).2. Raise this with partner experience team and add a internal note without fail."
+        },
+        {
+          "selector": "Ho Error wrong meeting point",
+          "column": "A",
+          "dss": "1. If we provided the wrong info offer the guest a complete refund or If we have availability for a 'ticket only experience', book those tickets for gx using MEET100 and refund the difference along with a coupon code (unique code with 20% capped at $30). 2. Raise a halp ticket and also raise on co-escalation channel to identify other affected bookings."
+        }
+      ]
+    },
+    "DSS - Other issues": {
+      "type": "other",
+      "rows": [
+        {
+          "selector": "Cx was not able to access tickets because the ticket link was not opening/redirecting to the mobile app",
+          "column": "A",
+          "dss": "1. Check the ticket link and get relevant details from Cx - Ask for more details from cx like: Was there a internet connectivity issue, what tech issues they faced while opening tickets, proofs/screenshots of the tech issues they faced, proofs of new tickets purchased at the venue. While requesting the customer for proof, explain that it will help us verify the details and resolve the issue quickly.2. Once the guest provide any of the aboe details, please raise it with the tech team and offer 100% refund to the guest."
+        },
+        {
+          "selector": "SP canceled without any intimation to HO.",
+          "column": "A",
+          "dss": "1. Cross-check slack and zendesk whether any intimations were passed to the business team, catalog team or co-team. If it was passed, offer a complete refund or try to get new tickets/ book similar experience as per the guest's preference. 2. If we cannot find any intimation sent to us by SP, escalate with SP immediately via call and mail. 3. If SP accepts guest's claim - Refund completely + offer an additional 25% HO CreditS If SP denies, inform the guest about the same and ask guests if they can provide any proof like call records/e-mail through which SP contacted them. While requesting the customer for proof, explain that it will help us verify the details with the service provider and resolve the issue quickly. In case, guest provides proof, esclate with esclation team otherwise deny refund."
+        },
+        {
+          "selector": "Tickets are not accepted at the venue.",
+          "column": "A",
+          "dss": "1. Cross-check if they are at the right ticket redemption point. and the guest is showing the correct voucher/tickets that we have sent and not the ticket confirmation e-mail at the venue. 2. Check if all the basic details on the tickets match with the booking details of the guest: If there is any mismatch, raise it on the guest ops internal channel and try to give the correct tickets or provide a refund to the guest. 3. If all the basic details on the tickets match the booking details, please compare the tickets sent with previous bookings to cross-check if the tickets are sent in the correct format. If the tickets do not match, raise it on the #team-guestops-internal channel and issue a complete refund or send new tickets as per the guest’s request. 4. If we are sure that we have sent the correct tickets and the guest is correctly following the ticket redemption details but they are still unable to use tickets. Then-- Ask for proofs like photos of new tickets purchased at the venue. While requesting the customer for proof, explain that it will help us resolve the issue quickly.- Apologize and reassure the guest that we are investigating this issue on top priority and request 24/48 hours and add a CE follow-up tag.- Raise this issue on the `#co-escalations` channel."
+        },
+        {
+          "selector": "Guide not present at the MP - OGC contact available",
+          "column": "A",
+          "dss": "1. Collect all the necessary information from guests like a. Exact time at which they reached at MP.b. Confirm whether they were at the correct MP. c. Check if the guest can provide any supportive docs/ timestamped proofs (if required). While requesting the customer for proof, explain that it will help us verify the details with the service provider and resolve the issue quickly.2. Make a conference call to SP and try your best to accommodate the guest for the experience. 3. If we are unable to contact SP, offer a complete refund to the guest. OR if we have availability to a 'ticket only experience', book those tickets for them using MEET100 and refund the difference along with a coupon code (unique code with 20% capped at $30). Also, escalate with SP immediately via mail mentioning all the details."
+        },
+        {
+          "selector": "Guide not present at the MP - OGC contact available",
+          "column": "A",
+          "dss": "1. Collect all the necessary information from guests like a. Exact time at which they reached at MP.b. Confirm whether they were at the correct MP. c. Check if the guest can provide any supportive docs/ timestamped proofs (if required). While requesting the customer for proof, explain that it will help us verify the details with the service provider and resolve the issue quickly.2. Make a conference call to SP and try your best to accommodate the guest for the experience. 3. If we are unable to contact SP, offer a complete refund to the guest. OR if we have availability to a 'ticket only experience', book those tickets for them using MEET100 and refund the difference along with a coupon code (unique code with 20% capped at $30). Also, escalate with SP immediately via mail mentioning all the details."
+        }
+      ]
+    },
+    "DSS - Vendor service issues": {
+      "type": "supplyPartnerIssue",
+      "rows": [
+        {
+          "selector": "L1",
+          "column": "A",
+          "dss": "For CE and RO"
+        },
+        {
+          "selector": "SP canceled without any intimation to HO.",
+          "column": "A",
+          "dss": "1. Cross-check slack and zendesk whether any intimations were passed to the business team, catalog team or co-team. If it was passed, offer a complete refund or try to get new tickets/ book similar experience as per the guest's preference. 2. If we cannot find any intimation sent to us by SP, escalate with SP immediately via call and mail. 3. If SP accepts guest's claim - Refund completely + offer an additional 25% HO CreditS If SP denies, inform the guest about the same and ask guests if they can provide any proof like call records/e-mail through which SP contacted them. In case, guest provides proof, esclate with esclation team otherwise deny refund. While requesting the customer for proof, explain that it will help us verify the details with the service provider and resolve the issue quickly."
+        },
+        {
+          "selector": "Venue Closure",
+          "column": "A",
+          "dss": "1.Check slack to see if this has been raised by any other teammate and verify the guest's claim by contacting SP/checking online.2. If we are able to verify the guest's claim offer a complete refund and raise it on co-escaltion channel tagging @co group.If we are not able to verify, request some time from guest (add CE follow up tag) and raise it on co escalation channel and tag the relevant country team. as all.\""
+        },
+        {
+          "selector": "Mismatch in experience/ Inclusions not met",
+          "column": "A",
+          "dss": "Step 1: Verify the guest's claim- Check whether the inclusions mentioned by the guest are specified on our experience page or not. If required , please escalate with SP - If the guest's claim is False - Issue Coupon code EXPLORE6 or EXPLORE8 - If the guest's claim is True - We offer lower of the following- 50% HOC for the service issue or Cost of service if standalone provided in credits if the guest is not interested in credits, please offer lower of the following- 50% partial refund for the service issue or Cost of service if standalone provided.Step 2: Notify and Escalate the Issue - If there is a need to remove or add content from the HO experience page, we must raise HALP. ticket and if multiple guests are impacted raise it on the #co-esclation channel."
+        },
+        {
+          "selector": "Tickets are not accepted at the venue.",
+          "column": "A",
+          "dss": "1. Cross-check if they are at the right ticket redemption point. and the guest is showing the correct voucher/tickets that we have sent and not the ticket confirmation e-mail at the venue. 2. Check if all the basic details on the tickets match with the booking details of the guest: If there is any mismatch, raise it on the guest ops internal channel and try to give the correct tickets or provide a refund to the guest. 3. If all the basic details on the tickets match the booking details, please compare the tickets sent with previous bookings to cross-check if the tickets are sent in the correct format. If the tickets do not match, raise it on the #team-guestops-internal channel and issue a complete refund or send new tickets as per the guest’s request. 4. If we are sure that we have sent the correct tickets and the guest is correctly following the ticket redemption details but they are still unable to use tickets. Then-- Ask for proofs like photos of new tickets purchased at the venue. While requesting the customer for proof, explain that it will help us verify the details and resolve the issue quickly.- Apologize and reassure the guest that we are investigating this issue on top priority and request 24/48 hours and add a CE follow-up tag.- Raise this issue on the `#co-escalations` channel."
+        },
+        {
+          "selector": "Venue Maintenance complaints – venue not clean, requires fixtures and repairs, etc",
+          "column": "A",
+          "dss": "Apolgize and offer 25% credits to guest along with a 10% discount code."
+        },
+        {
+          "selector": "Tour guide was not up to expectations",
+          "column": "A",
+          "dss": "1. Offer 25% credits to the guest, along with a 10% discount code. 2. If guest is unhappy with 25% credits, request some time from guest, escalate with sp via call & mail. 3. Add CE follow up tag"
+        },
+        {
+          "selector": "Tour started late / guide arrived late at MP",
+          "column": "A",
+          "dss": "1)If delay is <20 minutes, offer 25% HO credits to the Guest, along with a 10% discount code. If guest is unhappy with 25% credits, request some time from guest and escalate with sp. 2) If delay is >20 minutes, request some time from guest and escalate with sp."
+        },
+        {
+          "selector": "AG quality is bad/ not upto the mark",
+          "column": "A",
+          "dss": "This would seem as poor service from our end (even if it could be connectivity issues). Here we can apologize and provide a a partial refund equivalent to AG price/ our margin to avoid futhure esclaation."
+        },
+        {
+          "selector": "AG Redemption confusion",
+          "column": "A",
+          "dss": "Pre experience:If a guest reaches out before the exp date and time, stating they have not received the AG, we can find this by:1) Checking whether the required AG is sent via email if AG variant is booked along with tickets. For separately sent AG email, please check webengage to check if AG is sent. We can also find AG tickets allotment via PPDashboard for some experiences. If the AG has been alloted and seny, we can resend it to guests.2) If the audio guide is not sent, please send AG and offer a 20% discount code as a token of apology. Post experience:If guest reaches out after the exp is over claiming that we did not send the AG/redemption instructions were unclear/ paid again at the venue, we:-First check whether the AG is sent (variant booked by guest, tix sent, web engage if applicable, pp dashboard if applicable etc)-If not sent, we refund AG amount + discount coupon as an apology.-If sent, we inform guest that we did send AG (attach proof if necessary) and offfer a partial refund equivalent to our margin.Please note: In case the guest says they faced access issues, please issue them a Partial refund for AG amount back to their account on the grounds to avoid further escalation."
+        },
+        {
+          "selector": "Did not receive the AG",
+          "column": "A",
+          "dss": "Pre experience:If a guest reaches out before the exp date and time, stating they have not received the AG, we can find this by:1) Checking whether the required AG is sent via email if AG variant is booked along with tickets. For separately sent AG email, please check webengage to check if AG is sent. We can also find AG tickets allotment via PPDashboard for some experiences. If the AG has been alloted and seny, we can resend it to guests.2) If the audio guide is not sent, please send AG and offer a 20% discount code as a token of apology. Post experience:If guest reaches out after the exp is over claiming that we did not send the AG/redemption instructions were unclear/ paid again at the venue, we:-First check whether the AG is sent (variant booked by guest, tix sent, web engage if applicable, pp dashboard if applicable etc)-If not sent, we refund AG amount + discount coupon as an apology.-If sent, we inform guest that we did send AG (attach proof if necessary) and offfer a partial refund equivalent to our margin.Please note: In case the guest says they faced access issues, please issue them a Partial refund for AG amount back to their account on the grounds to avoid further escalation."
+        }
+      ]
+    },
+    "DSS Cancellation Booking Modification": {
+      "type": "cancelation",
+      "rows": [
+        {
+          "selector": "L1",
+          "column": "A",
+          "dss": "L2"
+        },
+        {
+          "selector": "Guest Error",
+          "column": "A",
+          "dss": "Booked wrong date/time"
+        },
+        {
+          "selector": "Guest Error",
+          "column": "B",
+          "dss": "Check the validity period :a) Extended validity Inform the guest about the same. If guest do not wish to use the tickets within the validity period, offer 25% credits.b)Fixed Dated Offer 25% HO Credits and ask the guest to make a new booking. c) If the guest is still unhappy and we are unable to combat the escalation from the guest then: - Request 72 hours from the guest. In case the guest is not ready to wait/urgent cases stick to orginial offered DSS refund %. - If the guest is ready to wait: Add deadline date, time and follow-up reason\"Cancellation/reschedule- Outside policy (Cx error/Unavoidable issue).Once the above mentioned follow-up reason is selected the esc team will be reaching out to SP/venue and check if anything can be done and resolve the esclation with the guest.(Please note : If the tickets are not sent/ under cancellable state then please cancel the booking and refund the guest)"
+        },
+        {
+          "selector": "Guest Error",
+          "column": "C",
+          "dss": "Check the validity period :a) Extended validity Inform the guest about the same. If guest do not wish to use the tickets within the validity period, offer 25% credits.b)Fixed Dated Offer 25% HO Credits and ask the guest to make a new booking. c) If the guest is still unhappy and we are unable to combat the escalation from the guest then: - Request 72 hours from the guest. In case the guest is not ready to wait/urgent cases stick to orginial offered DSS refund %. - If the guest is ready to wait: Add deadline date, time and follow-up reason\"Cancellation/reschedule- Outside policy (Cx error/Unavoidable issue).Once the above mentioned follow-up reason is selected the esc team will be reaching out to SP/venue and check if anything can be done and resolve the esclation with the guest.(Please note : If the tickets are not sent/ under cancellable state then please cancel the booking and refund the guest)"
+        },
+        {
+          "selector": "Guest did not see booking confirmation email/tickets",
+          "column": "A",
+          "dss": "If the experience is of future date - Reconfirm the email with the guest and explain to the guest that we have sent the tickets, Also, resend the tickets to the guest to their preferred email address/ chats (if applicable) and reconfirm if they have received the tickets.If the experience is past dated -1) Reconfirm the email with the guest and explain to the guest that we have sent the tickets. (Share the necessary proofs). 2) Check the validity period :a) Extended validity - Inform the guest about the validity period. If guests do not wish to use the tickets within the validity period, offer 25% credits.b)Fixed Dated - Offer 25% HOC C) If the guest is still unhappy and we are unable to combat the escalation from the guest then: - Request 72 hours from the guest. In case the guest is not ready to wait/urgent cases stick to orginial offered DSS refund %. - If the guest is ready to wait: Add deadline date, time and follow-up reason\"Cancellation/reschedule- Outside policy (Cx error/Unavoidable issue).Once the above mentioned follow-up reason is selected the esc team will be reaching out to SP and check if anything can be done and resolve the esclation with the guest."
+        },
+        {
+          "selector": "Guest did not see booking confirmation email/tickets",
+          "column": "B",
+          "dss": "If the experience is of future date - Reconfirm the email with the guest and explain to the guest that we have sent the tickets, Also, resend the tickets to the guest to their preferred email address/ chats (if applicable) and reconfirm if they have received the tickets.If the experience is past dated -1) Reconfirm the email with the guest and explain to the guest that we have sent the tickets. (Share the necessary proofs). 2) Check the validity period :a) Extended validity - Inform the guest about the validity period. If guests do not wish to use the tickets within the validity period, offer 25% credits.b)Fixed Dated - Offer 25% HOC C) If the guest is still unhappy and we are unable to combat the escalation from the guest then: - Request 72 hours from the guest. In case the guest is not ready to wait/urgent cases stick to orginial offered DSS refund %. - If the guest is ready to wait: Add deadline date, time and follow-up reason\"Cancellation/reschedule- Outside policy (Cx error/Unavoidable issue).Once the above mentioned follow-up reason is selected the esc team will be reaching out to venue and check if anything can be done and resolve the esclation with the guest."
+        },
+        {
+          "selector": "Booked under the wrong name",
+          "column": "A",
+          "dss": "1. Check whether there is any name mentioned on the actual tickets that are sent to the guest. If there is no name on the tickets, reconfirm with SP if any changes are required as the guest has booked under the wrong name. If Sp does not respond, call the venue as a guest and reconfirm with them. If we still do not have clarity, check with the shift leads if the guest will be allowed. 2. If the name is present, contact SP and check with them if they can modify the name/name is essential for getting entry. If SP denies the request, please offer 25% HO credits and ask the guest to make a new reservation. If Sp do not respond, please check with the shift leads if the guest will be allowed."
+        },
+        {
+          "selector": "Booked under the wrong name",
+          "column": "B",
+          "dss": "1. Check whether there is any name mentioned on the actual tickets that are sent to the guest. If there is no name on the tickets, call the venue as a guest and reconfirm with them if the name on the tickets is important. If we still do not have clarity, check with the shift leads if the guest will be allowed.2. If the name is present on tickets, call the venue and recheck with them if the name could be modified/necessary. . If we still don't have clarity, please check with the shift leads if the guest will be allowed. If not, please offer 25% HO credits and ask the guest to make a new reservation."
+        },
+        {
+          "selector": "Guest running late/ did not reach meeting point on time",
+          "column": "A",
+          "dss": "Call the guest after checking all the details, follow the below steps, Request SP via call and email to give a free reschedule/ ticket only experience/ cancelation as an exception. If SP deny or do not respond, please offer 25% HO credits and ask the guest to make a new reservation."
+        },
+        {
+          "selector": "Guest running late/ did not reach meeting point on time",
+          "column": "B",
+          "dss": "Offer 25% HO credits and ask the guest to make a new booking."
+        },
+        {
+          "selector": "Guest booked the last slot of the day and did not get enough time at the venue",
+          "column": "A",
+          "dss": "Explain to the guest about the last admission time and closing time mentioned on our site, If the guest still escalates, offer 25% HO credits."
+        },
+        {
+          "selector": "Guest booked the last slot of the day and did not get enough time at the venue",
+          "column": "B",
+          "dss": "Explain to the guest about the last admission time and closing time mentioned on our site, If the guest still escalates, offer 25% HO credits."
+        },
+        {
+          "selector": "Booked more than once",
+          "column": "A",
+          "dss": "\"Check the validity period :a) Extended validity Inform the guest about the same. If guest do not wish to use the tickets within the validity period, offer 25% credits.b)Fixed Dated Offer 25% HO Credits and ask the guest to make a new booking. c) If the guest is still unhappy and we are unable to combat the escalation from the guest then: - Request 72 hours from the guest. In case the guest is not ready to wait/urgent cases stick to orginial offered DSS refund %. - If the guest is ready to wait: Add deadline date, time and follow-up reason\"\"Cancellation/reschedule- Outside policy (Cx error/Unavoidable issue).Once the above mentioned follow-up reason is selected the esc team will be reaching out to SP/venue and check if anything can be done and resolve the esclation with the guest.(Please note : If the tickets are not sent/ under cancellable state then please cancel the booking and refund the guest)\"."
+        },
+        {
+          "selector": "Booked more than once",
+          "column": "B",
+          "dss": "\"Check the validity period :a) Extended validity Inform the guest about the same. If guest do not wish to use the tickets within the validity period, offer 25% credits.b)Fixed Dated Offer 25% HO Credits and ask the guest to make a new booking. c) If the guest is still unhappy and we are unable to combat the escalation from the guest then: - Request 72 hours from the guest. In case the guest is not ready to wait/urgent cases stick to orginial offered DSS refund %. - If the guest is ready to wait: Add deadline date, time and follow-up reason\"\"Cancellation/reschedule- Outside policy (Cx error/Unavoidable issue).Once the above mentioned follow-up reason is selected the esc team will be reaching out to SP/venue and check if anything can be done and resolve the esclation with the guest.(Please note : If the tickets are not sent/ under cancellable state then please cancel the booking and refund the guest)\"."
+        },
+        {
+          "selector": "Booked wrong Pax",
+          "column": "A",
+          "dss": "Call the guest after checking all the details, follow the below steps, Check the validity period :a) Extended validity Inform the guest about the same. If guest do not wish to use the tickets within the validity period, offer 25% credits of the affected pax value.b)Fixed Dated Offer 25% HO Credits of the affected pax value for future use.c) If the guest is still unhappy and we are unable to combat the escalation from the guest then: - Request 72 hours from the guest. In case the guest is not ready to wait/urgent cases stick to orginial offered DSS refund %. - If the guest is ready to wait: Add deadline date, time and follow-up reason\"Cancellation/reschedule- Outside policy (Cx error/Unavoidable issue).Once the above mentioned follow-up reason is selected the esc team will be reaching out to SP/venue and check if anything can be done and resolve the esclation with the guest.(Please note : If the tickets are not sent/ under cancellable state then please cancel the booking and refund the guest)"
+        },
+        {
+          "selector": "Booked wrong Pax",
+          "column": "B",
+          "dss": "Call the guest after checking all the details, follow the below steps, Check the validity period :a) Extended validity Inform the guest about the same. If guest do not wish to use the tickets within the validity period, offer 25% credits of the affected pax value.b)Fixed Dated Offer 25% HO Credits of the affected pax value for future use.c) If the guest is still unhappy and we are unable to combat the escalation from the guest then: - Request 72 hours from the guest. In case the guest is not ready to wait/urgent cases stick to orginial offered DSS refund %. - If the guest is ready to wait: Add deadline date, time and follow-up reason\"Cancellation/reschedule- Outside policy (Cx error/Unavoidable issue).Once the above mentioned follow-up reason is selected the esc team will be reaching out to SP/venue and check if anything can be done and resolve the esclation with the guest.(Please note : If the tickets are not sent/ under cancellable state then please cancel the booking and refund the guest)"
+        },
+        {
+          "selector": "Booked wrong Experience",
+          "column": "A",
+          "dss": "Check the validity period :a) Extended validity Inform the guest about the same. If guest do not wish to use the tickets within the validity period, offer 25% credits.b)Fixed Dated Offer 25% HO Credits and ask the guest to make a new booking. c) If the guest is still unhappy and we are unable to combat the escalation from the guest then: - Request 72 hours from the guest. In case the guest is not ready to wait/urgent cases stick to orginial offered DSS refund %. - If the guest is ready to wait: Add deadline date, time and follow-up reason\"Cancellation/reschedule- Outside policy (Cx error/Unavoidable issue).Once the above mentioned follow-up reason is selected the esc team will be reaching out to SP/venue and check if anything can be done and resolve the esclation with the guest.(Please note : If the tickets are not sent/ under cancellable state then please cancel the booking and refund the guest)"
+        },
+        {
+          "selector": "Booked wrong Experience",
+          "column": "B",
+          "dss": "Check the validity period :a) Extended validity Inform the guest about the same. If guest do not wish to use the tickets within the validity period, offer 25% credits.b)Fixed Dated Offer 25% HO Credits and ask the guest to make a new booking. c) If the guest is still unhappy and we are unable to combat the escalation from the guest then: - Request 72 hours from the guest. In case the guest is not ready to wait/urgent cases stick to orginial offered DSS refund %. - If the guest is ready to wait: Add deadline date, time and follow-up reason\"Cancellation/reschedule- Outside policy (Cx error/Unavoidable issue).Once the above mentioned follow-up reason is selected the esc team will be reaching out to SP/venue and check if anything can be done and resolve the esclation with the guest.(Please note : If the tickets are not sent/ under cancellable state then please cancel the booking and refund the guest)"
+        },
+        {
+          "selector": "Cx misunderstood that they booked an AG experience",
+          "column": "A",
+          "dss": "Before the ExperiencePolitely explain to the guest that according to their selected product/variant page and the amount paid, their booking does not include the audio guide.Point them to the exact inclusion details as listed, ensuring clarity.At the Venue- Explain the inclusions clearly, referencing the product/variant page to show that the audio guide was not part of their booking.- Acknowledge that this misunderstanding can happen → offer them the option to purchase the audio guide at the venue, and share AG purchase reciept with us over email/chat. Once recieved. we can provide a refund in HOC up to 25% (max $5 per ticket.) - If they are not able to purchase the audio guide at all at the venue, offer them HOC credit of up to 25% (max $5 per ticket) After Experience- Explain the inclusions clearly, referencing the product/variant page to show that the audio guide was not part of their booking.- Acknowledge that this misunderstanding can happen → Check with them - if they had bought the audio guide on-site. If yes. ask them to send the audio-guide purchase receipt via chat/email. Upon receiving it, we can provide a refund in HOC of up to 25% (max $5 per ticket.) - If they were not able to purchase the audio guide at the venue, offer them HOC credit of up to 25% (max $5 per ticket)"
+        },
+        {
+          "selector": "Cx misunderstood that they booked an AG experience",
+          "column": "B",
+          "dss": "Before the ExperiencePolitely explain to the guest that according to their selected product/variant page and the amount paid, their booking does not include the audio guide.Point them to the exact inclusion details as listed, ensuring clarity.At the Venue- Explain the inclusions clearly, referencing the product/variant page to show that the audio guide was not part of their booking.- Acknowledge that this misunderstanding can happen → offer them the option to purchase the audio guide at the venue, and share AG purchase reciept with us over email/chat. Once recieved. we can provide a refund in HOC up to 25% (max $5 per ticket.) - If they are not able to purchase the audio guide at all at the venue, offer them HOC credit of up to 25% (max $5 per ticket) After Experience- Explain the inclusions clearly, referencing the product/variant page to show that the audio guide was not part of their booking.- Acknowledge that this misunderstanding can happen → Check with them - if they had bought the audio guide on-site. If yes. ask them to send the audio-guide purchase receipt via chat/email. Upon receiving it, we can provide a refund in HOC of up to 25% (max $5 per ticket.) - If they were not able to purchase the audio guide at the venue, offer them HOC credit of up to 25% (max $5 per ticket)"
+        },
+        {
+          "selector": "Unavoidable issues",
+          "column": "A",
+          "dss": "Health issues"
+        },
+        {
+          "selector": "Unavoidable issues",
+          "column": "B",
+          "dss": "Check the validity period :a) Extended validity Inform the guest about the same. If guest do not wish to use the tickets within the validity period, offer 50% credits for the affected pax.b)Fixed Dated Offer 50% HO Credits and ask the guest to make a new booking. c) If the guest is still unhappy and we are unable to combat the escalation from the guest then: - Request 72 hours from the guest. In case the guest is not ready to wait/urgent cases stick to orginial offered DSS refund %. - If the guest is ready to wait: Add deadline date, time and follow-up reason\"Cancellation/reschedule- Outside policy (Cx error/Unavoidable issue).Once the above mentioned follow-up reason is selected the esc team will be reaching out to SP/venue and check if anything can be done and resolve the esclation with the guest.(Please note : If the tickets are not sent/ under cancellable state then please cancel the booking and refund the guest)."
+        },
+        {
+          "selector": "Unavoidable issues",
+          "column": "C",
+          "dss": "Check the validity period :a) Extended validity Inform the guest about the same. If guest do not wish to use the tickets within the validity period, offer 50% credits for the affected pax.b)Fixed Dated Offer 50% HO Credits and ask the guest to make a new booking. c) If the guest is still unhappy and we are unable to combat the escalation from the guest then: - Request 72 hours from the guest. In case the guest is not ready to wait/urgent cases stick to orginial offered DSS refund %. - If the guest is ready to wait: Add deadline date, time and follow-up reason\"Cancellation/reschedule- Outside policy (Cx error/Unavoidable issue).Once the above mentioned follow-up reason is selected the esc team will be reaching out to SP/venue and check if anything can be done and resolve the esclation with the guest.(Please note : If the tickets are not sent/ under cancellable state then please cancel the booking and refund the guest)."
+        },
+        {
+          "selector": "Flight/train cancellation or delay",
+          "column": "A",
+          "dss": "\"Check the validity period :a) Extended validity Inform the guest about the same. If guest do not wish to use the tickets within the validity period, offer 25% credits.b)Fixed Dated Offer 25% HO Credits and ask the guest to make a new booking. c) If the guest is still unhappy and we are unable to combat the escalation from the guest then: - Request 72 hours from the guest. In case the guest is not ready to wait/urgent cases stick to orginial offered DSS refund %. - If the guest is ready to wait: Add deadline date, time and follow-up reason\"\"Cancellation/reschedule- Outside policy (Cx error/Unavoidable issue).Once the above mentioned follow-up reason is selected the esc team will be reaching out to SP/venue and check if anything can be done and resolve the esclation with the guest.(Please note : If the tickets are not sent/ under cancellable state then please cancel the booking and refund the guest)\"."
+        },
+        {
+          "selector": "Flight/train cancellation or delay",
+          "column": "B",
+          "dss": "\"Check the validity period :a) Extended validity Inform the guest about the same. If guest do not wish to use the tickets within the validity period, offer 25% credits.b)Fixed Dated Offer 25% HO Credits and ask the guest to make a new booking. c) If the guest is still unhappy and we are unable to combat the escalation from the guest then: - Request 72 hours from the guest. In case the guest is not ready to wait/urgent cases stick to orginial offered DSS refund %. - If the guest is ready to wait: Add deadline date, time and follow-up reason\"\"Cancellation/reschedule- Outside policy (Cx error/Unavoidable issue).Once the above mentioned follow-up reason is selected the esc team will be reaching out to SP/venue and check if anything can be done and resolve the esclation with the guest.(Please note : If the tickets are not sent/ under cancellable state then please cancel the booking and refund the guest)\""
+        },
+        {
+          "selector": "Death in the family",
+          "column": "A",
+          "dss": "Call the guest after checking all the details, follow the below steps, Offer the guest an option to choose between 100% HO Credits or refund to bank account. Also, request SP to cancel as an exception."
+        },
+        {
+          "selector": "Death in the family",
+          "column": "B",
+          "dss": "Call the guest after checking all the details, follow the below steps, Offer the guest an option to choose between 100% HO Credits or refund to bank account."
+        },
+        {
+          "selector": "Venue closure/ full capacity/ experience cancelled",
+          "column": "A",
+          "dss": "Call the guest after checking all the details, follow the below steps, 1.Check slack to see if this has been raised by any other teammate and verify the guest's claim by contacting SP/checking online.2. If we are able to verify the guest's claim offer a complete refund and raise it on co-escalation channel tagging @ro, @ce, and @coleads.If we are not able to verify, request some time from guest (add CE follow up process, Followup reason as: Experience got cancelled/venue closure)) and raise it on co escalation channel."
+        },
+        {
+          "selector": "Venue closure/ full capacity/ experience cancelled",
+          "column": "B",
+          "dss": "Call the guest after checking all the details, follow the below steps, 1.Check slack to see if this has been raised by any other teammate and verify the guest's claim by contacting venue/checking online.2. If we are able to verify the guest's claim offer a complete refund and raise it on co-escalation channel tagging @ro, @ce, and @coleads.If we are not able to verify, request some time from guest (add CE follow up process, Followup reason as: Experience got cancelled/venue closure)) and raise it on co escalation channel."
+        },
+        {
+          "selector": "Delay due to traffic / transport strikes",
+          "column": "A",
+          "dss": "If venue is operational, call the guest after checking all the details, follow the below steps, \"Check the validity period :a) Extended validity Inform the guest about the same. If guest do not wish to use the tickets within the validity period, offer 25% credits.b) Fixed Dated Offer 25% HO Credits and ask the guest to make a new booking. c) If the guest is still unhappy and we are unable to combat the escalation from the guest then: - Request 72 hours from the guest. In case the guest is not ready to wait/urgent cases stick to orginial offered DSS refund %. - If the guest is ready to wait: Add deadline date, time and follow-up reason\"\"Cancellation/reschedule- Outside policy (Cx error/Unavoidable issue).Once the above mentioned follow-up reason is selected the esc team will be reaching out to SP/venue and check if anything can be done and resolve the esclation with the guest.(Please note : If the tickets are not sent/ under cancellable state then please cancel the booking and refund the guest)\"."
+        },
+        {
+          "selector": "Delay due to traffic / transport strikes",
+          "column": "B",
+          "dss": "If venue is operational, call the guest after checking all the details, follow the below steps, \"Check the validity period :a) Extended validity Inform the guest about the same. If guest do not wish to use the tickets within the validity period, offer 25% credits.b) Fixed Dated Offer 25% HO Credits and ask the guest to make a new booking. c) If the guest is still unhappy and we are unable to combat the escalation from the guest then: - Request 72 hours from the guest. In case the guest is not ready to wait/urgent cases stick to orginial offered DSS refund %. - If the guest is ready to wait: Add deadline date, time and follow-up reason\"\"Cancellation/reschedule- Outside policy (Cx error/Unavoidable issue).Once the above mentioned follow-up reason is selected the esc team will be reaching out to SP/venue and check if anything can be done and resolve the esclation with the guest.(Please note : If the tickets are not sent/ under cancellable state then please cancel the booking and refund the guest)\"."
+        },
+        {
+          "selector": "Weather issues",
+          "column": "A",
+          "dss": "If venue is operational, call the guest after checking all the details, follow the below steps, \"Check the validity period :a) Extended validity Inform the guest about the same. If guest do not wish to use the tickets within the validity period, offer 25% credits.b) Fixed Dated Offer 25% HO Credits and ask the guest to make a new booking. c) If the guest is still unhappy and we are unable to combat the escalation from the guest then: - Request 72 hours from the guest. In case the guest is not ready to wait/urgent cases stick to orginial offered DSS refund %. - If the guest is ready to wait: Add deadline date, time and follow-up reason\"\"Cancellation/reschedule- Outside policy (Cx error/Unavoidable issue).Once the above mentioned follow-up reason is selected the esc team will be reaching out to SP/venue and check if anything can be done and resolve the esclation with the guest.(Please note : If the tickets are not sent/ under cancellable state then please cancel the booking and refund the guest)\"."
+        },
+        {
+          "selector": "Weather issues",
+          "column": "B",
+          "dss": "If venue is operational, call the guest after checking all the details, follow the below steps, \"Check the validity period :a) Extended validity Inform the guest about the same. If guest do not wish to use the tickets within the validity period, offer 25% credits.b) Fixed Dated Offer 25% HO Credits and ask the guest to make a new booking. c) If the guest is still unhappy and we are unable to combat the escalation from the guest then: - Request 72 hours from the guest. In case the guest is not ready to wait/urgent cases stick to orginial offered DSS refund %. - If the guest is ready to wait: Add deadline date, time and follow-up reason\"\"Cancellation/reschedule- Outside policy (Cx error/Unavoidable issue).Once the above mentioned follow-up reason is selected the esc team will be reaching out to SP/venue and check if anything can be done and resolve the esclation with the guest.(Please note : If the tickets are not sent/ under cancellable state then please cancel the booking and refund the guest)\"."
+        },
+        {
+          "selector": "Vendor / Service issues",
+          "column": "A",
+          "dss": "Venue Maintenance complaints – venue not clean, requires fixtures and repairs, etc"
+        },
+        {
+          "selector": "Vendor / Service issues",
+          "column": "B",
+          "dss": "Call the guest after checking all the details, follow the below steps, Apologize and offer 25% credits to guest along with a 10% discount code."
+        },
+        {
+          "selector": "Vendor / Service issues",
+          "column": "C",
+          "dss": "Call the guest after checking all the details, follow the below steps, Apologize and offer 25% credits to guest along with a 10% discount code."
+        },
+        {
+          "selector": "Tour guide was not up to expectations",
+          "column": "A",
+          "dss": "Call the guest after checking all the details, follow the below steps, 1. Offer 25% credits to the guest along with a 10% discount code. 2. If guest is unhappy with 25% credits, request some time from guest, escalate with SP via call & mail. 3. Add CE follow up tag and action as per the SP's response."
+        },
+        {
+          "selector": "Tour guide was not up to expectations",
+          "column": "B",
+          "dss": "Not applicable."
+        },
+        {
+          "selector": "Tour started late / Guide arrived late at MP",
+          "column": "A",
+          "dss": "Call the guest after checking all the details, follow the below steps, 1)If delay is <20 minutes, offer 25% HO credits to the guest along with a 10% discount code. If guest is unhappy with 25% credits, request some time from guest and escalate with sp. 2) If delay is >20 minutes, request some time from guest and escalate with SP."
+        },
+        {
+          "selector": "Tour started late / Guide arrived late at MP",
+          "column": "B",
+          "dss": "Not applicable."
+        },
+        {
+          "selector": "Delay / No response in communication from Sp",
+          "column": "A",
+          "dss": "Keep following up with SP on call/mail/whatsapp. If there is no response from SP in 48 hours, raise ithe case on @co-escalations channel with the esc team."
+        },
+        {
+          "selector": "Delay / No response in communication from Sp",
+          "column": "B",
+          "dss": "Not applicable."
+        },
+        {
+          "selector": "Overcrowding and long queues",
+          "column": "A",
+          "dss": "- Verify disclaimers: Check booking confirmation email, voucher, and experience listing/page for any mention of possible crowding; if found, politely point this out to the guest (explaining high global demand and peak times).- Offer 25% credit to the guest for the inconvenience, regardless of whether a crowding disclaimer was present or not."
+        },
+        {
+          "selector": "Overcrowding and long queues",
+          "column": "B",
+          "dss": "- Verify disclaimers: Check booking confirmation email, voucher, and experience listing/page for any mention of possible crowding; if found, politely point this out to the guest (explaining high global demand and peak times).- Offer 25% credit to the guest for the inconvenience, regardless of whether a crowding disclaimer was present or not."
+        },
+        {
+          "selector": "HO Error(CO error, Tech error, Content error, Catalog error, Inventory error)",
+          "column": "B",
+          "dss": "Call the guest after checking all the details, follow the below steps, If applicable, do try your best to get the correct tickets or a ticket-only experience (refund the difference to bank account).If not, offer a complete / partial refund + 25% HO credits. Also, please raise Halp tickets and check affected bookings if required."
+        },
+        {
+          "selector": "HO Error(CO error, Tech error, Content error, Catalog error, Inventory error)",
+          "column": "C",
+          "dss": "Call the guest after checking all the details, follow the below steps, If applicable, do try your best to get the correct tickets or a ticket-only experience (refund the difference to bank account).If not, offer a complete / partial refund + 25% HO credits. Also, please raise Halp tickets and check affected bookings if required."
+        },
+        {
+          "selector": "Others",
+          "column": "A",
+          "dss": "Guest claims wrong date was booked due to tech error but no events available on clarity to verify."
+        },
+        {
+          "selector": "Others",
+          "column": "B",
+          "dss": "Check the validity period :a) Extended validity - Inform the guest about the validity period. If guests do not wish to use the tickets within the validity period, give the guest benefit of doubt and offer 100% credits/ bank refund.b)Fixed Dated - Offer 100% credits. If guests do not agree, then refund to card Also, request SP to cancel/reschedule as an exception.via call and mail"
+        },
+        {
+          "selector": "Others",
+          "column": "C",
+          "dss": "Check the validity period :a) Extended validity - Inform the guest about the validity period. If guests do not wish to use the tickets within the validity period, give the guest of doubt and offer 100% credits/ bank refund.b)Fixed Dated - Offer 100% credits. If guests do not agree, then refund to card."
+        },
+        {
+          "selector": "Guest claims wrong pax was booked due to tech error but no events available on clarity to verify.",
+          "column": "A",
+          "dss": "Check the validity period :a) Extended validity - Inform the guest about the validity period. If guests do not wish to use the tickets within the validity period, give the guest of doubt and offer 100% credits/ bank refund for the affected pax ticket or send a pax ticket if applicable.b)Fixed Dated - Offer 100% credits for the affected pax. If guests do not agree, then refund to card (Amount of the affected pax only). Also, request SP to cancel as an exception."
+        },
+        {
+          "selector": "Guest claims wrong pax was booked due to tech error but no events available on clarity to verify.",
+          "column": "B",
+          "dss": "Check the validity period :a) Extended validity - Inform the guest about the validity period. If guests do not wish to use the tickets within the validity period, give the guest of doubt and offer 100% credits/ bank refund for the affected pax ticket or send a pax ticket if applicable.b)Fixed Dated - offer 100% credits for the affected pax ticket. If guests do not agree, then refund to card. (Amount of the affected pax only)."
+        },
+        {
+          "selector": "Guest claims double booking occured due to tech error but no events available on clarity to verify.",
+          "column": "A",
+          "dss": "1) Once we check if both reservations match the same TGID/TID and all the booking details are similar, we need to check whether the time difference between the reservations is less than 5 minutes which means it is most likely a headout error. This can be checked via ZD/ Checkout.2) We should check if the reservation falls under the cancellation policy and refund the guest if it does. Otherwise we can offer 100% credits refund/bank refund for one reservation and request SP to refund as an exception."
+        },
+        {
+          "selector": "Guest claims double booking occured due to tech error but no events available on clarity to verify.",
+          "column": "B",
+          "dss": "1) Once we check if both reservations match the same TGID/TID and all the booking details are similar, we need to check whether the time difference between the reservations is less than 5 minutes which means it is most likely a headout error. This can be checked via ZD/ Checkout.2) We should check if the reservation falls under the cancellation policy and refund the guest if it does.We give them the benefit of a doubt and issue 100% HO Credits. If they deny for credits, we can issue them a full refund for one reservation."
+        },
+        {
+          "selector": "Guest is not able understand the Indian accent/wants to speak to any other foreign agent",
+          "column": "A",
+          "dss": "If guest is unable to understand our accent, let us please try:-reverting them to a different associate on the wf and mention them as a senior. If that does not work,-sending them an sms in their language reverting them to LC or providing the specific email ID -if it is an escalation, based on the kind of concern, let's please offer them a discount coupon. For extreme escalations/further escalation: offer upto 50% Headout Credits as per your discretion"
+        },
+        {
+          "selector": "Guest is not able understand the Indian accent/wants to speak to any other foreign agent",
+          "column": "B",
+          "dss": "If guest is unable to understand our accent, let us please try:-reverting them to a different associate on the wf and mention them as a senior. If that does not work,-sending them an sms in their language reverting them to LC or providing the specific email ID -if it is an escalation, based on the kind of concern, let's please offer them a discount coupon. For extreme escalations/further escalation: offer upto 50% Headout Credits as per your discretion"
+        },
+        {
+          "selector": "Guest is not happy with the price difference/new promotion offers live on our website.",
+          "column": "A",
+          "dss": "1) Check whether the guest's claim is correct by comparing the final prices (including all charges), variant, inclusions, etc. If the guest's claim is correct, offer a partial refund equivalent to the price difference/ to their bank account.2) If the guest's claim is not correct, explain the same to the guest. (Please note if the price difference is more than the profit margin, please contact leads and check with them for the partial refund)"
+        },
+        {
+          "selector": "Guest is not happy with the price difference/new promotion offers live on our website.",
+          "column": "B",
+          "dss": "1) Check whether the guest's claim is correct by comparing the final prices (including all charges), variant, inclusions, etc. If the guest's claim is correct, offer a partial refund equivalent to the price difference/ to their bank account.2) If the guest's claim is not correct, explain the same to the guest. (Please note if the price difference is more than the profit margin, please contact leads and check with them for a partial refund)"
+        },
+        {
+          "selector": "Guest was not able to access tickets because the ticket link was not opening/redirecting to the mobile app",
+          "column": "A",
+          "dss": "1. Check the ticket link and get relevant details from Cx - Ask for more details from cx like: Was there a internet connectivity issue, what tech issues they faced while opening tickets, proofs/screenshots of the tech issues they faced, proofs of new tickets purchased at the venue. While requesting the customer for proof, explain that it will help us verify the details and resolve the issue quickly.2. Once the guest provide any of the above details, please raise it with the tech team and offer 100% refund to the guest."
+        },
+        {
+          "selector": "Guest was not able to access tickets because the ticket link was not opening/redirecting to the mobile app",
+          "column": "B",
+          "dss": "1. Check the ticket link and get relevant details from Cx - Ask for more details from cx like: Was there a internet connectivity issue, what tech issues they faced while opening tickets, proofs/screenshots of the tech issues they faced, proofs of new tickets purchased at the venue. While requesting the customer for proof, explain that it will help us verify the details and resolve the issue quickly.2. Once the guest provide any of the above details, please raise it with the tech team and offer 100% refund to the guest."
+        },
+        {
+          "selector": "Guest is asking refund because of Best Price Guarantee/Got better price elsewhere",
+          "column": "A",
+          "dss": "1. Check if the guest is comapring the same variant on other website - (product inclusions, date & time of visit, final payable amount (After tax or convience fee).2. If the variant is same, please offer the difference as partial refund in the form of credits. If they deny credits/escalate further offer partial refund to the Bank.3. If the variant is not same, please explain the same reason to the guest and offer a generic discount coupon code EXPLORE6."
+        },
+        {
+          "selector": "Guest is asking refund because of Best Price Guarantee/Got better price elsewhere",
+          "column": "B",
+          "dss": "1. Check if the guest is comapring the same variant on other website - (product inclusions, date & time of visit, final payable amount (After tax or convience fee).2. If the variant is same, please offer the difference as partial refund in the form of credits. If they deny credits/escalate further offer partial refund to the Bank.3. If the variant is not same, please explain the same reason to the guest and offer a generic discount coupon code EXPLORE6."
+        },
+        {
+          "selector": "Guest is asking for a refund for the Audio Guide part because a free audio guide is available at the venue",
+          "column": "A",
+          "dss": "1. Check whether the customer purchased a ticket variant that includes an Audio Guide. Compare the inclusions of the AG and Non-AG variants to confirm whether the price difference is solely for the Audio Guide or if it also covers additional inclusions (like skip the line etc.).2. Once you've confirmed the booking details, verify whether the attraction is actually providing the Audio Guide free of charge. If required, politely ask the customer for supporting information or verify this directly on the attraction's official website.3. If the attraction is offering the Audio Guide for free (+ no other inclusions are listed causing the price increase) and we have charged the customer for an AG variant, refund the price difference between the AG and Non-AG variants per ticket.4. Compare our ticket price with the attraction's ticket price. If the difference is due to the complimentary Audio Guide, offer a refund of up to €5 per ticket.5. Raise the issue with BizOps/BDMs so they are aware that the attraction is providing complimentary Audio Guides and can review the ticket configuration if needed."
+        },
+        {
+          "selector": "Guest is asking for a refund for the Audio Guide part because a free audio guide is available at the venue",
+          "column": "B",
+          "dss": "1. Check whether the customer purchased a ticket variant that includes an Audio Guide. Compare the inclusions of the AG and Non-AG variants to confirm whether the price difference is solely for the Audio Guide or if it also covers additional inclusions (like skip the line etc.).2. Once you've confirmed the booking details, verify whether the attraction is actually providing the Audio Guide free of charge. If required, politely ask the customer for supporting information or verify this directly on the attraction's official website.3. If the attraction is offering the Audio Guide for free (+ no other inclusions are listed causing the price increase) and we have charged the customer for an AG variant, refund the price difference between the AG and Non-AG variants per ticket.4. Compare our ticket price with the attraction's ticket price. If the difference is due to the complimentary Audio Guide, offer a refund of up to €5 per ticket.5. Raise the issue with BizOps/BDMs so they are aware that the attraction is providing complimentary Audio Guides and can review the ticket configuration if needed."
+        }
+      ]
+    },
+    "DSS Delay fulffilment": {
+      "type": "delay_fulfilment",
+      "rows": [
+        {
+          "selector": "L1",
+          "column": "A",
+          "dss": "less than or equal to 125$"
+        },
+        {
+          "selector": "L1",
+          "column": "B",
+          "dss": "More than 125$"
+        },
+        {
+          "selector": "L1",
+          "column": "C",
+          "dss": "less than or equal to 125$"
+        },
+        {
+          "selector": "L1",
+          "column": "D",
+          "dss": "More than 125$"
+        },
+        {
+          "selector": "L1",
+          "column": "E",
+          "dss": "less than or equal to 125$"
+        },
+        {
+          "selector": "L1",
+          "column": "F",
+          "dss": "More than 125$"
+        },
+        {
+          "selector": "L1",
+          "column": "G",
+          "dss": "less than or equal to 125$"
+        },
+        {
+          "selector": "L1",
+          "column": "H",
+          "dss": "More than 125$"
+        },
+        {
+          "selector": "Tickets are sent but late",
+          "column": "A",
+          "dss": "1) Compare and check the time at which the tickets were sent and the time for which the guest booked the reservation. For any given case, where we have sent tickets too late and the guest was not able to use our tickets/missed the tour. Please check with the guest and initiate a complete/partial refund or send the next available tickets (If applicable).2) If tickets are sent late but adequate time is left from their date/ time of reservation. Please follow the below steps - a) Delay in sending tickets was less than 20 minutes from the promised TAT time - Offer a 10% discount code. b) Delay in sending tickets was more than 20 minutes from the promised TAT time - Offer 30% Heaout credits."
+        },
+        {
+          "selector": "Tickets are sent but late",
+          "column": "B",
+          "dss": "1) Compare and check the time at which the tickets were sent and the time for which the guest booked the reservation. For any given case, where we have sent tickets too late and the guest was not able to use our tickets/missed the tour. Please check with the guest and initiate a complete/partial refund or send the next available tickets (If applicable).2) If tickets are sent late but adequate time is left from their date/ time of reservation. Please follow the below steps - a) Delay in sending tickets was less than 20 minutes from the promised TAT time - Offer a 10% discount code. b) Delay in sending tickets was more than 20 minutes from the promised TAT time - Offer 30% Heaout credits."
+        },
+        {
+          "selector": "Tickets are sent but late",
+          "column": "C",
+          "dss": "1) Compare and check the time at which the tickets were sent and the time for which the guest booked the reservation. For any given case, where we have sent tickets too late and the guest was not able to use our tickets/missed the tour. Please check with the guest and initiate a complete/partial refund or send the next available tickets (If applicable).2) If tickets are sent late but adequate time is left from their date/ time of reservation. Please follow the below steps - a) Delay in sending tickets was less than 20 minutes from the promised TAT time - Offer a 10% discount code. b) Delay in sending tickets was more than 20 minutes from the promised TAT time - Offer 30% Heaout credits."
+        },
+        {
+          "selector": "Tickets are sent but late",
+          "column": "D",
+          "dss": "1) Compare and check the time at which the tickets were sent and the time for which the guest booked the reservation. For any given case, where we have sent tickets too late and the guest was not able to use our tickets/missed the tour. Please check with the guest and initiate a complete/partial refund or send the next available tickets (If applicable).2) If tickets are sent late but adequate time is left from their date/ time of reservation. Please follow the below steps - a) Delay in sending tickets was less than 20 minutes from the promised TAT time - Offer a 10% discount code. b) Delay in sending tickets was more than 20 minutes from the promised TAT time - Offer 30% Heaout credits."
+        },
+        {
+          "selector": "Tickets are sent but late",
+          "column": "E",
+          "dss": "1) Compare and check the time at which the tickets were sent and the time for which the guest booked the reservation. For any given case, where we have sent tickets too late and the guest was not able to use our tickets/missed the tour. Please check with the guest and initiate a complete/partial refund or send the next available tickets (If applicable).2) If tickets are sent late but adequate time is left from their date/ time of reservation. Please follow the below steps - a) Delay in sending tickets was less than 20 minutes from the promised TAT time - Offer a 10% discount code. b) Delay in sending tickets was more than 20 minutes from the promised TAT time - Offer 30% Heaout credits."
+        },
+        {
+          "selector": "Tickets are sent but late",
+          "column": "F",
+          "dss": "1) Compare and check the time at which the tickets were sent and the time for which the guest booked the reservation. For any given case, where we have sent tickets too late and the guest was not able to use our tickets/missed the tour. Please check with the guest and initiate a complete/partial refund or send the next available tickets (If applicable).2) If tickets are sent late but adequate time is left from their date/ time of reservation. Please follow the below steps - a) Delay in sending tickets was less than 20 minutes from the promised TAT time - Offer a 10% discount code. b) Delay in sending tickets was more than 20 minutes from the promised TAT time - Offer 30% Heaout credits."
+        },
+        {
+          "selector": "Tickets are sent but late",
+          "column": "G",
+          "dss": "1) Compare and check the time at which the tickets were sent and the time for which the guest booked the reservation. For any given case, where we have sent tickets too late and the guest was not able to use our tickets/missed the tour. Please check with the guest and initiate a complete/partial refund or send the next available tickets (If applicable).2) If tickets are sent late but adequate time is left from their date/ time of reservation. Please follow the below steps - a) Delay in sending tickets was less than 20 minutes from the promised TAT time - Offer a 10% discount code. b) Delay in sending tickets was more than 20 minutes from the promised TAT time - Offer 30% Heaout credits."
+        },
+        {
+          "selector": "Tickets are sent but late",
+          "column": "H",
+          "dss": "1) Compare and check the time at which the tickets were sent and the time for which the guest booked the reservation. For any given case, where we have sent tickets too late and the guest was not able to use our tickets/missed the tour. Please check with the guest and initiate a complete/partial refund or send the next available tickets (If applicable).2) If tickets are sent late but adequate time is left from their date/ time of reservation. Please follow the below steps - a) Delay in sending tickets was less than 20 minutes from the promised TAT time - Offer a 10% discount code. b) Delay in sending tickets was more than 20 minutes from the promised TAT time - Offer 30% Heaout credits."
+        },
+        {
+          "selector": "Tickets are not sent/unfulfilled booking",
+          "column": "A",
+          "dss": "If applicable, do try your best to get the correct tickets or a ticket-only experience (refund the difference to bank account).If not, offer a complete/partial refund + 25% HO credits. Also, please raise Halp tickets and check affected bookings if required."
+        },
+        {
+          "selector": "Tickets are not sent/unfulfilled booking",
+          "column": "B",
+          "dss": "If applicable, do try your best to get the correct tickets or a ticket-only experience (refund the difference to bank account).If not, offer a complete / partial refund + 25% HO credits. Also, please raise Halp tickets and check affected bookings if required."
+        },
+        {
+          "selector": "Tickets are not sent/unfulfilled booking",
+          "column": "C",
+          "dss": "If applicable, do try your best to get the correct tickets or a ticket-only experience (refund the difference to bank account).If not, offer a complete/partial refund + 25% HO credits. Also, please raise Halp tickets and check affected bookings if required."
+        },
+        {
+          "selector": "Tickets are not sent/unfulfilled booking",
+          "column": "D",
+          "dss": "If applicable, do try your best to get the correct tickets or a ticket-only experience (refund the difference to bank account).If not, offer a complete / partial refund + 25% HO credits. Also, please raise Halp tickets and check affected bookings if required."
+        },
+        {
+          "selector": "Tickets are not sent/unfulfilled booking",
+          "column": "E",
+          "dss": "If applicable, do try your best to get the correct tickets or a ticket-only experience (refund the difference to bank account).If not, offer a complete/partial refund + 25% HO credits. Also, please raise Halp tickets and check affected bookings if required."
+        },
+        {
+          "selector": "Tickets are not sent/unfulfilled booking",
+          "column": "F",
+          "dss": "If applicable, do try your best to get the correct tickets or a ticket-only experience (refund the difference to bank account).If not, offer a complete / partial refund + 25% HO credits. Also, please raise Halp tickets and check affected bookings if required."
+        },
+        {
+          "selector": "Tickets are not sent/unfulfilled booking",
+          "column": "G",
+          "dss": "If applicable, do try your best to get the correct tickets or a ticket-only experience (refund the difference to bank account).If not, offer a complete/partial refund + 25% HO credits. Also, please raise Halp tickets and check affected bookings if required."
+        },
+        {
+          "selector": "Tickets are not sent/unfulfilled booking",
+          "column": "H",
+          "dss": "If applicable, do try your best to get the correct tickets or a ticket-only experience (refund the difference to bank account).If not, offer a complete / partial refund + 25% HO credits. Also, please raise Halp tickets and check affected bookings if required."
+        }
+      ]
+    }
+  }
+}

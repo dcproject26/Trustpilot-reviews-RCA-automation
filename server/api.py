@@ -223,6 +223,26 @@ def _scenario_routing(d: RcaDraft) -> dict:
     )
 
 
+def _content_match(d: RcaDraft) -> dict:
+    """Whether the review's own words describe the booked experience.
+
+    Additive and non-blocking: it is a line on the match card, never a gate.
+    A wrong answer here must not be able to stop a draft rendering, so any
+    failure returns the "unchecked" state rather than raising.
+    """
+    from server import booking_match_check as bmc
+    try:
+        r = getattr(d, "review", None)
+        text = (getattr(r, "body_english", None)
+                or getattr(r, "body_original", None) or "") if r else ""
+        return bmc.check(text, d.booking)
+    except Exception as e:              # never break the card over a hint
+        log.warning(f"[content-match] skipped: {e}")
+        return {"state": "unchecked", "review_family": None,
+                "booking_family": None, "experience": "",
+                "why": "the check did not run"}
+
+
 def _draft_dict(d: RcaDraft) -> dict:
     _tf = d.ticket_facts or {}
     _bk = d.booking or {}
@@ -301,6 +321,11 @@ def _draft_dict(d: RcaDraft) -> dict:
         # longer holds. The comparison fires the moment L1/L2 moves, while the
         # person still remembers why they set it.
         "scenario_routing":            _scenario_routing(d),
+        # Does the review describe the experience this booking is FOR? A guest
+        # who quotes the wrong reference number produces a match that passes
+        # every other check — the id is real, the booking exists, the dates
+        # line up — and describes a different product entirely.
+        "content_match":               _content_match(d),
         "wwr_scenarios":               d.wwr_scenarios or [],
         "l1_reasoning":                d.l1_reasoning,
         "diagnostic_checks":           d.diagnostic_checks or [],

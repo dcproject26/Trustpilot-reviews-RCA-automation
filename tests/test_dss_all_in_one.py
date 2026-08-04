@@ -76,6 +76,24 @@ def _live_with_fixture_tabs(monkeypatch):
     monkeypatch.setattr(dss, "_get_tabs", fake_tabs)
 
 
+@pytest.fixture(autouse=True)
+def _no_unified_export(monkeypatch):
+    """This file tests the LIVE SHEET's filters and keyword routing, against
+    stub rows built for that purpose.
+
+    The checked-in unified export supersedes a live row wherever the two name
+    the same scenario, which is the point of it — but it means these results
+    would depend on whether the real export happens to cover each stub's
+    scenario. It covers the meeting-point one and not the cancellation one, so
+    the file passed in parts for a reason that has nothing to do with what it
+    is testing.
+
+    Superseding has its own tests, in tests/test_dss_unified.py, where the
+    live rows and the export rows are both controlled.
+    """
+    monkeypatch.setattr(dss, "_UNIFIED", {})
+
+
 def _rec(**kw):
     return asyncio.run(dss.get_recommendation(
         kw.pop("booking", {}), "rev_x", **kw))

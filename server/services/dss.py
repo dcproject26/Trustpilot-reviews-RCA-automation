@@ -34,6 +34,8 @@ Fallback: MOCK_DSS in mock mode; {"match_score": 0} plus the app's own
 """
 import csv
 import io
+import json as _json_std
+import os as _os
 import logging
 import re
 import time
@@ -72,6 +74,63 @@ _cache_at: float = 0.0
 
 
 # ─── helpers ────────────────────────────────────────────────────────────────
+
+# ── the new unified view ────────────────────────────────────────────────────
+# A point-in-time export of the DSS "New (Unified View)" sheet, imported by
+# tools/import_dss.py. It is checked in so the new guidance is available
+# without waiting on the live sheet, and so it reviews like any other content
+# change.
+#
+# WHERE A SCENARIO APPEARS IN BOTH, THIS WINS. That is the instruction, and it
+# is the only rule that makes carrying both safe: a scenario in both has to
+# resolve to one answer, and keeping the older text would hand an agent the
+# guidance this file exists to replace.
+_UNIFIED_PATH = _os.path.join(_os.path.dirname(_os.path.dirname(
+    _os.path.dirname(_os.path.abspath(__file__)))), "content", "dss_unified.json")
+
+
+def _load_unified() -> dict:
+    """{dss_type: [row, ...]} from the checked-in export, or {}.
+
+    Never raises: a malformed or missing file must cost the new rows, not the
+    whole lookup. It logs the difference, because a file that failed to parse
+    and a file that was never there are not the same fact.
+    """
+    try:
+        with open(_UNIFIED_PATH, encoding="utf-8") as fh:
+            payload = _json_std.load(fh)
+    except FileNotFoundError:
+        log.info("[dss] no unified export checked in - live sheet only")
+        return {}
+    except Exception as e:
+        log.warning(f"[dss] unified export could not be read ({e}) - live sheet only")
+        return {}
+    out: dict[str, list[dict]] = {}
+    for tab in (payload.get("tabs") or {}).values():
+        for row in tab.get("rows") or []:
+            out.setdefault(tab.get("type") or "other", []).append({
+                "_unified": True,
+                "_column": row.get("column") or "",
+                "scenarios": row.get("selector") or "",
+                "dss": row.get("dss") or "",
+            })
+    n = sum(len(v) for v in out.values())
+    log.info(f"[dss] unified export: {n} row(s) across {len(out)} type(s)")
+    return out
+
+
+_UNIFIED = _load_unified()
+
+
+def _selector_key(text: str) -> str:
+    """A scenario name reduced to what makes it the same scenario.
+
+    "HO Error wrong meeting point" and "Ho Error wrong meeting point" are one
+    scenario written twice — the two exports differ by exactly that. Comparing
+    raw text would carry both and let the older one win half the time.
+    """
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
 
 def _keywords(text: str) -> set[str]:
     words = re.findall(r"[a-z]{4,}", (text or "").lower())
@@ -277,6 +336,25 @@ async def get_recommendation(
                             "is_partnered": _yn((booking or {}).get("isPartnered")) or "unknown"}}
     candidates = ([(dss_type, r) for r in tabs.get(dss_type, [])] if dss_type
                   else [(t, r) for t, rs in tabs.items() for r in rs])
+    # The new unified view goes in FRONT, and any live-sheet row for the same
+    # scenario comes out. Not appended: two rows for one scenario would let
+    # the scorer pick either, so the "new one wins" instruction would hold
+    # about half the time and look like it held always.
+    #
+    # Matched on a normalised selector, because the same scenario is written
+    # differently in different exports - "HO Error" against "Ho Error" is the
+    # difference between replacing a row and silently keeping both.
+    _new = [(t, r) for t, rs in _UNIFIED.items() for r in rs
+            if not dss_type or t == dss_type]
+    if _new:
+        _superseded = {_selector_key(r.get("scenarios")) for _, r in _new}
+        _superseded.discard("")
+        _kept = [(t, r) for t, r in candidates
+                 if _selector_key(r.get(TABS.get(t, "scenarios"), "")) not in _superseded]
+        _dropped = len(candidates) - len(_kept)
+        if _dropped:
+            log.info(f"[dss] unified view supersedes {_dropped} live-sheet row(s)")
+        candidates = _new + _kept
 
     # The app's hard filters. Two are constant for this pipeline:
     # For_Social_Media = Yes (public review) and team = CE/RO (never the

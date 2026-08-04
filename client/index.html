@@ -327,6 +327,18 @@
     align-items: baseline; color: var(--body);
   }
   .conf-step .mark { flex: none; font-weight: 700; font-size: 11px; }
+  .content-mismatch {
+    display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap;
+    margin: 8px 0 2px; padding: 6px 9px; border-radius: 6px;
+    background: var(--amber-bg); color: var(--amber);
+    font-size: 11.5px; line-height: 1.5;
+  }
+  .content-mismatch .reconcile-text { flex: 1; min-width: 140px; }
+  .trail-toggle {
+    font: inherit; font-size: 11px; padding: 1px 0; margin-top: 3px;
+    border: none; background: none; color: var(--muted-2); cursor: pointer;
+    text-decoration: underline;
+  }
   .conf-step.pass .mark { color: var(--green); }
   .conf-step.warn .mark, .conf-step.fail .mark { color: var(--amber); }
 
@@ -1483,6 +1495,20 @@ async function fetchInbox() {
 // toggle, in mono, height-capped and scrollable, so a 500-character SELECT
 // cannot push the panel apart. Shared by both trail renderers - two copies of
 // this drifted once already.
+// A trail step's text is written with <strong> in it, so it cannot simply be
+// escaped — but it also carries whatever the pipeline put there, and some of
+// those values are SQL, error text and quoted fragments. Injected raw, a
+// stray '<' silently swallows the rest of the line, and a query with angle
+// brackets can take the whole panel with it.
+//
+// So: escape everything, then put back the ONE tag this text is allowed to
+// use. Anything else renders as the characters it is.
+function trailSafe(text) {
+  return esc(String(text == null ? '' : text))
+    .replace(/&lt;strong&gt;/g, '<strong>')
+    .replace(/&lt;\/strong&gt;/g, '</strong>');
+}
+
 function trailStep(st, key) {
   const mark = st.mark === 'pass' ? '✓' : st.mark === 'warn' ? '!' : '✗';
   const cls  = st.mark === 'pass' ? 'pass' : st.mark === 'warn' ? 'warn' : 'fail';
@@ -1491,10 +1517,37 @@ function trailStep(st, key) {
   return `
     <div class="conf-step ${cls}">
       <span class="mark">${mark}</span>
-      <span class="label-text">${st.text}${raw ? `
+      <span class="label-text">${trailSafe(st.text)}${raw ? `
         <button class="err-raw-toggle" data-raw-err="${key}">${open ? 'hide raw error' : 'show raw error'}</button>
         ${open ? `<div class="err-raw">${esc(raw)}</div>` : ''}` : ''}</span>
     </div>`;
+}
+
+// The trail is 40-odd steps of pipeline vocabulary — "Mock BQ", "regex BID",
+// "Author parsed: first=…". That is a debugging log, and the people reading
+// this card are deciding whether to trust a booking match.
+//
+// So: show what went WRONG, always, because that is the part that changes what
+// they do — and collapse the steps that went right into one line. The full
+// trail stays one click away rather than being dropped: a shorter trail must
+// not become a trail that hides that a step ran at all.
+function trailView(steps, prefix) {
+  const all = steps || [];
+  const notable = all.filter(s => s.mark !== 'pass');
+  const passed = all.length - notable.length;
+  const open = !!state.trailOpen[prefix];
+  if (!all.length) return '';
+  if (open) {
+    return all.map((st, n) => trailStep(st, prefix + n)).join('')
+      + `<button class="trail-toggle" data-trail-toggle="${prefix}">show less</button>`;
+  }
+  const head = passed
+    ? `<div class="conf-step pass"><span class="mark">✓</span>
+         <span class="label-text">${passed} check${passed === 1 ? '' : 's'} passed</span></div>`
+    : '';
+  return head
+    + notable.map((st, n) => trailStep(st, prefix + 'n' + n)).join('')
+    + `<button class="trail-toggle" data-trail-toggle="${prefix}">show all ${all.length} steps</button>`;
 }
 
 // Hoisted so both columns can use it: §13 moves the booking timeline into the
@@ -1682,6 +1735,14 @@ document.addEventListener('click', async ev => {
   await saveSubThemes(r.id);
 });
 
+document.addEventListener('click', ev => {
+  const b = ev.target.closest && ev.target.closest('[data-trail-toggle]');
+  if (!b) return;
+  const k = b.dataset.trailToggle;
+  state.trailOpen[k] = !state.trailOpen[k];
+  renderReviewCol();
+});
+
 async function refreshAfterScenarioChange(reviewId) {
   const r = REVIEWS.find(x => x.id === reviewId);
   if (!r) return;
@@ -1776,6 +1837,7 @@ async function loadDraftOverlays() {
       // Computed server-side so the card, the regenerate endpoint and the
       // trail cannot each reach a different answer.
       r.rca.scenarioRouting  = draft.scenario_routing || null;
+      r.contentMatch         = draft.content_match || null;
       r.rca.wwrScenarios     = draft.wwr_scenarios    || [];
 
       // actions_taken: API returns {sp: [strings], ce: [strings], …}
@@ -2009,6 +2071,7 @@ const state = {
   actionTab: 'sp',
   dssEdit: false,
   rawErrOpen: {},
+  trailOpen: {},
   insightsWindow: '90d',
   // Why the last window switch did not produce numbers, or ''. A failed switch
   // used to be a console line only, so on screen it was identical to a switch
@@ -2415,7 +2478,7 @@ function renderReviewCol() {
           ${(r.confidenceTrail || []).length ? `
           <div class="confidence-trail">
             <div class="confidence-trail-label">How we built this match</div>
-            ${(r.confidenceTrail || []).map((st, n) => trailStep(st, 'a' + n)).join('')}
+            ${trailView(r.confidenceTrail, 'a')}
           </div>` : ''}
         </div>
       </div>
@@ -2557,7 +2620,7 @@ function renderReviewCol() {
   const confTrail = r.confidenceTrail
     ? `<div class="confidence-trail">
          <div class="confidence-trail-label">How we built this match</div>
-         ${r.confidenceTrail.map((st, n) => trailStep(st, 'b' + n)).join('')}
+         ${trailView(r.confidenceTrail, 'b')}
        </div>`
     : '';
 
@@ -2588,6 +2651,23 @@ function renderReviewCol() {
                trail says it properly, tick by tick. -->
           <div><div class="match-title">${r.matchTitle}</div></div>
         </div>
+        ${(() => {
+          // Only on a clear disagreement. "unchecked" draws nothing: a line
+          // saying we could not tell would appear on most reviews and teach
+          // the reader to skip this whole area, which costs more than it
+          // saves. A match draws nothing either — it is the expected case.
+          const cm = r.contentMatch;
+          if (!cm || cm.state !== 'mismatch') return '';
+          return `<div class="content-mismatch">
+            <span class="reconcile-mark">⚠</span>
+            <span class="reconcile-text">This review reads like a
+              <strong>${esc(cm.review_family)}</strong>, but this booking is a
+              <strong>${esc(cm.booking_family)}</strong>${
+                cm.experience ? ` (${esc(cm.experience)})` : ''}. The guest may
+              have given a reference number for a different booking — check
+              before relying on the match.</span>
+          </div>`;
+        })()}
         ${signalsBox}
         ${confTrail}
         ${slackPings}

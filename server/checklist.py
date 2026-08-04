@@ -334,18 +334,37 @@ def scenario_actions(scenario_name: str) -> list:
 
 # Owner routing for Actions-Taken tabs. First matching rule wins; an item that
 # matches no rule is a pure check (not an ownable action) and is skipped.
+# First match wins, so the order IS the routing. SP is first for a reason.
+#
+# Refunds used to route to CUSTOMER and experience problems to BUSINESS. Both
+# were wrong: a refund is nearly always a claim against the supply partner, and
+# a redemption or quality problem IS the supply partner's. Filing them
+# elsewhere sent the work to a team that could not action it, and the team who
+# could never saw it.
+#
+# Business keeps what is genuinely commercial - inventory, pricing, the
+# escalation ladder - and nothing else.
 _OWNER_RULES = [
+    # SP: the supply partner, anything claimed against them, and anything
+    # about the EXPERIENCE itself - redemption, quality, the guide, the venue.
     ("sp",       ["supply partner", "raise with sp", "with sp", "→ sp", "sp/biz",
-                  "operator", "guide", "vendor api"]),
+                  "operator", "guide", "vendor api", "vendor",
+                  # refunds and money claimed back are claims against the SP
+                  "refund", "credit note", "chargeback", "arn",
+                  # the experience itself
+                  "redemption", "redeem", "voucher", "qr", "entry denied",
+                  "turned away", "quality", "poor experience", "meeting point",
+                  "no-show", "overbooked", "venue"]),
     ("product",  ["tech team", "with tech", "raise with tech", "tech for", "tech bug",
                   "bms", "pdf", "app issue", "app issues", "selenium", "website", "→ tech"]),
     ("business", ["inventory", "inv-ops", "io/", "→ io", "prepurchase→io", " biz", "business",
                   "bdm", "bizops", "escalation team", "escalations", "arpit", "leads",
-                  "#co-issue", " fin ", "on priority"]),
-    ("customer", ["refund", "credit", "resend", "email guest", "arn", "reschedule",
+                  "#co-issue", " fin ", "on priority", "pricing", "commercial"]),
+    ("customer", ["resend", "email guest", "reschedule",
                   "cancel/reschedule", "share proof", "request proof", "callout"]),
     ("ce",       ["ce error", "ce/ro", "macro", "clarity", "internal notes", "follow up",
-                  "48-72h", "action per dss"]),
+                  "48-72h", "action per dss", "tag", "tagging", "not handled",
+                  "mishandled", "process gap", "sop"]),
 ]
 
 
