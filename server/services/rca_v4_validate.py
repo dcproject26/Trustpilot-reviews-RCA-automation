@@ -26,14 +26,18 @@ FLAG_TEAMS     = ("CE", "RO", "SP", "CONTENT", "PRODUCT", "BIZ", "TECH", "OTHER"
 # exchanges a person took part in.
 CONTACT_CHANNELS = ("chat", "email", "call", "web", "app")
 
-# One contact, as rule 10b asks for it. The first four are the join and the
-# interpretation; the rest are the narrative the user asked to see per contact.
-# `wait_for_human`, `guest_replied` and `outcome` exist nowhere else in the
-# pipeline - no frame carries them - so a field missing from this tuple is a
-# field the model can answer and nobody can ever read.
+# One contact: support type, when, what they said, what we said, and whether
+# we raised it internally. The first four keys are the join and the
+# interpretation; the rest are what the card shows.
+#
+# `raised_internally` exists nowhere else in the pipeline - no frame carries
+# it - so a field missing from this tuple is a field the model can answer and
+# nobody can ever read. It matters most where we told the guest to give us
+# time: the promise is on the ticket, and whether anything was actually raised
+# behind it is the whole question.
 CONTACT_FIELDS = ("zd_ref", "summary", "detail", "ce_miss",
                   "time", "channel", "guest_said", "we_said",
-                  "wait_for_human", "guest_replied", "outcome")
+                  "raised_internally")
 
 # Where an unclassifiable review lands. Not a guess dressed as a category -
 # "Vague review" is the taxonomy's own name for "we could not tell".

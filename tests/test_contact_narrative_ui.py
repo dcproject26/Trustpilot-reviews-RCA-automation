@@ -1,15 +1,15 @@
 """The per-contact story renders, is editable, and survives a save.
 
-Rule 10b asks the model for what the guest came with, what we said, how long
-they waited for a human, what they said back and how it ended. Three of those
-five exist nowhere else in the pipeline — no Zendesk frame carries them — so
-if the card does not draw them the model's answer has no reader at all.
+Rule 10b asks the model for what the guest came with, what we said, and
+whether we raised it internally. That last one exists nowhere else in the
+pipeline — no Zendesk frame carries it — so if the card does not draw it the
+model's answer has no reader at all.
 
 This is the failure this repo keeps hitting from the other end: the validator
-was dropping all seven fields, so the section rendered exactly as it would
-have if the model had answered nothing. Widening the projection is only half
-the fix; a field that survives validation and is never drawn is the same bug
-one layer up.
+was dropping every one of these fields, so the section rendered exactly as it
+would have if the model had answered nothing. Widening the projection is only
+half the fix; a field that survives validation and is never drawn is the same
+bug one layer up.
 
 Driven in a browser rather than asserted against the source, because the
 markup is built by one function and the save handler bound by another, and
@@ -25,9 +25,7 @@ from tests.test_rca_ui_rendered import page, CHROME          # noqa: E402,F401
 NARR = {
     "guest_said": "Wants to cancel, unwell",
     "we_said": "Skylar sent the policy link",
-    "wait_for_human": "18 minutes",
-    "guest_replied": "Asked for a human",
-    "outcome": "Escalated to CE",
+    "raised_internally": "Raised as an ops task after we promised 24 hours",
 }
 
 
@@ -94,8 +92,7 @@ def test_the_summary_is_bullets_not_a_labelled_form(page):
         _open_all(page)
         html = _section_html(page)
         assert "convo-bullet" in html, "the summary is not rendered as bullets"
-        for label in ("Guest said", "We said", "Wait for human",
-                      "Guest replied", "Outcome"):
+        for label in ("Guest said", "We said", "Raised internally"):
             assert label not in html, (
                 f"{label!r} is drawn as a field label — this is the labelled "
                 f"form again, not a summary")
@@ -104,7 +101,7 @@ def test_the_summary_is_bullets_not_a_labelled_form(page):
 
 
 def test_each_bullet_is_its_own_list_item(page):
-    """Five sentences run into one bullet is not a chronological summary."""
+    """Three sentences run into one bullet is not a summary of a contact."""
     try:
         _inject(page)
         _open_all(page)
@@ -116,31 +113,28 @@ def test_each_bullet_is_its_own_list_item(page):
 
 
 def test_the_bullets_keep_the_order_the_contact_happened_in(page):
-    """Came with, we said, waited, said back, ended. Out of order it stops
-    being chronological, which is the one thing that was asked for."""
+    """Came with, we said, raised internally. Out of order it stops reading as
+    an account of the contact."""
     try:
         _inject(page)
         _open_all(page)
         texts = page.evaluate(
             "() => [...document.querySelectorAll('.convo-narr .convo-bullet')]"
             ".map(e => e.textContent.trim())")
-        want = [NARR[k] for k in ("guest_said", "we_said", "wait_for_human",
-                                  "guest_replied", "outcome")]
+        want = [NARR[k] for k in ("guest_said", "we_said", "raised_internally")]
         got = [t for t in texts if t in want]
         assert got == want, f"bullets are out of order: {got}"
     finally:
         _restore(page)
 
 
-def test_the_three_fields_with_no_other_source_are_drawn(page):
-    """wait_for_human, guest_replied and outcome. A frame carries none of
-    them, so undrawn means unreadable."""
+def test_the_field_with_no_other_source_is_drawn(page):
+    """raised_internally. No frame carries it, so undrawn means unreadable —
+    and it is the one that says whether a promise to the guest was kept."""
     try:
         _inject(page)
         _open_all(page)
-        html = _section_html(page)
-        for f in ("wait_for_human", "guest_replied", "outcome"):
-            assert NARR[f] in html, f
+        assert NARR["raised_internally"] in _section_html(page)
     finally:
         _restore(page)
 
@@ -202,11 +196,11 @@ def test_an_unmatched_contact_s_narrative_is_editable(page):
 
 def test_a_null_field_on_an_unmatched_contact_draws_nothing(page):
     try:
-        _inject(page, {"wait_for_human": None}, which=ORPHAN)
+        _inject(page, {"raised_internally": None}, which=ORPHAN)
         _open_all(page)
         html = _section_html(page)
-        assert NARR["wait_for_human"] not in html
-        assert NARR["outcome"] in html, "the fields that came back stopped drawing"
+        assert NARR["raised_internally"] not in html
+        assert NARR["we_said"] in html, "the fields that came back stopped drawing"
     finally:
         _restore(page)
 
@@ -216,13 +210,12 @@ def test_a_null_field_draws_nothing_at_all(page):
     nothing. A row of empty labels would report five blanks as five things we
     looked for and failed to find."""
     try:
-        _inject(page, {"wait_for_human": None, "guest_replied": None})
+        _inject(page, {"raised_internally": None})
         _open_all(page)
         html = _section_html(page)
-        assert NARR["wait_for_human"] not in html, \
+        assert NARR["raised_internally"] not in html, \
             "a bullet was drawn for a field the model left blank"
-        assert NARR["guest_replied"] not in html
-        assert NARR["outcome"] in html, "the fields that DID come back stopped drawing"
+        assert NARR["we_said"] in html, "the fields that DID come back stopped drawing"
     finally:
         _restore(page)
 
@@ -278,7 +271,7 @@ def test_editing_a_narrative_field_reaches_the_store(page):
     try:
         _inject(page)
         _open_all(page)
-        el = page.locator('[data-v3p$=".outcome"]').first
+        el = page.locator('[data-v3p$=".raised_internally"]').first
         el.click()
         page.keyboard.press("ControlOrMeta+a")
         el.type("Refunded in full after escalation")

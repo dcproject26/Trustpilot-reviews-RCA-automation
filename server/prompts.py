@@ -631,7 +631,7 @@ _FALLBACK = {
         # The grounds the dropdown offers. Here as well as in the YAML for
         # the same reason every other key is: someone deleting the block while
         # editing must not leave the control with no options at all.
-        "reasons": ["Content issues", "Booking / support issues",
+        "reasons": ["Content issues, booking/support issues",
                     "Personal emergency, health issue"],
     },
     "untraceable_reply": (
@@ -1541,13 +1541,11 @@ that turned out fine is silence — never a line in the output.
   "support_interaction_notes": [
     {
       "zd_ref": "<ZD-xxxxx — the ticket this note is about; this is the join key | null>",
+      "channel": "<the support type: chat | email | call | web | app | null>",
       "time": "<DD Mon HH:MM — when the GUEST reached out | null>",
-      "channel": "<chat | email | call | web | app | null>",
       "guest_said": "<one sentence: what they came to us with | null>",
       "we_said": "<one sentence: what we replied. Name Skylar where the AI bot answered | null>",
-      "wait_for_human": "<how long before a human agent picked it up, e.g. '14 min' | null>",
-      "guest_replied": "<one sentence: what they said back | null>",
-      "outcome": "<one sentence: what this contact ended in | null>",
+      "raised_internally": "<one sentence: did we raise it internally and what came of it. Say so plainly if we asked the guest for time and raised nothing | null>",
       "summary": "<one line, what happened in this contact>",
       "detail": "<the fuller account, quoting the guest and the agent | null>",
       "ce_miss": "<what CE should have done differently | null>"
@@ -1679,31 +1677,36 @@ that turned out fine is silence — never a line in the output.
     high reads as a guest who was handled when they were not.
 
     FOR EACH CONTACT, in this order:
+      `channel`        the support type: chat / email / call / web / app.
       `time`           when the GUEST reached out. Chronological across the whole array.
-      `channel`        chat / email / call / web / app.
-      `guest_said`     what they came to us with — their issue, in their terms.
+      `guest_said`     what they came to us with — their issue, in their own terms.
       `we_said`        what we replied. SKYLAR IS AN AI BOT, not an agent: where Skylar
                        answered, say so, because "we replied in 30 seconds" means
                        something entirely different when it was the bot.
-      `wait_for_human` how long from the guest's message to a HUMAN agent picking it up.
-                       Read it off the timestamps; do not estimate.
-      `guest_replied`  what they said back.
-      `outcome`        what this contact ended in — resolved, escalated, dropped, nothing.
+      `raised_internally`
+                       did we raise it INTERNALLY, and what came of it. This matters most
+                       where we told the guest to give us time: if we said "24 hours" or
+                       "let me check with the team", the promise is on the ticket and the
+                       question is whether anything was actually raised behind it. Name
+                       the internal ticket, task or escalation if there is one. If we
+                       asked for time and raised nothing, SAY THAT — it is the finding.
+                       If we never asked for time and never needed to raise anything,
+                       leave it null; that is not a failure.
+
+    `channel` AND `time` ARE READ OFF THE TICKET, NOT JUDGED. Where a Zendesk frame covers
+    this contact the dashboard shows the FRAME's values, not yours — yours are used only
+    for a contact Zendesk has no frame for, such as a call the guest describes. State them
+    from the record where you have it and leave them null where you do not. Never write a
+    time into the prose as a substitute for filling `time`.
 
     THESE ARE BULLETS, NOT FORM ANSWERS. Each renders as one bullet in a short summary of
     the contact, so write each as a COMPLETE SHORT SENTENCE that stands on its own — not as
-    a value after a label. "Waited 18 minutes before an agent picked it up", not "18
-    minutes". "Skylar answered with the cancellation policy link", not "policy link".
-    ONE SENTENCE EACH. No paragraphs. Factual and plain: what happened, not how it felt.
+    a value after a label. "Skylar answered with the cancellation policy link", not "policy
+    link". ONE SENTENCE EACH. No paragraphs. Factual and plain: what happened, not how it
+    felt.
 
-    `time` AND `channel` ARE READ OFF THE TICKET, NOT JUDGED. Where a Zendesk frame covers
-    this contact the dashboard shows the FRAME's time and channel, not yours — yours are
-    used only for a contact Zendesk has no frame for, such as a call the guest describes.
-    So state them from the record where you have it and leave them null where you do not.
-    Never write a time into the prose as a substitute for filling `time`.
-
-    IF YOU CANNOT DETERMINE A FIELD, LEAVE IT NULL AND WRITE NOTHING FOR IT. A guessed wait
-    time or an invented reply is worse than a blank — it reads as read off the record.
+    IF YOU CANNOT DETERMINE A FIELD, LEAVE IT NULL AND WRITE NOTHING FOR IT. A guessed
+    escalation or an invented reply is worse than a blank — it reads as read off the record.
 
     IF THERE WAS NO DIRECT CONTACT AT ALL, return exactly one entry whose `summary` is
     "No direct interaction found between the customer and the support team." and every other

@@ -40,6 +40,27 @@ def test_no_policy_text_is_invented_alongside_them():
         assert isinstance(r, str), f"{r!r} carries more than the ground itself"
 
 
+def test_the_grounds_are_the_lines_from_the_screenshot_not_a_split_of_them():
+    """"Content issues, booking/support issues" is ONE ground, as written.
+    It was split into two on the reasoning that they were separable — the
+    instruction was to expand the abbreviation "sup", not to make a second
+    ground out of half a line. Splitting a supplied vocabulary invents an
+    option nobody approved, and an associate picking it records a ground
+    Trustpilot never listed."""
+    from server.prompts import TAKEDOWN_REASONS
+    assert list(TAKEDOWN_REASONS) == [
+        "Content issues, booking/support issues",
+        "Personal emergency, health issue",
+    ], TAKEDOWN_REASONS
+
+
+def test_the_copy_file_and_the_fallback_agree():
+    """A fallback that drifts from the file is a different vocabulary the
+    moment the file fails to load — and it fails to load silently."""
+    from server.prompts import TAKEDOWN_REASONS, _FALLBACK
+    assert list(TAKEDOWN_REASONS) == list(_FALLBACK["takedown"]["reasons"])
+
+
 def test_a_copy_file_with_no_reasons_block_still_yields_grounds():
     """Someone deleting the block while editing must not leave the control
     with nothing to offer — that renders as a takedown with no way to say

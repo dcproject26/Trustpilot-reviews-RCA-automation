@@ -84,8 +84,7 @@ def test_it_says_what_a_wrong_inclusion_costs():
 # ── what to say about each ─────────────────────────────────────────────────
 
 @pytest.mark.parametrize("field", [
-    "time", "channel", "guest_said", "we_said",
-    "wait_for_human", "guest_replied", "outcome",
+    "channel", "time", "guest_said", "we_said", "raised_internally",
 ])
 def test_every_field_the_projection_keeps_is_asked_for(field):
     """The other half of this pairing: CONTACT_FIELDS is what survives
@@ -113,9 +112,21 @@ def test_skylar_is_identified_as_a_bot():
     assert "SKYLAR IS AN AI BOT" in SEG
 
 
-def test_the_wait_is_read_off_the_timestamps():
-    assert "do not estimate" in SEG
-    assert "HUMAN agent" in SEG
+def test_it_asks_whether_we_raised_it_internally():
+    """The case where it matters: we told the guest to give us time. The
+    promise is on the ticket; whether anything was raised behind it is the
+    question, and a blank there is not the same as a no."""
+    flat = " ".join(SEG.split())
+    assert "did we raise it INTERNALLY" in flat
+    assert "give the guest time" in flat or "give us time" in flat
+    assert "raised nothing, SAY THAT" in flat or "raised nothing, SAY THAT" in SEG
+
+
+def test_it_says_when_a_blank_there_is_not_a_failure():
+    """Not every contact needs an escalation. Without this the model reports
+    a missing one on every routine exchange."""
+    flat = " ".join(SEG.split())
+    assert "never asked for time and never needed to raise anything" in flat
 
 
 def test_the_entries_are_chronological():
@@ -140,7 +151,8 @@ def test_it_shows_the_model_the_difference():
     """A rule stated abstractly and never shown is one the model satisfies in
     form and misses in substance."""
     flat = " ".join(SEG.split())
-    assert '"Waited 18 minutes before an agent picked it up", not "18 minutes"' in flat
+    assert ('"Skylar answered with the cancellation policy link", not "policy link"'
+            in flat)
 
 
 # ── time and channel: precedence, not judgement ────────────────────────────
@@ -150,7 +162,7 @@ def test_the_model_is_told_the_ticket_wins_on_time_and_channel():
     them from the prose while the frame held the fact. They are back, so the
     precedence has to be stated or that returns."""
     assert "READ OFF THE TICKET, NOT JUDGED" in SEG
-    assert "the FRAME's time and channel, not yours" in " ".join(SEG.split())
+    assert "the FRAME's values, not yours" in " ".join(SEG.split())
 
 
 def test_it_says_when_the_model_s_own_values_are_used():

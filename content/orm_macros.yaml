@@ -79,8 +79,7 @@ takedown:
   # Edit here, not in the client: the dashboard builds the control from this
   # list, so adding or renaming a ground is a content change, not a code one.
   reasons:
-    - "Content issues"
-    - "Booking / support issues"
+    - "Content issues, booking/support issues"
     - "Personal emergency, health issue"
 
 # ── Untraceable reply ────────────────────────────────────────────────────────

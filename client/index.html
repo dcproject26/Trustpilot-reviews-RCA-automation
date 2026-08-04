@@ -2609,39 +2609,23 @@ function renderReviewCol() {
             ${_why ? `<div class="insight-note">${_why}</div>` : ''}
 
             ${(() => {
-              // Two scopes, because they answer two different questions:
-              // TID+VID asks whether this VENDOR'S VERSION of the experience
-              // is failing, TGID asks whether the EXPERIENCE is, whoever runs
-              // it. A tour fine on three vendors and broken on the fourth
-              // reads healthy at TGID and broken at TID+VID, and the two go to
-              // different teams. Side by side, exactly like the completion
-              // tiles, because either one alone silently answers a question
-              // the reader did not ask.
-              //
-              // Booking ids under each count: "3 reviews" is a number, three
-              // booking ids are something an associate can open.
-              const rec = li.recurrence || {};
-              const _pair = (r, qRev, qRevTot, qSup, qSupTot) => {
-                r = r || {};
-                const rr = r.reviews_total ? r.reviews / r.reviews_total : 0;
-                const sr = r.support_total ? r.support / r.support_total : 0;
-                return `
+              // Scoped to TID + VID: is this vendor's version of the
+              // experience failing? Booking ids under each count, because
+              // "3 reviews" is a number and three booking ids are something
+              // an associate can open.
+              const r = (li.recurrence || {}).tidvid || {};
+              const rr = r.reviews_total ? r.reviews / r.reviews_total : 0;
+              const sr = r.support_total ? r.support / r.support_total : 0;
+              return `
+            ${_grp('Is this issue recurring here?')}
             ${_tile('Reviews',
                     _share(r.reviews, r.reviews_total, 'no negative reviews',
-                           qRev, qRevTot) + _ids(r.review_ids),
+                           'reviews', 'reviews_total') + _ids(r.review_ids),
                     rr > 0.15 ? 'red' : '')}
             ${_tile('Support contacts',
                     _share(r.support, r.support_total, 'no contacts',
-                           qSup, qSupTot) + _ids(r.support_ids),
+                           'support', 'support_total') + _ids(r.support_ids),
                     sr > 0.15 ? 'red' : '')}`;
-              };
-              return `
-            ${_grp('Is this issue recurring · TID · VID')}
-            ${_pair(rec.tidvid, 'reviews', 'reviews_total', 'support', 'support_total')}
-
-            ${_grp('Is this issue recurring · TGID')}
-            ${_pair(rec.tgid, 'reviews_tgid', 'reviews_total_tgid',
-                    'support_tgid', 'support_total_tgid')}`;
             })()}
 
             ${_grp('Same visit date, same issue')}
@@ -3354,8 +3338,9 @@ function renderRcaCol() {
   ];
 
   // The contact, as concise bullets in the order it happened: what they came
-  // with, what we said, how long they waited for a human, what they said back,
-  // how it ended. One short sentence each.
+  // with, what we said, and whether we raised it internally. One short
+  // sentence each. The support type and the timestamp are on the head row
+  // above, not repeated here.
   //
   // Not a labelled field grid. "Guest said: …" / "We said: …" down the card
   // turns a conversation into a form, and the ask was to SUMMARISE the
@@ -3364,8 +3349,7 @@ function renderRcaCol() {
   // The keys stay separate underneath because the model needs them to be told
   // what to cover, and because each stays individually correctable. Only the
   // presentation is a bullet list.
-  const _NARR = ['guest_said', 'we_said', 'wait_for_human', 'guest_replied',
-                 'outcome'];
+  const _NARR = ['guest_said', 'we_said', 'raised_internally'];
   const _narrative = (note, nIdx) => {
     if (!note) return '';
     // Only what came back. The rule tells the model to leave an undetectable

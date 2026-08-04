@@ -464,16 +464,13 @@ def _zero_result(l2: str | None, wd: int = 30, why: str = "",
         "tgid_completion_rate":        None,
         "tidvid_completion_rate":      None,
         "ff_tidvid":                   None,
-        # Both scopes on the empty path too. A key the renderer reads and the
-        # zero path omits is how a tile goes from "0 of 0" to blank, which
-        # reads as a range that failed to load rather than nothing to count.
+        # On the empty path too. A key the renderer reads and the zero path
+        # omits is how a tile goes from "0 of 0" to blank, which reads as a
+        # range that failed to load rather than as nothing to count.
         "recurrence": {
             "tidvid": {"reviews": 0, "reviews_total": 0, "review_ids": [],
                        "support": 0, "support_total": 0, "support_ids": [],
                        "scope": "TID + VID"},
-            "tgid":   {"reviews": 0, "reviews_total": 0, "review_ids": [],
-                       "support": 0, "support_total": 0, "support_ids": [],
-                       "scope": "TGID"},
         },
         "tgid_incomplete_why":         [],
         "vid_incomplete_why":          [],
@@ -751,28 +748,18 @@ FROM `{_REVIEWS_TABLE}` r
 LEFT JOIN `{_BOOKINGS_TABLE}` b ON r.booking_id = b.booking_id
 LEFT JOIN `{_FULFILMENTS_TABLE}` f ON r.booking_id = f.booking_id
 """
-    # Two scopes, side by side, because they answer two different questions and
-    # a single number cannot answer both:
-    #
-    #   TID + VID  is this VENDOR'S VERSION of this experience failing?
-    #   TGID       is this EXPERIENCE failing, whoever is running it?
-    #
-    # A tour that is fine on three vendors and broken on the fourth reads as a
-    # healthy experience at TGID and a broken one at TID+VID. The reverse - bad
-    # everywhere - is a product problem, not a vendor one, and the two lead to
-    # different teams. The completion tiles already show TGID and VID beside
-    # each other for exactly this reason.
+    # Recurrence is scoped to TID + VID: is this VENDOR'S VERSION of the
+    # experience failing? That is the question the tile asks, and widening it
+    # to the whole TGID would answer a different one under the same heading.
     #
     # Booking ids alongside every count, because "3 reviews" is a number and
     # three booking ids are something an associate can open. LIMIT 20 for the
     # same reason the same-day tiles carry one: the list is for reading, not
-    # for exporting, and an unbounded ARRAY_AGG on a busy TGID is a row nobody
-    # can render.
+    # for exporting, and an unbounded ARRAY_AGG is a row nobody can render.
     _rev_ids = "ARRAY_AGG(DISTINCT CAST(r.booking_id AS STRING) LIMIT 20) AS ids"
     _sup_ids = "ARRAY_AGG(DISTINCT sq.booking_id LIMIT 20) AS ids"
 
     _rev_scope_tidvid = "b.tour_id = @tid AND f.vendor_id = @vid"
-    _rev_scope_tgid   = "b.experience_id = @tgid"
 
     def _sql_reviews_total(scope):
         return f"""
@@ -799,8 +786,6 @@ WHERE {scope}
 
     sql_b = _sql_reviews_total(_rev_scope_tidvid)
     sql_a = _sql_reviews_same_issue(_rev_scope_tidvid)
-    sql_b_tgid = _sql_reviews_total(_rev_scope_tgid)
-    sql_a_tgid = _sql_reviews_same_issue(_rev_scope_tgid)
 
     # --- C / D: support queries --------------------------------------------
     # vendor_id comes off fct_bookings here, per Looker. booking_id is a STRING
@@ -816,10 +801,6 @@ LEFT JOIN `{_BOOKINGS_TABLE}` b ON CAST(b.booking_id AS STRING) = sq.booking_id
     # contact, and it belongs in both the numerator and the denominator.
     _auto_resolved_ok = "NOT IFNULL(sq.is_auto_resolved, FALSE)"
 
-    # vendor_id comes off fct_bookings on this side, so the TGID scope is
-    # b.experience_id here too - the reviews query reaches vendor_id through
-    # fct_fulfilments and this one does not, which is why the two scope strings
-    # are built separately rather than shared.
     def _support_where_for(scope):
         return f"""
 WHERE {scope}
@@ -829,18 +810,12 @@ WHERE {scope}
 """
 
     _sup_scope_tidvid = "b.tour_id = @tid AND b.vendor_id = @vid"
-    _sup_scope_tgid   = "b.experience_id = @tgid"
     _support_where = _support_where_for(_sup_scope_tidvid)
 
     sql_d = f"""
 SELECT COUNT(DISTINCT sq.booking_id) AS c,
        {_sup_ids}
 {_support_from}{_support_where}
-"""
-    sql_d_tgid = f"""
-SELECT COUNT(DISTINCT sq.booking_id) AS c,
-       {_sup_ids}
-{_support_from}{_support_where_for(_sup_scope_tgid)}
 """
 
     # --- E1 / E2: average rating at two scopes ------------------------------
@@ -1070,26 +1045,6 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c,
 """
         coro_c = _run(sql_c, {**base, **nar_par, **tag_par})
 
-    # The same four counts at TGID. Gated on tgid and the same tag/L2 mapping,
-    # NOT on `pair`: a review with no tid/vid can still be scoped to its
-    # experience, and refusing the TGID half because the pair is missing would
-    # be the more useful number withheld for the other one's reason.
-    skip_a_tgid = not tgid or not variants
-    skip_c_tgid = not tgid or tag_pred is None
-    coro_a_tgid = (asyncio.sleep(0) if skip_a_tgid else _run(
-        sql_a_tgid, {**anchor_par, "tgid": tgid, "l2v": ("STRING", variants)}))
-    if skip_c_tgid:
-        coro_c_tgid = asyncio.sleep(0)
-    else:
-        sql_c_tgid = f"""
-SELECT COUNT(DISTINCT sq.booking_id) AS c,
-       {_sup_ids}
-{_support_from}{_support_where_for(_sup_scope_tgid)}
-  AND {tag_pred}
-"""
-        coro_c_tgid = _run(sql_c_tgid,
-                           {**anchor_par, "tgid": tgid, **nar_par, **tag_par})
-
     results = await asyncio.gather(
         coro_a,
         _run(sql_b, base)                            if pair else asyncio.sleep(0),
@@ -1114,10 +1069,6 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c,
         # below it is read by hand, so adding a query in the middle silently
         # renames every result after it - a whole panel of numbers under the
         # wrong labels, each individually plausible.
-        coro_a_tgid,
-        _run(sql_b_tgid, {**anchor_par, "tgid": tgid}) if tgid else asyncio.sleep(0),
-        coro_c_tgid,
-        _run(sql_d_tgid, {**anchor_par, "tgid": tgid, **nar_par}) if tgid else asyncio.sleep(0),
         _run(sql_h3, {**base, **ff_par})             if pair else asyncio.sleep(0),
         return_exceptions=True,
     )
@@ -1134,8 +1085,6 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c,
         "completion_vid", "completion_tgid", "incomplete_tgid",
         "incomplete_vid", "same_day_reviews", "same_day_support",
         "same_day_total",
-        "reviews_tgid", "reviews_total_tgid",
-        "support_tgid", "support_total_tgid",
         "completion_tidvid",
     )
     # Names and coroutines are matched by POSITION and by nothing else, so a
@@ -1166,11 +1115,6 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c,
     tot_sup = _count(results[3])
     tot_bkg = _count(results[6])
 
-    # The TGID half of the recurrence group, and the booking ids for both.
-    sim_rev_tgid = 0 if skip_a_tgid else _count(results[15])
-    tot_rev_tgid = _count(results[16])
-    sim_sup_tgid = 0 if skip_c_tgid else _count(results[17])
-    tot_sup_tgid = _count(results[18])
 
     def _safe_div(n, d) -> float:
         return round(n / d, 4) if d else 0.0
@@ -1207,7 +1151,7 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c,
 
     ff_vid    = _ff(results[8])
     ff_tgid   = _ff(results[9])
-    ff_tidvid = _ff(results[19])
+    ff_tidvid = _ff(results[15])
     # Either can be None now - _ff says so when the query never ran. Everything
     # below reads through these instead of indexing, because a missing tgid
     # would otherwise raise a KeyError on the way to the log line and take the
@@ -1304,13 +1248,8 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c,
         "tidvid_completion_rate": _ftv.get("rate"),
         "ff_tidvid":              ff_tidvid,
 
-        # ── recurrence, at both scopes ────────────────────────────────────
-        # TID+VID asks whether this VENDOR'S VERSION of the experience is
-        # failing; TGID asks whether the EXPERIENCE is, whoever runs it. A
-        # tour fine on three vendors and broken on the fourth reads healthy at
-        # TGID and broken at TID+VID, and the two route to different teams.
-        #
-        # Booking ids beside every count: "3 reviews" is a number, three
+        # ── recurrence, scoped to TID + VID ──────────────────────────────
+        # Booking ids beside each count: "3 reviews" is a number, three
         # booking ids are something an associate can open.
         "recurrence": {
             "tidvid": {
@@ -1321,15 +1260,6 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c,
                 "support_total": tot_sup,
                 "support_ids":   _ids(results[2]) if not skip_c else [],
                 "scope":         "TID + VID",
-            },
-            "tgid": {
-                "reviews":       sim_rev_tgid,
-                "reviews_total": tot_rev_tgid,
-                "review_ids":    _ids(results[15]) if not skip_a_tgid else [],
-                "support":       sim_sup_tgid,
-                "support_total": tot_sup_tgid,
-                "support_ids":   _ids(results[17]) if not skip_c_tgid else [],
-                "scope":         "TGID",
             },
         },
         # Same visit date, same vendor, same issue - split by evidence type.
