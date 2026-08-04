@@ -72,12 +72,41 @@ def test_the_other_tabs_keep_what_is_genuinely_theirs(text, owner):
         f"{text!r} routed to {_owner_for_action(text)!r}, expected {owner}"
 
 
-def test_an_unroutable_action_is_dropped_not_guessed():
+def test_an_unroutable_action_has_no_owner():
     """"dont make up stuff if nothing is there, leave it blank." An action with
     no owner is a pure check, and putting it on an arbitrary chip asks a team
     to action something that was never theirs."""
     assert _owner_for_action("Confirm the visit date") is None
     assert _owner_for_action("") is None
+
+
+def test_actions_for_drops_it_rather_than_parking_it_somewhere(monkeypatch):
+    """The other end, and the one that matters: `_owner_for_action` returning
+    None proves nothing about what `actions_for` DOES with a None.
+
+    A mutation making the fallback "ce" survived every test in this file,
+    because they all drove the routing function and none drove the thing that
+    builds the tabs. An action nobody owns would have been filed to CE on
+    every card, and CE would be reading work that was never theirs.
+    """
+    import server.checklist as ck
+    monkeypatch.setattr(ck, "scenario_actions",
+                        lambda name: ["Confirm the visit date",
+                                      "Refund the guest in full"])
+    got = ck.actions_for(["anything"])
+    flat = [a for items in got.values() for a in items]
+    assert "Refund the guest in full" in got["sp"]
+    assert "Confirm the visit date" not in flat, (
+        f"a pure check was assigned an owner: {got}")
+
+
+def test_a_wholly_unroutable_scenario_leaves_every_tab_empty(monkeypatch):
+    import server.checklist as ck
+    monkeypatch.setattr(ck, "scenario_actions",
+                        lambda name: ["Confirm the visit date",
+                                      "Check the booking status"])
+    got = ck.actions_for(["anything"])
+    assert all(v == [] for v in got.values()), got
 
 
 def test_nothing_routed_leaves_every_tab_empty():
