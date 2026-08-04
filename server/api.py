@@ -836,10 +836,9 @@ def get_taxonomy():
         # instead of a read-only chip. SCENARIO_CHECKS keys are the routing
         # targets; "general" is the routers' explicit fallback.
         "scenarios": sorted(SCENARIO_CHECKS) + ["general"],
-        # The grounds for a takedown, from the copy file. Served rather than
-        # hardcoded in the client so the list is a content change: the key is
-        # what a draft stores, the text is only what it shows, so renaming a
-        # ground in the copy file does not orphan a verdict already recorded.
+        # The grounds for a takedown, from content/orm_macros.yaml. Served
+        # rather than hardcoded in the client so the list stays a content
+        # change.
         "takedown_reasons": TAKEDOWN_REASONS,
     }
 

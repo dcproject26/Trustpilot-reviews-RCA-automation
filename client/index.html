@@ -765,10 +765,7 @@
      the row above so the control lines up with the verdict select rather than
      starting a second visual column. */
   .takedown-reason-row { margin-top: 10px; }
-  .takedown-reason-hint {
-    justify-content: flex-end; font-size: 11px; color: var(--dim);
-    line-height: 1.5;
-  }
+
 
   /* response to guest — the only purple-bordered card */
   .reply-block {
@@ -2505,9 +2502,18 @@ function renderReviewCol() {
           const _ffAttn  = li.ff_vid ? !!li.ff_vid.needs_attention
                                      : (li.vid_completion_rate != null
                                         && li.vid_completion_rate < 0.95);
-          const _ffAttnT = li.ff_tgid ? !!li.ff_tgid.needs_attention
-                                      : (li.tgid_completion_rate != null
-                                         && li.tgid_completion_rate < 0.95);
+          // TGID's own attention flag is gone with its tile. It was read by
+          // the Flag-to-Biz button and by nothing else, and a computed value
+          // nothing reads is the thing this codebase keeps mistaking for a
+          // live one. ff_tgid is still in the payload for whoever wants it.
+          //
+          // TID+VID, the tile that replaced TGID. Same rule: the server
+          // applies the under-95%-over-100-bookings test and needs_attention
+          // is its answer; the rate comparison is only the fallback for a
+          // payload that predates it.
+          const _ffAttnTv = li.ff_tidvid ? !!li.ff_tidvid.needs_attention
+                                         : (li.tidvid_completion_rate != null
+                                            && li.tidvid_completion_rate < 0.95);
           // Sample size, shown only when it changes how the number should be
           // read. Over 100 bookings the rate stands on its own; under it, the
           // ops rule says the rate is noise and the count is the honest
@@ -2602,16 +2608,41 @@ function renderReviewCol() {
               ? `<div class="insight-note">${esc(state.insightsError)}</div>` : ''}
             ${_why ? `<div class="insight-note">${_why}</div>` : ''}
 
-            ${_grp('Is this issue recurring here?')}
-            ${_tile('Reviews', _share(li.similar_reviews_30d, li.total_reviews_30d,
-                                      'no negative reviews',
-                                      'reviews', 'reviews_total'),
-                    _rr > 0.15 ? 'red' : '')}
-            ${_tile('Support contacts', _share(li.similar_support_queries_30d,
-                                               li.total_support_queries_30d,
-                                               'no contacts',
-                                               'support', 'support_total'),
-                    _sr > 0.15 ? 'red' : '')}
+            ${(() => {
+              // Two scopes, because they answer two different questions:
+              // TID+VID asks whether this VENDOR'S VERSION of the experience
+              // is failing, TGID asks whether the EXPERIENCE is, whoever runs
+              // it. A tour fine on three vendors and broken on the fourth
+              // reads healthy at TGID and broken at TID+VID, and the two go to
+              // different teams. Side by side, exactly like the completion
+              // tiles, because either one alone silently answers a question
+              // the reader did not ask.
+              //
+              // Booking ids under each count: "3 reviews" is a number, three
+              // booking ids are something an associate can open.
+              const rec = li.recurrence || {};
+              const _pair = (r, qRev, qRevTot, qSup, qSupTot) => {
+                r = r || {};
+                const rr = r.reviews_total ? r.reviews / r.reviews_total : 0;
+                const sr = r.support_total ? r.support / r.support_total : 0;
+                return `
+            ${_tile('Reviews',
+                    _share(r.reviews, r.reviews_total, 'no negative reviews',
+                           qRev, qRevTot) + _ids(r.review_ids),
+                    rr > 0.15 ? 'red' : '')}
+            ${_tile('Support contacts',
+                    _share(r.support, r.support_total, 'no contacts',
+                           qSup, qSupTot) + _ids(r.support_ids),
+                    sr > 0.15 ? 'red' : '')}`;
+              };
+              return `
+            ${_grp('Is this issue recurring · TID · VID')}
+            ${_pair(rec.tidvid, 'reviews', 'reviews_total', 'support', 'support_total')}
+
+            ${_grp('Is this issue recurring · TGID')}
+            ${_pair(rec.tgid, 'reviews_tgid', 'reviews_total_tgid',
+                    'support_tgid', 'support_total_tgid')}`;
+            })()}
 
             ${_grp('Same visit date, same issue')}
             ${_tile('Reviews', _broken('same_day_reviews') ? _err
@@ -2628,17 +2659,33 @@ function renderReviewCol() {
                     _ratTgid.avg == null ? 'grey' : '')}
             ${_tile('Average rating · TID · VID', _avgRating(_ratTv, 'rating_tidvid'),
                     _ratTv.avg == null ? 'grey' : '')}
-            ${_tile('Completion · TGID',
-                    _rate(li.tgid_completion_rate, (li.ff_tgid || {}).total ?? null,
-                          'completion_tgid')
-                    + _why_not(li.tgid_incomplete_why),
-                    _ffAttnT ? 'red' : '')}
+            <!-- TID+VID and VID, not TGID and VID. TID+VID is the narrowest
+                 population that still answers "can this vendor fulfil THIS
+                 tour"; VID alone spans everything they run, so a vendor good
+                 at one tour and bad at another averages to something true of
+                 neither. The two together separate "this pairing is broken"
+                 from "this vendor is broken".
+
+                 The why-rows stay on the VID tile: they are computed at
+                 vendor scope, and hanging vendor-wide reasons under a
+                 TID+VID rate would explain a number with the wrong evidence. -->
+            ${_tile('Completion · TID · VID',
+                    _rate(li.tidvid_completion_rate,
+                          (li.ff_tidvid || {}).total ?? null,
+                          'completion_tidvid'),
+                    _ffAttnTv ? 'red' : '')}
             ${_tile('Completion · VID',
                     _rate(li.vid_completion_rate, (li.ff_vid || {}).total ?? null,
                           'completion_vid')
                     + _why_not(li.vid_incomplete_why),
                     _ffAttn ? 'red' : '')}
-            ${_ffAttnT || _ffAttn
+            <!-- Driven by the tiles that are actually on screen. This read
+                 _ffAttnT, and TGID no longer HAS a tile - so the button would
+                 have appeared over two healthy-looking rates with nothing
+                 visible to explain it, and the associate would be flagging a
+                 vendor on evidence the card never showed them. The message
+                 itself is built from VID anyway. -->
+            ${_ffAttnTv || _ffAttn
               ? '<button class="flag-biz-btn full" data-flag-biz>⚑ Flag to Biz · draft message</button>'
               : ''}
           </div>`;
@@ -4346,34 +4393,23 @@ function renderRcaCol() {
           </select>
         </label>
       </div>
-      <!-- The ground for asking Trustpilot to take it down. Only shown on a
-           Yes: an empty reason sitting under a No reads as a question nobody
-           answered, when in fact it does not apply. Options come from
-           /api/taxonomy, which reads the copy file, so the list is edited in
-           content/orm_macros.yaml and not here.
-
-           The option VALUE is the stable key and the label is the display
-           text, so renaming a ground in the copy file leaves an already
-           recorded verdict pointing at the same ground. -->
+      <!-- The ground for the takedown, shown only on a Yes. An empty
+           reason under a No reads as a question nobody answered, when it
+           simply does not apply. Options come from content/orm_macros.yaml
+           via /api/taxonomy - edited there, not here. -->
       ${(() => {
         const td = v3d.takedown || {};
         const cur = td.verdict || (td.recommended === true ? 'Yes' : 'No');
-        if (cur !== 'Yes') return '';
-        const reasons = TAKEDOWN_REASONS;
-        if (!reasons.length) return '';
+        if (cur !== 'Yes' || !TAKEDOWN_REASONS.length) return '';
         const chosen = td.reason || '';
         return `<div class="wrapup-grid takedown-reason-row">
           <label class="wrapup-field">Reason for takedown
             <select data-takedown-reason>
               <option value=""${chosen ? '' : ' selected'}>— pick a reason —</option>
-              ${reasons.map(r => `<option value="${esc(r.key)}"${
-                chosen === r.key ? ' selected' : ''}>${esc(r.text)}</option>`).join('')}
+              ${TAKEDOWN_REASONS.map(r => `<option${
+                chosen === r ? ' selected' : ''}>${esc(r)}</option>`).join('')}
             </select>
           </label>
-          <div class="wrapup-field takedown-reason-hint">${(() => {
-            const hit = reasons.find(r => r.key === chosen);
-            return hit && hit.when ? `<span>${esc(hit.when)}</span>` : '';
-          })()}</div>
         </div>`;
       })()}
       <!-- §12 DSS has a home instead of the "DSS row: — / —" stub. It is

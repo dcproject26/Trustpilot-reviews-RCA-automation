@@ -462,6 +462,19 @@ def _zero_result(l2: str | None, wd: int = 30, why: str = "",
         "ff_same_day":                 None,
         "vid_completion_rate":         None,
         "tgid_completion_rate":        None,
+        "tidvid_completion_rate":      None,
+        "ff_tidvid":                   None,
+        # Both scopes on the empty path too. A key the renderer reads and the
+        # zero path omits is how a tile goes from "0 of 0" to blank, which
+        # reads as a range that failed to load rather than nothing to count.
+        "recurrence": {
+            "tidvid": {"reviews": 0, "reviews_total": 0, "review_ids": [],
+                       "support": 0, "support_total": 0, "support_ids": [],
+                       "scope": "TID + VID"},
+            "tgid":   {"reviews": 0, "reviews_total": 0, "review_ids": [],
+                       "support": 0, "support_total": 0, "support_ids": [],
+                       "scope": "TGID"},
+        },
         "tgid_incomplete_why":         [],
         "vid_incomplete_why":          [],
         "vidCompletionRate":           "N/A",
@@ -738,23 +751,56 @@ FROM `{_REVIEWS_TABLE}` r
 LEFT JOIN `{_BOOKINGS_TABLE}` b ON r.booking_id = b.booking_id
 LEFT JOIN `{_FULFILMENTS_TABLE}` f ON r.booking_id = f.booking_id
 """
-    sql_b = f"""
-SELECT COUNT(DISTINCT r.booking_id) AS c
+    # Two scopes, side by side, because they answer two different questions and
+    # a single number cannot answer both:
+    #
+    #   TID + VID  is this VENDOR'S VERSION of this experience failing?
+    #   TGID       is this EXPERIENCE failing, whoever is running it?
+    #
+    # A tour that is fine on three vendors and broken on the fourth reads as a
+    # healthy experience at TGID and a broken one at TID+VID. The reverse - bad
+    # everywhere - is a product problem, not a vendor one, and the two lead to
+    # different teams. The completion tiles already show TGID and VID beside
+    # each other for exactly this reason.
+    #
+    # Booking ids alongside every count, because "3 reviews" is a number and
+    # three booking ids are something an associate can open. LIMIT 20 for the
+    # same reason the same-day tiles carry one: the list is for reading, not
+    # for exporting, and an unbounded ARRAY_AGG on a busy TGID is a row nobody
+    # can render.
+    _rev_ids = "ARRAY_AGG(DISTINCT CAST(r.booking_id AS STRING) LIMIT 20) AS ids"
+    _sup_ids = "ARRAY_AGG(DISTINCT sq.booking_id LIMIT 20) AS ids"
+
+    _rev_scope_tidvid = "b.tour_id = @tid AND f.vendor_id = @vid"
+    _rev_scope_tgid   = "b.experience_id = @tgid"
+
+    def _sql_reviews_total(scope):
+        return f"""
+SELECT COUNT(DISTINCT r.booking_id) AS c,
+       {_rev_ids}
 {_reviews_from}
-WHERE b.tour_id = @tid AND f.vendor_id = @vid
+WHERE {scope}
   AND r.rating <= {_NEGATIVE_RATING_MAX}
   AND {_win}
 """
-    sql_a = f"""
-SELECT COUNT(DISTINCT r.booking_id) AS c
+
+    def _sql_reviews_same_issue(scope):
+        return f"""
+SELECT COUNT(DISTINCT r.booking_id) AS c,
+       {_rev_ids}
 {_reviews_from}
 LEFT JOIN UNNEST(r.issues) AS iss
 LEFT JOIN UNNEST(iss.l2_issues) AS l2v
-WHERE b.tour_id = @tid AND f.vendor_id = @vid
+WHERE {scope}
   AND r.rating <= {_NEGATIVE_RATING_MAX}
   AND {_norm_sql('l2v')} IN UNNEST(@l2v)
   AND {_win}
 """
+
+    sql_b = _sql_reviews_total(_rev_scope_tidvid)
+    sql_a = _sql_reviews_same_issue(_rev_scope_tidvid)
+    sql_b_tgid = _sql_reviews_total(_rev_scope_tgid)
+    sql_a_tgid = _sql_reviews_same_issue(_rev_scope_tgid)
 
     # --- C / D: support queries --------------------------------------------
     # vendor_id comes off fct_bookings here, per Looker. booking_id is a STRING
@@ -769,15 +815,32 @@ LEFT JOIN `{_BOOKINGS_TABLE}` b ON CAST(b.booking_id AS STRING) = sq.booking_id
     # means nobody recorded the session as auto-resolved, which is a guest
     # contact, and it belongs in both the numerator and the denominator.
     _auto_resolved_ok = "NOT IFNULL(sq.is_auto_resolved, FALSE)"
-    _support_where = f"""
-WHERE b.tour_id = @tid AND b.vendor_id = @vid
+
+    # vendor_id comes off fct_bookings on this side, so the TGID scope is
+    # b.experience_id here too - the reviews query reaches vendor_id through
+    # fct_fulfilments and this one does not, which is why the two scope strings
+    # are built separately rather than shared.
+    def _support_where_for(scope):
+        return f"""
+WHERE {scope}
   AND {_auto_resolved_ok}
   AND NOT REGEXP_CONTAINS(IFNULL({_QUERY_CATEGORY_SQL}, ''), @nar)
   AND {_win}
 """
+
+    _sup_scope_tidvid = "b.tour_id = @tid AND b.vendor_id = @vid"
+    _sup_scope_tgid   = "b.experience_id = @tgid"
+    _support_where = _support_where_for(_sup_scope_tidvid)
+
     sql_d = f"""
-SELECT COUNT(DISTINCT sq.booking_id) AS c
+SELECT COUNT(DISTINCT sq.booking_id) AS c,
+       {_sup_ids}
 {_support_from}{_support_where}
+"""
+    sql_d_tgid = f"""
+SELECT COUNT(DISTINCT sq.booking_id) AS c,
+       {_sup_ids}
+{_support_from}{_support_where_for(_sup_scope_tgid)}
 """
 
     # --- E1 / E2: average rating at two scopes ------------------------------
@@ -900,6 +963,11 @@ LEFT JOIN `{_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
     # Ops checks fulfilment for the same TGID over the last four weeks, because
     # that is the population that says whether this is a one-off or a pattern.
     sql_h2 = f"{_ff_select}WHERE b.experience_id = @tgid AND {_win}{_ff_excl}"
+    # Completion at TID + VID: this vendor's version of this tour, which is the
+    # narrowest population that still answers "can they fulfil THIS". VID alone
+    # spans everything the vendor runs, so a vendor good at one tour and bad at
+    # another averages to something true of neither.
+    sql_h3 = f"{_ff_select}WHERE b.tour_id = @tid AND b.vendor_id = @vid AND {_win}{_ff_excl}"
     # --- I: same-day, same issue -------------------------------------------
     # Not a fulfilment rate. The question is how many OTHER guests visiting
     # this vendor on this same date raised the SAME issue - a cluster on one
@@ -995,11 +1063,32 @@ WHERE b.vendor_id = @vid AND DATE(b.experience_date) = {anchor_sql}
         coro_c = asyncio.sleep(0)
     else:
         sql_c = f"""
-SELECT COUNT(DISTINCT sq.booking_id) AS c
+SELECT COUNT(DISTINCT sq.booking_id) AS c,
+       {_sup_ids}
 {_support_from}{_support_where}
   AND {tag_pred}
 """
         coro_c = _run(sql_c, {**base, **nar_par, **tag_par})
+
+    # The same four counts at TGID. Gated on tgid and the same tag/L2 mapping,
+    # NOT on `pair`: a review with no tid/vid can still be scoped to its
+    # experience, and refusing the TGID half because the pair is missing would
+    # be the more useful number withheld for the other one's reason.
+    skip_a_tgid = not tgid or not variants
+    skip_c_tgid = not tgid or tag_pred is None
+    coro_a_tgid = (asyncio.sleep(0) if skip_a_tgid else _run(
+        sql_a_tgid, {**anchor_par, "tgid": tgid, "l2v": ("STRING", variants)}))
+    if skip_c_tgid:
+        coro_c_tgid = asyncio.sleep(0)
+    else:
+        sql_c_tgid = f"""
+SELECT COUNT(DISTINCT sq.booking_id) AS c,
+       {_sup_ids}
+{_support_from}{_support_where_for(_sup_scope_tgid)}
+  AND {tag_pred}
+"""
+        coro_c_tgid = _run(sql_c_tgid,
+                           {**anchor_par, "tgid": tgid, **nar_par, **tag_par})
 
     results = await asyncio.gather(
         coro_a,
@@ -1021,6 +1110,15 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
          if (visit_date and vid and tag_pred) else asyncio.sleep(0)),
         (_run(sql_i_tot, {**anchor_par, "vid": vid})
          if (visit_date and vid) else asyncio.sleep(0)),
+        # Appended, never inserted. _RESULT_NAMES is positional and every index
+        # below it is read by hand, so adding a query in the middle silently
+        # renames every result after it - a whole panel of numbers under the
+        # wrong labels, each individually plausible.
+        coro_a_tgid,
+        _run(sql_b_tgid, {**anchor_par, "tgid": tgid}) if tgid else asyncio.sleep(0),
+        coro_c_tgid,
+        _run(sql_d_tgid, {**anchor_par, "tgid": tgid, **nar_par}) if tgid else asyncio.sleep(0),
+        _run(sql_h3, {**base, **ff_par})             if pair else asyncio.sleep(0),
         return_exceptions=True,
     )
 
@@ -1036,7 +1134,19 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         "completion_vid", "completion_tgid", "incomplete_tgid",
         "incomplete_vid", "same_day_reviews", "same_day_support",
         "same_day_total",
+        "reviews_tgid", "reviews_total_tgid",
+        "support_tgid", "support_total_tgid",
+        "completion_tidvid",
     )
+    # Names and coroutines are matched by POSITION and by nothing else, so a
+    # query added without its name shifts every label after it and reports a
+    # whole panel under the wrong ones - each number individually plausible.
+    # Louder than a comment, and it fires on the run that introduced it.
+    if len(_RESULT_NAMES) != len(results):
+        log.error(f"[insights] {len(results)} queries but {len(_RESULT_NAMES)} "
+                  f"names - failure reporting is misaligned from index "
+                  f"{min(len(_RESULT_NAMES), len(results))} on")
+
     failed, failed_detail = [], {}
     for _i, _res in enumerate(results):
         _name = _RESULT_NAMES[_i] if _i < len(_RESULT_NAMES) else f"q{_i}"
@@ -1055,6 +1165,12 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
     sim_sup = 0 if skip_c else _count(results[2])
     tot_sup = _count(results[3])
     tot_bkg = _count(results[6])
+
+    # The TGID half of the recurrence group, and the booking ids for both.
+    sim_rev_tgid = 0 if skip_a_tgid else _count(results[15])
+    tot_rev_tgid = _count(results[16])
+    sim_sup_tgid = 0 if skip_c_tgid else _count(results[17])
+    tot_sup_tgid = _count(results[18])
 
     def _safe_div(n, d) -> float:
         return round(n / d, 4) if d else 0.0
@@ -1089,13 +1205,14 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         )}
         redemption = {k: v for k, v in redemption.items() if v not in (None, "")}
 
-    ff_vid  = _ff(results[8])
-    ff_tgid = _ff(results[9])
+    ff_vid    = _ff(results[8])
+    ff_tgid   = _ff(results[9])
+    ff_tidvid = _ff(results[19])
     # Either can be None now - _ff says so when the query never ran. Everything
     # below reads through these instead of indexing, because a missing tgid
     # would otherwise raise a KeyError on the way to the log line and take the
     # whole panel down over a metric that was simply not asked for.
-    _fv, _ft = ff_vid or {}, ff_tgid or {}
+    _fv, _ft, _ftv = ff_vid or {}, ff_tgid or {}, ff_tidvid or {}
     # A guest changing their mind is not a fulfilment failure, and listing it
     # first drowns the reasons that are. "98 Cancelled By Customer · 51
     # Cancelled By Vendor" reads as though the vendor is fine; the 51 is the
@@ -1179,6 +1296,42 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c
         "vid_incomplete_why":    why_vid,
         "vid_completion_rate":   _fv.get("rate"),
         "vidCompletionRate":     _pct(_fv.get("rate")),
+        # Completion at the two scopes the tiles now show: this vendor's
+        # version of this tour, and the vendor across everything they run.
+        # TGID stays in the payload - it is what ff_tgid and the why-rows are
+        # computed against, and dropping a key the dashboard may still read is
+        # how a tile goes blank for a reason nobody can trace.
+        "tidvid_completion_rate": _ftv.get("rate"),
+        "ff_tidvid":              ff_tidvid,
+
+        # ── recurrence, at both scopes ────────────────────────────────────
+        # TID+VID asks whether this VENDOR'S VERSION of the experience is
+        # failing; TGID asks whether the EXPERIENCE is, whoever runs it. A
+        # tour fine on three vendors and broken on the fourth reads healthy at
+        # TGID and broken at TID+VID, and the two route to different teams.
+        #
+        # Booking ids beside every count: "3 reviews" is a number, three
+        # booking ids are something an associate can open.
+        "recurrence": {
+            "tidvid": {
+                "reviews":       sim_rev,
+                "reviews_total": tot_rev,
+                "review_ids":    _ids(results[0]) if not skip_a else [],
+                "support":       sim_sup,
+                "support_total": tot_sup,
+                "support_ids":   _ids(results[2]) if not skip_c else [],
+                "scope":         "TID + VID",
+            },
+            "tgid": {
+                "reviews":       sim_rev_tgid,
+                "reviews_total": tot_rev_tgid,
+                "review_ids":    _ids(results[15]) if not skip_a_tgid else [],
+                "support":       sim_sup_tgid,
+                "support_total": tot_sup_tgid,
+                "support_ids":   _ids(results[17]) if not skip_c_tgid else [],
+                "scope":         "TGID",
+            },
+        },
         # Same visit date, same vendor, same issue - split by evidence type.
         # "total" is every booking that vendor served that day, so a count can
         # be read as a share of the day rather than as a bare number.

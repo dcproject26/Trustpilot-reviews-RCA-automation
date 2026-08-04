@@ -628,22 +628,11 @@ _FALLBACK = {
         },
         "suppress_when": "The guest's tone is abusive, or the case has been "
                          "escalated more than once.",
-        # The grounds the dropdown offers. Here as well as in the YAML for the
-        # same reason every other key is: someone deleting the block while
-        # editing must not leave the control with no options at all, which
-        # renders as a takedown that cannot be given a reason.
-        "reasons": {
-            "content_issues": {
-                "text": "Content issues",
-                "when": "the review's content itself breaches Trustpilot's guidelines"},
-            "booking_support_issues": {
-                "text": "Booking / support issues",
-                "when": "the complaint is about the booking or the support "
-                        "handling, not the experience"},
-            "personal_emergency_health": {
-                "text": "Personal emergency, health issue",
-                "when": "the guest could not attend for a personal or health reason"},
-        },
+        # The grounds the dropdown offers. Here as well as in the YAML for
+        # the same reason every other key is: someone deleting the block while
+        # editing must not leave the control with no options at all.
+        "reasons": ["Content issues", "Booking / support issues",
+                    "Personal emergency, health issue"],
     },
     "untraceable_reply": (
         "Hey {first_name},\n\nI'm sorry things didn't go as planned, and I'd love "
@@ -699,14 +688,9 @@ BRAND_VOICE = ("━━ HEADOUT VOICE AND TONE - FOLLOW STRICTLY ━━\n"
 
 TAKEDOWN_LINES = {k: v["text"] for k, v in MACROS["takedown"]["lines"].items()}
 # The grounds for asking Trustpilot to remove a review, in the order the copy
-# file lists them. A tuple of (key, text, when) so the client can render the
-# option and its hint without a second lookup, and so a ground can be renamed
-# in the copy file without breaking a stored verdict - the KEY is what a draft
-# holds, the text is only what it shows.
-TAKEDOWN_REASONS = [
-    {"key": k, "text": v.get("text") or k, "when": v.get("when") or ""}
-    for k, v in (MACROS["takedown"].get("reasons") or {}).items()
-]
+# file lists them. Plain strings - the text IS the value, because that is what
+# the associate picks and what gets recorded.
+TAKEDOWN_REASONS = [str(r) for r in (MACROS["takedown"].get("reasons") or []) if r]
 
 UNTRACEABLE_REPLY = (str(MACROS["untraceable_reply"]).rstrip() + "\n\n"
                      + str(MACROS["sign_off"]).rstrip())

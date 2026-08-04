@@ -27,23 +27,17 @@ def test_the_reasons_come_from_the_copy_file():
     from server.prompts import TAKEDOWN_REASONS
     assert TAKEDOWN_REASONS, "no takedown grounds at all — the control has nothing to show"
     for r in TAKEDOWN_REASONS:
-        assert r["key"] and r["text"], r
+        assert isinstance(r, str) and r.strip(), r
 
 
-def test_every_reason_carries_a_hint():
-    """Two adjacent grounds with no explanation get picked at random."""
+def test_no_policy_text_is_invented_alongside_them():
+    """An earlier version shipped a "when" hint per ground, describing what
+    each one meant under Trustpilot's rules. Nobody wrote those rules down
+    here — they were invented, and an invented policy on the card reads
+    exactly like a quoted one. Plain strings, no gloss."""
     from server.prompts import TAKEDOWN_REASONS
     for r in TAKEDOWN_REASONS:
-        assert r["when"], f"{r['key']} has no hint saying when it applies"
-
-
-def test_the_keys_are_stable_identifiers_not_prose():
-    """A draft stores the key. If the key were the display text, editing the
-    wording in the copy file would orphan every verdict already recorded."""
-    from server.prompts import TAKEDOWN_REASONS
-    for r in TAKEDOWN_REASONS:
-        assert " " not in r["key"], r["key"]
-        assert r["key"] == r["key"].lower(), r["key"]
+        assert isinstance(r, str), f"{r!r} carries more than the ground itself"
 
 
 def test_a_copy_file_with_no_reasons_block_still_yields_grounds():
@@ -61,7 +55,7 @@ def test_the_api_serves_them():
     got = TestClient(app).get("/api/taxonomy").json()
     assert got.get("takedown_reasons"), \
         "the dashboard has no source for the grounds"
-    assert {"key", "text", "when"} <= set(got["takedown_reasons"][0])
+    assert all(isinstance(r, str) for r in got["takedown_reasons"])
 
 
 def test_the_client_does_not_hardcode_the_list():
@@ -71,8 +65,7 @@ def test_the_client_does_not_hardcode_the_list():
     from server.prompts import TAKEDOWN_REASONS
     client = open("client/index.html", encoding="utf-8").read()
     for r in TAKEDOWN_REASONS:
-        assert f'"{r["when"]}"' not in client, \
-            f"the hint for {r['key']} is hardcoded in the client"
+        assert f'"{r}"' not in client, f"{r!r} is hardcoded in the client"
 
 
 # ── the control ────────────────────────────────────────────────────────────
@@ -118,19 +111,18 @@ def test_it_offers_every_ground_the_copy_file_defines(page):
         values = page.evaluate(
             "() => [...document.querySelectorAll('[data-takedown-reason] option')]"
             ".map(o => o.value).filter(Boolean)")
-        assert values == [r["key"] for r in TAKEDOWN_REASONS], values
+        assert values == list(TAKEDOWN_REASONS), values
     finally:
         _set_verdict(page, "No")
 
 
-def test_the_option_value_is_the_key_and_the_label_is_the_text(page):
-    from server.prompts import TAKEDOWN_REASONS
+def test_the_control_carries_nothing_but_the_grounds(page):
+    """No hint column, no second field. The ask was a dropdown."""
     try:
         _set_verdict(page, "Yes")
-        pairs = page.evaluate(
-            "() => [...document.querySelectorAll('[data-takedown-reason] option')]"
-            ".map(o => [o.value, o.textContent.trim()]).filter(p => p[0])")
-        assert pairs == [[r["key"], r["text"]] for r in TAKEDOWN_REASONS], pairs
+        assert page.locator(".takedown-reason-hint").count() == 0, \
+            "there is explanatory furniture beside the dropdown"
+        assert page.locator("[data-takedown-reason]").count() == 1
     finally:
         _set_verdict(page, "No")
 
@@ -148,7 +140,7 @@ def test_it_starts_unset_rather_than_defaulting_to_the_first_ground(page):
 
 def test_picking_a_ground_saves_and_survives_a_reload(page):
     from server.prompts import TAKEDOWN_REASONS
-    key = TAKEDOWN_REASONS[0]["key"]
+    key = TAKEDOWN_REASONS[0]
     try:
         _set_verdict(page, "Yes")
         page.select_option("[data-takedown-reason]", key)
@@ -167,23 +159,11 @@ def test_picking_a_ground_saves_and_survives_a_reload(page):
         page.wait_for_timeout(1500)
 
 
-def test_the_hint_follows_the_chosen_ground(page):
-    from server.prompts import TAKEDOWN_REASONS
-    r = TAKEDOWN_REASONS[0]
-    try:
-        _set_verdict(page, "Yes")
-        page.select_option("[data-takedown-reason]", r["key"])
-        page.wait_for_timeout(900)
-        assert r["when"] in page.locator(".takedown-reason-hint").inner_text()
-    finally:
-        _set_verdict(page, "No")
-
-
 def test_switching_the_verdict_away_and_back_does_not_keep_a_stale_ground(page):
     """A ground recorded for a takedown we then decided against must not
     survive as though it were still the reason."""
     from server.prompts import TAKEDOWN_REASONS
-    key = TAKEDOWN_REASONS[0]["key"]
+    key = TAKEDOWN_REASONS[0]
     try:
         _set_verdict(page, "Yes")
         page.select_option("[data-takedown-reason]", key)

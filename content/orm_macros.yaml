@@ -73,26 +73,15 @@ takedown:
     been escalated more than once.
 
   # ── Why we are asking for the review to come down ──────────────────────────
-  # The grounds an associate picks from when the takedown verdict is Yes. Order
-  # is the order they appear in the dropdown.
+  # The grounds an associate picks from when the takedown verdict is Yes.
+  # Order is the order they appear in the dropdown.
   #
-  # Edit this list here, not in the client: the dashboard builds the control
-  # from whatever this file says, so adding, renaming or removing a ground is a
-  # content change and not a code change.
-  #
-  # `text` is what the associate sees and what is sent. `when` is the hint shown
-  # beside it, and is the only thing that stops two adjacent grounds being
-  # picked at random.
+  # Edit here, not in the client: the dashboard builds the control from this
+  # list, so adding or renaming a ground is a content change, not a code one.
   reasons:
-    content_issues:
-      text: "Content issues"
-      when: "the review's content itself breaches Trustpilot's guidelines"
-    booking_support_issues:
-      text: "Booking / support issues"
-      when: "the complaint is about the booking or the support handling, not the experience"
-    personal_emergency_health:
-      text: "Personal emergency, health issue"
-      when: "the guest could not attend for a personal or health reason"
+    - "Content issues"
+    - "Booking / support issues"
+    - "Personal emergency, health issue"
 
 # ── Untraceable reply ────────────────────────────────────────────────────────
 # Sent unchanged on any review with no traceable booking. Nothing here is
