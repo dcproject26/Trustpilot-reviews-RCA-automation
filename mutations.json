@@ -91,12 +91,6 @@
   },
   {
     "file": "client/index.html",
-    "name": "the reason control hides again unless the verdict is Yes",
-    "find": "            <select class=\"res-reason\" data-takedown-reason>",
-    "replace": "            ${cur !== 'Yes' ? '' : ''}<select class=\"res-reason\" data-takedown-reason>"
-  },
-  {
-    "file": "client/index.html",
     "name": "the verdict handler wipes the rest of the object again",
     "find": "    const td = {...(rca.v3.takedown || {}), verdict: tdRec.value};",
     "replace": "    const td = {verdict: tdRec.value};"
@@ -106,12 +100,6 @@
     "name": "a stale ground survives the verdict changing",
     "find": "    if (td.verdict !== 'Yes') delete td.reason;",
     "replace": "    ;"
-  },
-  {
-    "file": "client/index.html",
-    "name": "picking Yes does not redraw, so the reason control never appears",
-    "find": "    await persistV3(tdRec);\n    // The reason control appears and disappears with the verdict, so the\n    // section has to be redrawn - without this, picking Yes saves fine and\n    // shows no way to say why until the next load.\n    renderRcaCol();",
-    "replace": "    await persistV3(tdRec);"
   },
   {
     "file": "server/api.py",
@@ -370,5 +358,17 @@
     "name": "an empty import reports success",
     "find": "        print(f\"no .html exports in {a.src}\", file=sys.stderr)\n        return 1",
     "replace": "        return 0"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the takedown verdict chip stops recolouring",
+    "find": "            <select class=\"chip-select td-${cur.toLowerCase()}\" data-takedown-rec>",
+    "replace": "            <select class=\"chip-select\" data-takedown-rec>"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the reason control renders only on a Yes again",
+    "find": "        const chosen = td.reason || '';\n        return `<div class=\"res-block\">",
+    "replace": "        const chosen = td.reason || '';\n        if (cur !== 'Yes') return '';\n        return `<div class=\"res-block\">"
   }
 ]

@@ -94,18 +94,67 @@ def test_the_scope_carries_every_field(key):
 
 def test_no_tgid_scoped_recurrence_query_runs():
     """Not just absent from the payload — not run at all. A query whose result
-    is discarded is a warehouse bill for a number nobody sees."""
+    is discarded is a warehouse bill for a number nobody sees.
+
+    The exclusions matter and got this wrong once. They exist to skip the two
+    queries that are LEGITIMATELY TGID-scoped — the average-rating tile and
+    the TGID completion rate. The first version excluded anything containing
+    "rating", which also excluded the recurrence REVIEWS query, because that
+    filters `r.rating <= 3`. So the test skipped precisely what it was written
+    to check, and a mutation widening recurrence back to the whole TGID
+    survived it.
+
+    `avg_rating` is the rating tile's own select and appears nowhere else.
+    """
     _, calls = _drive()
     recurrence_like = [c for c in calls
-                       if "experience_id = @tgid" in c and "rating" not in c.lower()
+                       if "experience_id = @tgid" in c
+                       and "avg_rating" not in c
                        and "fulfilment_status" not in c]
-    assert not recurrence_like, \
-        f"{len(recurrence_like)} TGID-scoped recurrence queries still run"
+    assert not recurrence_like, (
+        f"{len(recurrence_like)} TGID-scoped recurrence queries still run: "
+        f"{[c[:120] for c in recurrence_like]}")
+
+
+def test_the_exclusions_do_not_swallow_the_recurrence_queries():
+    """The guard on the guard above. If the exclusions ever widen enough to
+    skip every candidate, the test passes by examining nothing — which is how
+    it passed the first time."""
+    _, calls = _drive()
+    recurrence = [c for c in calls
+                  if "COUNT(DISTINCT r.booking_id)" in c
+                  and "avg_rating" not in c and "fulfilment_status" not in c]
+    assert recurrence, (
+        "the exclusions skip every recurrence query — the test above is "
+        "checking an empty list and will pass whatever the scope is")
 
 
 def test_the_review_ids_are_populated():
     out, _ = _drive()
     assert out["recurrence"]["tidvid"]["review_ids"] == ["111", "222"]
+
+
+def test_the_support_ids_reach_the_payload():
+    """That the support ids are read out of the row and into the payload.
+
+    NOT that the query asked for them — the stub returns ids whatever the SQL
+    says, so this passes even with ARRAY_AGG removed. That is checked below,
+    against the SQL itself. Saying so here because a test whose docstring
+    claims a guarantee it does not provide is worse than no test: it is a
+    reason not to write the one that would have caught it.
+    """
+    out, _ = _drive()
+    assert out["recurrence"]["tidvid"]["support_ids"] == ["111", "222"]
+
+
+def test_both_queries_ask_the_warehouse_for_their_ids():
+    """The other end of it: the support query must actually SELECT them."""
+    _, calls = _drive()
+    rev = [c for c in calls if "COUNT(DISTINCT r.booking_id)" in c]
+    sup = [c for c in calls if "COUNT(DISTINCT sq.booking_id)" in c]
+    assert rev and sup, (len(rev), len(sup))
+    assert all("ARRAY_AGG" in c for c in rev), "a reviews query returns no ids"
+    assert all("ARRAY_AGG" in c for c in sup), "a support query returns no ids"
 
 
 # ── booking ids ────────────────────────────────────────────────────────────
