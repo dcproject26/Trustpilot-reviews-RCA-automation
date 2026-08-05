@@ -93,16 +93,85 @@ def classify(review, draft) -> str:
     return UNTRACEABLE
 
 
+# A run that has not advanced a stage in this long is treated as dead.
+#
+# This is a JUDGEMENT and not a signal. Nothing reports that a run has died: a
+# process killed mid-run, or a thread blocked inside a synchronous HTTP call,
+# leaves its progress entry exactly as it was and never comes back to correct
+# it. The only evidence available is that the entry has stopped moving, so the
+# threshold is announced in the sentence rather than applied quietly.
+#
+# Ten minutes is longer than the slowest healthy STAGE observed (RCA
+# generation, two to three minutes) by a wide margin, and shorter than the
+# batch runner's own RUN_TIMEOUT_S of twelve minutes — so a run the runner
+# will kill reads as dead slightly before it is killed, never after.
+STALL_AFTER_S = 10 * 60
+
+# A queued review that has not started in this long is not waiting its turn:
+# the runner ahead of it is gone. Longer than STALL_AFTER_S because waiting IS
+# what a queued review is supposed to be doing, and a full batch legitimately
+# takes a while to reach the back of the queue.
+QUEUE_STALL_AFTER_S = 30 * 60
+
+
+def liveness(entry, now: float | None = None) -> tuple[str, int]:
+    """(state, seconds since the run last moved) for a PIPELINE_PROGRESS entry.
+
+    One judgement, used by the inbox row and by the re-run button's poll. Both
+    used to answer "is this alive?" with "is there an entry?", which is a
+    different question — and the whole reason a dead run reported itself as
+    still searching.
+
+      ""        no entry: this function was asked about a run nobody started.
+      queued    handed to the runner, not started yet.
+      running   the entry moved recently enough to be believed.
+      stalled   the entry has stopped moving, or a queued review never started.
+    """
+    import time as _t
+    if not entry:
+        return "", 0
+    now = _t.time() if now is None else now
+    # updated_at is the heartbeat; started_at is the fallback for an entry
+    # written by an older build, which is the honest floor — it can only make
+    # a run look older than it is, never younger.
+    last = entry.get("updated_at") or entry.get("started_at") or now
+    since = max(0, int(now - last))
+    if entry.get("queued"):
+        return ("stalled" if since >= QUEUE_STALL_AFTER_S else "queued"), since
+    return ("stalled" if since >= STALL_AFTER_S else "running"), since
+
+
+def _mins(seconds: int) -> str:
+    """'40 seconds' / '12 minutes'. A duration a reader can act on."""
+    if seconds < 90:
+        return f"{seconds} second{'' if seconds == 1 else 's'}"
+    m = round(seconds / 60)
+    return f"{m} minute{'' if m == 1 else 's'}"
+
+
 def processing_state(review, draft) -> tuple[str, str]:
     """(state, sentence) for a review with no draft row. ("", "") otherwise.
 
-    Two things wear the same blank card, and they need opposite responses:
+    Four things wear the same blank card, and they do not want the same
+    response:
 
-      running  the pipeline is working. Wait. Re-running now would only start
-               a second one.
-      stalled  the run ended without writing a draft row. That is a BUG — the
-               draft is written before anything that can fail — so it needs a
-               re-run and probably a look at the log.
+      queued   the runner has this review and has not started it. Wait, and
+               know that something is ahead of it.
+      running  the pipeline is working on it. Wait. Re-running now would only
+               start a second one.
+      stalled  the run ended, or stopped moving, without writing a draft row.
+               That is a BUG — the draft is written before anything that can
+               fail — so it needs a re-run and probably a look at the log.
+
+    THE REPORTED BUG. This used to read `if p:` — the presence of a progress
+    entry WAS the definition of running. An entry is written at step 1 and
+    removed in the run's `finally`, so the only case that reached "stalled"
+    was a run that had already finished dying tidily. A run wedged inside a
+    blocking model call (the Anthropic client defaults to a 600s read timeout
+    and two retries, so half an hour per call) never reaches its `finally`,
+    keeps its entry, and reported itself as "Step 1 of 8" for as long as the
+    server stayed up. Elapsed time is the only evidence there is, so it is now
+    what the answer turns on.
 
     PIPELINE_PROGRESS is in-process, so after a server restart a run that was
     genuinely in flight reads as stalled. That is the safe direction: it says
@@ -117,11 +186,40 @@ def processing_state(review, draft) -> tuple[str, str]:
         p = PIPELINE_PROGRESS.get(getattr(review, "id", None))
     except Exception:
         p = None
-    if p:
+    state, since = liveness(p)
+
+    if state == "queued":
+        pos, size = p.get("queue_position"), p.get("queue_size")
+        where = (f"{pos} of {size} in a {p.get('queue_reason') or 'batch'} batch"
+                 if pos and size else "in a batch")
+        return "queued", (
+            f"Queued for a run and not started yet — {where}, waiting "
+            f"{_mins(since)}. Runs go one at a time, so this is normal until "
+            f"it is not: after {QUEUE_STALL_AFTER_S // 60} minutes without "
+            f"starting it is reported as stopped instead.")
+
+    if state == "running":
         return "running", (
             f"Step {p.get('step', '?')} of {p.get('total', '?')} — "
-            f"{p.get('stage', 'working')}. Nothing has been searched for yet, "
-            f"so this is not a failed match.")
+            f"{p.get('stage', 'working')}, last moved {_mins(since)} ago. "
+            f"Nothing has been searched for yet, so this is not a failed match.")
+
+    if state == "stalled" and p:
+        if p.get("queued"):
+            return "stalled", (
+                f"Queued {_mins(since)} ago and never started. We treat "
+                f"{QUEUE_STALL_AFTER_S // 60} minutes in the queue as a runner "
+                f"that is gone — that is a judgement from elapsed time, not "
+                f"something the run reported. Nothing was searched for, so "
+                f"this is not a failed match. Re-run it.")
+        return "stalled", (
+            f"Stopped at step {p.get('step', '?')} of {p.get('total', '?')} — "
+            f"{p.get('stage', 'working')}. It has not moved for "
+            f"{_mins(since)}, and we treat {STALL_AFTER_S // 60} minutes "
+            f"without progress as a dead run — that is a judgement from "
+            f"elapsed time, not something the run reported. No draft row was "
+            f"written, so this is not a booking we could not find. Re-run it.")
+
     return "stalled", (
         "No draft row was ever written, and no run is in progress on this "
         "server. The draft is saved before anything that can fail, so this is "

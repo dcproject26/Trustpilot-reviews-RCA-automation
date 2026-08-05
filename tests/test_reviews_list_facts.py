@@ -117,10 +117,16 @@ def test_a_stalled_run_says_to_re_run_it(client):
 
 
 def test_a_running_pipeline_reads_as_running(client):
+    import time
+
     import server.pipeline as P
+    # updated_at is what makes this running rather than merely present: an
+    # entry that has stopped moving is now reported as stopped.
     P.PIPELINE_PROGRESS["tp_queued"] = {"step": 4, "total": 8,
                                         "stage": "Insights",
-                                        "started_at": 0, "elapsed_s": 9}
+                                        "started_at": time.time() - 9,
+                                        "elapsed_s": 9,
+                                        "updated_at": time.time()}
     try:
         q = _by_id(client)["tp_queued"]
         assert q["processing_state"] == "running"

@@ -172,10 +172,16 @@ def test_the_two_read_differently_on_the_card():
 
 
 def test_a_run_in_flight_says_wait_not_re_run(monkeypatch):
+    import time
+
     import server.pipeline as P
+    # A LIVE heartbeat. These entries used to carry started_at=0 — the epoch —
+    # and still read as running, because the answer turned on the entry
+    # existing rather than on it having moved recently.
     monkeypatch.setitem(P.PIPELINE_PROGRESS, "tp_x",
                         {"step": 3, "total": 8, "stage": "Zendesk",
-                         "started_at": 0, "elapsed_s": 4})
+                         "started_at": time.time() - 4, "elapsed_s": 4,
+                         "updated_at": time.time()})
     state, why = processing_state(NS(id="tp_x", status="new"), None)
     assert state == "running"
     assert "Step 3 of 8" in why and "Zendesk" in why
@@ -192,10 +198,13 @@ def test_a_run_that_died_says_re_run_it():
 
 
 def test_the_two_states_do_not_read_the_same(monkeypatch):
+    import time
+
     import server.pipeline as P
     monkeypatch.setitem(P.PIPELINE_PROGRESS, "tp_live",
                         {"step": 1, "total": 8, "stage": "BID",
-                         "started_at": 0, "elapsed_s": 1})
+                         "started_at": time.time() - 1, "elapsed_s": 1,
+                         "updated_at": time.time()})
     live = processing_state(NS(id="tp_live", status="new"), None)
     dead = processing_state(NS(id="tp_dead", status="new"), None)
     assert live[0] != dead[0] and live[1] != dead[1]

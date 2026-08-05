@@ -36,36 +36,63 @@ _CL_SEM = LoopLocalSemaphore(8)
 _AI_INT_BASE = os.getenv("AI_INTEGRATIONS_ANTHROPIC_BASE_URL", "")
 _AI_INT_KEY = os.getenv("AI_INTEGRATIONS_ANTHROPIC_API_KEY", "")
 
+# How long one completion may take, and how many times the SDK may retry it.
+#
+# The SDK's own defaults are a 600s read timeout and two retries — up to half
+# an hour of blocking in ONE call. That is what wedged a pipeline run at
+# "Step 1 of 8 — matching booking" with every review queued behind it waiting,
+# and no timeout above it can help, because until the call returns there is no
+# await point at which a cancellation can be delivered.
+#
+# 180s is several times the slowest healthy completion here (an RCA generation
+# runs 20-40s). One retry, not two, so the worst case is ~6 minutes rather than
+# ~30 and stays inside the batch runner's twelve-minute budget for a whole run.
+CALL_TIMEOUT_S = 180.0
+CALL_MAX_RETRIES = 1
+
+_client_kwargs = {"timeout": CALL_TIMEOUT_S, "max_retries": CALL_MAX_RETRIES}
+
 if _AI_INT_BASE and _AI_INT_KEY:
     ANTHROPIC_ROUTE = "replit_ai_integrations"
-    _client = Anthropic(api_key=_AI_INT_KEY, base_url=_AI_INT_BASE)
+    _client = Anthropic(api_key=_AI_INT_KEY, base_url=_AI_INT_BASE, **_client_kwargs)
 else:
     ANTHROPIC_ROUTE = "anthropic_api_key"
-    _client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY", ""))
+    _client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY", ""), **_client_kwargs)
+
+
+def _messages_create(prompt: str, max_tokens: int):
+    """The blocking SDK call, isolated so it can be run off the event loop."""
+    msg = _client.messages.create(
+        model=ANTHROPIC_MODEL,
+        max_tokens=max_tokens,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    parts = [b.text for b in msg.content if getattr(b, "type", None) == "text"]
+    return "".join(parts).strip()
 
 
 async def _call(prompt: str, max_tokens: int = 2400) -> str:
-    """Single completion call. Returns the raw text (stripped)."""
+    """Single completion call. Returns the raw text (stripped).
+
+    The SDK client is SYNCHRONOUS, so awaiting this used to block the whole
+    event loop for the length of the HTTP request. Two things followed, both
+    invisible: _CL_SEM capped a concurrency that could never happen (one call
+    at a time, whatever the limit said), and no watchdog anywhere above could
+    fire, because a cancellation can only be delivered at an await point and
+    there was none between entering the call and leaving it. A run wedged in
+    here could not be stopped and could not be told apart from a healthy one.
+
+    asyncio.to_thread moves the blocking call off the loop, which makes both
+    the semaphore and every timeout above it real.
+    """
     if MOCK_MODE:
-        msg = _client.messages.create(
-            model=ANTHROPIC_MODEL,
-            max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        parts = [b.text for b in msg.content if getattr(b, "type", None) == "text"]
-        return "".join(parts).strip()
+        return await asyncio.to_thread(_messages_create, prompt, max_tokens)
     t0 = time.time()
     async with _CL_SEM:
         waited = time.time() - t0
         if waited > 2.0:
             log.warning(f"[claude] wait time exceeded 2s: {waited:.1f}s")
-        msg = _client.messages.create(
-            model=ANTHROPIC_MODEL,
-            max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        )
-    parts = [b.text for b in msg.content if getattr(b, "type", None) == "text"]
-    return "".join(parts).strip()
+        return await asyncio.to_thread(_messages_create, prompt, max_tokens)
 
 
 def _strip_json_comments(text: str) -> str:

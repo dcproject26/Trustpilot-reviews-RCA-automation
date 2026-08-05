@@ -135,13 +135,205 @@ PIPELINE_PROGRESS: dict = {}
 
 _STAGES_TOTAL = 8
 
+# How long one review may take before the batch runner gives up on it. A run is
+# a dozen model calls plus fifteen warehouse queries; twelve minutes is roughly
+# four times the slowest healthy run observed. It is a JUDGEMENT, not a
+# measurement, and it is stated as one wherever it is acted on.
+RUN_TIMEOUT_S = 12 * 60
+
 
 def _progress(review_id: str, step: int, stage: str):
+    """Record where a run is, and WHEN it last moved.
+
+    updated_at is the heartbeat. Without it the only fact on the entry was
+    "a run exists", and a run wedged at step 1 for forty minutes was reported
+    in exactly the words used for one that started four seconds ago — see
+    server/tiers.py::liveness, which is the reader of this field.
+
+    A queued entry is replaced rather than updated: its started_at is when the
+    review joined the queue, and carrying that into the run would date the run
+    from the moment it was queued. The wait is kept as queued_at so "started
+    late" stays visible.
+    """
     import time as _t
-    e = PIPELINE_PROGRESS.get(review_id) or {"started_at": _t.time()}
+    now = _t.time()
+    e = PIPELINE_PROGRESS.get(review_id)
+    if e is None or e.get("queued"):
+        e = {"started_at": now, "queued_at": (e or {}).get("started_at")}
     e.update({"step": step, "total": _STAGES_TOTAL, "stage": stage,
-              "elapsed_s": int(_t.time() - e["started_at"])})
+              "elapsed_s": int(now - e["started_at"]), "updated_at": now,
+              "queued": False})
     PIPELINE_PROGRESS[review_id] = e
+
+
+def mark_queued(review_id: str, position: int, of: int, reason: str = "ingest"):
+    """Record that a review has been HANDED TO the runner and has not started.
+
+    This is the missing fact behind the reported bug. Fifteen reviews were
+    ingested, one run wedged, and the thirteen behind it were never started —
+    and a review that was queued and never started carried exactly the same
+    evidence as a review nobody ever queued: no draft row, no progress entry,
+    no line anywhere. "We have work booked for this review" and "nothing has
+    ever been asked of this review" have to be different sentences.
+    """
+    import time as _t
+    now = _t.time()
+    PIPELINE_PROGRESS[review_id] = {
+        "step": 0, "total": _STAGES_TOTAL, "stage": "queued",
+        "queued": True, "queue_position": position, "queue_size": of,
+        "queue_reason": reason,
+        "started_at": now, "updated_at": now, "elapsed_s": 0,
+    }
+
+
+def record_run_failure(review_id: str, exc: Exception, db=None) -> bool:
+    """Write a run's death onto its draft. True if a draft was there to write on.
+
+    Shared by the pipeline's own handler and by the batch runner's watchdog: a
+    run killed from outside must leave the same evidence as one that raised,
+    or a timeout reads as a run that simply never happened.
+
+    Returns False when there is no draft row — which is a real outcome (the run
+    died before the early persist), not a silent no-op, and the caller says so.
+    """
+    own = db is None
+    if own:
+        db = SessionLocal()
+    try:
+        db.rollback()
+        _d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
+        if not _d:
+            return False
+        _tr = list(_d.confidence_trail or [])
+        # Defect 5: an exception is not a trail step. A title, one
+        # plain-language sentence, and the raw text kept alongside for
+        # the reader who wants it - behind a toggle in the UI, never
+        # inline. Discarding it entirely was the other extreme: the
+        # only copy then lived in a log the reader cannot reach.
+        _entry = failure_entry(exc)
+        # Do not stack the same failure twice. A retried run appended a
+        # second identical line, so the panel grew a wall of duplicate
+        # stack traces that told the reader nothing new.
+        if not _tr or _tr[-1].get("text") != _entry["text"]:
+            _tr.append(_entry)
+        _d.confidence_trail = _tr
+        _d.generated_at = datetime.utcnow()
+        flag_modified(_d, "confidence_trail")
+        db.commit()
+        return True
+    finally:
+        if own:
+            db.close()
+
+
+class RunTimeout(Exception):
+    """A run the batch runner stopped, rather than one that stopped itself.
+
+    Its own type because the sentence a reader needs is different: nothing is
+    known to be broken, the run simply outlived the budget, and that budget is
+    ours rather than the model's or the warehouse's.
+    """
+
+
+async def run_batch(review_ids: list, reason: str = "ingest",
+                    force_candidates: bool = False) -> dict:
+    """Run several reviews under supervision. Returns a counted account.
+
+    THE BUG THIS EXISTS FOR. Every ingest path used to do:
+
+        for rid in ids:
+            background_tasks.add_task(lambda x: asyncio.run(_pipeline(x)), rid)
+
+    Starlette runs those as `for task in self.tasks: await task()` with no
+    try/except (starlette/background.py). Two consequences, both silent:
+
+      * the FIRST task to raise drops every task behind it. process_review
+        opens its session OUTSIDE its own try, so a pool timeout or an
+        unreachable database raises straight out of the run and takes the rest
+        of the ingest with it;
+      * they run strictly one at a time, so one wedged run holds every review
+        behind it for as long as it lasts — and the Anthropic client's default
+        read timeout is 600s with two retries, i.e. half an hour of blocking
+        per call before anything gives up.
+
+    Either way the batch stops and nothing anywhere records that it did. A
+    fifteen-review ingest left thirteen reviews with no draft row, no progress
+    entry and no log line naming them — indistinguishable from fifteen reviews
+    nobody had ever asked for.
+
+    So: every review is marked queued BEFORE the first one starts, each run is
+    isolated so one failure cannot reach the next, each is bounded by
+    RUN_TIMEOUT_S, and the batch ends by logging what it could and could not
+    do rather than simply ceasing.
+    """
+    ids = [r for r in (review_ids or []) if r]
+    if not ids:
+        log.info(f"[batch:{reason}] nothing to run — 0 reviews queued")
+        return {"queued": 0, "completed": 0, "failed": 0, "timed_out": 0}
+
+    for i, rid in enumerate(ids, 1):
+        mark_queued(rid, i, len(ids), reason)
+    log.info(f"[batch:{reason}] {len(ids)} review(s) queued, running one at a time")
+
+    completed = failed = timed_out = 0
+    for rid in ids:
+        try:
+            await asyncio.wait_for(
+                process_review(rid, force_candidates=force_candidates),
+                RUN_TIMEOUT_S)
+            completed += 1
+        except (asyncio.TimeoutError, TimeoutError):
+            timed_out += 1
+            budget = (f"{RUN_TIMEOUT_S / 60:.0f} minutes" if RUN_TIMEOUT_S >= 60
+                      else f"{RUN_TIMEOUT_S:g} seconds")
+            exc = RunTimeout(
+                f"we stopped this run after {budget} so the reviews queued "
+                f"behind it could go. That is our budget, not a failure any "
+                f"service reported. Re-run the review.")
+            log.error(f"[batch:{reason}] {rid} timed out after {RUN_TIMEOUT_S}s")
+            try:
+                if not record_run_failure(rid, exc):
+                    log.error(f"[batch:{reason}] {rid} timed out with no draft "
+                              f"row to record it on — it died before the early "
+                              f"persist")
+            except Exception:
+                log.exception(f"[batch:{reason}] {rid}: could not record the timeout")
+        except Exception as e:
+            # One bad review must never stop the queue. This is the guarantee
+            # Starlette's own loop does not give.
+            failed += 1
+            log.exception(f"[batch:{reason}] {rid} failed: {e}")
+            try:
+                record_run_failure(rid, e)
+            except Exception:
+                log.exception(f"[batch:{reason}] {rid}: could not record the failure")
+        finally:
+            # process_review pops its own entry, but a run that died before
+            # reaching it would leave the review reading as queued for ever.
+            PIPELINE_PROGRESS.pop(rid, None)
+
+    log.info(f"[batch:{reason}] finished: {completed} completed, {failed} failed, "
+             f"{timed_out} timed out, of {len(ids)} queued")
+    return {"queued": len(ids), "completed": completed,
+            "failed": failed, "timed_out": timed_out}
+
+
+def run_batch_sync(review_ids: list, reason: str = "ingest",
+                   force_candidates: bool = False) -> dict:
+    """run_batch for a caller with no event loop — a BackgroundTask.
+
+    A background task raising is invisible to everyone: the response has
+    already gone out, so the only trace is a log line nobody is watching. The
+    last resort is caught here so the batch's own account is always written.
+    """
+    try:
+        return asyncio.run(run_batch(review_ids, reason, force_candidates))
+    except Exception as e:
+        log.exception(f"[batch:{reason}] the batch runner itself died: {e}")
+        for rid in (review_ids or []):
+            PIPELINE_PROGRESS.pop(rid, None)
+        return {"queued": len(review_ids or []), "completed": 0,
+                "failed": len(review_ids or []), "timed_out": 0}
 
 
 def failure_entry(exc: Exception) -> dict:
@@ -172,6 +364,11 @@ def _human_error(exc: Exception) -> str:
     name = type(exc).__name__
     text = " ".join(str(exc).split())
     low = text.lower()
+    # Our own watchdog, not a failure any service reported. It writes its own
+    # sentence, so the generic 160-character truncation below cannot cut the
+    # "Re-run the review" off the end of the only instruction in it.
+    if isinstance(exc, RunTimeout):
+        return text
     if "ssl connection has been closed" in low or "server closed the connection" in low:
         return ("the database connection dropped mid-run. Nothing was saved for "
                 "this step. Re-run the review.")
@@ -2273,25 +2470,10 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # it terminates visibly instead of silently.
         log.exception(f"[pipeline] {review_id} failed: {_fatal}")
         try:
-            db.rollback()
-            _d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
-            if _d:
-                _tr = list(_d.confidence_trail or [])
-                # Defect 5: an exception is not a trail step. A title, one
-                # plain-language sentence, and the raw text kept alongside for
-                # the reader who wants it - behind a toggle in the UI, never
-                # inline. Discarding it entirely was the other extreme: the
-                # only copy then lived in a log the reader cannot reach.
-                _entry = failure_entry(_fatal)
-                # Do not stack the same failure twice. A retried run appended a
-                # second identical line, so the panel grew a wall of duplicate
-                # stack traces that told the reader nothing new.
-                if not _tr or _tr[-1].get("text") != _entry["text"]:
-                    _tr.append(_entry)
-                _d.confidence_trail = _tr
-                _d.generated_at = datetime.utcnow()
-                flag_modified(_d, "confidence_trail")
-                db.commit()
+            if not record_run_failure(review_id, _fatal, db):
+                log.error(f"[pipeline] {review_id}: died with no draft row to "
+                          f"record it on — the run failed before the early "
+                          f"persist, so the review carries no trace of it")
         except Exception:
             log.exception(f"[pipeline] {review_id}: could not record the failure")
     finally:

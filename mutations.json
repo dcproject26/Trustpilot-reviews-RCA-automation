@@ -496,5 +496,179 @@
     "name": "a partial purge reports success",
     "find": "        if left:",
     "replace": "        if False:"
+  },
+  {
+    "file": "server/tiers.py",
+    "name": "a run that stopped moving stays 'running'",
+    "find": "    return (\"stalled\" if since >= STALL_AFTER_S else \"running\"), since",
+    "replace": "    return \"running\", since"
+  },
+  {
+    "file": "server/tiers.py",
+    "name": "a review queued for ever never goes stalled",
+    "find": "        return (\"stalled\" if since >= QUEUE_STALL_AFTER_S else \"queued\"), since",
+    "replace": "        return \"queued\", since"
+  },
+  {
+    "file": "server/tiers.py",
+    "name": "the heartbeat is ignored and every run reads as fresh",
+    "find": "    last = entry.get(\"updated_at\") or entry.get(\"started_at\") or now",
+    "replace": "    last = now"
+  },
+  {
+    "file": "server/tiers.py",
+    "name": "an older entry with no heartbeat is trusted instead of dated",
+    "find": "    last = entry.get(\"updated_at\") or entry.get(\"started_at\") or now\n    since = max(0, int(now - last))",
+    "replace": "    last = entry.get(\"updated_at\") or now\n    since = max(0, int(now - last))"
+  },
+  {
+    "file": "server/tiers.py",
+    "name": "queued is reported to the card as running",
+    "find": "        return \"queued\", (\n            f\"Queued for a run and not started yet",
+    "replace": "        return \"running\", (\n            f\"Queued for a run and not started yet"
+  },
+  {
+    "file": "server/tiers.py",
+    "name": "the stall judgement is applied without announcing it",
+    "find": "            f\"{_mins(since)}, and we treat {STALL_AFTER_S // 60} minutes \"\n            f\"without progress as a dead run — that is a judgement from \"\n            f\"elapsed time, not something the run reported. No draft row was \"",
+    "replace": "            f\"{_mins(since)}. No draft row was \""
+  },
+  {
+    "file": "server/tiers.py",
+    "name": "a stalled run stops saying where it stopped",
+    "find": "            f\"Stopped at step {p.get('step', '?')} of {p.get('total', '?')} — \"\n            f\"{p.get('stage', 'working')}. It has not moved for \"",
+    "replace": "            f\"Stopped. It has not moved for \""
+  },
+  {
+    "file": "server/tiers.py",
+    "name": "a queued review stops saying what it is behind",
+    "find": "        where = (f\"{pos} of {size} in a {p.get('queue_reason') or 'batch'} batch\"\n                 if pos and size else \"in a batch\")",
+    "replace": "        where = \"in a batch\""
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the heartbeat never moves after the first stage",
+    "find": "              \"elapsed_s\": int(now - e[\"started_at\"]), \"updated_at\": now,\n              \"queued\": False})",
+    "replace": "              \"elapsed_s\": int(now - e[\"started_at\"]),\n              \"updated_at\": e.get(\"updated_at\", now), \"queued\": False})"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a run that starts keeps the queue's clock and is born dead",
+    "find": "    if e is None or e.get(\"queued\"):\n        e = {\"started_at\": now, \"queued_at\": (e or {}).get(\"started_at\")}",
+    "replace": "    if e is None:\n        e = {\"started_at\": now, \"queued_at\": None}"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "nothing records that a review was queued",
+    "find": "    for i, rid in enumerate(ids, 1):\n        mark_queued(rid, i, len(ids), reason)",
+    "replace": "    pass"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a queued entry carries no position",
+    "find": "        \"queued\": True, \"queue_position\": position, \"queue_size\": of,",
+    "replace": "        \"queued\": True, \"queue_position\": None, \"queue_size\": None,"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "one failing run drops every review behind it again",
+    "find": "        except Exception as e:\n            # One bad review must never stop the queue. This is the guarantee\n            # Starlette's own loop does not give.",
+    "replace": "        except asyncio.CancelledError as e:\n            # mutation: the isolation Starlette's own loop does not give"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a wedged run is no longer bounded",
+    "find": "            await asyncio.wait_for(\n                process_review(rid, force_candidates=force_candidates),\n                RUN_TIMEOUT_S)",
+    "replace": "            await process_review(rid, force_candidates=force_candidates)"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "re-run loses the request for the candidate picker",
+    "find": "                process_review(rid, force_candidates=force_candidates),",
+    "replace": "                process_review(rid, force_candidates=False),"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a timed-out run leaves no evidence on the draft",
+    "find": "            try:\n                if not record_run_failure(rid, exc):",
+    "replace": "            try:\n                if False:"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "'nothing to record it on' is reported as recorded",
+    "find": "        _d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()\n        if not _d:\n            return False",
+    "replace": "        _d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()\n        if not _d:\n            return True"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the recorder formats its own trail line",
+    "find": "        _entry = failure_entry(exc)",
+    "replace": "        _entry = {\"mark\": \"fail\", \"title\": \"Run failed\", \"text\": str(exc)}"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the watchdog's sentence is truncated like a stack trace",
+    "find": "    if isinstance(exc, RunTimeout):\n        return text",
+    "replace": "    if False:\n        return text"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a dead runner leaves its reviews marked queued for ever",
+    "find": "        for rid in (review_ids or []):\n            PIPELINE_PROGRESS.pop(rid, None)",
+    "replace": "        pass"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a run that died before its own finally stays queued",
+    "find": "        finally:\n            # process_review pops its own entry, but a run that died before\n            # reaching it would leave the review reading as queued for ever.\n            PIPELINE_PROGRESS.pop(rid, None)",
+    "replace": "        finally:\n            pass"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the progress endpoint calls a dead run running again",
+    "find": "    return {\"running\": state in (\"running\", \"queued\"), \"state\": state,",
+    "replace": "    return {\"running\": True, \"state\": state,"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the bulk re-run is unbounded again",
+    "find": "                await asyncio.wait_for(_pipeline(rid), RUN_TIMEOUT_S)",
+    "replace": "                await _pipeline(rid)"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the slack ingest queues nothing at all",
+    "find": "        background_tasks.add_task(run_batch_sync, list(ingested), \"slack-refresh\")",
+    "replace": "        pass"
+  },
+  {
+    "file": "server/services/claude.py",
+    "name": "the model call goes back to the SDK's 30-minute worst case",
+    "find": "_client_kwargs = {\"timeout\": CALL_TIMEOUT_S, \"max_retries\": CALL_MAX_RETRIES}",
+    "replace": "_client_kwargs = {}"
+  },
+  {
+    "file": "server/services/claude.py",
+    "name": "the model call blocks the event loop again",
+    "find": "        return await asyncio.to_thread(_messages_create, prompt, max_tokens)\n\n\ndef _strip_json_comments",
+    "replace": "        return _messages_create(prompt, max_tokens)\n\n\ndef _strip_json_comments"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a dead run reads as a running one on the card",
+    "find": "    if (row.processing_state === 'stalled') return 'The run stopped before it searched';",
+    "replace": "    if (row.processing_state === 'stalled') return 'Still running — nothing has been searched yet';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a queued review reads as one being worked on",
+    "find": "    if (row.processing_state === 'queued')  return 'Queued — the run has not started yet';",
+    "replace": "    if (row.processing_state === 'queued')  return 'Still running — nothing has been searched yet';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the queued chip is painted as a stuck one",
+    "find": "                              : r.processingState === 'queued'\n                              ? ['Queued', ''] : ['Processing', ''])",
+    "replace": "                              : ['Processing', ''])"
   }
 ]

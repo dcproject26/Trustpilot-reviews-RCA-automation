@@ -139,18 +139,54 @@ def test_a_stalled_run_IS_marked_as_stuck(page):
         _restore(page)
 
 
-def test_the_two_processing_states_do_not_read_the_same(page):
+def test_the_processing_states_do_not_read_the_same(page):
     got = page.evaluate("""() => {
       const mk = s => ({id: 'x', bucket: 'processing', processing_state: s,
                         unverified: false, match_tier: null,
                         candidate_state: false, status: 'new'});
       return [ _matchTitle(mk('running'), null, false),
                _matchTitle(mk('stalled'), null, false),
+               _matchTitle(mk('queued'), null, false),
                _matchTitle({id:'y', bucket:'untraceable', status:'new'},
                            null, false) ];
     }""")
-    assert len(set(got)) == 3, f"two of these three read the same: {got}"
-    assert "Untraceable" not in got[0] and "Untraceable" not in got[1], got
+    assert len(set(got)) == 4, f"two of these four read the same: {got}"
+    for t in got[:3]:
+        assert "Untraceable" not in t, got
+
+
+def test_a_queued_review_is_not_reported_as_running(page):
+    """The thirteen stranded reviews. A review the runner has been handed and
+    has not started is not one it is working on, and saying "Still running"
+    over it is how thirteen dead reviews looked healthy for an afternoon."""
+    got = page.evaluate("""() => _matchTitle(
+        {id: 'x', bucket: 'processing', processing_state: 'queued',
+         status: 'new'}, null, false)""")
+    assert "Still running" not in got, got
+    assert "ueued" in got, got
+
+
+def test_a_queued_review_is_not_coloured_as_stuck(page):
+    """Queued is normal. Red is for a human who is blocked."""
+    try:
+        _seed(page, [{"id": "tp_q2", "author": "Waiting", "status": "new",
+                      "type": "processing", "bucket": "processing",
+                      "processingState": "queued"}])
+        page.click('.inbox-tab[data-tab="processing"]')
+        page.wait_for_timeout(300)
+        chips = page.evaluate("""() => [...document.querySelectorAll(
+          '#inbox-list .review-item')].map(i => {
+            const c = i.querySelector('.stage-chip, [class*=stage]');
+            return c ? {text: c.textContent.trim(), cls: c.className} : null;
+          })""")
+        assert chips and chips[0], f"no stage chip rendered: {chips}"
+        assert "bad" not in chips[0]["cls"], chips[0]
+        assert chips[0]["text"] != "Run stopped", chips[0]
+        assert chips[0]["text"] == "Queued", (
+            f"a review that has not started reads as one being worked on: "
+            f"{chips[0]}")
+    finally:
+        _restore(page)
 
 
 def test_the_fallback_derivation_agrees_with_the_server(page):

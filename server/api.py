@@ -528,7 +528,7 @@ async def add_manual_review(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_session),
 ):
-    from server.pipeline import process_review as _pipeline
+    from server.pipeline import run_batch_sync
 
     ts = data.slack_ts or str(time.time())
     review_id = f"tp_{ts.replace('.', '_')}"
@@ -545,7 +545,10 @@ async def add_manual_review(
     db.add(review)
     db.commit()
 
-    background_tasks.add_task(lambda rid: asyncio.run(_pipeline(rid)), review_id)
+    # Through the batch runner even for one review: it is the only path that
+    # marks the review as queued, so the card can say "queued, not started"
+    # instead of showing the blank of a review nobody ever asked about.
+    background_tasks.add_task(run_batch_sync, [review_id], "manual-add")
     return {"ok": True, "review_id": review_id}
 
 
@@ -1146,8 +1149,8 @@ async def select_candidate(review_id: str, body: CandidateSelect,
     db.commit()
 
     # Re-run pipeline to fetch Zendesk/insights/RCA for the confirmed booking.
-    from server.pipeline import process_review as _pipeline
-    background_tasks.add_task(lambda rid: asyncio.run(_pipeline(rid)), review_id)
+    from server.pipeline import run_batch_sync
+    background_tasks.add_task(run_batch_sync, [review_id], "candidate-confirmed")
     return {"ok": True, "draft": _draft_dict(d)}
 
 
@@ -1233,14 +1236,21 @@ async def refresh_slack(hours: int = 72, background_tasks: BackgroundTasks = Non
 
     # Pipelines run in the background so the button returns at once; the
     # dashboard's own poll fills each card in as its run finishes.
-    from server.pipeline import process_review as _pipeline
-    for rid in ingested:
-        if background_tasks is not None:
-            background_tasks.add_task(lambda x: asyncio.run(_pipeline(x)), rid)
-        else:
-            # Called outside a request (a script, a test): run inline rather
-            # than silently ingesting rows whose pipeline never runs.
-            await _pipeline(rid)
+    #
+    # ONE task for the whole batch, not one per review. Fifteen separate
+    # BackgroundTasks are run by Starlette as `for task in self.tasks: await
+    # task()` with no try/except: the first to raise drops every review behind
+    # it, and a single wedged run holds the rest for as long as it lasts. A
+    # fifteen-review ingest left thirteen reviews unstarted and unrecorded that
+    # way. run_batch marks every review queued before the first one starts,
+    # isolates each run, bounds it, and logs what it could not do.
+    from server.pipeline import run_batch, run_batch_sync
+    if background_tasks is not None:
+        background_tasks.add_task(run_batch_sync, list(ingested), "slack-refresh")
+    elif ingested:
+        # Called outside a request (a script, a test): run inline rather
+        # than silently ingesting rows whose pipeline never runs.
+        await run_batch(list(ingested), "slack-refresh")
 
     log.info(f"[refresh-slack] {hours}h: {found} Trustpilot posts, "
              f"{skipped} already had rows, {queued} queued")
@@ -1313,7 +1323,7 @@ def _bulk_targets(db, scope: str, limit: int) -> list[str]:
 
 
 async def _bulk_worker(ids: list[str]):
-    from server.pipeline import process_review as _pipeline
+    from server.pipeline import process_review as _pipeline, RUN_TIMEOUT_S
     sem = asyncio.Semaphore(_BULK_CONCURRENCY)
 
     async def one(rid: str):
@@ -1324,9 +1334,20 @@ async def _bulk_worker(ids: list[str]):
                 return
             _BULK["current"] = rid
             try:
-                await _pipeline(rid)
+                # Bounded. This loop already survives a review that RAISES;
+                # a review that never returns is the other way to stop a
+                # queue, and three of them hold every semaphore slot for
+                # ever with the job reporting itself as still running.
+                await asyncio.wait_for(_pipeline(rid), RUN_TIMEOUT_S)
                 _BULK["results"].append({"id": rid, "ok": True, "error": ""})
                 log.info(f"[bulk] {rid} done ({_BULK['done'] + 1}/{_BULK['total']})")
+            except (asyncio.TimeoutError, TimeoutError):
+                _BULK["failed"] += 1
+                _BULK["results"].append({
+                    "id": rid, "ok": False,
+                    "error": f"stopped after {RUN_TIMEOUT_S // 60} minutes — "
+                             f"our budget, not a reported failure"})
+                log.error(f"[bulk] {rid} timed out after {RUN_TIMEOUT_S}s")
             except Exception as e:
                 # One bad review must never stop the queue, and the failure
                 # must survive into the status so it is not just a log line.
@@ -1947,26 +1968,23 @@ async def reprocess_review(
             log.warning(f"[reprocess] {review_id}: Slack refresh failed, "
                         f"re-running on stored text: {e}")
 
-    from server.pipeline import process_review as _pipeline
-
-    def _run(rid):
-        # Background-task exceptions were swallowed entirely: the pipeline died,
-        # generated_at never moved, and the dashboard polled for three minutes
-        # before giving up — indistinguishable from "re-run did nothing".
-        try:
-            # Re-running a review whose booking was already confirmed means the
-            # associate wants the choice back, so matching must not auto-promote
-            # its way straight into another confirmed state.
-            # An explicit Re-run always presents the options. Gating this on
-            # "was a confirmation just cleared" was wrong: once the first re-run
-            # cleared it, every later one saw nothing to clear, auto-promoted the
-            # best match straight to Tier 1, and the associate never got the
-            # picker back. Clicking Re-run IS the request to choose again.
-            asyncio.run(_pipeline(rid, force_candidates=True))
-        except Exception:
-            log.exception(f"[reprocess] pipeline crashed for {rid}")
-
-    background_tasks.add_task(_run, review_id)
+    # Through the batch runner, like every other path. Background-task
+    # exceptions were swallowed entirely: the pipeline died, generated_at never
+    # moved, and the dashboard polled for three minutes before giving up —
+    # indistinguishable from "re-run did nothing". The runner records the
+    # failure on the draft and bounds the run, so a wedged re-run stops saying
+    # it is working after RUN_TIMEOUT_S instead of for ever.
+    #
+    # force_candidates: re-running a review whose booking was already confirmed
+    # means the associate wants the choice back, so matching must not
+    # auto-promote its way straight into another confirmed state. An explicit
+    # Re-run always presents the options. Gating this on "was a confirmation
+    # just cleared" was wrong: once the first re-run cleared it, every later one
+    # saw nothing to clear, auto-promoted the best match straight to Tier 1, and
+    # the associate never got the picker back. Clicking Re-run IS the request to
+    # choose again.
+    from server.pipeline import run_batch_sync
+    background_tasks.add_task(run_batch_sync, [review_id], "re-run", True)
     return {"ok": True, "review_id": review_id, "refreshed_from_slack": refreshed}
 
 
@@ -1984,14 +2002,28 @@ def review_progress(review_id: str):
     a restart yields mid-run - the BackgroundTask dies with the process - so
     the client treats it as "no live signal" and falls back to its
     generated_at poll rather than declaring the run finished.
+
+    `running` used to be `bool(entry)`, which answered a different question:
+    whether an entry existed, not whether anything was still happening. A run
+    blocked inside a synchronous model call keeps its entry untouched, so the
+    button counted up for half an hour against a stage that had not moved
+    since the first second. `state`, `since_progress_s` and `stalled_after_s`
+    come from the one judgement in server/tiers.py, so the button and the
+    inbox row cannot disagree about the same run.
     """
     from server.pipeline import PIPELINE_PROGRESS
+    from server.tiers import liveness, STALL_AFTER_S
     e = PIPELINE_PROGRESS.get(review_id)
     if not e:
-        return {"running": False}
+        return {"running": False, "state": "", "stalled_after_s": STALL_AFTER_S}
     import time as _t
-    return {"running": True, "step": e["step"], "total": e["total"],
-            "stage": e["stage"], "elapsed_s": int(_t.time() - e["started_at"])}
+    state, since = liveness(e)
+    return {"running": state in ("running", "queued"), "state": state,
+            "step": e["step"], "total": e["total"], "stage": e["stage"],
+            "elapsed_s": int(_t.time() - e["started_at"]),
+            "since_progress_s": since, "stalled_after_s": STALL_AFTER_S,
+            "queue_position": e.get("queue_position"),
+            "queue_size": e.get("queue_size")}
 
 
 @router.get("/api/reporting")

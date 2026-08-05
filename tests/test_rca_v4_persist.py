@@ -511,6 +511,13 @@ def test_the_caught_exception_never_reaches_the_trail_text():
 
     Not a count of fail entries: "BID — no 7-12 digit number found" is a
     legitimate fail that has nothing to do with an exception.
+
+    The handler now hands the exception to record_run_failure(), shared with
+    the batch runner's watchdog so a run stopped from outside leaves the same
+    evidence as one that raised. That the recorder builds its entry with
+    failure_entry() is proved by driving it — see
+    tests/test_runs_that_stop.py::test_the_recorded_failure_is_a_failure_entry
+    — because a second source scan would only re-check spelling.
     """
     import re
     uses = [m.group(0) for m in re.finditer(r"[^\n]*\b_fatal\b[^\n]*", PIPE)]
@@ -518,7 +525,8 @@ def test_the_caught_exception_never_reaches_the_trail_text():
     for line in uses:
         ok = ("except Exception as _fatal" in line
               or "log.exception" in line
-              or "failure_entry(_fatal)" in line)
+              or "failure_entry(_fatal)" in line
+              or "record_run_failure(review_id, _fatal, db)" in line)
         assert ok, f"the exception is being formatted into the trail: {line.strip()[:90]}"
 
 

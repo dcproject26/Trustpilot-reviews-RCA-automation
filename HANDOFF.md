@@ -131,14 +131,57 @@ pricing/commercial routing, is fixed):
 
 Both anchors are already in `mutations.json`.
 
-## 8. Still undiagnosed
+## 8. Runs stopping mid-flight — DIAGNOSED AND FIXED
 
-- **Runs stopping mid-flight.** A fresh ingest of 15 reviews left 13 in
-  Processing and 1 stopped. Nobody has looked at why.
-- **A dead run reporting itself as still searching.** The card showed *"Still
-  running — nothing searched yet · Step 1 of 8"* over a run that had died; the
-  user had to press Re-run. `processing_state === 'stalled'` exists and did
-  not fire.
+Both halves had the same shape: nothing anywhere could say "this stopped".
+
+**Why the runs stopped.** Every ingest path handed each review to Starlette as
+its own BackgroundTask:
+
+    for rid in ingested:
+        background_tasks.add_task(lambda x: asyncio.run(_pipeline(x)), rid)
+
+Starlette runs those as `for task in self.tasks: await task()` with no
+try/except (`starlette/background.py`). Two ways that loses reviews, both
+silent:
+
+- the FIRST task to raise drops every task behind it. `process_review` opens
+  its session OUTSIDE its own try, so a pool timeout or an unreachable
+  database raises straight out of the run and takes the rest of the ingest
+  with it;
+- they run strictly one at a time, so ONE wedged run holds every review behind
+  it. The Anthropic SDK client was constructed with its defaults — a 600s read
+  timeout and two retries, up to half an hour of blocking inside a single
+  call — and the client is synchronous, so awaiting it blocked the loop with
+  no await point at which any timeout above could be delivered. That is
+  exactly the fifteen-review ingest: one run pinned at step 1 (the first model
+  call is `translate`, immediately after `_progress(rid, 1, …)`), thirteen
+  never started, one stopped.
+
+Nothing recorded that the thirteen had been queued, so a review that was
+queued and never started carried the same evidence as a review nobody had ever
+asked for: no draft row, no progress entry, no log line.
+
+**Why `stalled` did not fire.** `processing_state` read `if p:` — the presence
+of a progress entry WAS the definition of running. The entry is written at
+step 1 and removed in the run's `finally`, so the only run that could ever
+reach `stalled` was one that had already finished dying tidily. A wedged run
+never reaches its `finally` and reported "Step 1 of 8" for as long as the
+server stayed up.
+
+**What now exists.** `server/pipeline.py::run_batch` — one supervised task per
+ingest, every review marked queued before the first one starts, each run
+isolated and bounded by `RUN_TIMEOUT_S` (12 min), and a counted account at the
+end. `server/tiers.py::liveness` — one judgement, shared by the inbox row and
+the re-run button's poll, turning on a heartbeat (`updated_at`) rather than on
+an entry existing. Three states on the card, not two: queued / running /
+stopped. `STALL_AFTER_S` is 10 minutes of no stage progress, `QUEUE_STALL_AFTER_S`
+is 30 minutes unstarted, and both are ANNOUNCED in the sentence the reader
+sees, because deciding a run is dead from elapsed time is a judgement and
+nothing ever reports it.
+
+Still open: `process_review` opens its session before its own `try`. The batch
+runner catches it now, but the function is not self-consistent.
 
 ---
 

@@ -1377,10 +1377,15 @@ function _matchTitle(row, tier, candState) {
   // "Untraceable" is a claim about the booking. This one is a claim about the
   // run, and saying the first when you mean the second sends someone looking
   // for a booking nobody has searched for.
-  if (bucket === 'processing')
-    return row.processing_state === 'stalled'
-      ? 'The run stopped before it searched'
-      : 'Still running — nothing has been searched yet';
+  // Three states, not two. "Queued" is the one the fifteen-review ingest
+  // needed and did not have: a review the runner has been handed and has not
+  // started is not running, and calling it running is what made thirteen
+  // stranded reviews look like thirteen healthy ones.
+  if (bucket === 'processing') {
+    if (row.processing_state === 'stalled') return 'The run stopped before it searched';
+    if (row.processing_state === 'queued')  return 'Queued — the run has not started yet';
+    return 'Still running — nothing has been searched yet';
+  }
   if (bucket === 'untraceable') return 'Untraceable';
   if (row.unverified) return 'BID from the review — not verified in BigQuery';
   return _bidFromReview(row) ? 'Direct match' : 'Matched from Zendesk';
@@ -2259,7 +2264,9 @@ function renderInbox() {
                        : r.type === 'candidates'      ? ['Confirm match', 'warn']
                        : r.type === 'processing'      ?
                            (r.processingState === 'stalled'
-                              ? ['Run stopped', 'bad'] : ['Processing', ''])
+                              ? ['Run stopped', 'bad']
+                              : r.processingState === 'queued'
+                              ? ['Queued', ''] : ['Processing', ''])
                        : r.type === 'untraceable'     ? ['Untraceable', 'bad']
                        :                                ['Draft ready', 'ok'];
   list.innerHTML = filtered.map(r => {
@@ -6498,7 +6505,18 @@ document.addEventListener('click', async (ev) => {
       const pr = await fetch(`/api/reviews/${r.id}/progress`);
       if (pr.ok) {
         const p = await pr.json();
-        if (p.running) {
+        if (p.state === 'queued') {
+          btn.textContent = p.queue_size > 1
+            ? `⋯ queued ${p.queue_position}/${p.queue_size}` : '⋯ queued';
+        } else if (p.state === 'stalled') {
+          // The entry is still there and has stopped moving. Counting up
+          // against a stage that has not advanced for ten minutes is the
+          // spinner-over-a-corpse this whole change is about.
+          clearInterval(poll);
+          btn.disabled = false;
+          btn.textContent = `✗ no progress for ${Math.round(p.since_progress_s / 60)}m — try again`;
+          return;
+        } else if (p.running) {
           const m = String(Math.floor(p.elapsed_s / 60));
           const sec = String(p.elapsed_s % 60).padStart(2, '0');
           btn.textContent = `⟳ ${p.step}/${p.total} ${p.stage} · ${m}:${sec}`;
