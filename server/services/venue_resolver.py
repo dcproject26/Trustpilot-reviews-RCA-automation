@@ -3,6 +3,7 @@ BQ-backed venue hint → TGID resolver.
 Returns the union of experience_ids matching any of the hint strings.
 """
 import logging
+import re
 from server.services import bq_connector as bq
 
 log = logging.getLogger(__name__)
@@ -19,6 +20,49 @@ _FALLBACK_SQL = """
 """
 _WORKING_TABLE: str | None = None
 
+# Words that appear in half the catalogue and identify nothing. A hint
+# resolved on "tickets" or "tour" matches every experience Headout sells,
+# which is the same as matching none — except that it looks like a hit.
+_GENERIC = {
+    "ticket", "tickets", "tour", "tours", "entry", "entrance", "admission",
+    "pass", "passes", "skip", "line", "queue", "guided", "premium", "premo",
+    "standard", "combo", "and", "the", "with", "for", "from", "into", "our",
+    "day", "hour", "hours", "visit", "experience", "experiences", "booking",
+    "bookings", "adult", "child", "guide", "audio", "self", "access", "all",
+    "inclusive", "package", "trip", "show", "museum",
+}
+
+
+def venue_tokens(hint: str) -> list[str]:
+    """The words in a hint that could actually identify a venue.
+
+    THE BUG. The resolver matched the WHOLE hint string against
+    experience_name with LIKE '%...%'. Guests do not write venue names; they
+    write sentences. "premo tickets for collosseum" never matched anything,
+    and the card reported "Venues extracted but no TGIDs resolved" while
+    ranking fell back to date proximity — which offered a German water park
+    and a New York observatory for a review about the Colosseum.
+
+    So: resolve on the significant words INSIDE the phrase. Generic travel
+    vocabulary is dropped, because a hint resolved on "tickets" matches the
+    entire catalogue, and short words are dropped because three or four
+    characters inside a LIKE '%..%' matches by accident.
+
+    Longest first: the most specific token is the one most likely to be the
+    venue, and it is tried before the vaguer ones.
+    """
+    words = re.findall(r"[a-z0-9]+", (hint or "").lower())
+    toks = [w for w in words if len(w) >= 5 and w not in _GENERIC]
+    # Deduplicate, keeping the longest-first order.
+    seen, out = set(), []
+    for w in sorted(toks, key=len, reverse=True):
+        if w not in seen:
+            seen.add(w)
+            out.append(w)
+    return out
+
+
+
 
 def _probe_table(table: str, hint: str) -> list[dict] | None:
     try:
@@ -32,14 +76,87 @@ def _probe_table(table: str, hint: str) -> list[dict] | None:
         return None
 
 
+# A guest misspelling a venue is the norm, not the exception ("collosseum",
+# "sagrada familja", "eifel tower"). An exact LIKE will keep missing them.
+#
+# BUT A LOOSE VENUE MATCH IS WORSE THAN NONE: it produces a confident wrong
+# booking instead of admitting defeat, and a wrong booking confirmed by an
+# associate poisons the whole RCA. So the tolerance is deliberately narrow and
+# is only ever a SECOND pass, after the exact match for that token found
+# nothing.
+FUZZY_MIN_LEN = 7          # "colosseum" qualifies; "italy", "paris" do not
+FUZZY_MAX_EDITS = 2
+
+
+def fuzzy_budget(token: str) -> int:
+    """How many edits this token may differ by, or 0 for none at all.
+
+    Short words are excluded outright: at five characters an edit distance of
+    two reaches a large part of the dictionary, and "roma"/"rome"/"rope" are
+    all one apart. Long words carry enough signal that two edits is still a
+    strong claim.
+    """
+    n = len(token or "")
+    if n < FUZZY_MIN_LEN:
+        return 0
+    # Never more than a quarter of the word, so the tolerance grows with the
+    # evidence rather than with our optimism.
+    return max(1, min(FUZZY_MAX_EDITS, n // 4))
+
+
+_FUZZY_SQL = """
+    SELECT DISTINCT experience_id
+    FROM `{table}`
+    WHERE EXISTS (
+      SELECT 1 FROM UNNEST(SPLIT(LOWER(experience_name), ' ')) w
+      WHERE LENGTH(w) >= @minlen AND EDIT_DISTANCE(w, @hint) <= @budget
+    )
+    LIMIT 100
+"""
+
+
+def _fuzzy_rows(table: str, hint: str) -> list | None:
+    """Second-pass lookup for a misspelled token. None when it cannot run.
+
+    None and [] are different answers and the caller treats them differently:
+    None is "this pass did not happen", [] is "it ran and matched nothing".
+    """
+    budget = fuzzy_budget(hint)
+    if not budget or not table or table.startswith("fallback:"):
+        return None
+    try:
+        return bq.run_query(
+            _FUZZY_SQL.format(table=table),
+            params={"hint": hint, "budget": budget,
+                    "minlen": max(FUZZY_MIN_LEN - 2, 4)},
+        )
+    except Exception as e:
+        # EDIT_DISTANCE is not available on every BigQuery edition. A missing
+        # function must not take the exact-match path down with it.
+        log.info(f"venue_resolver: fuzzy pass unavailable for {hint!r}: {e}")
+        return None
+
+
 async def resolve(venue_hints: list[str] | None) -> list[int] | None:
-    """Resolve venue hints → sorted union of TGIDs. None if nothing resolved."""
+    """Resolve venue hints → sorted union of TGIDs. None if nothing resolved.
+
+    Each hint is broken into candidate tokens (see venue_tokens) and each
+    token is queried, rather than the whole phrase being matched verbatim.
+    A token that resolves to an implausible number of experiences is DROPPED
+    rather than unioned in: it is not identifying a venue, it is matching the
+    catalogue, and letting it through is how a shortlist fills with bookings
+    from the wrong continent.
+    """
     global _WORKING_TABLE
     if not venue_hints:
         return None
     all_tgids: set[int] = set()
+    probes: list[str] = []
     for raw_hint in venue_hints:
-        hint = (raw_hint or "").lower().strip()
+        probes.extend(venue_tokens(raw_hint))
+    # Falling back to the whole phrase would reintroduce the bug for any hint
+    # whose only words are generic, and those hints identify nothing anyway.
+    for hint in probes:
         if not hint:
             continue
         rows = None
@@ -71,12 +188,36 @@ async def resolve(venue_hints: list[str] | None) -> list[int] | None:
                     log.warning(f"venue_resolver: fallback also failed for '{hint}': {e2}")
                     rows = []
 
+        # A token matching most of the catalogue is not a venue signal. The
+        # LIMIT is 100, so 100 rows back means "at least 100" — indistinguishable
+        # from a wildcard, and treated as one.
+        _ids = []
         for r in rows or []:
             eid = r.get("experience_id")
             if eid is not None:
                 try:
-                    all_tgids.add(int(eid))
+                    _ids.append(int(eid))
                 except (TypeError, ValueError):
                     pass
+        if len(_ids) >= 100:
+            log.info(f"venue_resolver: token {hint!r} matched {len(_ids)}+ "
+                     f"experiences — not discriminating, dropped")
+            continue
+        if not _ids:
+            # Exact match found nothing. Try the narrow misspelling pass.
+            _fz = _fuzzy_rows(_WORKING_TABLE, hint)
+            for r in _fz or []:
+                eid = r.get("experience_id")
+                if eid is not None:
+                    try:
+                        _ids.append(int(eid))
+                    except (TypeError, ValueError):
+                        pass
+            if _ids:
+                log.info(f"venue_resolver: {hint!r} resolved only by spelling "
+                         f"tolerance (budget {fuzzy_budget(hint)}) → {len(_ids)} tgid(s)")
+            if len(_ids) >= 100:
+                continue
+        all_tgids.update(_ids)
 
     return sorted(all_tgids) if all_tgids else None

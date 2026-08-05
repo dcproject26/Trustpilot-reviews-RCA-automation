@@ -114,6 +114,47 @@ def _shape_weak_bid(row: dict, why: list) -> dict:
     return out
 
 
+def candidates_are_noise(candidates: list) -> bool:
+    """Is this shortlist ranked on nothing but how close a date is?
+
+    THE REPORTED CASE. A review about the Colosseum produced a German water
+    park, a New York observatory and a Borghese Gallery booking as "possible
+    matches". The venue was extracted, nothing resolved, and date proximity
+    filled the gap — so three unrelated bookings were offered to an associate
+    as a shortlist.
+
+    A shortlist ranked only on date proximity is not a shortlist. It costs
+    three lookups and, far worse, invites a confirmation: a wrong booking
+    confirmed by a person becomes the foundation of the entire RCA, and every
+    finding built on it is about somebody else's trip. "We could not identify
+    this booking" is a FACT the associate can act on — they can ask the guest
+    for a reference. Three bookings from three countries is a guess wearing a
+    shortlist's clothes.
+
+    So: noise when NOTHING agrees except the date. Any venue agreement, any
+    name agreement and any ticket signal keeps the list — those are real, if
+    weak, and suppressing them would hide matches that are simply hard.
+    """
+    rows = [c for c in (candidates or []) if isinstance(c, dict)]
+    if not rows:
+        return False           # nothing to suppress; not the same as noise
+    for c in rows:
+        if c.get("venue_signal"):
+            return False
+        for k in ("score_venue", "score_name", "score_ticket"):
+            try:
+                if float(c.get(k) or 0) > 0:
+                    return False
+            except (TypeError, ValueError):
+                pass
+        # A candidate from a path that recorded no sub-scores at all cannot be
+        # shown to be noise, and an unproven claim is not grounds for dropping
+        # somebody's only lead.
+        if not any(k in c for k in ("score_venue", "score_name", "score_ticket")):
+            return False
+    return True
+
+
 def tier1_promotable(conf: float, corroboration: float,
                      threshold: float = 3.0) -> tuple:
     """May a Zendesk-sourced booking id be presented as a verified Tier 1?
@@ -1088,9 +1129,15 @@ async def process_review(review_id: str, force_candidates: bool = False):
                     indicators = claude._extract_json_object(raw) or {}
                 except Exception as e:
                     log.warning(f"Indicator extraction failed: {e}")
+                # THE CITY IS NOT A VENUE. "Rome, Italy" was being passed to
+                # the venue resolver alongside the venue itself, which
+                # guarantees a miss — no experience is named "Rome, Italy" —
+                # and then reported as one of the "venues extracted", so the
+                # card claimed we had extracted two venues and resolved
+                # neither. The city has its own indicator and its own use in
+                # bid_indicator_check; it does not belong here.
                 venue_hints = [h for h in (
-                    indicators.get("experience_or_venue"),
-                    indicators.get("city_or_country")) if h and str(h).strip()]
+                    indicators.get("experience_or_venue"),) if h and str(h).strip()]
                 # The model occasionally answers with a range or an explanation
                 # ("2026-07-23 or 2026-07-24 (booked yesterday...)"). Anything
                 # that is not a bare date cannot be parsed downstream and scored
@@ -2013,6 +2060,25 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # So: the floor is now only for the case it was written for, and only
         # when tier 2 also came up empty. A live BigQuery saying no sends the
         # review down the tier-2 indicator search and into the picker.
+        # A shortlist ranked on nothing but date proximity is withheld — see
+        # candidates_are_noise. Counted and SAID, never silently dropped: the
+        # associate has to know a search ran and produced only noise, which is
+        # a different thing from a search that produced nothing at all.
+        if candidate_state and candidates and candidates_are_noise(candidates):
+            _n_noise = len(candidates)
+            confidence_trail.append({"mark": "warn",
+                "text": f"<strong>{_n_noise} possible match(es) withheld</strong> — none "
+                        f"of them agrees with the review on venue, guest name or any "
+                        f"Zendesk ticket; they were ranked only on how close the visit "
+                        f"date is to the review date. Offering bookings chosen that way "
+                        f"invites a wrong confirmation, and an RCA built on somebody "
+                        f"else's booking is worse than no match. Ask the guest for a "
+                        f"booking reference."})
+            log.info(f"[tier2] withheld {_n_noise} date-only candidate(s) for {review_id}")
+            candidates = []
+            candidate_state = False
+            match_tier = None
+
         untraceable_reason = None
         _bq_could_not_be_asked = not is_live("bigquery")
         if (not booking and not candidate_state and review.reference_number
