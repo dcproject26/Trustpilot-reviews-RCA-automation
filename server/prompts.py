@@ -1221,10 +1221,13 @@ Each maps to a `source` value used in `evidence[]`:
     similar-support counts, completion rates, ratings, and the window they cover.
     Pattern and recurrence claims → verify HERE.
 
-  source = "dss"       → the DSS sheet: the SOP needle our own decision sheet
-    prescribes for this situation. A playbook lookup, never a warehouse
-    aggregate.
-    Policy questions — what we were supposed to do → verify HERE.
+  There is NO evidence source for the DSS sheet. Look the needle up — that is
+  how you know whether a control existed and whether it was followed — but the
+  lookup is not evidence. An evidence row records what happened to THIS
+  booking; "no DSS row covers this scenario" is a remark about our own
+  paperwork, and it was reaching the reader's evidence list beside records of
+  what actually happened. What the sheet prescribes goes in `dss.prescribes`,
+  which is its own field and is where a reader looks for it.
 
 If the needed source is absent (redemption null, no tickets found), the
 evidence text says so plainly and `ref` is null — never guess, and weigh
@@ -1390,16 +1393,35 @@ that turned out fine is silence — never a line in the output.
                    booking is required, and no Baby option exists
      YES  because  No Baby/Infant option exists for the guest to select
 
-2f. `sop_gap` COMES FROM DSS. Look up the needle for this scenario BEFORE you
-   answer.
+2f. `sop_gap` IS CHECKED AGAINST DSS AND WRITTEN ABOUT THE PROCESS. Look up
+   the needle for this scenario BEFORE you answer. DSS tells you whether a
+   control existed and whether it was followed; it is never itself the
+   subject of the sentence.
      A path exists and was followed  ->  null. Say nothing.
      A path exists and was skipped   ->  name the STEP, not the outcome.
-     No path covers this scenario    ->  that ABSENCE is itself the gap. Say so.
+     No path covers this scenario    ->  the gap is the CONTROL NOBODY OWNS,
+                                         stated as the process failure.
      DSS unavailable                 ->  null, and name the source in
                                          `claim_accuracy_note`.
    NEVER write a step you cannot find in DSS. An invented process produces a
    deviation from nothing, and the team is sent to fix a rule that does not
    exist.
+
+   WRITE THE PROCESS FAILURE, NOT THE SHEET'S COVERAGE. The reader of this
+   field owns an operation, not a spreadsheet. "No DSS path governs a
+   system-initiated vendor reassignment" tells them about our documentation;
+   what they need is what nobody was required to do.
+     WRONG: "No DSS path governs a system-initiated vendor reassignment that
+            compresses the guest's rescheduling window."
+     RIGHT: "Nobody was required to contact the guest when the reassignment
+            compressed the rescheduling window, so it closed unnoticed."
+   Same for `fix`. The fix is the correction to the operation, never the
+   authoring of a DSS row.
+     WRONG: "Define a DSS path for system-initiated vendor reassignments."
+     RIGHT: "Require proactive notification to the guest whenever a
+            reassignment shortens the rescheduling window."
+   Never name DSS, the decision sheet, a needle, a row or a path in `sop_gap`,
+   in `fix.action` or in `fix.because`.
 
 2g. DO NOT REPEAT. The commonest failure is one fact restated across the
    block. Each field earns its place by saying something the others do not.
@@ -1749,7 +1771,7 @@ that turned out fine is silence — never a line in the output.
         "evidence": [
           {
             "text": "<what the record says, at its own grain — no source prefix, no URL>",
-            "source": "<booking | bms | zendesk | insights | dss | exp-page>",
+            "source": "<booking | bms | zendesk | insights | exp-page>",
             "ref": "<record URL or ZD-xxxxx | null>",
             "backs_claim": "<Yes | No | null>"
           }
@@ -1838,7 +1860,6 @@ that turned out fine is silence — never a line in the output.
        exactly as INSIGHTS states it. A count with no window is not checkable, and the window
        is the thing that changes underneath it.
      source "booking" / "bms" → the booking id.
-     source "dss"      → the DSS row URL.
      source "exp-page" → null is correct; the page is the product config, not a row.
    `null` is a claim that no identifier exists, not a shortcut for not looking one up.
 6b. When a disclosure claim is in play — the guest says they were not told something, or were
@@ -2007,8 +2028,9 @@ that turned out fine is silence — never a line in the output.
 14. `dss.prescribes` states what the matched DSS row prescribes for this scenario, in its own
     words — it is reference data, not your analysis, so do not add whether we complied, and
     do not restate the row's L1/L2/sub-theme (the UI derives that from the
-    classification). Evidence drawn from the DSS sheet uses `"source": "dss"` — never
-    `"insights"` (a DSS needle is a playbook lookup, not a warehouse aggregate).
+    classification). Do NOT cite the DSS sheet in `evidence[]` at all — it has no source
+    value, and a row about the sheet's own coverage is not a record of what happened to this
+    booking. `dss.prescribes` is where the needle belongs.
 15. `l1`, `l2` and `sub_themes` must come from the taxonomy verbatim (including any letter
     prefix, e.g. `"C. Ticket Delayed"`). Never invent a category, never abbreviate one, and
     never leave them empty — if the review is unclassifiable, use the taxonomy's own catch-all.

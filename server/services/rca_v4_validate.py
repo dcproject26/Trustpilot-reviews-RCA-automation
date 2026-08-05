@@ -22,6 +22,20 @@ from server.taxonomy import L1_CATEGORIES, L2_OPTIONS
 CLAIM_ACCURACY = ("Accurate", "Partly accurate", "Inaccurate", "Unknown")
 ISA_VERDICT    = ("Yes", "No", "Unknown")
 SOURCES        = ("booking", "bms", "zendesk", "insights", "dss", "exp-page")
+
+# WHAT AN EVIDENCE ROW MAY CITE — the same list WITHOUT `dss`.
+#
+# A what-went-wrong evidence row saying `dss — "DSS matched row is for 'Tour
+# started late'; no row covers a system-initiated vendor reassignment"` reached
+# a card. That is not evidence about the booking; it is a remark about our own
+# decision sheet's coverage, and it appears in the reader's evidence list
+# beside records of what actually happened.
+#
+# NARROWED DELIBERATELY. `dss` stays in SOURCES because it is still valid for
+# `fix.source` — which records where a gap was READ and never renders — and for
+# issue_specific_answers. DSS is still what you CHECK a gap against; it is no
+# longer something the reader is shown as evidence.
+EVIDENCE_SOURCES = tuple(s for s in SOURCES if s != "dss")
 TAKEDOWN       = ("Yes", "No", "Untraceable")
 # `fix.owner` names the team that closes the gap, so it has to be the SAME
 # nine as Flags and Actions Taken. It was a THIRD vocabulary - Content, CE,
@@ -240,7 +254,7 @@ def _accuracy(raw):
     return "Unknown", tail or (first or None)
 
 
-def _evidence_rows(raw):
+def _evidence_rows(raw, notes=None):
     """evidence[] as {text, source, ref, backs_claim}.
 
     `backs_claim` is Yes / No / null, and NULL IS A REAL ANSWER: the entry is
@@ -248,7 +262,18 @@ def _evidence_rows(raw):
     Anything unrecognised lands on null rather than No, because a wrong No
     reads as settled and contradicts a guest on evidence that was never about
     them. Legacy strings are wrapped and get null.
+
+    `dss` is NOT a valid evidence source. A row citing the decision sheet's
+    own coverage is a remark about our paperwork, not a record of what
+    happened to this booking, and it was appearing in the reader's evidence
+    list beside records that are. A row that cites it keeps its TEXT and loses
+    its source — dropping the row would delete a sentence the model wrote, and
+    silently relabelling it would attribute the finding to a system it did not
+    come from. The demotion is COUNTED and reported, because a source that
+    quietly became null looks exactly like one the model never supplied.
     """
+    notes = notes if notes is not None else []
+    demoted = 0
     out = []
     for e in (raw if isinstance(raw, list) else []):
         if isinstance(e, str):
@@ -258,7 +283,14 @@ def _evidence_rows(raw):
             src = None
             m = re.match(r"^\[([a-z-]+)\]\s*(.+)$", txt or "", re.I)
             if m and m.group(1).lower() in SOURCES:
+                # Matched against SOURCES, not EVIDENCE_SOURCES, so a legacy
+                # "[dss] ..." prefix is still RECOGNISED and stripped. Leaving
+                # it unmatched would render the bracket inline, which is the
+                # defect the structured fields exist to remove.
                 src, txt = m.group(1).lower(), _clean(m.group(2))
+                if src not in EVIDENCE_SOURCES:
+                    src = None
+                    demoted += 1
             if txt:
                 out.append({"text": txt, "source": src, "ref": None,
                             "backs_claim": None})
@@ -271,12 +303,19 @@ def _evidence_rows(raw):
         # A source or URL written into the sentence is the defect the
         # structured fields exist to remove.
         txt = re.sub(r"^\[[a-z-]+\]\s*", "", txt, flags=re.I).strip()
+        if str(e.get("source") or "").strip().lower() == "dss":
+            demoted += 1
         out.append({
             "text":   txt,
-            "source": _enum(e.get("source"), SOURCES, None),
+            "source": _enum(e.get("source"), EVIDENCE_SOURCES, None),
             "ref":    _clean(e.get("ref")),
             "backs_claim": _enum(e.get("backs_claim"), ("Yes", "No"), None),
         })
+    if demoted:
+        notes.append(
+            f"{demoted} evidence row(s) cited the DSS sheet as their source — "
+            f"the text is kept, the source is dropped. DSS is what a gap is "
+            f"CHECKED against, not a record of what happened to this booking")
     return out
 
 
@@ -317,6 +356,39 @@ def _fix_obj(raw, notes):
     return out
 
 
+
+# "No DSS path governs a system-initiated vendor reassignment" is a remark
+# about our own documentation. The reader of `sop_gap` owns an operation, not
+# a spreadsheet: what they need is what nobody was required to DO.
+_DSS_WORDED = re.compile(
+    r"\b(dss|decision sheet)\b|\bno (?:such )?(?:row|path|needle)\b", re.I)
+
+
+def _flag_dss_wording(issue, notes):
+    """Say when the gap or the fix was written as DSS coverage.
+
+    REPORTED, NOT REWRITTEN. The sentence is the model's analysis and there is
+    no mechanical way to restate it correctly — deleting it would lose a real
+    finding, and paraphrasing it would put words in the model's mouth. So the
+    text stands and the trail says the field was written about the sheet
+    rather than about the process, which is a thing a reader can act on.
+
+    It has to be able to say it found nothing, and it does: no note at all
+    when the wording is clean, which is the ordinary case.
+    """
+    for field, value in (("sop_gap", issue.get("sop_gap")),
+                         ("fix.action", (issue.get("fix") or {}).get("action")
+                          if isinstance(issue.get("fix"), dict) else None),
+                         ("fix.because", (issue.get("fix") or {}).get("because")
+                          if isinstance(issue.get("fix"), dict) else None)):
+        if value and _DSS_WORDED.search(str(value)):
+            notes.append(
+                f"{field} is written about the DSS sheet's coverage rather "
+                f"than about the process — kept as written, but the gap a "
+                f"team can act on is what nobody was required to do: "
+                f"{str(value)[:80]!r}")
+
+
 def _issue(raw, notes):
     acc, tail = _accuracy(raw.get("claim_accuracy"))
     # Only when the value actually CHANGED. "Unknown" is a legitimate verdict,
@@ -343,7 +415,7 @@ def _issue(raw, notes):
                 notes.append(f"{_f} dropped — {acc} leaves nothing to diagnose")
                 break
 
-    return {
+    out = {
         "issue":                _clean(raw.get("issue")) or "Untitled issue",
         # Verbatim guest words at whatever length they wrote - never trimmed.
         "claim":                raw.get("claim") if isinstance(raw.get("claim"), str)
@@ -361,8 +433,10 @@ def _issue(raw, notes):
         "sop_gap":              _clean(raw.get("sop_gap")) if _diagnosable else None,
         "pattern":              _clean(raw.get("pattern")),
         "fix":                  _fix_obj(raw.get("fix"), notes) if _diagnosable else None,
-        "evidence":             _evidence_rows(raw.get("evidence")),
+        "evidence":             _evidence_rows(raw.get("evidence"), notes),
     }
+    _flag_dss_wording(out, notes)
+    return out
 
 
 _STOP = {"the", "a", "an", "of", "to", "for", "and", "or", "in", "on", "was",

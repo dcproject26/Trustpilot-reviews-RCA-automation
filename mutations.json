@@ -1264,5 +1264,53 @@
   "name": "the ungated actions_taken is assigned at save again",
   "find": "        # Actions Taken is NOT assigned here. It used to be \u2014 an UNGATED list",
   "replace": "        draft.actions_taken = {\"sp\":[],\"customer\":[]}\n        # Actions Taken is NOT assigned here. It used to be \u2014 an UNGATED list"
+ },
+ {
+  "file": "server/services/rca_v4_validate.py",
+  "name": "dss is a valid evidence source again",
+  "find": "EVIDENCE_SOURCES = tuple(s for s in SOURCES if s != \"dss\")",
+  "replace": "EVIDENCE_SOURCES = SOURCES"
+ },
+ {
+  "file": "server/services/rca_v4_validate.py",
+  "name": "a demoted dss evidence row is dropped instead of kept",
+  "find": "        if str(e.get(\"source\") or \"\").strip().lower() == \"dss\":\n            demoted += 1",
+  "replace": "        if str(e.get(\"source\") or \"\").strip().lower() == \"dss\":\n            demoted += 1\n            continue"
+ },
+ {
+  "file": "server/services/rca_v4_validate.py",
+  "name": "the dss evidence demotion goes unreported",
+  "find": "    if demoted:\n        notes.append(",
+  "replace": "    if False:\n        notes.append("
+ },
+ {
+  "file": "server/services/rca_v4_validate.py",
+  "name": "a legacy [dss] prefix keeps its source",
+  "find": "                if src not in EVIDENCE_SOURCES:\n                    src = None\n                    demoted += 1",
+  "replace": "                pass"
+ },
+ {
+  "file": "server/services/rca_v4_validate.py",
+  "name": "a gap written as DSS coverage is not reported",
+  "find": "    _flag_dss_wording(out, notes)\n    return out",
+  "replace": "    return out"
+ },
+ {
+  "file": "server/services/rca_v4_validate.py",
+  "name": "the dss wording check fires on every gap",
+  "find": "        if value and _DSS_WORDED.search(str(value)):",
+  "replace": "        if value:"
+ },
+ {
+  "file": "server/services/rca_v4_validate.py",
+  "name": "the evidence rows stop being handed the notes list",
+  "find": "        \"evidence\":             _evidence_rows(raw.get(\"evidence\"), notes),",
+  "replace": "        \"evidence\":             _evidence_rows(raw.get(\"evidence\")),"
+ },
+ {
+  "file": "server/prompts.py",
+  "name": "rule 2f stops telling the model to write the process failure",
+  "find": "   WRITE THE PROCESS FAILURE, NOT THE SHEET'S COVERAGE.",
+  "replace": "   WRITE WHATEVER.  NOT THE SHEET'S COVERAGE."
  }
 ]
