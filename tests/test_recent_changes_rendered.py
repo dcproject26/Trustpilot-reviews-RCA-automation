@@ -718,3 +718,311 @@ def test_a_refresh_of_the_SAME_booking_still_keeps_what_it_has(page):
     assert rows["Booking ID"] == "33204378", rows
     assert rows["Fulfilment type"] == "MOBILE_TICKET", (
         f"a partial refresh of the SAME booking blanked the panel: {rows}")
+
+
+# ── the DSS row is correctable, and a correction says it is one ─────────────
+
+def _dss(page):
+    return page.evaluate("""() => {
+      const b = document.querySelector('.dss-block');
+      if (!b) return null;
+      return {editables: b.querySelectorAll('[data-v3p]').length,
+              mark: !!b.querySelector('.dss-hand'),
+              btn: (b.querySelector('[data-dss-edit]') || {}).textContent || '',
+              text: b.innerText}; }""")
+
+
+def test_the_dss_block_exists_and_toggles_into_edit(page):
+    """NOT BUILT guard plus the toggle. Read-only by default: it is reference
+    data, and an always-editable field invites accidental edits to a row
+    nobody meant to change."""
+    before = _dss(page)
+    assert before, "there is no DSS block on the card — NOT BUILT"
+    assert before["editables"] == 0, (
+        "the DSS row is editable before anyone asked")
+    page.click("[data-dss-edit]")
+    page.wait_for_timeout(300)
+    during = _dss(page)
+    assert during["editables"] >= 1, (
+        "✎ Edit did not produce an editable field — the associate is looking "
+        "at a possibly-wrong row with no way to correct it")
+    page.click("[data-dss-edit]")
+    page.wait_for_timeout(300)
+    assert _dss(page)["editables"] == 0
+
+
+def test_an_unmatched_row_is_still_writable(page):
+    """The case the control exists for. Rendering the empty state with nothing
+    to type into left a miss uncorrectable."""
+    got = page.evaluate("""async () => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keep = JSON.parse(JSON.stringify(r.rca.v3.dss || {}));
+      r.rca.v3.dss = {};
+      state.dssEdit = true; renderRcaCol();
+      const b = document.querySelector('.dss-block');
+      const out = {editables: b.querySelectorAll('[data-v3p]').length,
+                   ph: (b.querySelector('[data-v3p]') || {}).dataset
+                       ? b.querySelector('[data-v3p]').dataset.ph : ''};
+      r.rca.v3.dss = keep; state.dssEdit = false; renderRcaCol();
+      return out; }""")
+    assert got["editables"] >= 1, (
+        "a DSS row that matched nothing cannot be written — NOT BUILT")
+    assert "playbook" in (got["ph"] or ""), got
+
+
+def test_a_corrected_row_is_marked_and_a_matched_one_is_not(page):
+    """A row a person corrected and a row the scorer picked must not render
+    identically."""
+    got = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keep = JSON.parse(JSON.stringify(r.rca.v3.dss || {}));
+      r.rca.v3.dss = {prescribes: 'Matched by the lookup'};
+      renderRcaCol();
+      const matched = !!document.querySelector('.dss-block .dss-hand');
+      r.rca.v3.dss = {prescribes: 'Written by a person', by_hand: true};
+      renderRcaCol();
+      const el = document.querySelector('.dss-block .dss-hand');
+      const corrected = el ? {text: el.textContent.trim(),
+                              title: el.getAttribute('title') || ''} : null;
+      r.rca.v3.dss = keep; renderRcaCol();
+      return {matched, corrected}; }""")
+    assert got["matched"] is False, (
+        "a row the lookup matched is marked as hand-corrected")
+    assert got["corrected"], (
+        "a hand-corrected row renders identically to a matched one")
+    assert got["corrected"]["text"] == "by hand"
+    assert "not the row the lookup matched" in got["corrected"]["title"]
+
+
+def test_the_marker_is_not_dressed_as_a_warning(page):
+    """It is provenance, not a problem. Amber and red carry fixed meanings on
+    this card and a quiet marker must not borrow either."""
+    got = page.evaluate("""() => {
+      const mk = c => { const e = document.createElement('span'); e.className = c;
+                        document.body.append(e); return e; };
+      const hand = mk('dss-hand'), stale = mk('stale-bar'), err = mk('rca-empty err');
+      const out = [hand, stale, err].map(e => getComputedStyle(e).color);
+      [hand, stale, err].forEach(e => e.remove());
+      return out; }""")
+    assert got[0] != got[1], "the by-hand marker shares the stale/amber colour"
+    assert got[0] != got[2], "the by-hand marker shares the broken/red colour"
+
+
+# ── the scenario chips: one list, rendered once, and a live × ───────────────
+
+def _chips(page):
+    return page.evaluate("""() => {
+      const rows = {};
+      document.querySelectorAll('.chip-row').forEach(r => {
+        const label = (r.querySelector('.chip-row-label') || {}).textContent || '';
+        rows[label.trim()] = [...r.querySelectorAll('.chip')].map(
+          c => c.textContent.replace('×', '').trim());
+      });
+      return rows; }""")
+
+
+def test_one_scenario_renders_exactly_once(page):
+    """The report: `Refund issues ×` twice under Scenarios and again under
+    Overlays. The rows are two views of ONE list now — the primary and its
+    tail — so nothing can appear in both."""
+    got = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keep = [r.rca.scenarios, r.rca.overlayScenarios];
+      r.rca.scenarios = ['Refund issues'];
+      r.rca.overlayScenarios = ['Refund issues'];
+      renderReviewCol();
+      const rows = {};
+      document.querySelectorAll('.chip-row').forEach(x => {
+        const l = (x.querySelector('.chip-row-label') || {}).textContent || '';
+        rows[l.trim()] = [...x.querySelectorAll('.chip')].map(
+          c => c.textContent.replace('×', '').trim());
+      });
+      [r.rca.scenarios, r.rca.overlayScenarios] = keep;
+      renderReviewCol();
+      return rows; }""")
+    assert "Primary" in got, f"the scenario rows did not render — NOT BUILT: {got}"
+    all_chips = got.get("Primary", []) + got.get("Overlays", [])
+    assert all_chips.count("Refund issues") == 1, (
+        f"one scenario renders {all_chips.count('Refund issues')} times: {got}")
+
+
+def test_the_overlay_row_is_the_tail_of_the_one_list(page):
+    got = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keep = [r.rca.scenarios, r.rca.overlayScenarios];
+      r.rca.scenarios = ['Refund issues', 'Tickets sent late'];
+      r.rca.overlayScenarios = ['Tickets sent late'];
+      renderReviewCol();
+      const rows = {};
+      document.querySelectorAll('.chip-row').forEach(x => {
+        const l = (x.querySelector('.chip-row-label') || {}).textContent || '';
+        rows[l.trim()] = [...x.querySelectorAll('.chip')].map(
+          c => c.textContent.replace('×', '').trim());
+      });
+      [r.rca.scenarios, r.rca.overlayScenarios] = keep;
+      renderReviewCol();
+      return rows; }""")
+    assert got["Primary"] == ["Refund issues"], got
+    assert got["Overlays"] == ["Tickets sent late"], got
+
+
+def test_the_scenario_delete_removes_it_from_the_one_list(page):
+    """The × was dead because the removal was saved and then overwritten by a
+    union that still held it. Driven through the real delegated handler, with
+    the network stubbed so the regen round trip is deterministic."""
+    got = page.evaluate("""async () => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keep = [r.rca.scenarios, r.rca.overlayScenarios];
+      if (!window.__realFetch) window.__realFetch = window.fetch.bind(window);
+      const sent = [];
+      window.fetch = async (url, opts) => {
+        const u = String(url);
+        if (u.includes('/regenerate-rca')) {
+          sent.push(JSON.parse((opts || {}).body || '{}'));
+          return new Response(JSON.stringify({rca_v3: r.rca.v3}), {status: 200});
+        }
+        if (u.includes('/draft-v2') || u.includes('/insights'))
+          return new Response(JSON.stringify({ok: true}), {status: 200});
+        if (/\\/api\\/reviews\\/[^/?]+$/.test(u.split('?')[0]))
+          return new Response(JSON.stringify({draft: null, review: null}), {status: 200});
+        return window.__realFetch(url, opts);
+      };
+      r.rca.scenarios = ['Refund issues', 'Tickets sent late'];
+      r.rca.overlayScenarios = ['Tickets sent late'];
+      renderReviewCol();
+      document.querySelector('[data-overlay-remove]').click();
+      await new Promise(x => setTimeout(x, 900));
+      const after = [...(r.rca.scenarios || [])];
+      window.fetch = window.__realFetch;
+      [r.rca.scenarios, r.rca.overlayScenarios] = keep;
+      renderReviewCol();
+      return {after, sent}; }""")
+    assert got["after"] == ["Refund issues"], (
+        f"removing the overlay left it in the one list: {got['after']}")
+    assert got["sent"], "the delete never reached regenerate-rca"
+    assert got["sent"][-1]["scenarios"] == ["Refund issues"], (
+        f"the request that overwrites the stored list still carried the "
+        f"deleted scenario: {got['sent'][-1]['scenarios']}")
+
+
+def test_the_primary_delete_is_live_too(page):
+    got = page.evaluate("""async () => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keep = [r.rca.scenarios, r.rca.overlayScenarios];
+      if (!window.__realFetch) window.__realFetch = window.fetch.bind(window);
+      window.fetch = async (url, opts) => {
+        const u = String(url);
+        if (u.includes('/regenerate-rca'))
+          return new Response(JSON.stringify({rca_v3: r.rca.v3}), {status: 200});
+        if (u.includes('/draft-v2') || u.includes('/insights'))
+          return new Response(JSON.stringify({ok: true}), {status: 200});
+        if (/\\/api\\/reviews\\/[^/?]+$/.test(u.split('?')[0]))
+          return new Response(JSON.stringify({draft: null, review: null}), {status: 200});
+        return window.__realFetch(url, opts);
+      };
+      r.rca.scenarios = ['Refund issues', 'Tickets sent late'];
+      r.rca.overlayScenarios = ['Tickets sent late'];
+      renderReviewCol();
+      document.querySelector('[data-scenario-remove]').click();
+      await new Promise(x => setTimeout(x, 900));
+      const after = [...(r.rca.scenarios || [])];
+      window.fetch = window.__realFetch;
+      [r.rca.scenarios, r.rca.overlayScenarios] = keep;
+      renderReviewCol();
+      return after; }""")
+    assert got == ["Tickets sent late"], (
+        f"removing the primary did not promote the overlay: {got}")
+
+
+# ── the Resolution & takedown block is one treatment, not three ─────────────
+#
+# Measured, not spelled. A test asserting `class="chip-select"` appears in the
+# file passes against a build where the rule it names was deleted — these read
+# the computed box off real elements, in the spirit of the stale-notice test
+# that asserts three states do NOT share a colour.
+
+def _res_block(page):
+    return page.evaluate("""() => {
+      const sec = [...document.querySelectorAll('#rca-col .section')].find(
+        s => /resolution/i.test((s.querySelector('.section-label')||{}).innerText || ''));
+      if (!sec) return null;
+      const box = el => { const cs = getComputedStyle(el); const r = el.getBoundingClientRect();
+        return {h: Math.round(r.height), radius: cs.borderTopLeftRadius,
+                border: cs.borderTopColor, bw: cs.borderTopWidth,
+                pad: cs.paddingTop + '/' + cs.paddingLeft}; };
+      return {
+        selects: [...sec.querySelectorAll('select')].map(box),
+        buttons: [...sec.querySelectorAll('.btn')].map(box),
+        labels:  [...sec.querySelectorAll('.res-label, .dss-label')].map(
+                   el => getComputedStyle(el).color),
+        inline:  [...sec.querySelectorAll('[style]')].map(el => el.getAttribute('style')),
+      }; }""")
+
+
+def test_the_block_was_found_and_has_controls(page):
+    """NOT BUILT guard. An empty control list makes every comparison below
+    vacuously true."""
+    got = _res_block(page)
+    assert got, "the Resolution & takedown section did not render — NOT BUILT"
+    assert len(got["selects"]) >= 3, (
+        f"only {len(got['selects'])} selects found; the block has the "
+        f"resolution type, the takedown verdict and the ground picker")
+    assert got["buttons"], "no button in the block — the DSS Edit control is gone"
+
+
+def test_every_control_in_the_block_is_the_same_height(page):
+    """Three heights in one block is what made it read as unfinished."""
+    got = _res_block(page)
+    heights = {c["h"] for c in got["selects"] + got["buttons"] if c["h"]}
+    assert len(heights) == 1, (
+        f"the controls in this block have {len(heights)} different heights: "
+        f"{sorted(heights)}")
+
+
+def test_every_control_shares_one_border_and_one_radius(page):
+    got = _res_block(page)
+    ctrls = got["selects"] + got["buttons"]
+    assert len({c["radius"] for c in ctrls}) == 1, (
+        f"mixed corner radii: {sorted({c['radius'] for c in ctrls})}")
+    assert len({c["border"] for c in ctrls}) == 1, (
+        f"mixed border colours: {sorted({c['border'] for c in ctrls})}")
+    assert len({c["bw"] for c in ctrls}) == 1, (
+        f"mixed border widths: {sorted({c['bw'] for c in ctrls})}")
+
+
+def test_the_two_labels_in_the_block_are_one_grey(page):
+    """DSS used --dim while the resolution labels used --muted-2 — two greys
+    six lines apart in the same block."""
+    got = _res_block(page)
+    assert len(got["labels"]) >= 2, f"only {len(got['labels'])} labels found"
+    assert len(set(got["labels"])) == 1, (
+        f"the block's labels are {len(set(got['labels']))} different colours: "
+        f"{set(got['labels'])}")
+
+
+def test_no_control_opts_out_with_an_inline_style(page):
+    """An inline font-size and padding is a control leaving the design system
+    by definition, and it is how the block drifted in the first place."""
+    got = _res_block(page)
+    offenders = [st for st in got["inline"]
+                 if any(k in (st or "") for k in
+                        ("font-size", "padding", "border-radius", "height"))]
+    assert not offenders, f"inline control styling in the block: {offenders}"
+
+
+def test_the_takedown_verdict_keeps_its_colour_roles(page):
+    """Uniformity must not flatten meaning. Yes/Untraceable carry green and
+    amber and those are fixed roles on this card."""
+    got = page.evaluate("""() => {
+      const s = document.querySelector('[data-takedown-rec]');
+      if (!s) return null;
+      const out = {};
+      for (const v of ['No', 'Yes', 'Untraceable']) {
+        s.className = 'chip-select td-' + v.toLowerCase();
+        out[v] = getComputedStyle(s).backgroundColor;
+      }
+      s.className = 'chip-select td-no';
+      return out; }""")
+    assert got, "the takedown verdict control is gone — NOT BUILT"
+    assert len(set(got.values())) == 3, (
+        f"the three verdicts no longer read apart: {got}")

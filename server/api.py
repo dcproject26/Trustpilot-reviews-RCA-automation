@@ -1148,6 +1148,28 @@ _V4_SECTIONS = {
 }
 
 
+def _dss_for_prompt(d) -> dict:
+    """What the RCA prompt should be told the playbook prescribes.
+
+    `d.dss_rec` is what the lookup returned. `rca_v3.dss` is what the card
+    shows and what an associate can CORRECT — the lookup matches the wrong row
+    often enough that the edit control exists. A re-run that read the lookup
+    would discard the correction it was asked to act on.
+
+    The edited value wins only when it was actually edited: `by_hand` is set by
+    the card when someone types into the field, so an untouched projection of
+    the lookup does not shadow the lookup's own richer record.
+    """
+    v3dss = (d.rca_v3 or {}).get("dss") if isinstance(d.rca_v3, dict) else None
+    if isinstance(v3dss, dict) and v3dss.get("by_hand") and v3dss.get("prescribes"):
+        base = dict(d.dss_rec or {})
+        base["dss"] = v3dss.get("prescribes")
+        base["prescribes"] = v3dss.get("prescribes")
+        base["corrected_by_hand"] = True
+        return base
+    return d.dss_rec or {}
+
+
 def settle_scenarios(raw):
     """One ordered, deduplicated scenario list, plus the two scalars it implies.
 
@@ -1709,7 +1731,13 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
             booking=d.booking or {},
             timeline=d.timeline or [],
             insights=d.insights or {},
-            dss_rec=d.dss_rec or {},
+            # THE EDITED DSS WINS. The lookup can match the wrong row, and
+            # an associate who corrects it must not have the correction
+            # ignored by the very re-run they corrected it for. rca_v3.dss is
+            # where the card's edit lands; d.dss_rec is what the lookup found.
+            # Two stores for one fact, and the prompt was reading the one the
+            # person could not change.
+            dss_rec=_dss_for_prompt(d),
             l1=d.l1 or "", l2=d.l2 or "",
             sub_theme=", ".join(d.sub_themes or ([d.sub_theme] if d.sub_theme else [])),
             support_summary=d.support_summary or "",

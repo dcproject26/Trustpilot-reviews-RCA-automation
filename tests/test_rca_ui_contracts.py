@@ -278,7 +278,24 @@ def test_the_dss_stub_is_gone():
 
 def test_dss_is_read_only_until_edit():
     """Reference data, not analysis — an operator reads it to check their
-    resolution against the playbook."""
+    resolution against the playbook.
+
+    THIS USED TO ASSERT THE TERNARY'S EXACT SOURCE TEXT
+    (`state.dssEdit ? edSpan('dss.prescribes'`), which is the spelling check
+    CLAUDE.md forbids: it broke on a restructure that changed nothing about
+    the behaviour, and it would have passed just as happily against a build
+    where the branch had become unreachable. The BEHAVIOUR — read-only until
+    ✎ Edit, editable after, and writable even when the lookup matched
+    nothing — is driven in a real browser by
+    tests/test_recent_changes_rendered.py::test_the_dss_block_exists_and_toggles_into_edit
+    and ::test_an_unmatched_row_is_still_writable.
+
+    What is left here is NEGATIVE, which unreachability cannot defeat: the
+    panel must not be unconditionally editable.
+    """
     i = CLIENT.find('<div class="dss-panel">')
-    assert i > 0
-    assert "state.dssEdit ? edSpan('dss.prescribes'" in CLIENT
+    assert i > 0, "the DSS panel is gone from the client"
+    panel = CLIENT[i:i + 900]
+    assert "state.dssEdit" in panel, (
+        "the DSS panel no longer consults the edit toggle at all, so it is "
+        "either always or never editable")

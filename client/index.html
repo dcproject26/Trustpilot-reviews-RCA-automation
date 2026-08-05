@@ -804,10 +804,26 @@
     flex: none; font-size: 10.5px; font-weight: 650; text-transform: uppercase;
     letter-spacing: .05em; color: var(--muted-2);
   }
+  /* ── Resolution & takedown: ONE control treatment ────────────────────────
+     The block had three. Inline chip selects at 10.5px with a transparent
+     border and 5px radius, a full-width ground picker at 12px with an
+     --input-bd border and 6px radius, and an Edit button carrying its own
+     inline font-size and padding. Three heights and three borders in one
+     block, which is what made it read as unfinished rather than as one thing.
+     These four properties are shared by every control in the block; only what
+     genuinely differs — a chip's weight and fill, a picker's flexible
+     width — is set separately below. */
+  .res-head select, .res-head .btn, .dss-head .btn {
+    /* An explicit height, not a min-height: a select sizes to its font and a
+       button to its padding, so "the same padding" still produced two
+       different boxes. One number is the only thing that makes them agree. */
+    height: 24px; box-sizing: border-box; line-height: 1;
+    padding: 2px 7px; border-radius: 6px;
+    border: 1px solid var(--input-bd); font: inherit; cursor: pointer;
+  }
   .chip-select {
-    flex: none; font: inherit; font-size: 10.5px; font-weight: 700;
-    padding: 1px 5px; border-radius: 5px; border: 1px solid transparent;
-    background: var(--hover-fill); color: var(--muted); cursor: pointer;
+    flex: none; font-size: 10.5px; font-weight: 700;
+    background: var(--hover-fill); color: var(--muted);
   }
   .chip-select.td-yes { background: var(--green-bg); color: var(--green); }
   .chip-select.td-untraceable { background: var(--amber-bg); color: var(--amber); }
@@ -821,8 +837,7 @@
      much. Styled as absence, not as a problem. */
   .res-amount-unknown { flex: none; font-size: 11px; font-style: italic; color: var(--empty); }
   .res-reason {
-    flex: 1 1 auto; min-width: 120px; font: inherit; font-size: 12px;
-    padding: 4px 7px; border-radius: 6px; border: 1px solid var(--input-bd);
+    flex: 1 1 auto; min-width: 120px; font-size: 11.5px;
     background: var(--facts-bg); color: var(--text);
   }
   .res-line { margin-top: 5px; font-size: 12px; color: var(--body);
@@ -1171,11 +1186,27 @@
   /* §12 the DSS block: reference data, read-only until ✎ Edit. */
   .dss-block { border-top: 1px dashed var(--dashed); margin-top: 10px; padding-top: 8px; }
   .dss-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  /* The SAME label treatment as .res-label. It was --dim against the
+     resolution block's --muted-2, so two labels in one block, six lines
+     apart, were two different greys. */
   .dss-label {
     font-size: 10.5px; font-weight: 650; letter-spacing: .05em;
-    text-transform: uppercase; color: var(--dim); flex: none;
+    text-transform: uppercase; color: var(--muted-2); flex: none;
   }
-  .dss-src { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  /* Aligned with the label and the row it sits between, rather than sitting
+     on its own baseline — the head row had three alignments in it. */
+  .dss-src { font-family: var(--mono); font-size: 10px; color: var(--muted);
+             flex: none; align-self: center; }
+  /* Font-size and padding came from an inline style attribute, which is a
+     control opting out of the system by definition. */
+  .dss-edit-btn { flex: none; font-size: 10.5px; }
+  /* A DSS row somebody corrected. Same treatment as the area-of-improvement
+     "by hand" marker, because it means the same thing: this is a person's
+     answer, not the machine's. Quiet — it is a provenance mark, not a
+     warning, so it must not borrow amber. */
+  .dss-hand { font-family: var(--mono); font-size: 10px; color: var(--muted-2);
+              border: 1px solid var(--border); border-radius: 3px;
+              padding: 0 4px; margin-left: 6px; white-space: nowrap; }
   .dss-row { flex: 1 1 auto; min-width: 0; font-size: 11.5px; color: var(--muted);
              overflow-wrap: anywhere; }
   .dss-panel {
@@ -1672,10 +1703,14 @@ function _resObj(raw) {
           compensation_type: null, amount: null};
 }
 
-function edSpan(path, text, ph = 'click to write') {
+function edSpan(path, text, ph = 'click to write', markPath = '') {
+  // `markPath` is a second dot path set to true when this field is EDITED. A
+  // value a person corrected and a value the machine produced must not render
+  // identically — the same reason area_of_improving marks a hand-added point
+  // "by hand" against a derived one.
   const empty = !String(text == null ? '' : text).trim();
   return `<span class="editable-text${empty ? ' is-placeholder' : ''}" contenteditable="true"
-    spellcheck="false" data-v3p="${path}"${empty ? ` data-ph="${esc(ph)}"` : ''}>${empty ? esc(ph) : esc(text)}</span>`;
+    spellcheck="false" data-v3p="${path}"${markPath ? ` data-v3p-mark="${esc(markPath)}"` : ''}${empty ? ` data-ph="${esc(ph)}"` : ''}>${empty ? esc(ph) : esc(text)}</span>`;
 }
 
 function mapSupportFrame(f) {
@@ -5257,14 +5292,23 @@ function renderRcaCol() {
           <div class="dss-head">
             <span class="dss-label">DSS</span>${src}
             <span class="dss-row">${row ? esc(row) : ''}</span>
-            <button class="btn" style="font-size:11px;padding:2px 9px" data-dss-edit>${
+            <button class="btn dss-edit-btn" data-dss-edit>${
               state.dssEdit ? '✓ Done' : '✎ Edit'}</button>
           </div>
           ${row ? `<div class="dss-panel"><span class="k">DSS says:</span> ${
-            dss.prescribes
-              ? (state.dssEdit ? edSpan('dss.prescribes', dss.prescribes) : esc(dss.prescribes))
-              : `<span class="rca-empty">No DSS row was matched for this classification.</span>`
-          }</div>`
+            state.dssEdit
+              // EDITABLE EVEN WHEN NOTHING MATCHED. The lookup can miss, and
+              // it can match the WRONG row — a delay/late-guide row against a
+              // vendor reassignment. Rendering the empty state with no way to
+              // type into it left the associate looking at a wrong answer with
+              // no way to correct it.
+              ? edSpan('dss.prescribes', dss.prescribes,
+                       'no row matched — write what the playbook prescribes',
+                       'dss.by_hand')
+              : (dss.prescribes
+                  ? esc(dss.prescribes)
+                  : `<span class="rca-empty">No DSS row was matched for this classification.</span>`)
+          }${dss.by_hand ? `<span class="dss-hand" title="Corrected by hand — this is not the row the lookup matched">by hand</span>` : ''}</div>`
           : `<div class="dss-panel"><span class="rca-empty">The review is not classified yet — there is no DSS row to look up.</span></div>`}
         </div>`;
       })()}
@@ -5978,6 +6022,18 @@ function renderRcaCol() {
       // Untouched placeholder is not a value.
       if (el.dataset.ph && txt === el.dataset.ph) return;
       obj[/^\d+$/.test(last) ? parseInt(last) : last] = txt;
+      // Mark it as a person's answer, if this field asked to be marked. Done
+      // here rather than at the call site so a field can never be rendered
+      // with a marker that nothing ever sets.
+      if (el.dataset.v3pMark) {
+        const mp = el.dataset.v3pMark.split('.');
+        let mo = rca.v3;
+        for (let i = 0; i < mp.length - 1; i++) {
+          if (mo[mp[i]] == null || typeof mo[mp[i]] !== 'object') mo[mp[i]] = {};
+          mo = mo[mp[i]];
+        }
+        mo[mp[mp.length - 1]] = true;
+      }
       el.classList.remove('is-placeholder');
       delete el.dataset.ph;
       await persistV3(el);
