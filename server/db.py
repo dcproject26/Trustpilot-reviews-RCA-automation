@@ -54,6 +54,13 @@ class Review(Base):
     # `status` cannot: "sent" would then mean two different pieces of work.
     closed_at        = Column(DateTime, nullable=True)
     close_reason     = Column(Text, nullable=True)
+    # HOW it reached Sent. Three different pieces of work end there and the
+    # tab has to say which it is looking at: a review whose reply and RCA both
+    # went out, one closed out with nothing to send, and one whose RCA was
+    # posted to the thread and then marked finished from beside that button.
+    # DERIVED SERVER-SIDE from what actually happened, never taken from the
+    # caller — a route the client asserts is a route that can be wrong.
+    sent_route       = Column(String, nullable=True)   # reply|rca_posted|closed|no_rca
     draft            = relationship("RcaDraft", back_populates="review", uselist=False)
 
 
@@ -285,6 +292,10 @@ def _WANTED_REVIEW_COLUMNS(is_pg: bool) -> dict:
         # full RCA and a posted reply.
         "closed_at":    "TIMESTAMP",
         "close_reason": "TEXT",
+        # Which of the routes to Sent this review took. Without it the tab can
+        # separate closed-out from sent, but not a review whose RCA was posted
+        # and then marked finished from one whose reply went with it.
+        "sent_route":   "TEXT",
     }
 
 

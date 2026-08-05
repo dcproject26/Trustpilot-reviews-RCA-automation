@@ -533,7 +533,167 @@ which is something a reader can act on.
 
 Tests: `tests/test_dss_is_not_a_finding.py`.
 
-### 11.5 The mutation pass
+### 11.5 DSS again — a lookup, not a subject (supersedes the first pass)
+
+The refinement: *"you have to use dss to figure out what would have been the
+next step in the escalation and not use it as an anchor or define or comment
+like you have done here."*
+
+So DSS informs the answer and is never what the answer is about. The model
+consults it to work out what the correct next escalation step would have been
+and writes THAT STEP.
+
+    NO   sop_gap  No DSS path governs a system-initiated vendor reassignment
+         fix      Define a DSS path for system-initiated vendor reassignments
+    YES  sop_gap  Nobody was required to contact the guest before the
+                  rescheduling window closed
+         fix      Notify the guest and reopen the window when a reassignment
+                  moves the slot inside the cutoff
+
+Rule 2f now leads with that instruction, and the no-row branch says to REASON
+the next escalation step from the playbook we do have rather than report the
+absence — the absence of a row is an internal fact about our tooling. DSS may
+not be named in `root_cause`, `operational_failure`, `sop_gap`, `fix.action`,
+`fix.because` or any `evidence[].text`, and `_flag_dss_wording` reports every
+field that does. Reported, not rewritten: there is no mechanical way to restate
+an analysis correctly, so the sentence stands and the trail says what it is.
+
+### 11.6 Actions Taken — the AND was necessary, not sufficient
+
+A booking reassigned to a new operator without consent, remedied with a partial
+wallet credit, showed three rows on the Supply Partner tab: *Verify meeting
+point with SP if reported*, *BMS refund error → raise with Leads*, and *Share
+ARN number for delayed refunds*. No meeting point, no BMS refund error, no
+delayed refund. All three satisfied the AND — routed scenario, flag naming
+SP — and all three were still wrong.
+
+The third condition: a row must BEAR ON WHAT THIS CASE FOUND. Relevance is
+subject-matter overlap with the root cause, operational failure, SOP gap, fix
+and flags, and a row also earns its place from the flag that routed its team —
+the flag IS a finding, and its wording is often closer to the guideline row
+than the prose of the root cause.
+
+**Deliberately crude**, because the two directions cost different things: a
+loose match leaves a row on the card, a tight one silently empties a tab. A
+card with NO findings withholds nothing — that would be the filter deciding a
+question it has no evidence for, and it would empty every tab on a card whose
+RCA failed. `findings` is optional and its ABSENCE IS REPORTED, so a filter
+that never ran cannot be read as one that ran and withheld nothing. Three empty
+tabs now carry three sentences: nothing flagged, no guideline row, nothing
+bearing on this case.
+
+**A hand-typed row is NOT relevance-filtered**, and that is deliberate. The
+carry-forward runs after the three conditions, so a row an associate wrote is
+appended whatever it says. A person decided it mattered; second-guessing that
+with a word-overlap heuristic would discard exactly the work `keep_actions`
+exists to preserve, and it would do so silently.
+
+Tests: `tests/test_actions_bear_on_the_case.py`. Two existing "a clean run is
+quiet" tests were updated rather than deleted — they now pass findings that
+genuinely cover their rows, so "clean" means clean rather than "the filter is
+silent about work it withheld".
+
+### 11.7 The scenario chips — three stores for one fact
+
+Reported as *the × does nothing* and *the same scenario three times*. Neither
+was an unbound handler: the chip controls were already delegated at document
+level, which is the fix this project reached for the last two times it hit a
+dead control. This was the other shape.
+
+`scenarios` is the whole ordered list and ALREADY contains the overlays. The
+card sent `regenerate-rca` the concatenation `[...scenarios,
+...overlayScenarios]`, so every scenario edit appended the overlays a second
+time — and that endpoint writes the list it is given straight back over
+`d.scenarios`. The chips multiplied on every edit, and the × looked dead
+because the removal WAS saved and was then overwritten, one request later, by
+a union that still held it. Separately, `patch_draft_v2` derived
+`overlay_scenarios` from `patch.scenarios[1:]` AFTER the generic loop had
+already assigned it, so a deleted overlay came back derived from a list that
+still contained it.
+
+**DECIDED: the primary is not its own overlay.** An overlay is an ADDITIONAL
+scenario layered on the primary and a scenario cannot be additional to itself;
+a primary sitting in the overlays is what put one chip on the card three times.
+`settle_scenarios()` is the one place all three columns are decided —
+`scenarios` deduplicated and ordered, `primary_scenario` its first element,
+`overlay_scenarios` the rest — called from both endpoints and from
+`_draft_dict`, so a row written by an older build renders clean on the next
+load rather than only after someone edits it again. The card renders the
+primary in one row and the tail in the other, so the list appears exactly once
+and both × controls edit the one list at the right offset.
+
+### 11.8 The DSS row is correctable
+
+The lookup can match the wrong row — a delay/late-guide row against a vendor
+reassignment. **Half of this was already built**: `state.dssEdit`, the
+✎ Edit / ✓ Done toggle, and a `data-v3p` editable that the generic saver
+persists into `rca_v3`. What was missing is what made it unusable.
+
+The editable rendered only when `prescribes` was already non-empty, so a lookup
+that matched NOTHING left an empty state with nothing to type into. It is
+writable in both cases now, with a placeholder saying what to write.
+
+A corrected row was indistinguishable from a matched one. `edSpan` takes an
+optional mark path and the generic saver sets it, so `dss.by_hand` is written
+by the same handler that writes the value — a field can never be rendered with
+a marker nothing sets. It renders as a quiet `by hand` chip, the treatment
+`area_of_improving` already uses, and deliberately NOT amber: provenance is not
+a warning.
+
+And the prompt was reading the store the person could not change.
+`regenerate-rca` passed `d.dss_rec` — the LOOKUP — so a re-run discarded the
+correction it was asked to act on. `_dss_for_prompt()` prefers the edited value,
+and only when `by_hand` marks it as genuinely edited: the pipeline's own
+projection of the same lookup must not replace the richer record with its own
+summary, and marked-but-empty must not tell the model the playbook prescribes
+nothing.
+
+### 11.9 Resolution & takedown — one control treatment
+
+The block had three. Inline chip selects at 10.5px with a transparent border
+and a 5px radius; a full-width ground picker at 12px with an `--input-bd`
+border and a 6px radius; and an Edit button carrying its own inline font-size
+and padding — an inline style being a control opting out of the system by
+definition. Plus two label greys six lines apart, `--dim` against `--muted-2`.
+
+All of them share height, padding, radius and border from one rule now; only
+what genuinely differs — a chip's weight and fill, a picker's flexible width —
+is set separately. An explicit height rather than a min-height, because a
+select sizes to its font and a button to its padding, so equal padding still
+produced two different boxes.
+
+The tests MEASURE the computed box off real elements rather than asserting a
+class string appears in the file, and one checks the opposite direction:
+uniformity must not flatten the takedown verdict's green / amber / neutral
+roles, which still have to read apart.
+
+### 11.10 The control census
+
+"Make sure all buttons work" is not something one assertion can prove. What can
+be proved is that no control reaches the card unaccounted for. The census
+enumerates every `data-*` attribute rendered and requires each to be in one of
+four sets: driven by a named test, not a control, undriven by design with the
+reason, or a **known named gap**.
+
+The gap is listed rather than folded into the driven set, and its size is
+printed on every run: **26 driven, 21 rendered but not yet driven**, by name.
+A coverage guard that only reports "nothing unknown" reads identically whether
+it covers every control or three of them.
+
+It found two things. `.send-btn` and `.candidate-confirm-btn` are their own
+classes, not `.btn`, so they never picked up the pointer cursor the base rule
+sets — the two most consequential buttons on the card presented as unclickable.
+And the generic toggle driver reported `data-trail-toggle` dead, which it is
+not: it re-renders the REVIEW column and the driver was watching only the RCA
+column. That false alarm is this codebase's own failure mode one level up, so
+the driver watches both columns now.
+
+**The 21 undriven controls are a known gap, not a hidden one.** They are named
+in `NOT_YET_DRIVEN` in `tests/test_controls_actually_work.py`. Closing it is
+ordinary work: each needs a test that clicks it and asserts the change reaches
+the server and survives a re-render.
+
+### 11.11 The mutation pass
 
 MUTATION_SUMMARY_PLACEHOLDER
 

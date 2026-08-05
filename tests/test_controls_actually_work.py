@@ -542,6 +542,7 @@ DRIVEN = {
     "data-tab",                # …::test_an_empty_tab_says_which_kind_of_empty…
     "data-window",             # test_insights_window_picker
     "data-resize",             # test_column_resize
+    "data-mark-sent",          # this file, test_mark_sent_moves_the_review…
 }
 
 # Not controls: status targets, stamps and identifiers the handlers read.
@@ -700,3 +701,134 @@ def test_every_toggle_control_actually_changes_something(page):
     assert not dead, (
         f"{len(dead)} toggle(s) rendered and changed nothing when clicked: "
         f"{dead}")
+
+
+# ── Mark sent, beside Post to thread ───────────────────────────────────────
+
+def test_mark_sent_is_disabled_until_the_rca_is_in_the_thread(page):
+    """Enabled earlier it would call /send with nothing posted — and /send
+    posts the RCA when rca_posted_at is unset, which is the second-copy
+    problem the button beside it already guards.
+
+    A disabled control must be visibly different from a broken one, so it
+    carries a title saying what to do first.
+    """
+    got = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keep = r.rcaPostedAt;
+      r.rcaPostedAt = null; renderRcaCol();
+      const off = document.querySelector('[data-mark-sent]');
+      const a = off ? {disabled: off.disabled, title: off.title,
+                       cursor: getComputedStyle(off).cursor} : null;
+      r.rcaPostedAt = '2026-08-05T10:00:00'; renderRcaCol();
+      const on = document.querySelector('[data-mark-sent]');
+      const b = on ? {disabled: on.disabled, title: on.title,
+                      cursor: getComputedStyle(on).cursor} : null;
+      r.rcaPostedAt = keep; renderRcaCol();
+      return {a, b}; }""")
+    assert got["a"], "the Mark sent button does not render at all — NOT BUILT"
+    assert got["a"]["disabled"] is True, (
+        "Mark sent is live before the RCA has been posted — pressing it would "
+        "post the RCA rather than only marking the review finished")
+    assert "Post the RCA" in got["a"]["title"], got["a"]
+    assert got["a"]["cursor"] != "pointer", (
+        "a disabled control still presents itself as clickable")
+    assert got["b"]["disabled"] is False, (
+        "Mark sent stays disabled after the RCA was posted, so the review "
+        "still cannot be finished from where the work happens")
+    assert "nothing is posted again" in got["b"]["title"], got["b"]
+
+
+def test_mark_sent_calls_send_once_and_posts_nothing(page):
+    """Driven. It must reach /send — one endpoint, not a second path — and the
+    response must report that nothing was posted."""
+    got = page.evaluate("""async () => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keep = r.rcaPostedAt;
+      r.rcaPostedAt = '2026-08-05T10:00:00'; renderRcaCol();
+      if (!window.__realFetch) window.__realFetch = window.fetch.bind(window);
+      const calls = [];
+      window.fetch = async (url, opts) => {
+        const u = String(url);
+        if (u.includes('/send')) {
+          calls.push({url: u, method: (opts || {}).method});
+          return new Response(JSON.stringify(
+            {ok: true, ts: null, posted: false, why: 'already posted to the thread',
+             sent_route: 'rca_posted'}), {status: 200});
+        }
+        if (u.includes('/post-rca')) { calls.push({url: u, method: 'POST'}); }
+        return window.__realFetch(url, opts);
+      };
+      document.querySelector('[data-mark-sent]').click();
+      await new Promise(x => setTimeout(x, 1200));
+      const label = (document.querySelector('[data-mark-sent]') || {}).textContent || '';
+      const route = r.sentRoute;
+      window.fetch = window.__realFetch;
+      r.rcaPostedAt = keep; r.status = 'draft'; r.sentRoute = '';
+      renderRcaCol();
+      return {calls, label, route, status: r.status}; }""")
+    sends = [c for c in got["calls"] if "/send" in c["url"]]
+    posts = [c for c in got["calls"] if "post-rca" in c["url"]]
+    assert len(sends) == 1, f"Mark sent did not call /send exactly once: {got['calls']}"
+    assert sends[0]["method"] == "POST", sends[0]
+    assert not posts, (
+        f"Mark sent also hit /post-rca — that is the second copy in the "
+        f"thread this control exists to avoid: {posts}")
+    assert got["route"] == "rca_posted", (
+        f"the route the server derived did not reach the card: {got['route']!r}")
+
+
+def test_mark_sent_survives_a_rerender(page):
+    """The handler is delegated. The Slack block re-renders on every edit to
+    the post, and a handler bound after one render is dead after the next —
+    which is the failure this whole file exists for."""
+    got = page.evaluate("""async () => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keep = r.rcaPostedAt;
+      r.rcaPostedAt = '2026-08-05T10:00:00';
+      renderRcaCol(); renderRcaCol(); renderRcaCol();   // three redraws
+      if (!window.__realFetch) window.__realFetch = window.fetch.bind(window);
+      let hit = 0;
+      window.fetch = async (url, opts) => {
+        if (String(url).includes('/send')) {
+          hit++;
+          return new Response(JSON.stringify(
+            {ok: true, posted: false, sent_route: 'rca_posted'}), {status: 200});
+        }
+        return window.__realFetch(url, opts);
+      };
+      document.querySelector('[data-mark-sent]').click();
+      await new Promise(x => setTimeout(x, 1000));
+      window.fetch = window.__realFetch;
+      r.rcaPostedAt = keep; r.status = 'draft'; r.sentRoute = '';
+      renderRcaCol();
+      return hit; }""")
+    assert got == 1, (
+        f"after three re-renders the button fired {got} times — a per-render "
+        f"binding is either dead or stacked")
+
+
+def test_mark_sent_shares_the_post_buttons_box(page):
+    """It sits beside Post to thread, so the pair must read as one row rather
+    than as a primary button with something bolted next to it."""
+    got = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keep = r.rcaPostedAt;
+      r.rcaPostedAt = '2026-08-05T10:00:00'; renderRcaCol();
+      const box = el => { const c = getComputedStyle(el), b = el.getBoundingClientRect();
+        return {h: Math.round(b.height), r: c.borderTopLeftRadius,
+                p: c.paddingTop + '/' + c.paddingLeft, f: c.fontSize}; };
+      const a = document.querySelector('[data-slack-post]');
+      const b = document.querySelector('[data-mark-sent]');
+      const out = (a && b) ? {post: box(a), sent: box(b),
+                              sameRow: Math.abs(a.getBoundingClientRect().top
+                                              - b.getBoundingClientRect().top) < 3} : null;
+      r.rcaPostedAt = keep; renderRcaCol();
+      return out; }""")
+    assert got, "one of the two buttons did not render — NOT BUILT"
+    assert got["sameRow"], "the two buttons are not on the same line"
+    assert got["post"]["h"] == got["sent"]["h"], (
+        f"different heights: {got['post']['h']} vs {got['sent']['h']}")
+    assert got["post"]["r"] == got["sent"]["r"], "different corner radii"
+    assert got["post"]["p"] == got["sent"]["p"], "different padding"
+    assert got["post"]["f"] == got["sent"]["f"], "different font sizes"

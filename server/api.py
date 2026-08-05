@@ -665,6 +665,7 @@ def list_reviews(status: str | None = None, tab: str | None = None,
             # thing and the count means two different pieces of work.
             "closed_at":   r.closed_at.isoformat() if r.closed_at else None,
             "close_reason": r.close_reason,
+            "sent_route":  r.sent_route,
             "reference_number": r.reference_number,
             "experience":  (draft.booking or {}).get("experienceName") if draft else None,
         })
@@ -732,6 +733,7 @@ def get_review(review_id: str, db: Session = Depends(get_session)):
             "received_at":      r.received_at.isoformat() if r.received_at else None,
             "closed_at":        r.closed_at.isoformat() if r.closed_at else None,
             "close_reason":     r.close_reason,
+            "sent_route":       r.sent_route,
         },
         "draft": _draft_dict(r.draft) if r.draft else None,
     }
@@ -2099,6 +2101,12 @@ async def send_review(review_id: str, db: Session = Depends(get_session)):
     r.status  = "sent"
     ts = None
     posted_why = ""
+    # WHICH ROUTE THIS IS, read BEFORE the post below can change it. Marking a
+    # review sent from beside the Post-to-thread button and sending it from
+    # the header are the same action with the same guard — what differs is
+    # whether the RCA was already in the thread when we got here, and that is
+    # a fact we can observe rather than a claim the caller makes.
+    _already_posted = bool(d.rca_posted_at)
     # Send posts the RCA as well as closing the review — but "Post to thread"
     # exists precisely so the RCA can go to the team while the reply is still
     # being edited, and using both put the same RCA in the thread twice. The
@@ -2123,6 +2131,13 @@ async def send_review(review_id: str, db: Session = Depends(get_session)):
             d.rca_posted_at = datetime.utcnow()
         else:
             posted_why = "Slack did not accept the post"
+    # Recorded so the Sent tab can tell the three apart. `no_rca` is its own
+    # value rather than folded into `reply`: a review sent with nothing to
+    # post is a different outcome from one whose analysis went out, and
+    # merging them is the silent-zero bug wearing a status field.
+    r.sent_route = ("rca_posted" if _already_posted
+                    else "no_rca" if not has_rca_to_post(d)
+                    else "reply")
     m = db.query(ReviewMetric).filter(ReviewMetric.review_id == review_id).first()
     if m:
         if r.received_at:
@@ -2132,7 +2147,8 @@ async def send_review(review_id: str, db: Session = Depends(get_session)):
     # `posted` is a separate fact from `ok`. The caller used to get {"ok":
     # true, "ts": null} for a post that was skipped, for one that failed and
     # for one that was never attempted, and had to guess which.
-    return {"ok": True, "ts": ts, "posted": bool(ts), "why": posted_why}
+    return {"ok": True, "ts": ts, "posted": bool(ts), "why": posted_why,
+            "sent_route": r.sent_route}
 
 
 class CloseOut(BaseModel):
@@ -2189,6 +2205,7 @@ async def close_review(review_id: str, body: CloseOut | None = None,
     r.status       = "sent"
     r.closed_at    = now
     r.close_reason = reason
+    r.sent_route   = "closed"
     if d is not None:
         d.sent_at = now
         # On the trail, because the trail is what a reader opens to find out

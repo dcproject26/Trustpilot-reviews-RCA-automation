@@ -921,6 +921,18 @@
     border-radius: 7px; border: none; background: var(--accent); color: #fff; cursor: pointer;
   }
   .slack-post-btn:hover { background: var(--accent-hov); }
+  /* Mark sent sits beside Post-to-thread and shares its box exactly — same
+     height, radius and padding — so the pair reads as one row rather than as
+     a primary button with something bolted next to it. Secondary fill,
+     because posting is the action and finishing is the consequence. */
+  .slack-sent-btn {
+    font: inherit; font-size: 12px; font-weight: 600; padding: 7px 16px;
+    border-radius: 7px; border: 1px solid var(--input-bd);
+    background: var(--card); color: var(--body); cursor: pointer;
+  }
+  .slack-sent-btn:hover:not(:disabled) { border-color: var(--empty); color: var(--text); }
+  /* A disabled control must look unavailable, not broken. */
+  .slack-sent-btn:disabled { opacity: .5; cursor: default; }
 
   /* T2 gate + untraceable one-click reply */
   .rca-gate {
@@ -1452,6 +1464,7 @@ async function fetchInbox() {
           // had are the same review and must not disagree about it.
           closedAt:       row.closed_at    || null,
           closeReason:    row.close_reason || '',
+          sentRoute:      row.sent_route || '',
           matchTier:      t,
           candidateState: c,
           type:           row.bucket || _bucketFallback(row, t, c),
@@ -1480,6 +1493,7 @@ async function fetchInbox() {
         status:         row.status || 'new',
         closedAt:       row.closed_at    || null,
         closeReason:    row.close_reason || '',
+        sentRoute:      row.sent_route || '',
         matchTier:      tier,
         matchTitle:     _matchTitle(row, tier, row.candidate_state),
         candidateState: row.candidate_state || false,
@@ -1973,6 +1987,7 @@ async function loadDraftOverlays() {
         // from the other is a card that can show a closed review as open.
         r.closedAt     = review.closed_at    || r.closedAt    || null;
         r.closeReason  = review.close_reason || r.closeReason || '';
+        r.sentRoute    = review.sent_route || r.sentRoute || '';
         r.original     = review.body_original || r.original     || '';
         r.originalText = review.body_original || r.originalText || '';
         r.english      = review.body_english  || r.english      || null;
@@ -4726,6 +4741,22 @@ function renderRcaCol() {
       </div>
       <div class="slack-post-row">
         <button class="slack-post-btn" data-slack-post>Post to Slack thread ↑</button>
+        <!-- Mark sent, beside the button people actually work from. /post-rca
+             sets rca_posted_at and NOTHING else, so a matched review whose RCA
+             had gone to the thread stayed in Matched, and the only way out was
+             Send ↑ at the top of the column.
+
+             DISABLED UNTIL THE RCA IS IN THE THREAD. Enabled earlier it would
+             call /send with nothing posted, which posts the RCA — the exact
+             second-copy problem the button beside it already guards. Disabled
+             is a legitimate state and says why in its title, which is what
+             makes it different from broken. -->
+        <button class="slack-sent-btn btn" data-mark-sent
+                ${r.rcaPostedAt ? '' : 'disabled'}
+                title="${r.rcaPostedAt
+                  ? 'Finish this review. The RCA is already in the thread, so nothing is posted again.'
+                  : 'Post the RCA to the thread first — marking sent before that would post it.'}"
+                >Mark sent →</button>
       </div>
     </div>
   `;
@@ -6884,6 +6915,44 @@ document.addEventListener('click', async (ev) => {
     btn.textContent = '↻ failed — retry';
   }
   setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 4000);
+});
+
+// Mark sent, from beside the Post-to-thread button. DELEGATED, because the
+// Slack block is re-rendered on every edit to the post and a handler bound
+// after one render is dead after the next — the failure mode this file has
+// hit three times.
+//
+// It calls /send, the SAME endpoint Send ↑ calls, deliberately: two code
+// paths to one outcome is how the RCA got posted into a thread twice. /send
+// already refuses to post when rca_posted_at is set, and the button is
+// disabled until it is, so nothing is posted from here — the guard is
+// reused, not re-implemented.
+document.addEventListener('click', async (ev) => {
+  const btn = ev.target.closest && ev.target.closest('[data-mark-sent]');
+  if (!btn || btn.disabled) return;
+  const r = REVIEWS.find(x => x.id === state.selected);
+  if (!r) return;
+  const was = btn.textContent;
+  btn.disabled = true; btn.textContent = '⟳ marking…';
+  try {
+    const res = await fetch(`/api/reviews/${r.id}/send`, {method: 'POST'});
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`.slice(0, 200));
+    const out = await res.json();
+    if (out.posted) {
+      // Should be impossible while the button is gated on rcaPostedAt. Said
+      // out loud rather than swallowed: a second copy in the thread is the
+      // one outcome this control exists to avoid.
+      btn.textContent = '⚠ posted a second copy';
+    } else {
+      btn.textContent = '✓ Sent';
+    }
+    r.status = 'sent';
+    r.sentRoute = out.sent_route || 'rca_posted';
+    await reloadFromServer();
+  } catch (e) {
+    btn.disabled = false; btn.textContent = was;
+    alert('Could not mark sent: ' + e.message);
+  }
 });
 
 // Close out → Sent. One delegated handler for every bucket that has no reply
