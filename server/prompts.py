@@ -71,6 +71,15 @@ If Headout's,email, voucher or website had missing or wrong information or what 
   → L2 = "Content - Instructions not clear / Misleading Info"
   EXAMPLES:
   "misleading information present on website", "no information on tour details"
+  BOUNDARY — AN OFFER THE SITE MAKES IS NOT CONTENT ABOUT THE EXPERIENCE. If the complaint is
+  about something the WEBSITE OR APP ITSELF advertised — a discount on a next purchase, a credit,
+  a promo code, a free extra — and the condition attached to it was not stated where the offer
+  was made, that is → L1 = "Product Issue" / L2 = "App and Website Issues". Stop here and use
+  that, priority rule notwithstanding: this L2 is for what we said about the EXPERIENCE (what it
+  includes, where to go, what to expect), and an unstated precondition on our own offer is the
+  product failing at the point of sale.
+  EXAMPLE: "after you buy tickets the website offers a discount on your next purchase; you only
+  get it if you create an account first; Headout will not honour it" → Product Issue.
 If the customer paid Headout for entry to an attraction that is actually free at the door (e.g. British
   Museum, some churches, some parks) and we have not mentioned on our website about free entry  → L2 = "Content - Instructions not clear / Misleading Info"
 
@@ -126,6 +135,21 @@ a venue-provided handset, a hop-on hop-off bus audio system, or any other audio 
 
 If Headout's mobile app or website didn't load or function:
   → L2 = "App and Website Issues"
+
+If Headout's website or app ADVERTISED something without stating the condition attached to it —
+an offer, a discount, a credit, a free extra — and the guest only learned of the condition when
+they tried to claim it:
+  → L2 = "App and Website Issues"
+  This is a PRODUCT ISSUE, not an Operations one. The site is Headout's product, and a product
+  that states an offer and withholds its precondition has failed at the point of sale, whatever
+  the support team did afterwards.
+  EXAMPLES: "after buying, the site offered a discount on my next purchase; you only get it if
+  you created an account first, and they will not honour it", "the banner promised 10% off and
+  the code was rejected at checkout", "it said free cancellation and the condition was on
+  another page"
+  BOUNDARY: the wording on the EXPERIENCE PAGE about what the tour includes, where to meet, or
+  when tickets arrive is content — that stays Operations Issue / Content - Instructions not
+  clear / Misleading Info. This clause is for what the SITE ITSELF promises the guest.
 
 [SUPPLY PARTNER ISSUE — Guide quality / Operator's fault]
 → L1 = "Supply Partner Issue"
@@ -1002,7 +1026,7 @@ def rca_v3_prompt(
     Generates the RCA v3 shape: what_went_wrong
     (the 5 mandated headings), booking_logs, flags (checklist run silently,
     failures only), support_interaction / sp_interaction (each carrying
-    zd_ref), issue_specific_answers, takedown.
+    zd_ref), area_of_improving, takedown.
 
     Benched against a real draft in tools/try_rca_prompt.py before shipping;
     that file carries the same template - edit there first, ship here after
@@ -1132,7 +1156,7 @@ THE TEAMS, so you attribute correctly:
   data. A blocked escalation is a fact to state, not a miss.
 
 WHERE FACTS LIVE — the only sources you may verify against, routed by claim.
-Each maps to a `source` value used in `evidence[]` and `issue_specific_answers[]`:
+Each maps to a `source` value used in `evidence[]`:
 
   source = "exp-page"  → INSIGHTS.redemption, the live product config from the
     Headout site: meeting point + coordinates, ticket delivery method and
@@ -1206,7 +1230,11 @@ SUPPORT SUMMARY:
 APPROVED REPLY VOICE — tone reference only, never content to copy:
 <<CANNED_TONE>>
 
-━━ ISSUE-SPECIFIC QUESTIONS — answer each verbatim as a key ━━
+━━ ISSUE-SPECIFIC QUESTIONS — CHECKS TO WRITE AGAINST, not a section to fill in ━━
+Answer every one of these against the backend before you write anything. They do not
+appear in your output and there is no field for them: what they produce is a verdict, a
+root cause and an SOP gap that are consistent with what the record actually shows. Where
+one surfaces something we missed, rule 12b says where it goes.
 <<ISSUE_QUESTIONS>>
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1690,15 +1718,6 @@ that turned out fine is silence — never a line in the output.
       }
     ]
   },
-  "issue_specific_answers": [
-    {
-      "question": "<the question from ISSUE_QUESTIONS, verbatim>",
-      "verdict": "<Yes | No | Unknown>",
-      "evidence": "<the fact that settles it, one or two sentences | null>",
-      "source": "<booking | bms | zendesk | insights | dss | exp-page | null>",
-      "ref": "<record URL or ZD-xxxxx | null>"
-    }
-  ],
   "support_interaction_notes": [
     {
       "zd_ref": "<ZD-xxxxx — the ticket this note is about; this is the join key | null>",
@@ -1720,12 +1739,18 @@ that turned out fine is silence — never a line in the output.
     { "time": "<DD Mon HH:MM | null>", "what": "<the event>", "detail": "<the specifics | null>" }
   ],
   "flags": [
-    { "team": "<CE | RO | SP | CONTENT | PRODUCT | BIZ | TECH | OTHER>",
+    { "team": "<GUEST | SP | CONTENT | CO | TECH | INVENTORY | PRODUCT | BIZ | FINANCE>",
       "flag": "<one line: what went wrong that someone must act on>",
       "evidence": "<the fact that proves it>",
       "zd_ref": "<ZD-xxxxx | null>" }
   ],
-  "area_of_improving": ["<one improvement per array element>"],
+  "area_of_improving": [
+    {
+      "point":  "<one short pointer, one line, no paragraph>",
+      "from":   "<operational_failure | sop_gap | flag>",
+      "source": "<the text of the failure, gap or flag it derives from, quoted from that field>"
+    }
+  ],
   "resolution": "<what the guest actually got: refund / comp / explanation, with amounts>",
   "suggested_response": "<the reply to the guest, 4-6 SHORT SENTENCES (~120 words): apologise, state what went wrong in plain words, state the remedy with its reference, close warmly. No internal jargon, no BID, no team names>",
   "takedown": { "verdict": "<Yes | No | Untraceable>" },
@@ -1808,6 +1833,36 @@ that turned out fine is silence — never a line in the output.
    Do not repeat in `guest_issues` anything you have already raised in `flags`.
 10. `flags` contains failures only — things a named team must act on. An empty array means
     everything was checked and nothing needed raising; return `[]`, not a placeholder entry.
+10-teams. `team` IS ONE OF THESE NINE, and nothing else. They are the teams work is actually
+    raised with, and Actions Taken is built by joining them: a step the DSS guidelines prescribe
+    is only raised where a flag names the same team, so a team spelled any other way raises
+    nothing at all.
+      GUEST      — NA/Guest error. The guest's own mistake, or nobody's: no team has work here.
+      SP         — Supply Partner. The vendor: the guide, the venue, the tour, the meeting
+                   point on the ground, anything claimed against them.
+      CONTENT    — Content/Catalog/Media team. WHAT THE PRODUCT SAYS AND HOW IT IS CONFIGURED:
+                   a missing or wrong VARIANT, PAX TYPE, INCLUSION or PAGE STATEMENT, a
+                   voucher's redemption copy, a missing callout. "No Baby/Infant (<1.00 m,
+                   free) pax type exists in the booking flow for TGID 20842" is CONTENT — the
+                   flow renders whatever pax types the catalog defines, so a missing option is
+                   a configuration fault, not a flow fault.
+      CO         — CO team. The support desk itself: how the contact was handled, the macro
+                   used, the DSS path taken, the follow-up missed, the refund or resend CO
+                   owes the guest. Everything the old CE and RO chips carried.
+      TECH       — Tech team. Headout's own systems failing: BMS, the ticket PDF, the
+                   fulfilment automation, a vendor API, Selenium.
+      INVENTORY  — Inventory Team. Stock and fulfilment ownership: IO on-call, prepurchase
+                   inventory, a listing sold that was not available.
+      PRODUCT    — Product team. THE FLOW, APP OR SITE FAILING TO DO ITS JOB WITH A CORRECT
+                   CATALOG: checkout errors, a page that will not load, an app that crashes,
+                   an offer the site advertises without its precondition. If the catalog entry
+                   itself is wrong or missing, it is CONTENT and not this.
+      BIZ        — Biz team. The commercial relationship and the escalation ladder: BDM,
+                   BizOps, recurring patterns on a TID-VID, pricing and commercial terms.
+      FINANCE    — Finance team. Money that has to move and the record that proves it: a
+                   failed or stuck refund, an ARN, a chargeback, a bank transfer.
+    Choose the team that must DO something. If none of the nine can act on it, it is not a
+    flag — see 10a.
 10a. EVERY FLAG MUST SIT ON A SUPPORT INTERACTION THAT ACTUALLY HAPPENED. A flag names
     something a person or a system did during a contact with THIS guest about THIS booking,
     and the contact has to be in the data above — a Zendesk ticket, a chat, an email, an SP
@@ -1885,25 +1940,26 @@ that turned out fine is silence — never a line in the output.
     us on. Never emit a `support_interaction_notes` row for it, and never write "Trustpilot",
     "review" or "public review" as a `channel` — a phantom contact makes the contact count
     permanently one too high, and it reads as if someone handled the guest when nobody did.
-12. `issue_specific_answers`: one object per question in ISSUE_QUESTIONS, in the order given,
-    question text copied verbatim. `verdict` MUST be exactly Yes, No or Unknown — the reasoning
-    and the numbers go in `evidence`. Do NOT prefix the evidence with the verdict, and do NOT
-    answer with a sentence in the verdict field ("28 minutes (…)" is an evidence value, not a
-    verdict). If a question cannot be answered from the data, verdict is Unknown with the
-    reason in `evidence` — never omit the question.
-12a. ANSWER EACH ONE FROM THE BACKEND, and say which. Every Yes or No must rest on a record
-    you can name: `source` is the system you checked and `ref` is the row in it — the ZD id,
-    the booking id, the window an insights count covers. A verdict with no source is a guess
-    wearing a verdict's clothes, and it is read as verified.
-    "Unknown" is a legitimate answer and the RIGHT one whenever the record does not settle it.
-    Never resolve a question from the guest's account alone: what they say happened is a
-    claim, and the question is asking what the record shows.
-12b. A "No" ON A QUESTION IS NOT AUTOMATICALLY AN OPERATIONAL FAILURE. It becomes one only
+12. THE ISSUE-SPECIFIC QUESTIONS ARE CHECKS TO WRITE AGAINST, NOT A SECTION TO FILL IN.
+    There is no `issue_specific_answers` field and there is no section for them on the card.
+    Work through every one against the backend before you write anything, and let the answers
+    constrain what you then write: your verdict, your root cause and your SOP gap must all be
+    consistent with them. A `claim_accuracy` of Accurate on an issue whose questions the record
+    answers the other way is the failure this exists to prevent.
+12a. ANSWER THEM FROM THE BACKEND, silently. What the record shows settles them, not what the
+    guest says happened — their account is the claim, and the question asks what we can see.
+    Where the record does not settle one, it is unsettled, and the honest place for that is
+    `claim_accuracy: "Unknown"` with the note saying which source you looked in.
+12b. WHEN A QUESTION SURFACES SOMETHING WE MISSED, WRITE IT WHERE IT BELONGS: as that issue's
+    `operational_failure` if a person or system did the wrong thing, or as its `sop_gap` if
+    nothing was in place to catch it. Decide which of the two it is — they are different
+    findings and they go to different teams. Do NOT report it as an answer, a count, or a
+    line about having run the check.
+    A QUESTION WHOSE ANSWER IS "NO" IS NOT AUTOMATICALLY EITHER OF THOSE. It becomes one only
     when rule 6 is satisfied — the backend shows it, it belongs to this booking and this
     contact, and it matches what the guest actually complained about on that issue. A question
     answered No about a step nobody was required to take, or about something the guest never
-    raised, records the fact and stops there. Do not carry it into `operational_failure` and
-    do not raise a flag for it.
+    raised, is a check that came back clean. Write nothing for it.
 13. Every scenario in SCENARIOS_ROUTED must be covered by at least one guest issue: its root
     cause and fix live on that issue. Do NOT emit a separate per-scenario block, and do not
     drop a routed scenario — if a routed scenario is not supported by the review or the data,
@@ -1947,7 +2003,27 @@ that turned out fine is silence — never a line in the output.
 19. `suggested_response` follows the voice of the APPROVED REPLY VOICE examples — their register,
     warmth and sentence rhythm — and NONE of their content. Never copy a sentence from them,
     never carry over a remedy they mention, and never use one as a template to fill in. The
-    facts of this reply come only from this case's evidence."""
+    facts of this reply come only from this case's evidence.
+20. `area_of_improving` IS POINTERS, NOT A PARAGRAPH. One short pointer per array element, one
+    line each, no semicolons, no "and also". It used to come back as a single paragraph welding
+    five recommendations together, half of it material that appears in no finding on this card.
+20a. EVERY POINT NAMES WHERE IT CAME FROM, AND THE NAME IS CHECKED. `from` is one of
+    `operational_failure`, `sop_gap` or `flag`, and `source` is the text of that finding,
+    quoted from the field it sits in on THIS card. This is not decoration and it is not for the
+    reader: it is the constraint that makes an invented point impossible to write, because
+    there is nowhere to put a source you do not have. A point whose `source` matches no
+    operational failure, no SOP gap and no flag on this card IS DROPPED before it renders — the
+    same way `fix` is null when no evidence entry shows a gap.
+    So do not write the point first and hunt for a source afterwards. Read the failures, the
+    gaps and the flags you have already written, and write the correction to one of them.
+20b. NOTHING INVENTED, AND EMPTY IS AN ANSWER. This is the correction to a documented gap, not
+    an opinion about a better world: no generic advice ("improve communication"), no policy you
+    would prefer, no industry practice. Flags are a guide to what the failures missed, not
+    licence to add material. If the card has no operational failure, no SOP gap and no flag,
+    return `[]` — a padded section is worse than an empty one, because it is read as findings.
+20c. THE POINT IS THE FIX, NOT THE FAULT. `source` already says what went wrong; the point says
+    what to change so it does not happen again. "Tickets were sent late" is the source. "State
+    the delivery window on the experience page before checkout" is the point."""
 
 # The name the filler and every existing import still use.
 RCA_V3_TEMPLATE = RCA_V4_TEMPLATE

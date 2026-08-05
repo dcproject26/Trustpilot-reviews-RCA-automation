@@ -159,10 +159,21 @@ def test_non_values_become_null_not_the_word_unknown():
 
 def test_leading_bullets_are_stripped():
     """A bullet prepended to a block-level editable renders on its own line."""
-    out, _ = validate(_ok(area_of_improving=["• Add a delivery window to the page",
-                                             "1. Alert on failed fulfilment"]))
-    assert out["area_of_improving"] == ["Add a delivery window to the page",
-                                        "Alert on failed fulfilment"]
+    out, _ = validate(_ok(
+        what_went_wrong={"guest_issues": [{
+            "issue": "Voucher never delivered", "claim": "I waited two hours.",
+            "claim_accuracy": "Accurate",
+            "operational_failure": "The fulfilment run failed with no alert",
+            "evidence": []}]},
+        area_of_improving=[
+            {"point": "• Add a delivery window to the page",
+             "from": "operational_failure",
+             "source": "The fulfilment run failed with no alert"},
+            {"point": "1. Alert on failed fulfilment",
+             "from": "operational_failure",
+             "source": "the fulfilment run failed with no alert"}]))
+    assert [a["point"] for a in out["area_of_improving"]] == [
+        "Add a delivery window to the page", "Alert on failed fulfilment"]
 
 
 def test_an_empty_contact_is_not_dressed_as_a_data_row():
@@ -225,17 +236,36 @@ def test_a_clean_reply_is_not_flagged():
 def test_a_flag_team_outside_the_vocabulary_becomes_other():
     """The UI renders team as a chip-select over the closed list, so the
     fallback has to be a real member of it. A null would blank the control;
-    the raw value would add a stray option to it."""
+    the raw value would add a stray option to it.
+
+    OTHER is not a tenth team. It is the marker for a flag whose team could not
+    be read, and it raises nothing — which is why the model's word has to stay
+    recoverable in team_raw."""
     out, notes = validate(_ok(flags=[
         {"team": "Growth", "flag": "No alert on failed fulfilment",
          "evidence": "Three retries, no page."},
-        {"team": "ce", "flag": "First reply after SLA", "evidence": "40 minutes."}]))
+        {"team": "content", "flag": "Page states no delivery window",
+         "evidence": "Experience page."}]))
     assert out["flags"][0]["team"] == "OTHER"
     assert out["flags"][0]["team_raw"] == "Growth", "the model's word must stay recoverable"
-    assert out["flags"][1]["team"] == "CE", "case is not a reason to lose the team"
+    assert out["flags"][1]["team"] == "CONTENT", "case is not a reason to lose the team"
     assert out["flags"][1]["team_raw"] is None, "a valid value has no raw to keep"
     assert out["flags"][0]["flag"], "the flag itself must survive its bad team"
     assert any("Growth" in n for n in notes)
+
+
+def test_a_flag_from_the_old_vocabulary_reaches_the_team_that_owns_it_now():
+    """CE and RO were both the support desk and are the CO team now. Left to
+    fail the enum they would land on OTHER, which raises nothing — a real flag
+    against a real team, silently unrouted. The translation is REPORTED,
+    because a coercion nobody can see is a silent edit."""
+    out, notes = validate(_ok(flags=[
+        {"team": "CE", "flag": "First reply after SLA", "evidence": "40 minutes."},
+        {"team": "RO", "flag": "Vendor issue never raised", "evidence": "No ticket."},
+        {"team": "Business", "flag": "Recurring on this TID-VID", "evidence": "9 in 30d."}]))
+    assert [f["team"] for f in out["flags"]] == ["CO", "CO", "BIZ"]
+    assert sum("→ CO" in n for n in notes) == 2, notes
+    assert any("→ BIZ" in n for n in notes), notes
 
 
 def test_a_note_may_carry_a_time_and_a_channel_but_never_invent_the_channel():

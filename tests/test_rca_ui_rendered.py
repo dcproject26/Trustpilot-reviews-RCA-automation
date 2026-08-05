@@ -125,7 +125,6 @@ s.add(db.RcaDraft(id="d_ui", review_id="tp_ui", rca_v3=v, booking={{"id": "32908
                   generated_at=datetime.utcnow(),
                   support_interaction_frames=json.loads({json.dumps(json.dumps(FRAMES))}),
                   l1=v["l1"], l2=v["l2"], sub_theme="C. Ticket Delayed",
-                  actions_taken={{"sp": [], "customer": [], "business": [], "ce": [], "product": []}},
                   **dict(project_v4(v))))
 s.commit(); s.close()
 """
@@ -250,21 +249,28 @@ def test_a_note_whose_reference_matched_nothing_still_renders(page):
     assert "A contact on no known ticket" in rows[0]["text"]
 
 
-# ── defect 9: no raw token in a verdict chip ────────────────────────────────
+# ── §3: the issue-specific answers section is gone from the card ────────────
 
-def test_every_issue_specific_answer_uses_the_same_fixed_chip(page):
-    chips = page.evaluate("""() => [...document.querySelectorAll('#rca-issue-answers-section select')]
-        .map(s => ({w: Math.round(s.getBoundingClientRect().width), v: s.value,
-                    opts: [...s.options].map(o=>o.text)}))""")
-    assert len(chips) == 2, chips
-    assert {c["w"] for c in chips} == {82}, "the ISA chip is not a fixed 82px"
-    for c in chips:
-        assert c["opts"] == ["Yes", "No", "Unknown"]
+def test_the_answers_section_does_not_render(page):
+    """The questions did not go away — they are checks the RCA writes against
+    now, and what one surfaces is written as an operational failure or an SOP
+    gap. Asserted in the DOM because the draft this page is built from HOLDS
+    two answers: a section that still rendered would render them."""
+    assert page.evaluate(
+        "() => !!document.querySelector('#rca-issue-answers-section')") is False
+    body = page.evaluate("() => document.querySelector('#rca-col').innerText")
+    assert "Issue-specific answers" not in body
+    assert "Delivered before the slot?" not in body, (
+        "the stored answers are still being rendered somewhere")
 
 
-def test_no_grey_answer_pill_survives_anywhere(page):
-    txt = page.evaluate("() => document.querySelector('#rca-issue-answers-section').innerText")
-    assert "answer" not in txt.lower().split(), txt[:200]
+def test_the_card_still_renders_everything_that_sat_around_it(page):
+    """The other half: a removal that took a neighbour with it shows up as a
+    missing section, not as an error."""
+    body = page.evaluate("() => document.querySelector('#rca-col').innerText").upper()
+    for heading in ("WHAT WENT WRONG", "GUEST ↔ SUPPORT", "FLAGS",
+                    "AREA OF IMPROVEMENT", "ACTIONS TAKEN"):
+        assert heading in body, f"{heading} went with the answers section"
 
 
 # ── the chips that size to content vs the one that is fixed ─────────────────
@@ -918,3 +924,344 @@ def test_the_stale_notice_uses_the_broken_role_not_an_empty_state(page):
       const out = [a, b, c].map(e => getComputedStyle(e).color);
       [a, b, c].forEach(e => e.remove()); return out; }""")
     assert len(set(got)) == 3, got
+
+
+# ── §1 the nine teams, and the AND that fills them ──────────────────────────
+#
+# The state is set in the page and the real renderer is called, because the
+# thing being checked is what a reader SEES: which tabs exist, which rows
+# survive the gate, and what an empty tab says about why it is empty.
+
+def _render(page, patch):
+    """Apply a patch to the selected review's rca and re-render the column."""
+    page.evaluate("""(p) => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      if (!window.__keep) window.__keep = {
+        actionsTaken: JSON.parse(JSON.stringify(r.rca.actionsTaken || {})),
+        v3flags: JSON.parse(JSON.stringify((r.rca.v3 || {}).flags || [])),
+        frames: JSON.parse(JSON.stringify(r.rca.supportFrames || [])),
+        notes: JSON.parse(JSON.stringify(r.rca.supportNotes || [])),
+        aoi: JSON.parse(JSON.stringify(r.rca.areaOfImproving || []))};
+      if (p.actionsTaken) r.rca.actionsTaken = p.actionsTaken;
+      if (p.flags) (r.rca.v3 = r.rca.v3 || {}).flags = p.flags;
+      if (p.frames) r.rca.supportFrames = p.frames;
+      if (p.notes !== undefined) r.rca.supportNotes = p.notes;
+      if (p.aoi !== undefined) r.rca.areaOfImproving = p.aoi;
+      if (p.tab) state.actionTab = p.tab;
+      renderRcaCol(); }""", patch)
+
+
+def _restore(page):
+    page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      if (!window.__keep) return;
+      r.rca.actionsTaken = window.__keep.actionsTaken;
+      (r.rca.v3 = r.rca.v3 || {}).flags = window.__keep.v3flags;
+      r.rca.supportFrames = window.__keep.frames;
+      r.rca.supportNotes = window.__keep.notes;
+      r.rca.areaOfImproving = window.__keep.aoi;
+      state.actionTab = 'sp';
+      window.__keep = undefined; renderRcaCol(); }""")
+
+
+def _tabs(page):
+    return page.evaluate("""() => [...document.querySelectorAll('.action-tab')].map(
+        t => ({key: t.dataset.tab,
+               label: t.firstChild.textContent.trim(),
+               count: t.querySelector('.count').textContent.trim()}))""")
+
+
+def test_the_action_tabs_are_the_nine_teams(page):
+    got = _tabs(page)
+    assert [t["key"] for t in got] == ["guest", "sp", "content", "co", "tech",
+                                       "inventory", "product", "biz", "finance"]
+    assert [t["label"] for t in got] == [
+        "NA/Guest error", "Supply Partner", "Content/Catalog/Media team",
+        "CO team", "Tech team", "Inventory Team", "Product team", "Biz team",
+        "Finance team"]
+
+
+def test_a_row_the_server_raised_renders_under_its_team(page):
+    try:
+        _render(page, {"actionsTaken": {"content": [
+                    {"context": "Add the delivery window to the page",
+                     "with": "", "handle": "", "time": "", "where": "#"}]},
+                "flags": [{"team": "CONTENT", "flag": "Page states no window",
+                           "evidence": "exp-page"}],
+                "tab": "content"})
+        counts = {t["key"]: t["count"] for t in _tabs(page)}
+        assert counts["content"] == "1", counts
+        body = page.evaluate("() => document.querySelector('.action-content').innerText")
+        assert "Add the delivery window to the page" in body
+    finally:
+        _restore(page)
+
+
+def test_an_empty_tab_says_which_kind_of_empty_it_is(page):
+    """The AND has two ways of producing a blank tab and they are opposite
+    facts: nothing was flagged against this team, or the team is flagged and
+    the guidelines prescribe nothing for the routed scenario. One blank space
+    for both is the failure this card is built to avoid."""
+    try:
+        _render(page, {"actionsTaken": {},
+                       "flags": [{"team": "CONTENT", "flag": "x", "evidence": "y"}],
+                       "tab": "content"})
+        flagged = page.evaluate("() => document.querySelector('.action-empty').innerText")
+        _render(page, {"tab": "finance"})
+        unflagged = page.evaluate("() => document.querySelector('.action-empty').innerText")
+    finally:
+        _restore(page)
+    assert "prescribe no step" in flagged, flagged
+    assert "Nothing is flagged against Finance team" in unflagged, unflagged
+    assert flagged != unflagged
+
+
+def test_a_draft_written_under_the_old_five_tabs_keeps_its_rows(page):
+    """CE and Customer were both the support desk; Business was commercial. An
+    old card whose rows silently vanished would read as a card with nothing
+    raised, which is the one thing an empty tab must never mean by accident.
+
+    Saved through the API and reloaded, because the fold happens where the
+    payload becomes state — setting the state directly would test the
+    renderer and leave the mapping, which is the thing that can drop them,
+    unexercised."""
+    old = {"ce":       ["CE retrained on the macro"],
+           "business": ["Raised with the BDM"],
+           "sp":       ["Raised the redemption failure with the SP"]}
+    try:
+        page.evaluate("""async (old) => {
+          const r = REVIEWS.find(x => x.id === state.selected);
+          window.__oldAt = JSON.parse(JSON.stringify(r.rca.actionsTaken));
+          await fetch(`/api/reviews/${r.id}/draft-v2`, {
+            method: 'PATCH', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({actions_taken: old})});
+          await loadDraftOverlays();
+          state.actionTab = 'co';
+          renderRcaCol(); }""", old)
+        page.wait_for_timeout(600)
+        counts = {t["key"]: t["count"] for t in _tabs(page)}
+        co = page.evaluate("() => document.querySelector('.action-content').innerText")
+        _render(page, {"tab": "biz"})
+        biz = page.evaluate("() => document.querySelector('.action-content').innerText")
+    finally:
+        page.evaluate("""async () => {
+          const r = REVIEWS.find(x => x.id === state.selected);
+          await fetch(`/api/reviews/${r.id}/draft-v2`, {
+            method: 'PATCH', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({actions_taken: {}})});
+          r.rca.actionsTaken = window.__oldAt; state.actionTab = 'sp';
+          renderRcaCol(); }""")
+        page.wait_for_timeout(400)
+        _restore(page)
+    assert counts["co"] == "1" and counts["biz"] == "1" and counts["sp"] == "1", counts
+    assert "CE retrained on the macro" in co
+    assert "Raised with the BDM" in biz
+
+
+# ── §2 flags use the same nine ──────────────────────────────────────────────
+
+def test_the_flag_team_control_offers_the_nine_and_nothing_else(page):
+    opts = page.evaluate("""() => [...document.querySelectorAll(
+        '#rca-flags-section select.chip-team-sel')].map(s => [...s.options].map(o => o.text))""")
+    assert opts, "no flag team control rendered"
+    assert opts[0] == ["GUEST", "SP", "CONTENT", "CO", "TECH", "INVENTORY",
+                       "PRODUCT", "BIZ", "FINANCE", "OTHER"]
+
+
+def test_a_flag_from_the_old_vocabulary_lands_on_the_team_that_owns_it_now(page):
+    """An unrecognised value leaves a <select> showing its first option, which
+    would file a CE flag against NA/Guest error — a real flag, quietly
+    reassigned to the one bucket that means nobody has work."""
+    try:
+        _render(page, {"flags": [{"team": "CE", "flag": "First reply after SLA",
+                                  "evidence": "40 minutes"}]})
+        got = page.evaluate("""() => {
+          const s = document.querySelector('#rca-flags-section select.chip-team-sel');
+          const g = document.querySelector('#rca-flags-section .chk-group-head');
+          return {selected: s.value, group: g.innerText}; }""")
+    finally:
+        _restore(page)
+    assert got["selected"] == "CO", got
+    assert "CO" in got["group"]
+
+
+# ── §4 conversations only, and the count says what moved ────────────────────
+
+def _contact_section(page):
+    return page.evaluate("""() => {
+      const sec = [...document.querySelectorAll('#rca-col .section')].find(
+        s => /guest . support/i.test(s.querySelector('.section-label')?.innerText || ''));
+      return {hint: sec.querySelector('.hint').innerText,
+              rows: sec.querySelectorAll('.convo-frame').length,
+              empty: (sec.querySelector('.interactions-empty') || {}).innerText || ''}; }""")
+
+
+MACHINERY = [
+    {"thread": "booking", "time": "22 Jul 15:22", "time_sort": "2026-07-22T15:22:00",
+     "guestSaid": "Booking created", "actor": "creation"},
+    {"thread": "api", "time": "22 Jul 15:23", "time_sort": "2026-07-22T15:23:00",
+     "guestSaid": "Booking details posted", "is_internal": True},
+    {"thread": "review", "time": "24 Jul", "time_sort": "2026-07-24T00:00:00",
+     "guestSaid": "Review posted", "actor": "review"},
+]
+CHAT = [{"ticket_id": "34011401", "thread": "chat", "time": "22 Jul 15:41",
+         "time_sort": "2026-07-22T15:41:00", "guestSaid": "Where are my tickets?"}]
+
+
+def test_machinery_is_not_counted_as_a_contact(page):
+    try:
+        _render(page, {"frames": CHAT + MACHINERY, "notes": []})
+        got = _contact_section(page)
+    finally:
+        _restore(page)
+    assert got["rows"] == 1, "the booking, API and review rows are still contacts"
+    assert got["hint"].startswith("1 contact"), got["hint"]
+    assert "3 system events moved to the timeline" in got["hint"], got["hint"]
+
+
+def test_a_booking_of_pure_machinery_does_not_read_as_a_silent_guest(page):
+    """A filtered list and a guest who never wrote in must not look the same."""
+    try:
+        _render(page, {"frames": MACHINERY, "notes": []})
+        got = _contact_section(page)
+    finally:
+        _restore(page)
+    assert got["rows"] == 0
+    assert "3 system events moved to the timeline" in got["hint"]
+    assert "machinery" in got["empty"], got["empty"]
+    assert "never reached support" not in got["empty"], got["empty"]
+
+
+def test_a_booking_with_nothing_at_all_still_says_the_guest_never_wrote(page):
+    try:
+        _render(page, {"frames": [], "notes": []})
+        got = _contact_section(page)
+    finally:
+        _restore(page)
+    assert got["rows"] == 0
+    assert "moved to the timeline" not in got["hint"], got["hint"]
+    assert "never reached support" in got["empty"], got["empty"]
+
+
+def test_the_moved_events_have_a_timeline_to_be_moved_to(page):
+    """Moved, not dropped. The events timeline renders from the draft's own
+    timeline — the same events the frames were built from — so the section
+    exists and carries them whether or not this fixture seeded any."""
+    got = page.evaluate("""() => {
+      const sec = document.querySelector('#rca-events-timeline-section');
+      return sec ? {rows: sec.querySelectorAll('.tl-event').length,
+                    text: sec.innerText} : null; }""")
+    assert got, "there is no events timeline for a moved event to live on"
+    assert got["rows"] > 0 or "No Zendesk events were found" in got["text"], got
+
+
+# ── §5 the improvement pointers carry where they came from ──────────────────
+
+def _aoi(page):
+    return page.evaluate("""() => [...document.querySelectorAll('#rca-col .rca-point')].map(
+        p => ({text: p.querySelector('[data-aoi-idx]').innerText.trim(),
+               marker: (p.querySelector('.aoi-src') || {}).textContent || '',
+               title: (p.querySelector('.aoi-src') || {}).title || ''}))""")
+
+
+def test_each_pointer_is_its_own_line_and_carries_its_source(page):
+    try:
+        _render(page, {"aoi": [
+            {"point": "State the delivery window before checkout",
+             "from": "operational_failure",
+             "source": "The page states no delivery window"},
+            {"point": "Escalate a ticketless booking at T-2h",
+             "from": "sop_gap", "source": "No control catches a late ticket"}]})
+        got = _aoi(page)
+    finally:
+        _restore(page)
+    assert [g["text"] for g in got] == [
+        "State the delivery window before checkout",
+        "Escalate a ticketless booking at T-2h"]
+    assert [g["marker"] for g in got] == ["op failure", "sop gap"]
+    assert "The page states no delivery window" in got[0]["title"]
+
+
+def test_a_point_somebody_typed_is_not_dressed_as_a_derived_one(page):
+    """The marker means "checked against a finding on this card". A hand-added
+    point wearing one would make the marker mean nothing."""
+    try:
+        _render(page, {"aoi": [{"point": "Something an operator added",
+                                "from": None, "source": None}]})
+        got = _aoi(page)
+    finally:
+        _restore(page)
+    assert got[0]["marker"] == "by hand", got
+    assert "added by hand" in got[0]["title"]
+
+
+def test_an_old_draft_of_plain_strings_still_renders_its_points(page):
+    """Provenance is a constraint on the MODEL. A draft written before it
+    holds bare strings, and refusing to render them would delete work someone
+    already signed."""
+    try:
+        _render(page, {"aoi": ["Surface the window at checkout"]})
+        got = _aoi(page)
+    finally:
+        _restore(page)
+    assert [g["text"] for g in got] == ["Surface the window at checkout"]
+    assert got[0]["marker"] == "by hand"
+
+
+def test_an_empty_improvement_section_says_which_kind_of_empty_it_is(page):
+    """Two silences again. A card with failures and flags but no points means
+    every point was dropped for naming nothing; a card with no findings at all
+    means there was nothing to improve. Both render an empty list."""
+    try:
+        _render(page, {"aoi": [], "flags": [{"team": "CONTENT", "flag": "x",
+                                             "evidence": "y"}]})
+        with_findings = page.evaluate(
+            "() => document.querySelector('#rca-col .rca-points .rca-empty').innerText")
+        _render(page, {"aoi": [], "flags": []})
+        page.evaluate("""() => {
+          const r = REVIEWS.find(x => x.id === state.selected);
+          window.__gi = (r.rca.v3.what_went_wrong || {}).guest_issues;
+          r.rca.v3.what_went_wrong = {guest_issues: []};
+          renderRcaCol(); }""")
+        without = page.evaluate(
+            "() => document.querySelector('#rca-col .rca-points .rca-empty').innerText")
+        page.evaluate("""() => {
+          const r = REVIEWS.find(x => x.id === state.selected);
+          r.rca.v3.what_went_wrong = {guest_issues: window.__gi};
+          renderRcaCol(); }""")
+    finally:
+        _restore(page)
+    assert "dropped" in with_findings, with_findings
+    assert "no operational failure, no SOP gap and no flag" in without, without
+    assert with_findings != without
+
+
+def test_editing_a_pointer_keeps_the_finding_it_came_from(page):
+    """A mutation replacing the row-merge with a bare {point: text} survived
+    the whole suite: the first edit to any pointer would silently strip its
+    provenance, and a point that has lost its source is indistinguishable from
+    one that never had a source — which is the shape §5 exists to make
+    impossible.
+
+    Driven through the real blur handler, because the handler is the thing
+    that can drop it."""
+    try:
+        _render(page, {"aoi": [
+            {"point": "State the delivery window before checkout",
+             "from": "operational_failure",
+             "source": "The page states no delivery window"}]})
+        saved = page.evaluate("""async () => {
+          const el = document.querySelector('[data-aoi-idx="0"]');
+          el.textContent = 'State the delivery window ON the product page';
+          el.dispatchEvent(new Event('blur'));
+          await new Promise(r => setTimeout(r, 500));
+          const r = REVIEWS.find(x => x.id === state.selected);
+          return r.rca.areaOfImproving; }""")
+        page.wait_for_timeout(200)
+    finally:
+        _restore(page)
+    assert len(saved) == 1, saved
+    assert saved[0]["point"] == "State the delivery window ON the product page"
+    assert saved[0]["from"] == "operational_failure", (
+        f"the edit stripped the derivation: {saved[0]}")
+    assert saved[0]["source"] == "The page states no delivery window", saved[0]

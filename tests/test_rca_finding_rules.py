@@ -7,8 +7,11 @@ Three sections of the RCA were doing the same damage in different ways:
     verified and sends somebody to correct a person who did nothing wrong;
   * `flags` were raised against teams for contacts that never happened, and a
     flag with nothing behind it costs its team the time to prove a negative;
-  * `issue_specific_answers` were resolved from the guest's account, which is
-    a claim, when the question is asking what the record shows.
+  * the issue-specific questions were being ANSWERED into a section of their
+    own, resolved from the guest's account — a claim — when the question is
+    asking what the record shows. They are checks the RCA writes against now
+    (§3): what one surfaces is written as an operational failure or an SOP gap,
+    which is where somebody can act on it.
 
 The rules are in the prompt because that is where they act. They are checked
 here because a rule silently deleted from a prompt has no other symptom —
@@ -100,29 +103,71 @@ def test_it_says_where_a_non_flag_belongs_instead():
 
 # ── issue answers come from the record ──────────────────────────────────────
 
-def test_each_answer_must_name_the_record_it_rests_on():
-    assert "ANSWER EACH ONE FROM THE BACKEND, and say which" in TEXT
-    assert "`source` is the system you checked and `ref` is the row in it" in TEXT
+def test_the_questions_are_checks_to_write_against_not_a_section():
+    """§3. The questions still reach the prompt — they are what stops the RCA
+    being written past the record — but there is no answers section, so they
+    have to be stated as a constraint on what IS written."""
+    assert "CHECKS TO WRITE AGAINST, NOT A SECTION TO FILL IN" in TEXT
+    assert "There is no `issue_specific_answers` field" in TEXT
+    assert "your verdict, your root cause and your SOP gap must all be" in FLAT
 
 
-def test_unknown_is_stated_as_the_right_answer_when_unsettled():
-    assert '"Unknown" is a legitimate answer and the RIGHT one' in TEXT
+def test_the_questions_are_still_carried_into_the_prompt():
+    """The other half, and the one that would fail silently. §3 removed the
+    SECTION, not the questions: they still route from the scenario and still
+    reach the prompt. A rule about questions nobody supplies is a rule about
+    nothing, and the drift it lets through has no other symptom.
+
+    Driven with the questions the router actually produces, not a stub, so a
+    routing change that stopped supplying them fails here."""
+    from server.checklist import issue_questions_for
+    qs = issue_questions_for(["Tickets sent late"])
+    assert qs, "the router supplies no questions for a routed scenario"
+    text = rca_v3_prompt(
+        review_text="x", booking={"id": "1"}, timeline=[], insights={},
+        dss_rec={}, l1="Operations Issue", l2="Ticket Issues",
+        sub_theme="C. Ticket Delayed", support_summary="", checklist={},
+        review_id="tp_1", timeline_raw=[], ticket_facts={},
+        scenarios_routed=["Tickets sent late"], issue_questions=qs,
+        canned_list=[])
+    assert "<<ISSUE_QUESTIONS>>" not in text, "the token was never filled"
+    for q in qs:
+        assert q in text, f"routed question missing from the prompt: {q}"
 
 
 def test_the_guest_account_alone_cannot_settle_a_question():
-    assert "Never resolve a question from the guest's account alone" in TEXT
-    assert "what they say happened is a claim" in FLAT
+    assert "What the record shows settles them, not what the" in TEXT
+    assert "their account is the claim, and the question asks what we can see" in FLAT
+
+
+def test_what_a_question_surfaces_is_written_where_it_can_be_acted_on():
+    """§3, the decided half: a check that finds something missed is assessed
+    as an operational failure or an SOP gap and written THERE. Not as a trail
+    line, not as a count — both of which are read and then forgotten."""
+    assert "WRITE IT WHERE IT BELONGS" in TEXT
+    assert "`operational_failure` if a person or system did the wrong thing" in TEXT
+    assert "as its `sop_gap` if" in FLAT
+    assert "Do NOT report it as an answer, a count, or a" in FLAT
 
 
 def test_a_no_answer_is_not_automatically_an_operational_failure():
     """The join between the two rules. Without it the model answers No to a
     checklist question and writes an operational failure straight off it."""
-    assert 'A "No" ON A QUESTION IS NOT AUTOMATICALLY AN OPERATIONAL FAILURE' in TEXT
+    assert 'A QUESTION WHOSE ANSWER IS "NO" IS NOT AUTOMATICALLY EITHER OF THOSE' in TEXT
     assert "It becomes one only when rule 6 is satisfied" in FLAT
-    assert "Do not carry it into `operational_failure`" in TEXT
+    assert "is a check that came back clean. Write nothing for it" in FLAT
 
 
 # ── the removed sections are not asked for ──────────────────────────────────
+
+def test_the_output_schema_no_longer_carries_the_answers_section():
+    """§3. A section removed from the card but still asked for in the schema
+    comes back on every run and is stored where nobody reads it — which is the
+    same shape as the edit that landed in a store the reader never consults."""
+    schema = TEXT[TEXT.index("## OUTPUT FORMAT"):]
+    assert '"issue_specific_answers"' not in schema
+    assert '"question"' not in schema
+
 
 def test_the_prompt_no_longer_asks_for_tldr_or_sop():
     """A section removed from the schema but still described in the rules gets
@@ -144,7 +189,7 @@ def test_the_sections_that_remain_are_still_asked_for():
     """The other half — a removal that took a neighbour with it would show up
     as an empty card section rather than an error."""
     schema = TEXT[TEXT.index("## OUTPUT FORMAT"):]
-    for key in ('"stated_issue"', '"what_went_wrong"', '"issue_specific_answers"',
+    for key in ('"stated_issue"', '"what_went_wrong"',
                 '"support_interaction_notes"', '"sp_interaction_notes"',
                 '"booking_logs"', '"flags"', '"area_of_improving"',
                 '"resolution"', '"suggested_response"', '"takedown"', '"dss"'):
@@ -407,3 +452,130 @@ def test_rule_six_does_not_carry_a_second_copy():
     assert "STANDING POLICY" not in six
     assert "REAL deviation" not in six
     assert "rule 6b" in six
+
+
+# ── §2 the flag teams are the nine, and the routing rule is stated ──────────
+#
+# The vocabulary is enforced in code (rca_v4_validate.FLAG_TEAMS) and tested
+# there. What can only live in the prompt is WHICH of the nine a finding
+# belongs to, and that is the judgement the model gets wrong.
+
+def test_the_flag_team_enum_is_the_nine():
+    schema = TEXT[TEXT.index("## OUTPUT FORMAT"):]
+    assert ('"team": "<GUEST | SP | CONTENT | CO | TECH | INVENTORY | PRODUCT '
+            '| BIZ | FINANCE>"') in schema
+    # The old eight, and OTHER, which is not a team: it is what an unreadable
+    # one coerces to, and offering it invites the model to use it.
+    assert '"<CE | RO | SP | CONTENT | PRODUCT | BIZ | TECH | OTHER>"' not in schema
+    assert "| OTHER>" not in schema
+
+
+def test_a_missing_pax_type_is_content_and_not_product():
+    """HANDOFF §2, decided against a real flag: the booking flow renders
+    whatever pax types the catalog defines, so a missing Baby/Infant option is
+    a configuration fault. Filed as Product it goes to a team that cannot fix
+    it, and the team who can never sees it."""
+    seg = TEXT[TEXT.index("10-teams."):TEXT.index("10a.")]
+    assert "VARIANT, PAX TYPE, INCLUSION or PAGE STATEMENT" in seg
+    assert "No Baby/Infant" in seg and "is CONTENT" in seg
+    assert "not a flow fault" in " ".join(seg.split())
+
+
+def test_product_is_the_flow_failing_with_a_correct_catalog():
+    """The other half of the same rule. Without it CONTENT swallows everything
+    and the Product team is never raised at all."""
+    seg = TEXT[TEXT.index("10-teams."):TEXT.index("10a.")]
+    assert "THE FLOW, APP OR SITE FAILING TO DO ITS JOB WITH A CORRECT" in seg
+    assert "If the catalog entry" in seg and "it is CONTENT and not this" in seg
+
+
+def test_every_one_of_the_nine_is_described_not_just_listed():
+    """A name with no scope is a chip the model fills by association. Each of
+    the nine has to say what work it owns."""
+    seg = TEXT[TEXT.index("10-teams."):TEXT.index("10a.")]
+    for team in ("GUEST", "SP", "CONTENT", "CO", "TECH", "INVENTORY",
+                 "PRODUCT", "BIZ", "FINANCE"):
+        assert f"      {team}" in seg, f"{team} is listed without a scope"
+
+
+def test_the_teams_are_tied_to_what_actions_taken_does_with_them():
+    """The join is the reason the vocabulary is closed. Stated in the prompt
+    because a model that does not know a team name is load-bearing treats it
+    as a label."""
+    seg = TEXT[TEXT.index("10-teams."):TEXT.index("10a.")]
+    assert "Actions Taken is built by joining them" in seg
+    assert "raises nothing at all" in " ".join(seg.split())
+
+
+# ── §5 area of improvement: pointers that name their source ────────────────
+
+def test_the_improvement_points_are_pointers_not_a_paragraph():
+    assert "IS POINTERS, NOT A PARAGRAPH" in TEXT
+    assert "One short pointer per array element" in TEXT
+
+
+def test_every_point_must_name_the_finding_it_derives_from():
+    """Provenance as a CONSTRAINT: the value is that it forces the derivation,
+    so the rule has to say the point is dropped — not merely that a source is
+    nice to have."""
+    assert "EVERY POINT NAMES WHERE IT CAME FROM, AND THE NAME IS CHECKED" in TEXT
+    assert "IS DROPPED before it renders" in TEXT
+    assert "there is nowhere to put a source you do not have" in FLAT
+
+
+def test_it_says_not_to_write_the_point_first_and_hunt_for_a_source():
+    """The exact failure the check would otherwise produce: a real point with
+    a source picked to get it past the validator."""
+    assert "do not write the point first and hunt for a source afterwards" in FLAT
+
+
+def test_an_empty_improvement_section_is_stated_as_the_right_answer():
+    assert "EMPTY IS AN ANSWER" in TEXT
+    assert "a padded section is worse than an empty one" in FLAT
+
+
+def test_the_point_is_the_fix_and_the_source_is_the_fault():
+    """Without this the section comes back as a restatement of the failures,
+    which is the same paragraph in a different place."""
+    assert "THE POINT IS THE FIX, NOT THE FAULT" in TEXT
+
+
+# ── §6 a website that advertises an offer without its precondition ─────────
+
+def _classify():
+    from server.prompts import classification_prompt
+    return classification_prompt("x", {}, [])
+
+
+def test_an_unstated_precondition_on_an_offer_is_a_product_issue():
+    """"after you buy tickets the website offers a discount on your next
+    purchase; you only get it if you create an account first; Headout will not
+    honour it" was coming back as Operations / Content - Misleading Info,
+    because App and Website Issues was scoped to "didn't load or function"."""
+    text = _classify()
+    seg = text[text.index("[PRODUCT ISSUE"):text.index("[SUPPLY PARTNER ISSUE")]
+    assert "ADVERTISED something without stating the condition attached to it" in seg
+    assert "the site offered a discount on my next purchase" in seg
+    assert "failed at the point of sale" in " ".join(seg.split())
+
+
+def test_the_operations_content_rule_hands_that_case_over():
+    """The priority rule puts Operations above Product and says stop at the
+    first match, so a clause added only under Product would never be reached.
+    The handover has to be written where the model stops."""
+    text = _classify()
+    ops = text[text.index("[OPERATIONS ISSUE"):text.index("[PRODUCT ISSUE")]
+    assert "AN OFFER THE SITE MAKES IS NOT CONTENT ABOUT THE EXPERIENCE" in ops
+    assert 'L1 = "Product Issue" / L2 = "App and Website Issues"' in ops
+    assert "priority rule notwithstanding" in ops
+
+
+def test_content_about_the_experience_stays_with_operations():
+    """The boundary must not swallow the section it sits in: what the page says
+    the tour includes is still Operations content."""
+    text = _classify()
+    ops = text[text.index("[OPERATIONS ISSUE"):text.index("[PRODUCT ISSUE")]
+    assert "this L2 is for what we said about the EXPERIENCE" in ops
+    seg = TEXT[TEXT.index("10-teams."):TEXT.index("10a.")]
+    assert "an offer the site advertises without its precondition" in seg, (
+        "the RCA prompt and the classifier disagree about where this lands")

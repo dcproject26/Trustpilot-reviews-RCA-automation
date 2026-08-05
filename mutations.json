@@ -670,5 +670,221 @@
     "name": "the queued chip is painted as a stuck one",
     "find": "                              : r.processingState === 'queued'\n                              ? ['Queued', ''] : ['Processing', ''])",
     "replace": "                              : ['Processing', ''])"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "a pax-type problem stops being the catalog's",
+    "find": "\"inclusions\", \"pax type\", \"pax-type\", \"child ticket\",",
+    "replace": "\"inclusions\", \"child ticket\","
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "the AND becomes an OR — guidelines alone fill the tabs",
+    "find": "tabs = {t: (list(items) if t in flagged else []) for t, items in guideline.items()}",
+    "replace": "tabs = {t: list(items) for t, items in guideline.items()}"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "a withheld row is withheld silently",
+    "find": "    elif n_withheld:\n        notes.append(",
+    "replace": "    elif n_withheld and False:\n        notes.append("
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "nothing-flagged stops being distinguishable from nothing-prescribed",
+    "find": "        notes.append(f\"actions taken: {n_withheld} guideline action(s) withheld \"\n                     f\"— nothing was flagged, so nothing is raised\")",
+    "replace": "        notes.append(\"actions taken: the routed scenario(s) have no guideline \"\n                     \"action to raise — only checks\")"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "an unreadable flag team becomes somebody's problem anyway",
+    "find": "    return code if code in ACTION_TEAMS else \"\"",
+    "replace": "    return code"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "a CE flag stops reaching the team that owns it now",
+    "find": "    \"ce\": \"co\", \"ro\": \"co\", \"customer\": \"co\", \"cs\": \"co\",",
+    "replace": "    \"customer\": \"co\", \"cs\": \"co\","
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "a clean run reports on itself anyway",
+    "find": "    if not scenario_names:\n        notes.append(\"actions taken: no scenario routed",
+    "replace": "    if True:\n        notes.append(\"actions taken: no scenario routed"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "actions taken never reaches the column",
+    "find": "    \"actions_taken\":          (\"actions_taken\",),\n",
+    "replace": ""
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the computed actions never reach the RCA",
+    "find": "        \"actions_taken\":     _actions,\n",
+    "replace": ""
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the withheld notes never reach the trail",
+    "find": "    notes.extend(_ar[\"notes\"])",
+    "replace": "    _ar[\"notes\"]"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "an old flag vocabulary is left to fail the enum",
+    "find": "    _flags = _rows(_alias_flag_teams(rca.get(\"flags\"), notes),",
+    "replace": "    _flags = _rows(rca.get(\"flags\"),"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the team translation happens without saying so",
+    "find": "            if alias:\n                notes.append(f\"flag team {f.get('team')!r} → {alias.upper()} \"",
+    "replace": "            if alias:\n                _ = (f\"flag team {f.get('team')!r} → {alias.upper()} \""
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "an invented improvement point renders",
+    "find": "        if not any(_overlaps(source, t, 0.5) or _overlaps(t, source, 0.5)\n                   for t in have.get(kind, [])):",
+    "replace": "        if False:"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "a point with no source at all renders",
+    "find": "        if not kind or not source:\n            unsourced += 1\n            continue",
+    "replace": "        if not kind or not source:\n            out.append({\"point\": point, \"from\": kind, \"source\": source})\n            continue"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "a point checks against any finding rather than the one it claims",
+    "find": "                   for t in have.get(kind, [])):",
+    "replace": "                   for t in sum(have.values(), [])):"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the dropped points are dropped silently",
+    "find": "    if unsourced:\n        notes.append(",
+    "replace": "    if unsourced and False:\n        notes.append("
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "an unsourced point is reported as an invented one",
+    "find": "        notes.append(f\"area of improvement: {unsourced} point(s) named no \"\n                     f\"operational failure, SOP gap or flag they came from — \"\n                     f\"dropped, not rendered unsourced\")",
+    "replace": "        notes.append(f\"area of improvement: {unsourced} point(s) named a source \"\n                     f\"that matches no operational failure, SOP gap or flag on \"\n                     f\"this card — dropped as invented\")"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the pre-provenance string shape is kept as a point",
+    "find": "            if _clean(r):\n                unsourced += 1\n            continue",
+    "replace": "            if _clean(r):\n                out.append({\"point\": _clean(r), \"from\": None, \"source\": None})\n            continue"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "machinery on the email thread counts as a conversation",
+    "find": "    return thread not in NON_CONTACT_THREADS and not frame.get(\"is_internal\")",
+    "replace": "    return thread not in NON_CONTACT_THREADS"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "the API posts count as contacts again",
+    "find": "NON_CONTACT_THREADS = (\"booking\", \"review\", \"api\", \"sp\")",
+    "replace": "NON_CONTACT_THREADS = (\"booking\", \"review\", \"sp\")"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "the moved events are moved silently",
+    "find": "    return (f\"{n} system event{'' if n == 1 else 's'} moved to the timeline\")",
+    "replace": "    return \"\""
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "the split drops what it filtered instead of returning it",
+    "find": "    return ([f for f in frames if is_conversation(f)],\n            [f for f in frames if not is_conversation(f)])",
+    "replace": "    return ([f for f in frames if is_conversation(f)], [])"
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "the Slack post counts machinery as contacts again",
+    "find": "    for n, (key, group) in enumerate(_contacts(_convo), 1):",
+    "replace": "    for n, (key, group) in enumerate(_contacts(draft.support_interaction_frames), 1):"
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "a filtered Slack section reads as a guest who never wrote in",
+    "find": "                     else (\"No conversation with the guest on this booking — \"\n                           f\"{_moved_note}, so nobody spoke to them\"",
+    "replace": "                     else (\"No guest contact found on this booking\"\n                           f\"{''}\""
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "an improvement point posts as a Python dict",
+    "find": "            t = str((x.get(\"point\") or x.get(\"text\") or \"\") if isinstance(x, dict)\n                    else (x or \"\")).strip()",
+    "replace": "            t = str(x or \"\").strip()"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a tab goes missing from the chip row",
+    "find": "  ['finance',   'Finance team'],\n",
+    "replace": ""
+  },
+  {
+    "file": "client/index.html",
+    "name": "an old draft's rows stop being folded onto the nine",
+    "find": "const ACTION_TEAM_LEGACY = {customer: 'co', ce: 'co', ro: 'co',",
+    "replace": "const ACTION_TEAM_LEGACY = {"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an empty tab stops saying which kind of empty it is",
+    "find": "                return _flaggedTeams.has(state.actionTab)\n                  ? `${label} is flagged on this card, but the DSS guidelines prescribe no step to raise with them for the routed scenario.`\n                  : `Nothing is flagged against ${label}, so nothing was raised with them. A row appears only where the guidelines say it must be raised AND a flag names the team.`;",
+    "replace": "                return 'No actions raised';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a CE flag lands on the first option in the list",
+    "find": "      const key = actionTeamKey(raw);\n      return key ? key.toUpperCase() : 'OTHER';",
+    "replace": "      return raw.toUpperCase();"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the contact list counts machinery again",
+    "find": "  const _convoFrames  = _allFrames.filter(isConversation);",
+    "replace": "  const _convoFrames  = _allFrames;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the moved events are moved silently on the card",
+    "find": "        _movedFrames.length ? ` · ${_movedFrames.length} system event${_movedFrames.length === 1 ? '' : 's'} moved to the timeline` : ''",
+    "replace": "        false ? '' : ''"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a filtered contact list reads as a guest who never wrote in",
+    "find": "        <div class=\"interactions-empty\">${_movedFrames.length",
+    "replace": "        <div class=\"interactions-empty\">${false"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the provenance marker stops rendering",
+    "find": "              ${a.source\n                ? `<span class=\"aoi-src\" data-aoi-src=\"${i}\"",
+    "replace": "              ${false\n                ? `<span class=\"aoi-src\" data-aoi-src=\"${i}\""
+  },
+  {
+    "file": "client/index.html",
+    "name": "a hand-added point is dressed as a derived one",
+    "find": "                : `<span class=\"aoi-src none\" data-aoi-src=\"${i}\" title=\"added by hand — not derived from a finding on this card\">by hand</span>`}",
+    "replace": "                : `<span class=\"aoi-src\" data-aoi-src=\"${i}\" title=\"from the operational failure\">op failure</span>`}"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an improvement point loses its source on the first edit",
+    "find": "        if (rows[i]) rows[i] = {...rows[i], point: x.textContent.trim()};",
+    "replace": "        if (rows[i]) rows[i] = {point: x.textContent.trim()};"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the answers section comes back",
+    "find": "  const isaBlock = '';",
+    "replace": "  const isaBlock = `<div class=\"section\" id=\"rca-issue-answers-section\">\n      <div class=\"section-label\">Issue-specific answers<span class=\"section-chev\">▾</span></div></div>`;"
   }
 ]

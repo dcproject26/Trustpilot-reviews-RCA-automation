@@ -347,6 +347,63 @@ def _clean_summary(body: str) -> str:
 _THREADS = {"email", "chat", "call", "sp", "booking", "review"}
 _ACTORS  = {"guest", "co", "sp", "ai", "system", "creation", "review"}
 
+# ── Guest ↔ support is CONVERSATIONS ONLY (HANDOFF §4) ──────────────────────
+#
+# A contact is an exchange a PERSON took part in: chat, call, email, web form,
+# in-app. Everything else on a booking is machinery wearing a contact's
+# clothes — the booking thread Zendesk files as a task, the API posts and bot
+# notes, the review itself — and each one counted as a contact raised the
+# count, so a guest nobody spoke to read as a guest who was handled.
+#
+# They are not dropped. Each has a home that already renders it: booking-created
+# on the booking timeline, API and system notes on the events timeline marked
+# internal, the review as the closing bookend. What must never happen is a
+# silent filter — a filtered list and a guest who never wrote in have to read
+# differently, which is why the split is returned as two lists and counted.
+CONTACT_THREADS = ("chat", "email", "call", "web", "app")
+# What moves, named exactly. A DENYLIST and not the obvious allowlist, because
+# the two differ on the case that matters: a thread nobody has classified yet.
+# An allowlist would drop it — silently, on the reasoning that we cannot prove
+# it is a conversation — and dropping a real contact because a channel name is
+# new is the failure this section exists to stop. A new channel stays visible
+# and wrong; an unclassified one never disappears.
+NON_CONTACT_THREADS = ("booking", "review", "api", "sp")
+
+
+def is_conversation(frame) -> bool:
+    """Whether this frame is an exchange a person took part in.
+
+    Internal machinery is not a conversation whatever thread it arrived on: the
+    booking-in-progress mail is thread "email" and no human sent it, which is
+    what `is_internal` already records.
+    """
+    if not isinstance(frame, dict):
+        return False
+    thread = str(frame.get("thread") or "").strip().lower()
+    return thread not in NON_CONTACT_THREADS and not frame.get("is_internal")
+
+
+def split_contact_frames(frames) -> tuple[list, list]:
+    """(conversations, moved). Never one list with the rest quietly gone."""
+    frames = [f for f in (frames or []) if isinstance(f, dict)]
+    return ([f for f in frames if is_conversation(f)],
+            [f for f in frames if not is_conversation(f)])
+
+
+def moved_frames_note(moved) -> str:
+    """What moved, and where to, in one clause — or "" when nothing moved.
+
+    Empty string only for a genuinely empty split. "0 system events moved" on
+    every clean booking is the noise that makes a reader stop reading the
+    counts that matter.
+    """
+    moved = [f for f in (moved or []) if isinstance(f, dict)]
+    if not moved:
+        return ""
+    n = len(moved)
+    return (f"{n} system event{'' if n == 1 else 's'} moved to the timeline")
+
+
 # Zendesk's via.channel vocabulary for a conversation is far wider than the
 # three names this function used to know. Messaging tickets arrive as
 # "native_messaging", "messaging", "sunshine_conversations", "web_messaging",

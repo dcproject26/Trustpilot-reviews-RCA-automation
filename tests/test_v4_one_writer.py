@@ -367,3 +367,31 @@ def test_both_paths_agree_on_the_verbatim_rule():
     for marker in ('c.get("why")', '"<first name>"'):
         assert marker in pipe and marker in _regen_body(), \
             f"{marker} is in one path and not the other"
+
+
+# ── Actions Taken is a projection now, and an EDITED one ────────────────────
+
+def test_actions_taken_is_served_from_the_column_the_dashboard_edits(app_env):
+    """The one v4-shaped field that is deliberately NOT read rca_v3-first.
+
+    `validate` computes it and the projection writes it, but every add, edit
+    and delete on the card writes the COLUMN — so reading rca_v3 first would
+    shadow every one of them with the value they replaced. That is the same
+    defect as an edit landing in a store the reader never consults, pointing
+    the other way.
+    """
+    db, api = app_env
+    rid = _seed(db,
+                actions_taken={"co": [{"context": "Refund issued by hand"}]},
+                rca_v3={"actions_taken": {"co": ["what the pipeline raised"]}})
+    got = _load(db, api, rid)[0]["actions_taken"]
+    assert got == {"co": [{"context": "Refund issued by hand"}]}, got
+
+
+def test_a_draft_that_never_had_the_section_still_renders_the_tabs(app_env):
+    """An absent column must not hand the renderer a None: the chip row is
+    built by iterating it."""
+    db, api = app_env
+    rid = _seed(db, actions_taken=None, rca_v3={})
+    got = _load(db, api, rid)[0]["actions_taken"]
+    assert isinstance(got, dict)

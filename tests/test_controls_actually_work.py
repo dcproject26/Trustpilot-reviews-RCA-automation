@@ -22,9 +22,11 @@ pytest.importorskip("playwright.sync_api")
 from tests.test_rca_ui_rendered import page, CHROME          # noqa: E402,F401
 
 
+# Issue-specific answers is not here because the section is gone (§3), not
+# because its collapse was flaky. A selector left in this list after its
+# section stopped rendering fails on a null and reads as a broken control.
 SECTIONS = ["#rca-events-timeline-section", "#rca-flags-section",
-            "#rca-wwr5-section",
-            "#rca-issue-answers-section"]
+            "#rca-wwr5-section"]
 
 
 def _collapsed(page, sel):

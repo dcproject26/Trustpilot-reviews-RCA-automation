@@ -581,12 +581,12 @@ def format_rca_slack(review, draft) -> str:
     # 7. Actions taken — flattened, owner in parens
     at = draft.actions_taken or {}
     action_lines = []
-    for team in ("sp", "customer", "business", "ce", "product"):
+    for team in _action_team_keys(at):
         for item in (at.get(team) or []):
             txt = item if isinstance(item, str) else (
                 item.get("context") or item.get("with") or "")
             if txt:
-                action_lines.append(f"• {txt} ({team.upper()})")
+                action_lines.append(f"• {txt} ({_action_team_label(team)})")
     actions_text = nl.join(action_lines) if action_lines else "—"
 
     # 8. Resolution
@@ -668,10 +668,40 @@ def format_rca_slack(review, draft) -> str:
 
 def _points(v) -> list:
     """Pointer fields are lists in the v3 shape; older values may be a single
-    string. Join-into-a-string anywhere here would print 'a,b,c' as prose."""
+    string. Join-into-a-string anywhere here would print 'a,b,c' as prose.
+
+    An area-of-improvement point is an object now - {point, from, source} - so
+    that the model cannot write one it cannot derive. Slack gets the pointer
+    itself; the provenance is the constraint that produced it, not something a
+    thread reader needs. Printing the dict would put a Python repr in the post.
+    """
+    if isinstance(v, dict):
+        v = [v]
     if isinstance(v, (list, tuple)):
-        return [str(x).strip() for x in v if str(x or "").strip()]
+        out = []
+        for x in v:
+            t = str((x.get("point") or x.get("text") or "") if isinstance(x, dict)
+                    else (x or "")).strip()
+            if t:
+                out.append(t)
+        return out
     return [str(v).strip()] if str(v or "").strip() else []
+
+
+# The nine teams, and any key an older draft still holds. Hard-coding the five
+# old tab names here is what would silently drop every row on a card written
+# under the new vocabulary: the loop would find no key and post "—", which is
+# the same thing it posts when nothing was raised.
+def _action_team_keys(at) -> list:
+    from server.checklist import ACTION_TEAMS
+    extra = [k for k in (at or {}) if k not in ACTION_TEAMS]
+    return list(ACTION_TEAMS) + sorted(extra)
+
+
+def _action_team_label(key: str) -> str:
+    from server.taxonomy import ACTION_TABS
+    row = ACTION_TABS.get(key)
+    return row["label"] if row else str(key).upper()
 
 
 from server.services.rca_v4_validate import zd_key as _zd_key
@@ -867,8 +897,16 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
     si_notes = v3.get("support_interaction_notes")
     if si_notes is None:
         si_notes = v3.get("support_interaction")          # pre-split drafts
+    # §4 conversations only. The booking thread, the API posts and the review
+    # are machinery, and each one counted here raised the contact count on a
+    # post leadership reads as "this guest was handled". They are on the
+    # timelines already; what this section owes the reader is the fact that
+    # they moved, which the heading carries - a filtered list and a guest who
+    # never wrote in must not read the same.
+    from server.services.zendesk import split_contact_frames, moved_frames_note
+    _convo, _moved = split_contact_frames(draft.support_interaction_frames)
     rows, used = [], set()
-    for n, (key, group) in enumerate(_contacts(draft.support_interaction_frames), 1):
+    for n, (key, group) in enumerate(_contacts(_convo), 1):
         note = _note_for(key, si_notes)
         if note:
             used.add(key)
@@ -928,9 +966,14 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
         rows.append(head + f" ({why})")
         if note.get("ce_miss"):
             rows.append(f"   \u26a0 CE miss: {note['ce_miss']}")
+    _moved_note = moved_frames_note(_moved)
     sections.append(("Customer / CE interactions",
-                     nl.join(rows) if rows
-                     else "No guest contact found on this booking"))
+                     nl.join(rows + ([f"\u2022 ({_moved_note})"] if _moved_note else []))
+                     if rows
+                     else ("No conversation with the guest on this booking — "
+                           f"{_moved_note}, so nobody spoke to them"
+                           if _moved_note
+                           else "No guest contact found on this booking")))
 
     sp_notes = v3.get("sp_interaction_notes")
     if sp_notes is None:
@@ -970,12 +1013,12 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
 
     at = draft.actions_taken or {}
     al = []
-    for team in ("sp", "customer", "business", "ce", "product"):
+    for team in _action_team_keys(at):
         for item in (at.get(team) or []):
             txt = item if isinstance(item, str) else (
                 item.get("context") or item.get("with") or "")
             if txt:
-                al.append(f"• {txt} ({team.upper()})")
+                al.append(f"• {txt} ({_action_team_label(team)})")
     sections.append(("Actions taken", nl.join(al) if al else "—"))
     sections.append(("Resolution", draft.resolution or "—"))
 

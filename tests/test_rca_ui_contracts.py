@@ -77,13 +77,11 @@ def test_the_raw_verdict_is_kept_in_the_title_not_the_chip():
     assert 0 < i and 'title="${esc(raw || v)}"' in CLIENT[i:i + 600]
 
 
-def test_the_accuracy_cap_is_a_cap_and_the_isa_width_is_fixed():
-    """Two different kinds of number: accuracy and owner size to content and
-    clamp only on garbage; the ISA chip is fixed so five stacked rows share one
-    column."""
+def test_the_accuracy_and_owner_chips_cap_rather_than_fix_their_width():
+    """Both size to content and clamp only on garbage, so a long team name is
+    readable and a sentence cannot claim the row."""
     assert re.search(r"\.chip-acc-sel\s*\{\s*max-width:\s*140px", CLIENT)
     assert re.search(r"\.chip-owner-sel\s*\{\s*max-width:\s*26ch", CLIENT)
-    assert re.search(r"\.chip-isa-sel\s*\{\s*width:\s*82px", CLIENT)
 
 
 # ── evidence rows (§2b) ─────────────────────────────────────────────────────
@@ -219,30 +217,28 @@ def test_an_empty_guest_support_section_is_not_a_numbered_row():
             f"the empty state renders a {dressing} — that is defect 4"
 
 
-# ── §11 issue-specific answers ──────────────────────────────────────────────
+# ── §3 issue-specific answers: the section is gone ──────────────────────────
+#
+# Negative assertions, which is the shape CLAUDE.md allows: an unreachable
+# branch cannot make a string appear nowhere. That the questions still reach
+# the PROMPT is a behaviour test and lives in test_rca_finding_rules.py.
 
-def test_the_answer_fallback_pill_is_gone():
-    """Defect 9: a parseable answer got a select and an unparseable one got a
-    grey "answer" pill with the verdict text lost."""
-    assert "esc(verdict || 'answer')" not in CLIENT
-    assert 'data-v3sel="issue_specific_answers.' in CLIENT
+def test_the_issue_specific_answers_section_is_gone_from_the_card():
+    """The questions did not go away — they are checks the RCA writes against
+    now, and what one surfaces is written as an operational failure or an SOP
+    gap. What went is the wall of verdict chips, which was read by nobody and
+    invited the model to answer instead of diagnose."""
+    for gone in ('id="rca-issue-answers-section"',
+                 'data-v3sel="issue_specific_answers.',
+                 'data-isa-key', 'data-isa-evidence',
+                 'class="isa-row"', 'chip-isa-sel'):
+        assert gone not in CLIENT, f"the answers section is still rendered: {gone}"
 
 
-def test_both_isa_shapes_normalise_to_one():
-    """v4 sends an array; a pre-v4 draft holds {question: answer}. An old
-    answer that opens with a fact keeps its text as evidence."""
-    assert "const _isaRows = Array.isArray(_isaRaw)" in CLIENT
-    i = CLIENT.find("const _isaRows = Array.isArray(_isaRaw)")
-    assert "Object.entries(_isaRaw || {})" in CLIENT[i:i + 1200]
-
-
-def test_the_isa_source_trails_the_evidence():
-    """So evidence starts at the same x on every row regardless of how long
-    the source name is."""
-    i = CLIENT.find('<div class="isa-ev">')
-    assert i > 0
-    body = CLIENT[i:i + 500]
-    assert body.find("isa-evtext") < body.find("isa-src")
+def test_no_handler_is_left_bound_to_markup_nothing_emits():
+    """A handler for a control that no longer exists is dead code that reads as
+    live, and the next person to touch this file has to prove it is dead."""
+    assert "issueSpecificAnswers" not in CLIENT
 
 
 # ── §9 SOP, §8 flag team, §12 DSS ───────────────────────────────────────────
@@ -257,10 +253,19 @@ def test_the_sop_section_is_gone_from_the_card():
     assert 'data-v3p="tldr.our_mistake"' not in CLIENT
 
 
-def test_the_flag_team_is_a_closed_list():
+def test_the_flag_team_is_a_closed_list_over_the_nine():
+    """§2. Flags use the same nine teams as Actions Taken — one vocabulary,
+    because the two are joined on it. The list is built from ACTION_TEAMS so
+    the two cannot drift into two spellings of one team, which would make the
+    join match nothing and empty the tabs."""
     assert 'data-v3sel="flags.${f._i}.team"' in CLIENT
-    for team in ("CE", "RO", "SP", "CONTENT", "PRODUCT", "BIZ", "TECH", "OTHER"):
-        assert f"'{team}'" in CLIENT
+    assert "const FLAG_TEAMS = ACTION_TEAMS.map(([t]) => t.toUpperCase()).concat(['OTHER']);" in CLIENT
+    for team in ("guest", "sp", "content", "co", "tech", "inventory",
+                 "product", "biz", "finance"):
+        assert f"['{team}'," in CLIENT, f"{team} is not one of the nine tabs"
+    # The five that are gone must not be back as tab keys.
+    for gone in ("['customer',", "['ce',", "['business',"):
+        assert gone not in CLIENT, f"an old tab key is still a tab: {gone}"
 
 
 def test_the_dss_stub_is_gone():

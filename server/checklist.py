@@ -4,6 +4,22 @@ No runtime fetch. No Google Sheets dependency.
 """
 import re
 
+from server.taxonomy import ACTION_TABS
+
+# The nine teams, in the order the ORM team gave them. One vocabulary, shared
+# by Actions Taken and Flags, because the two are joined on it.
+ACTION_TEAMS = tuple(ACTION_TABS)
+
+# What a flag written under an older vocabulary means in this one. CE and RO
+# were the two support-side chips and both are the CO team's work now. Anything
+# not listed here and not one of the nine reads as unrouted, which raises
+# nothing — it does not silently become somebody's problem.
+FLAG_TEAM_ALIASES = {
+    "ce": "co", "ro": "co", "customer": "co", "cs": "co",
+    "business": "biz", "bizops": "biz",
+    "fin": "finance", "io": "inventory",
+}
+
 # Mandated structure for the "What went wrong" section (Headout ORM).
 # Headings 1–5 are ALWAYS included; the (a)/(b)/(c) sub-points are indicative —
 # use only the ones relevant to the case. Objective: concise, structured, and
@@ -334,37 +350,78 @@ def scenario_actions(scenario_name: str) -> list:
 
 # Owner routing for Actions-Taken tabs. First matching rule wins; an item that
 # matches no rule is a pure check (not an ownable action) and is skipped.
-# First match wins, so the order IS the routing. SP is first for a reason.
+# First match wins, so the order IS the routing.
 #
-# Refunds used to route to CUSTOMER and experience problems to BUSINESS. Both
-# were wrong: a refund is nearly always a claim against the supply partner, and
-# a redemption or quality problem IS the supply partner's. Filing them
-# elsewhere sent the work to a team that could not action it, and the team who
-# could never saw it.
+# The five old tabs (SP / Customer / Business / CE / Product) are gone. They
+# were not teams: "Customer" is not one, "Business" was inventory, pricing and
+# the escalation ladder in one chip, and a catalog problem or a refund Finance
+# has to execute had nowhere to go at all. The nine below are the teams the ORM
+# team actually raises things with, and they are the SAME vocabulary the flags
+# use - Actions Taken and Flags are joined on it.
 #
-# Business keeps what is genuinely commercial - inventory, pricing, the
-# escalation ladder - and nothing else.
+# ORDER, and why each rule sits where it does:
+#   inventory before tech   - "Raise with Inventory/Business/SP by FF type
+#                             (… Vendor API→check similar…)" names IO as the
+#                             owner and Vendor API only as the trigger.
+#   finance before co       - a refund Finance executes ("Fin on priority",
+#                             an ARN, a bank transfer) is not the same work as
+#                             a refund CO issues under DSS.
+#   product before sp       - an app or checkout failure that happens to
+#                             mention a voucher is the flow's, not the vendor's.
+#   content before product  - HANDOFF §2: a missing or wrong VARIANT, PAX TYPE,
+#                             INCLUSION or PAGE STATEMENT is Content/Catalog/
+#                             Media, whoever else the row happens to mention.
+#                             Product is for the flow, app or site failing to
+#                             do its job with a CORRECT catalog.
 _OWNER_RULES = [
-    # SP: the supply partner, anything claimed against them, and anything
-    # about the EXPERIENCE itself - redemption, quality, the guide, the venue.
-    ("sp",       ["supply partner", "raise with sp", "with sp", "→ sp", "sp/biz",
-                  "operator", "guide", "vendor api", "vendor",
-                  # refunds and money claimed back are claims against the SP
-                  "refund", "credit note", "chargeback", "arn",
-                  # the experience itself
-                  "redemption", "redeem", "voucher", "qr", "entry denied",
-                  "turned away", "quality", "poor experience", "meeting point",
-                  "no-show", "overbooked", "venue"]),
-    ("product",  ["tech team", "with tech", "raise with tech", "tech for", "tech bug",
-                  "bms", "pdf", "app issue", "app issues", "selenium", "website", "→ tech"]),
-    ("business", ["inventory", "inv-ops", "io/", "→ io", "prepurchase→io", " biz", "business",
-                  "bdm", "bizops", "escalation team", "escalations", "arpit", "leads",
-                  "#co-issue", " fin ", "on priority", "pricing", "commercial"]),
-    ("customer", ["resend", "email guest", "reschedule",
-                  "cancel/reschedule", "share proof", "request proof", "callout"]),
-    ("ce",       ["ce error", "ce/ro", "macro", "clarity", "internal notes", "follow up",
-                  "48-72h", "action per dss", "tag", "tagging", "not handled",
-                  "mishandled", "process gap", "sop"]),
+    # The guest's own mistake, and nothing for a team to do. Named first
+    # because it is the one verdict that must not be swallowed by a rule that
+    # merely mentions the guest ("Email guest with proof" is CO's work).
+    ("guest",     ["guest error", "customer error", "double booking",
+                   "guest fault", "guest did not follow"]),
+    # Inventory: fulfilment ownership by FF type, IO on-call, listing stock.
+    ("inventory", ["inventory", "inv-ops", "io/", "→ io", "prepurchase→io",
+                   "inv ops", "sold out"]),
+    # Tech: Headout's own systems failing - BMS, PDFs, the automation.
+    ("tech",      ["tech team", "with tech", "raise with tech", "tech for",
+                   "tech bug", "→ tech", "bms/", "pdf", "selenium",
+                   "vendor api issues", "automation failure"]),
+    # Finance: money that has to move, and the records that prove it moved.
+    ("finance",   [" fin ", "fin on priority", " arn ", "arn number",
+                   "chargeback", "bank account", "refund error", "payment gateway"]),
+    # Content/Catalog/Media: what the product SAYS. The catalog config, the
+    # page, the voucher copy, the callouts.
+    ("content",   ["content", "catalog", "media team", "callout", "disclaimer",
+                   "inclusions", "pax type", "pax-type", "child ticket",
+                   "experience page", "page statement", "redemption details",
+                   "listing copy", "variant name"]),
+    # Product: the guest-facing flow, app or site failing with a catalog that
+    # is correct. A missing pax type is NOT this - that is Content.
+    ("product",   ["booking flow", "app issue", "app issues", "in-app",
+                   "website", "checkout flow", "web flow"]),
+    # SP: the supply partner and anything claimed against them - the guide,
+    # the venue, the meeting point, the tour itself.
+    ("sp",        ["supply partner", "raise with sp", "with sp", "→ sp",
+                   "sp/biz", "sp given", "escalate to sp", "request sp",
+                   "operator", "guide", "vendor",
+                   "redemption", "redeem", "voucher", "entry denied",
+                   "turned away", "quality", "poor experience", "meeting point",
+                   "no-show", "overbooked"]),
+    # NOT a bare "venue". "New tickets bought at venue + we fulfilled on time →
+    # request proof, refund once shared" is CO's work - we ask the guest for
+    # the receipt and refund it. Matching it to SP on the word "venue" filed a
+    # CO action with the supply partner, who has nothing to do.
+    # Biz: the commercial relationship and the escalation ladder.
+    ("biz",       ["bizops", " biz", "biz ", "business", "bdm", "escalation team",
+                   "escalations", "arpit", "recurring", "pricing", "commercial"]),
+    # CO: the support desk itself - how the contact was handled, what DSS
+    # prescribed, and the remedies CO issues to the guest.
+    ("co",        ["ce error", "ro error", "ce/ro", "macro", "clarity",
+                   "internal notes", "follow up", "48-72h", "action per dss",
+                   "#co-issue", "co assistant", "leads", "tagging", "tag ",
+                   "not handled", "mishandled", "process gap", "sop",
+                   "resend", "email guest", "reschedule", "cancel/reschedule",
+                   "share proof", "request proof", "refund", "credits"]),
 ]
 
 
@@ -418,10 +475,14 @@ def _owner_for_action(text: str):
 def actions_for(scenario_names) -> dict:
     """
     Merge + dedupe guideline actions across the given scenarios and route each
-    to its owner tab. Returns {sp, customer, business, ce, product: [str]}.
+    to its owner tab. Returns {team: [str]} over ACTION_TEAMS.
     Only ownable action items are included (pure checks are skipped).
+
+    This is HALF of what Actions Taken shows: what the DSS guidelines say must
+    be raised for the routed scenarios. The other half is whether anything was
+    actually flagged - see `actions_raised`, which is what the card renders.
     """
-    tabs = {"sp": [], "customer": [], "business": [], "product": [], "ce": []}
+    tabs = {t: [] for t in ACTION_TEAMS}
     seen = set()
     for name in (scenario_names or []):
         for item in scenario_actions(name):
@@ -434,6 +495,71 @@ def actions_for(scenario_names) -> dict:
             seen.add(key)
             tabs[owner].append(item)
     return tabs
+
+
+def team_of_flag(flag) -> str:
+    """The ACTION_TEAMS key a flag names, or "" when it names none.
+
+    Flags carry the team CODE (the tab key upper-cased). Drafts written before
+    the nine-team vocabulary carry CE, RO, CUSTOMER, BUSINESS or OTHER, and a
+    flag whose team cannot be read must not quietly become some team's problem:
+    it returns "" and raises nothing.
+    """
+    code = str((flag or {}).get("team") or "").strip().lower() \
+        if isinstance(flag, dict) else str(flag or "").strip().lower()
+    code = FLAG_TEAM_ALIASES.get(code, code)
+    return code if code in ACTION_TEAMS else ""
+
+
+def actions_raised(scenario_names, flags) -> tuple[dict, dict]:
+    """Actions Taken, and what it could not raise.
+
+    THE RULE, which is an AND and not an OR: a row appears because the DSS
+    guidelines say it must be raised for the routed scenario AND because a flag
+    on this card names the team it belongs to. Guidelines alone would put the
+    same generic list on every card of a given L2, flagged alone would invent
+    work nobody's playbook asks for, and the card is read as "this is what we
+    did", so neither half may carry it on its own.
+
+    Returns (tabs, report). The report is not decoration: a tab that is empty
+    because nothing was flagged and a tab that is empty because the guidelines
+    list nothing are the same blank space on screen, and they mean opposite
+    things. `report["notes"]` is written for the confidence trail, which is
+    where this build already says "we changed what the model gave you".
+    """
+    guideline = actions_for(scenario_names)
+    flags = [f for f in (flags or []) if isinstance(f, dict)]
+    flagged = {t for t in (team_of_flag(f) for f in flags) if t}
+
+    tabs = {t: (list(items) if t in flagged else []) for t, items in guideline.items()}
+    withheld = {t: items for t, items in guideline.items()
+                if items and t not in flagged}
+    n_withheld = sum(len(v) for v in withheld.values())
+
+    notes = []
+    if not scenario_names:
+        notes.append("actions taken: no scenario routed, so the guidelines "
+                     "name nothing to raise")
+    elif not any(guideline.values()):
+        notes.append("actions taken: the routed scenario(s) have no guideline "
+                     "action to raise — only checks")
+    elif not flagged:
+        notes.append(f"actions taken: {n_withheld} guideline action(s) withheld "
+                     f"— nothing was flagged, so nothing is raised")
+    elif n_withheld:
+        notes.append(
+            f"actions taken: {n_withheld} guideline action(s) withheld — no flag "
+            f"names " + ", ".join(ACTION_TABS[t]["label"] for t in sorted(withheld))
+            + "; flagged: " + ", ".join(ACTION_TABS[t]["label"] for t in sorted(flagged)))
+    # Nothing withheld and something raised is the quiet case: the card shows
+    # the rows, which is the report.
+    return tabs, {
+        "raised":        sum(len(v) for v in tabs.values()),
+        "withheld":      n_withheld,
+        "withheld_teams": sorted(withheld),
+        "flagged_teams": sorted(flagged),
+        "notes":         notes,
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────

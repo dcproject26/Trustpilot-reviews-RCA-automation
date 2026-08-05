@@ -1040,8 +1040,20 @@
   .chip-sel.unk  { background: var(--hover-fill); color: var(--muted); }
   .chip-acc-sel   { max-width: 140px; }          /* cap, not a fixed width */
   .chip-owner-sel { max-width: 26ch; font-size: 10px; }
-  .chip-isa-sel   { width: 82px; }               /* FIXED: five stacked rows
-                                                    need one column width */
+  /* The fixed-width verdict chip went with the Issue-specific answers
+     section (§3): the questions are checks the RCA writes against now, not a
+     wall of verdicts to fill in. */
+
+  /* §5 the provenance marker on an improvement point. Deliberately small and
+     grey: it exists so the model cannot invent a point, and so a reader who
+     doubts one can check it - not to be read on every pass. */
+  .aoi-src {
+    font-size: 9.5px; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--dim); background: var(--hover-fill);
+    border-radius: 4px; padding: 1px 5px; flex: none; align-self: center;
+    cursor: help; white-space: nowrap;
+  }
+  .aoi-src.none { opacity: .65; font-style: italic; text-transform: none; letter-spacing: 0; }
 
   /* §2 the analysis panel: one treatment for every key-value line. */
   .wwr-analysis-note {
@@ -1145,24 +1157,6 @@
   }
 
   /* §11 five stacked Q&A pairs need a rule to read as a list, not a gap. */
-  .isa-list { display: flex; flex-direction: column; gap: 0; }
-  .isa-row { padding: 8px 0; border-bottom: 1px solid var(--hairline); min-width: 0; }
-  .isa-row:last-child { border-bottom: none; }
-  .isa-q { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
-  .isa-qtext {
-    flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere;
-    font-size: 12.5px; font-weight: 600; color: var(--text);
-  }
-  .isa-ev {
-    margin-top: 3px; font-size: 11.5px; color: var(--muted);
-    min-width: 0; overflow-wrap: anywhere;
-  }
-  /* The source chip TRAILS the text, so evidence starts at the same x on
-     every row regardless of how long the source name is. */
-  .isa-src {
-    font-family: var(--mono); font-size: 10px; color: var(--dim);
-    margin-left: 6px;
-  }
   /* The row the evidence came from - a ticket id, a booking id, the window a
      count covers. The source rail names the system; this names the record. */
   .ev-ref {
@@ -1467,10 +1461,10 @@ async function fetchInbox() {
           whatWentWrong: '', statedIssue: '',
           supportInteraction: [], supportSummary: '', spInteraction: [],
           areaOfImproving: '',
-          actionsTaken: {sp:[],customer:[],business:[],product:[],ce:[]},
+          actionsTaken: Object.fromEntries(ACTION_TEAMS.map(([t]) => [t, []])),
           resolution: '',
           v3: {}, wwrChain: [], wwrScenarios: [], prevention: '',
-          evidence: [], issueSpecificAnswers: {}, checklistAnswers: [],
+          evidence: [], checklistAnswers: [],
           checks: [], reply: '', reasoning: '',
           primaryScenario: '',
           slackThreadOverride: '',
@@ -1705,7 +1699,6 @@ async function regenerateForScenarios(reviewId) {
     if (!resp.ok) throw new Error(data.detail || 'regen failed');
     rca.v3 = data.rca_v3 || {};
     rca.prevention = data.prevention || rca.prevention;
-    rca.issueSpecificAnswers = data.issue_specific_answers || {};
     if (data.area_of_improving) rca.areaOfImproving = data.area_of_improving;
     rca.checklistAnswers = [];
     rca.primaryScenario = data.primary_scenario || rca.primaryScenario;
@@ -1876,8 +1869,11 @@ async function loadDraftOverlays() {
         ? draft.what_went_wrong_bullets.join('\n')
         : (draft.what_went_wrong_bullets || r.rca.whatWentWrong || '');
 
+      // Kept as the array it is. Joining it into a string worked while the
+      // points were strings and printed "[object Object]" the moment each one
+      // started carrying the finding it came from.
       r.rca.areaOfImproving = Array.isArray(draft.area_of_improving)
-        ? draft.area_of_improving.join('\n')
+        ? draft.area_of_improving
         : (draft.area_of_improving || r.rca.areaOfImproving || '');
 
       r.rca.resolution = draft.resolution || r.rca.resolution || '';
@@ -1898,16 +1894,18 @@ async function loadDraftOverlays() {
           ? { context: s, with: '', handle: '', time: '', where: '#' }
           : { context: s.context || '', with: s.with || '', handle: s.handle || '',
               time: s.time || '', where: s.where || '#' }));
-        r.rca.actionsTaken = {
-          sp:       toItems(draft.actions_taken.sp),
-          customer: toItems(draft.actions_taken.customer),
-          business: toItems(draft.actions_taken.business),
-          ce:       toItems(draft.actions_taken.ce),
-          product:  toItems(draft.actions_taken.product),
-        };
+        // Every key the payload holds, folded onto the nine teams. Reading a
+        // fixed five would have dropped every row on a card written under the
+        // new vocabulary, and an emptied tab is indistinguishable from a tab
+        // with nothing to raise.
+        const tabs = Object.fromEntries(ACTION_TEAMS.map(([t]) => [t, []]));
+        Object.keys(draft.actions_taken).forEach(k => {
+          const t = actionTeamKey(k);
+          if (t) tabs[t] = tabs[t].concat(toItems(draft.actions_taken[k]));
+        });
+        r.rca.actionsTaken = tabs;
       }
 
-      r.rca.issueSpecificAnswers = draft.issue_specific_answers || {};
       r.rca.checklistAnswers     = draft.checklist_answers      || [];
       r.rca.slackThreadOverride  = draft.slack_thread_override  || '';
       r.rca.supportInteraction   = (draft.support_interaction_frames || []).map(mapSupportFrame);
@@ -3420,8 +3418,56 @@ const _firstName = (author) => {
   }
   return 'there';
 };
+// The nine teams a row can be raised with, in the order the ORM team gave
+// them. Same vocabulary as the flags, because Actions Taken IS the join of the
+// two: the DSS guidelines say a step must be raised, a flag says the team it
+// belongs to went wrong, and a row appears only where both are true. The server
+// computes the join (server/checklist.py::actions_raised); this list is what
+// renders it, so the labels have to be the same nine or a tab goes missing.
+const ACTION_TEAMS = [
+  ['guest',     'NA/Guest error'],
+  ['sp',        'Supply Partner'],
+  ['content',   'Content/Catalog/Media team'],
+  ['co',        'CO team'],
+  ['tech',      'Tech team'],
+  ['inventory', 'Inventory Team'],
+  ['product',   'Product team'],
+  ['biz',       'Biz team'],
+  ['finance',   'Finance team'],
+];
+// Where a draft written under the five old tabs lands. CE and RO were both the
+// support desk, "Customer" was never a team, and "Business" carried everything
+// commercial. Folding them keeps an old card's rows on screen instead of
+// emptying it, which would read as a card with nothing raised.
+const ACTION_TEAM_LEGACY = {customer: 'co', ce: 'co', ro: 'co',
+                            business: 'biz', other: ''};
+const actionTeamKey = k => {
+  const key = String(k || '').trim().toLowerCase();
+  if (ACTION_TEAMS.some(([t]) => t === key)) return key;
+  return ACTION_TEAM_LEGACY[key] !== undefined ? ACTION_TEAM_LEGACY[key] : '';
+};
+
 const asPoints = v => (Array.isArray(v) ? v : (v ? [v] : [])).filter(Boolean)
   .map(p => String(p).replace(/^\s*[•·\-–▪]\s*/, ''));
+
+// §5 an area-of-improvement point is {point, from, source} now. The provenance
+// is not decoration and it is not a second column: it is the constraint that
+// makes an invented point impossible to write, because the server drops any
+// point whose source matches no operational failure, SOP gap or flag on the
+// card (server/services/rca_v4_validate.py::_improvements). On screen it is a
+// marker you can hover, so a reader who doubts a point can check it without
+// every reader having to read it.
+//
+// A draft written before that holds bare strings, and a point somebody types
+// here is theirs, not the model's - both normalise to the same row shape so the
+// renderer has one thing to draw and neither reads as unsourced model output.
+const aoiRows = v => (Array.isArray(v) ? v : (v ? String(v).split('\n') : []))
+  .map(x => (x && typeof x === 'object')
+    ? {point: String(x.point || x.text || '').trim(),
+       from:  x.from || null, source: x.source || null}
+    : {point: String(x || '').replace(/^\s*[•·\-–▪]\s*/, '').trim(),
+       from: null, source: null})
+  .filter(x => x.point);
 
 // Delegated once: the toggle appears in both columns and both re-render from
 // scratch, so a per-element binding would have to be re-attached in every
@@ -3591,7 +3637,6 @@ document.addEventListener('click', async ev => {
     if (!resp.ok) throw new Error(data.detail || 'regen failed');
     rca.v3 = data.rca_v3 || rca.v3;
     rca.prevention = data.prevention || rca.prevention;
-    rca.issueSpecificAnswers = data.issue_specific_answers || {};
     if (data.area_of_improving) rca.areaOfImproving = data.area_of_improving;
     rca.checklistAnswers = [];
   } catch (e) {
@@ -3718,6 +3763,13 @@ function renderRcaCol() {
 
   const rca = r.rca;
   const actions = rca.actionsTaken[state.actionTab] || [];
+  // Which teams this card actually flagged. Actions Taken is the AND of two
+  // things - the DSS guidelines prescribe the step, and a flag says this team
+  // got it wrong - so an empty tab has two possible meanings and they are not
+  // the same news. Saying which is the difference between "nobody raised
+  // anything with Content" and "Content was never at fault here".
+  const _flaggedTeams = new Set(((rca.v3 || {}).flags || [])
+    .map(f => actionTeamKey(String((f || {}).team || ''))).filter(Boolean));
 
   // v3 new-shape data + shared helpers (used by interactions and v3 sections)
   const v3d = rca.v3 || {};
@@ -3743,28 +3795,6 @@ function renderRcaCol() {
   // apart, and the class greys it so it does not read as content.
   const edPoints = (path, v, cls = 'chk-ev') => asPoints(v)
     .map((p, i) => `<div class="${cls}">• ${edSpan(`${path}.${i}`, p)}</div>`).join('');
-
-  // §11 v4 sends an array of {question, verdict, evidence, source, ref}; a
-  // draft written before that holds {question: answer}. Both normalise to the
-  // array here so the renderer has one shape - and an old answer that opens
-  // with a fact keeps its text as evidence instead of being lost to a pill.
-  const _isaRaw = rca.issueSpecificAnswers;
-  const _isaRows = Array.isArray(_isaRaw)
-    ? _isaRaw.filter(a => a && a.question).map(a => ({
-        question: a.question,
-        verdict: ['Yes','No','Unknown'].indexOf(a.verdict) >= 0 ? a.verdict : 'Unknown',
-        evidence: a.evidence || '', source: a.source || null, ref: a.ref || null}))
-    : Object.entries(_isaRaw || {}).map(([q, v]) => {
-        const raw = String(v == null ? '' : v);
-        const m = raw.match(/^\s*(Yes|No|Unknown)\b[:\s—-]*/i);
-        return {question: q,
-                verdict: m ? m[1][0].toUpperCase() + m[1].slice(1).toLowerCase() : 'Unknown',
-                evidence: (m ? raw.slice(m[0].length) : raw).trim(),
-                source: null, ref: null};
-      });
-  const _isaNo = _isaRows.filter(a => a.verdict === 'No').length;
-  const _isaCls = v => v === 'Yes' ? 'ok' : v === 'No' ? 'bad' : 'unk';
-
 
   // ── Guest ↔ support: facts from Zendesk, interpretation from the model ──
   // The rows are CONTACTS, not events. The Events timeline is the per-event
@@ -3795,7 +3825,42 @@ function renderRcaCol() {
     return out;
   };
 
-  const _groups = _contacts(rca.supportFrames);
+  // §4 CONVERSATIONS ONLY. A contact is an exchange a PERSON took part in:
+  // chat, call, email, web form, in-app. Everything else on this booking is
+  // machinery wearing a contact's clothes - the booking thread Zendesk files as
+  // a task, the API posts and bot notes, the review itself - and each one it
+  // used to render raised the contact count, so a guest nobody spoke to read as
+  // a guest who was handled.
+  //
+  // They are not dropped. They are already on the timelines this booking
+  // renders: booking-created in the Booking timeline (facts column), API and
+  // system notes in the Events timeline marked internal, the review as its
+  // closing bookend. Moving them is the point, so the count SAYS how many
+  // moved - a filtered list and a guest who never wrote in must not look the
+  // same, and a bare "0 contacts" is exactly what makes them look the same.
+  //
+  // Named as what MOVES rather than as what stays, deliberately: an allowlist
+  // would drop a thread nobody has classified yet, silently, on the reasoning
+  // that we cannot prove it is a conversation. Same list as
+  // server/services/zendesk.py::NON_CONTACT_THREADS, which Slack filters on.
+  const NON_CONTACT_THREADS = ['booking', 'review', 'api', 'sp'];
+  const isConversation = fr => !!fr
+    && NON_CONTACT_THREADS.indexOf(String(fr.thread || '').trim().toLowerCase()) < 0
+    // Internal machinery is not a conversation whatever thread it arrived on:
+    // the booking-in-progress mail is thread "email" and no human sent it.
+    && !fr.is_internal;
+  const _allFrames    = rca.supportFrames || [];
+  const _convoFrames  = _allFrames.filter(isConversation);
+  const _movedFrames  = _allFrames.filter(f => !isConversation(f));
+  const _movedWhere = (() => {
+    const t = f => String(f.thread || '').trim().toLowerCase();
+    const n = {booking: _movedFrames.filter(f => t(f) === 'booking').length,
+               review:  _movedFrames.filter(f => t(f) === 'review').length};
+    n.system = _movedFrames.length - n.booking - n.review;
+    return n;
+  })();
+
+  const _groups = _contacts(_convoFrames);
   const _used = new Set(_groups.map(g => g.key).filter(Boolean).filter(k => _noteFor(k)));
   // A note whose ticket has no frame still renders, marked. A zd_ref that
   // matched nothing is a failed join; no zd_ref at all is an off-Zendesk
@@ -3891,7 +3956,13 @@ function renderRcaCol() {
     ? `<div class="interactions">${_rows.map(_contactRow).join('')}
         <button class="row-add" data-contact-add>+ Add contact</button></div>`
     : `<div class="interactions">
-        <div class="interactions-empty">No guest contact was found on this booking — the guest never reached support.</div>
+        <div class="interactions-empty">${_movedFrames.length
+          ? `No conversation with the guest on this booking. The ${_movedFrames.length} event${_movedFrames.length === 1 ? '' : 's'} we do hold ${_movedFrames.length === 1 ? 'is' : 'are'} machinery — ${
+              [_movedWhere.booking ? `${_movedWhere.booking} on the booking timeline` : '',
+               _movedWhere.system  ? `${_movedWhere.system} system note${_movedWhere.system === 1 ? '' : 's'} on the events timeline` : '',
+               _movedWhere.review  ? 'the review itself' : ''].filter(Boolean).join(', ')
+            } — so nobody spoke to the guest. Not a lookup that failed.`
+          : 'No guest contact was found on this booking — the guest never reached support.'}</div>
         <button class="row-add" data-contact-add>+ Add contact</button></div>`;
 
   // SP interaction — the same facts/interpretation split as guest ↔ support.
@@ -4126,7 +4197,7 @@ function renderRcaCol() {
       : (rca.spInteraction || []).map(f => '• ' + (f.time || '?') + ' — ' + (f.summary || ''));
     const spText = spLines.join(nl) || 'No SP contact on record';
 
-    const aoiText = asPoints(rca.areaOfImproving).map(a => '• ' + a).join(nl) || '—';
+    const aoiText = aoiRows(rca.areaOfImproving).map(a => '• ' + a.point).join(nl) || '—';
 
     const at = rca.actionsTaken || {};
     const actionLines = [];
@@ -4220,41 +4291,13 @@ function renderRcaCol() {
     }
     return off;
   }
-  // Rendered independently of which WWR shape is in play.
-  const isaBlock = `
-    ${Object.keys(rca.issueSpecificAnswers || {}).length > 0 ? `
-    <div class="section" id="rca-issue-answers-section">
-      <div class="section-label">Issue-specific answers
-        <span class="sec-count">${_isaRows.length} question${_isaRows.length === 1 ? '' : 's'}${
-          _isaNo ? ` · ${_isaNo} answered No` : ''}</span>
-      <span class="section-chev">▾</span></div>
-      <!-- §11 the question owns the row; the verdict is a fixed-width
-           chip-select. The deployed build split behaviour: a parseable answer
-           got a <select>, an unparseable one got a grey "answer" pill with the
-           verdict text lost. One closed vocabulary, one treatment - and the
-           evidence is its own line, so it starts at the same x on every row
-           whatever the source name is. -->
-      <div class="field-block isa-list">
-        ${_isaRows.map((a, i) => `
-          <div class="isa-row">
-            <div class="isa-q">
-              <span class="isa-qtext">${esc(a.question)}</span>
-              <select class="chip-sel chip-isa-sel ${_isaCls(a.verdict)}"
-                      data-v3sel="issue_specific_answers.${i}.verdict">
-                ${['Yes','No','Unknown'].map(o =>
-                  `<option${a.verdict === o ? ' selected' : ''}>${o}</option>`).join('')}
-              </select>
-            </div>
-            <div class="isa-ev">
-              <span class="isa-evtext">${edSpan(`issue_specific_answers.${i}.evidence`,
-                a.evidence, 'no evidence recorded for this question')}</span>
-              ${a.source ? `<span class="isa-src">${esc(a.source)}</span>` : ''}
-              ${a.ref ? zdLink(a.ref) : ''}
-            </div>
-          </div>`).join('')}
-      </div>
-    </div>` : ''}
-  `;
+  // §3 Issue-specific answers has no section. The questions did not go away -
+  // they are still routed server-side (server/checklist.py::issue_questions_for)
+  // and still reach the RCA prompt, but as CHECKS TO WRITE AGAINST rather than
+  // as a wall to fill in. What one of them surfaces is written where a reader
+  // can act on it: the issue's operational failure or its SOP gap. It is not a
+  // trail line and it is not a count.
+  const isaBlock = '';
 
   // Legacy evidence appendix. The v3 shape attaches evidence to each claim
   // and each flag instead, so this is only ever non-empty on a draft from
@@ -4620,12 +4663,23 @@ function renderRcaCol() {
     // flags on a complex case gives a reader no idea who has to act. Each
     // group collapses; each row is editable and removable, since a flag the
     // AI got wrong must be correctable by the person signing the RCA.
+    // The same nine teams Actions Taken uses, because the two are joined on
+    // this value. A flag written under the old vocabulary (CE, RO, Customer,
+    // Business) is folded onto the nine rather than left to fall through the
+    // select as an unrecognised value - which renders the first option as
+    // selected and files a real flag against the wrong team.
+    const FLAG_TEAMS = ACTION_TEAMS.map(([t]) => t.toUpperCase()).concat(['OTHER']);
+    const flagTeamCanon = t => {
+      const raw = String(t || '').trim().toLowerCase();
+      const key = actionTeamKey(raw);
+      return key ? key.toUpperCase() : 'OTHER';
+    };
     const flagGroups = {};
     flags.forEach((f, i) => {
-      const t = String(f.team || 'other').toUpperCase();
+      const t = flagTeamCanon(f.team);
       (flagGroups[t] = flagGroups[t] || []).push({...f, _i: i});
     });
-    const flagOrder = ['CE','RO','SP','CONTENT','TECH','OTHER'];
+    const flagOrder = FLAG_TEAMS;
     const flagSecs = Object.keys(flagGroups).sort((a, b) => {
       const ia = flagOrder.indexOf(a), ib = flagOrder.indexOf(b);
       return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
@@ -4654,8 +4708,8 @@ function renderRcaCol() {
                       <select class="chip-sel chip-team-sel part"
                               data-v3sel="flags.${f._i}.team"
                               title="${esc(f.team_raw || f.team || 'OTHER')}">
-                        ${['CE','RO','SP','CONTENT','PRODUCT','BIZ','TECH','OTHER'].map(o =>
-                          `<option${String(f.team || 'OTHER').toUpperCase() === o ? ' selected' : ''}>${o}</option>`).join('')}
+                        ${FLAG_TEAMS.map(o =>
+                          `<option${flagTeamCanon(f.team) === o ? ' selected' : ''}>${o}</option>`).join('')}
                       </select>
                       <span class="editable-text rca-wrap" contenteditable="true" spellcheck="false"
                             role="textbox" aria-label="Flag text"
@@ -4777,7 +4831,9 @@ function renderRcaCol() {
            different path — so the heading said "0 contacts" above eight
            rendered contacts. A count that cannot be checked against what is
            under it is worse than no count. -->
-      <div class="section-label"><span>Guest ↔ support</span><span class="hint">${_rows.length} contact${_rows.length === 1 ? '' : 's'}</span><span class="section-chev">▾</span></div>
+      <div class="section-label"><span>Guest ↔ support</span><span class="hint">${_rows.length} contact${_rows.length === 1 ? '' : 's'}${
+        _movedFrames.length ? ` · ${_movedFrames.length} system event${_movedFrames.length === 1 ? '' : 's'} moved to the timeline` : ''
+      }</span><span class="section-chev">▾</span></div>
       ${sup}
     </div>
 
@@ -4797,16 +4853,23 @@ function renderRcaCol() {
       <!-- One pointer per line, editable in place. A single textarea invited
            the paragraph this section kept coming back as. -->
       <div class="field-block rca-points">
-        ${asPoints(rca.areaOfImproving).length
-          ? asPoints(rca.areaOfImproving).map((a, i) => `
+        ${aoiRows(rca.areaOfImproving).length
+          ? aoiRows(rca.areaOfImproving).map((a, i) => `
             <div class="rca-point">
               <span class="rca-bullet">•</span>
               <span class="editable-text rca-ptext" contenteditable="true" spellcheck="false"
                     role="textbox" aria-label="Area of improvement point ${i + 1}"
-                    data-aoi-idx="${i}">${esc(a)}</span>
+                    data-aoi-idx="${i}">${esc(a.point)}</span>
+              ${a.source
+                ? `<span class="aoi-src" data-aoi-src="${i}" title="${esc(a.from === 'flag' ? 'from the flag: ' : a.from === 'sop_gap' ? 'from the SOP gap: ' : 'from the operational failure: ')}${esc(a.source)}">${
+                     esc(a.from === 'flag' ? 'flag' : a.from === 'sop_gap' ? 'sop gap' : 'op failure')}</span>`
+                : `<span class="aoi-src none" data-aoi-src="${i}" title="added by hand — not derived from a finding on this card">by hand</span>`}
               <button class="row-del" data-aoi-del="${i}" title="Remove">×</button>
             </div>`).join('')
-          : `<div class="rca-empty">Nothing recorded yet — add a point, or re-run the RCA.</div>`}
+          : `<div class="rca-empty">${
+              ((v3d.what_went_wrong || {}).guest_issues || []).some(g => g && (g.operational_failure || g.sop_gap)) || (v3d.flags || []).length
+                ? 'No improvement point was derived from the failures, gaps and flags on this card. Points that could not name one are dropped — see the confidence trail.'
+                : 'Nothing to improve was found: this card records no operational failure, no SOP gap and no flag. Add a point, or re-run the RCA.'}</div>`}
         <button class="row-add" data-aoi-add>+ Add point</button>
       </div>
     </div>
@@ -4817,15 +4880,17 @@ function renderRcaCol() {
       <div class="section-label"><span>Actions taken</span><span class="section-chev">▾</span></div>
       <div class="action-block">
         <div class="action-tabs">
-          <button class="action-tab ${state.actionTab === 'sp' ? 'active' : ''}" data-tab="sp">SP <span class="count">${rca.actionsTaken.sp.length}</span></button>
-          <button class="action-tab ${state.actionTab === 'customer' ? 'active' : ''}" data-tab="customer">Customer <span class="count">${rca.actionsTaken.customer.length}</span></button>
-          <button class="action-tab ${state.actionTab === 'business' ? 'active' : ''}" data-tab="business">Business <span class="count">${rca.actionsTaken.business.length}</span></button>
-          <button class="action-tab ${state.actionTab === 'ce' ? 'active' : ''}" data-tab="ce">CE <span class="count">${rca.actionsTaken.ce.length}</span></button>
-          <button class="action-tab ${state.actionTab === 'product' ? 'active' : ''}" data-tab="product">Product <span class="count">${rca.actionsTaken.product.length}</span></button>
+          ${ACTION_TEAMS.map(([t, label]) => `
+          <button class="action-tab ${state.actionTab === t ? 'active' : ''}" data-tab="${t}">${label} <span class="count">${(rca.actionsTaken[t] || []).length}</span></button>`).join('')}
         </div>
         <div class="action-content">
           ${actions.length === 0
-            ? `<div class="action-empty">No actions raised</div>`
+            ? `<div class="action-empty">${(() => {
+                const label = (ACTION_TEAMS.find(([t]) => t === state.actionTab) || ['', state.actionTab])[1];
+                return _flaggedTeams.has(state.actionTab)
+                  ? `${label} is flagged on this card, but the DSS guidelines prescribe no step to raise with them for the routed scenario.`
+                  : `Nothing is flagged against ${label}, so nothing was raised with them. A row appears only where the guidelines say it must be raised AND a flag names the team.`;
+              })()}</div>`
             : actions.map((a, i) => `
                 <div class="action-item" data-action-idx="${i}">
                   <button class="action-delete-btn" data-action-delete="${i}" title="Remove">×</button>
@@ -5408,18 +5473,6 @@ function renderRcaCol() {
     });
   }
 
-  // Issue-Specific Answers — select change → PATCH
-  col.querySelectorAll('[data-isa-key]').forEach(sel => {
-    sel.addEventListener('change', async () => {
-      // Preserve the evidence - writing just the verdict would delete the
-      // sourced proof the section exists to show.
-      const _rest = sel.dataset.isaRest || '';
-      rca.issueSpecificAnswers[sel.dataset.isaKey] =
-        _rest ? `${sel.value} ${_rest}` : sel.value;
-      await saveDraft(r.id, {issue_specific_answers: rca.issueSpecificAnswers});
-    });
-  });
-
   const subThemeSel = document.querySelector('[data-subtheme-select]');
   if (subThemeSel) {
     subThemeSel.addEventListener('change', async () => {
@@ -5677,26 +5730,6 @@ function renderRcaCol() {
     });
   });
 
-  // Issue-answer evidence edits: recombine verdict + evidence and save.
-  col.querySelectorAll('[data-isa-evidence]').forEach(el => {
-    el.addEventListener('blur', async () => {
-      const key = el.dataset.isaEvidence;
-      const rest = el.textContent.trim();
-      const cur = String(rca.issueSpecificAnswers[key] || '');
-      const m = cur.match(/^\s*(Yes|No|Unknown|N\/A)\b[:\s—-]*/i);
-      rca.issueSpecificAnswers[key] = m ? `${m[1]} ${rest}` : rest;
-      const sel = col.querySelector(`[data-isa-key="${key}"]`);
-      if (sel) sel.dataset.isaRest = rest;
-      try {
-        const resp = await fetch(`/api/reviews/${r.id}/draft-v2`, {
-          method: 'PATCH', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({issue_specific_answers: rca.issueSpecificAnswers}),
-        });
-        flashSaved(el, resp.ok);
-      } catch (_) { flashSaved(el, false); }
-    });
-  });
-
   const persistAoi = async (list, el) => {
     rca.areaOfImproving = list;
     try {
@@ -5710,22 +5743,33 @@ function renderRcaCol() {
   col.querySelectorAll('[data-aoi-del]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const idx = parseInt(btn.dataset.aoiDel);
-      await persistAoi(asPoints(rca.areaOfImproving).filter((_, i) => i !== idx));
+      await persistAoi(aoiRows(rca.areaOfImproving).filter((_, i) => i !== idx));
       renderRcaCol();
     });
   });
   const aoiAdd = col.querySelector('[data-aoi-add]');
   if (aoiAdd) aoiAdd.addEventListener('click', async () => {
-    await persistAoi([...asPoints(rca.areaOfImproving), 'New point — click to edit']);
+    // from/source null, and the row says "by hand". A point somebody types is
+    // theirs; dressing it in a provenance it does not have would make the one
+    // marker that means "checked against a finding" mean nothing.
+    await persistAoi([...aoiRows(rca.areaOfImproving),
+                      {point: 'New point — click to edit', from: null, source: null}]);
     renderRcaCol();
   });
 
   // AOI pointers: save the whole list on blur.
   col.querySelectorAll('[data-aoi-idx]').forEach(el => {
     el.addEventListener('blur', async () => {
-      const list = Array.from(col.querySelectorAll('[data-aoi-idx]'))
-        .map(x => x.textContent.trim()).filter(Boolean);
-      await persistAoi(list, el);
+      // Rewrite the TEXT of each row and keep everything else it carries.
+      // Collecting the textContent into a list of strings threw the derivation
+      // away on the first edit, and a point that has lost its source is
+      // indistinguishable from one that never had one.
+      const rows = aoiRows(rca.areaOfImproving);
+      Array.from(col.querySelectorAll('[data-aoi-idx]')).forEach(x => {
+        const i = parseInt(x.dataset.aoiIdx);
+        if (rows[i]) rows[i] = {...rows[i], point: x.textContent.trim()};
+      });
+      await persistAoi(rows.filter(a => a.point), el);
     });
   });
 
@@ -5740,7 +5784,7 @@ function renderRcaCol() {
   // the same way on the next edit.
   const persistActions = async () => {
     const full = {};
-    for (const tab of ['sp', 'customer', 'business', 'ce', 'product']) {
+    for (const [tab] of ACTION_TEAMS) {
       full[tab] = (rca.actionsTaken[tab] || [])
         .map(a => ({
           with:    (a.with    || '').trim(),

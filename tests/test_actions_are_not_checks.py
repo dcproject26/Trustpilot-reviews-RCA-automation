@@ -56,12 +56,16 @@ def test_a_check_is_routed_to_nobody(row):
     assert _owner_for_action(row) is None
 
 
-def test_the_real_dss_steps_still_route_to_sp():
+def test_the_real_dss_steps_still_route_somewhere():
     """The other half. A filter that emptied the tab would "fix" the screenshot
-    and lose the two rows that belonged there."""
+    and lose the two rows that belonged there.
+
+    Both are Finance's under the nine-team vocabulary: a refund BMS could not
+    execute and an ARN are money that has to move, not a claim against the
+    supply partner."""
     assert _owner_for_action(
-        "BMS refund error → raise with Leads on #co-issue or Fin on priority") == "sp"
-    assert _owner_for_action("Share ARN number for delayed refunds") == "sp"
+        "BMS refund error → raise with Leads on #co-issue or Fin on priority") == "finance"
+    assert _owner_for_action("Share ARN number for delayed refunds") == "finance"
 
 
 def test_an_empty_row_is_not_a_check():
@@ -75,12 +79,14 @@ def test_an_empty_row_is_not_a_check():
 # ── owner routing keywords that nothing else covers ────────────────────────
 
 @pytest.mark.parametrize("row,owner", [
-    ("Review the pricing on this TGID", "business"),
-    ("Raise the commercial terms with the BDM", "business"),
+    ("Review the pricing on this TGID", "biz"),
+    ("Raise the commercial terms with the BDM", "biz"),
     ("Raise with SP for the venue issue", "sp"),
-    ("Refund the guest", "sp"),
-    ("CE mishandled the case - retrain on the macro", "ce"),
-    ("Website checkout bug - raise with tech", "product"),
+    ("Refund the guest", "co"),
+    ("CE mishandled the case - retrain on the macro", "co"),
+    ("Website checkout bug - raise with tech", "tech"),
+    ("No Baby/Infant pax type in the catalog for this TGID", "content"),
+    ("Raise the stuck fulfilment with inv-ops", "inventory"),
 ])
 def test_the_routing_keywords_reach_their_team(row, owner):
     """A mutation dropping "pricing" and "commercial" from the business rule

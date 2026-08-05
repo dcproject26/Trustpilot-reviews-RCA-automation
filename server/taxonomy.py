@@ -397,12 +397,28 @@ SIGNAL_FIELDS = [
 # ═════════════════════════════════════════════════════════════════════════
 # Action Taken tabs
 # ═════════════════════════════════════════════════════════════════════════
+# The nine teams a row can be raised with, in the order the ORM team gave them.
+# They replace the five tabs (SP / Customer / Business / CE / Product), which
+# were not the teams anybody actually raises anything with: "Customer" is not a
+# team, "Business" covered inventory, pricing and the escalation ladder at once,
+# and there was nowhere at all to file a catalog problem or a refund Finance
+# has to execute.
+#
+# The key is the tab id and the flag code is the key upper-cased
+# (server/services/rca_v4_validate.py::FLAG_TEAMS), because Actions Taken and
+# Flags are joined on it: a row appears only where the guidelines say it must be
+# raised AND a flag names the same team. Two vocabularies would make that join
+# match nothing, which is indistinguishable from a card with nothing to raise.
 ACTION_TABS = {
-    "sp":       {"label": "SP",       "default_handle": "[SP handle placeholder]"},
-    "customer": {"label": "Customer", "default_handle": "[CE handle placeholder]"},
-    "business": {"label": "Business", "default_handle": "[Biz handle placeholder]"},
-    "product":  {"label": "Product",  "default_handle": "[Product handle placeholder]"},
-    "ce":       {"label": "CE",       "default_handle": "[CE handle placeholder]"},
+    "guest":     {"label": "NA/Guest error",            "default_handle": "[no team — guest error]"},
+    "sp":        {"label": "Supply Partner",            "default_handle": "[SP handle placeholder]"},
+    "content":   {"label": "Content/Catalog/Media team","default_handle": "[Content handle placeholder]"},
+    "co":        {"label": "CO team",                   "default_handle": "[CO handle placeholder]"},
+    "tech":      {"label": "Tech team",                 "default_handle": "[Tech handle placeholder]"},
+    "inventory": {"label": "Inventory Team",            "default_handle": "[IO handle placeholder]"},
+    "product":   {"label": "Product team",              "default_handle": "[Product handle placeholder]"},
+    "biz":       {"label": "Biz team",                  "default_handle": "[Biz handle placeholder]"},
+    "finance":   {"label": "Finance team",              "default_handle": "[Fin handle placeholder]"},
 }
 
 # ═════════════════════════════════════════════════════════════════════════

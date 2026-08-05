@@ -11,6 +11,8 @@ an entire RCA to one bad enum is worse than rendering it with one grey chip.
 """
 import re
 
+from server.checklist import (ACTION_TEAMS, FLAG_TEAM_ALIASES, ACTION_TABS,
+                              actions_raised)
 from server.taxonomy import L1_CATEGORIES, L2_OPTIONS
 
 # Four. "Unknown" carries both "we checked and nothing can settle it" and "we
@@ -22,7 +24,13 @@ ISA_VERDICT    = ("Yes", "No", "Unknown")
 SOURCES        = ("booking", "bms", "zendesk", "insights", "dss", "exp-page")
 TAKEDOWN       = ("Yes", "No", "Untraceable")
 OWNERS         = ("Content", "CE", "SP", "RO", "Product", "Biz", "Ops")
-FLAG_TEAMS     = ("CE", "RO", "SP", "CONTENT", "PRODUCT", "BIZ", "TECH", "OTHER")
+# The nine teams, and nothing else. Flags and Actions Taken share one
+# vocabulary because they are JOINED on it: a guideline action is raised only
+# where a flag names the same team, and two spellings of one team would make
+# that join match nothing — which looks exactly like a card with nothing to
+# raise. OTHER is not a tenth team. It is the marker for a flag whose team
+# could not be read, and it raises nothing; the model's word stays in team_raw.
+FLAG_TEAMS     = tuple(t.upper() for t in ACTION_TEAMS) + ("OTHER",)
 # The channels a GUEST can reach us on, and the exact vocabulary the frames
 # already normalise to (server/services/zendesk.py::_map_channel), so a pill
 # reads the same whether the frame supplied it or the model did. "api" is in
@@ -76,10 +84,17 @@ V4_PROJECTION = {
     "takedown":               ("takedown",),
     "dss":                    ("dss",),
     "issue_specific_answers": ("issue_specific_answers",),
+    # Actions Taken is projected like any other v4 section. It is NOT model
+    # output: `validate` computes it from the routed scenarios (the DSS
+    # guidelines) and the flags (what actually went wrong), which are the two
+    # halves of the rule, and both are in hand exactly here. Projecting it the
+    # same way every other section is projected is what keeps the pipeline and
+    # regenerate-rca from each reaching a different answer.
+    "actions_taken":          ("actions_taken",),
 }
 _V4_EMPTY = {"guest_issues": list, "booking_logs": list,
              "flags": list, "takedown": dict, "dss": dict,
-             "issue_specific_answers": list}
+             "issue_specific_answers": list, "actions_taken": dict}
 
 
 def project_v4(rca) -> dict:
@@ -472,6 +487,100 @@ def _rows(raw, fields, notes=None, enums=None):
     return out
 
 
+# Where an improvement point is allowed to come from, and the field on the card
+# that has to carry it. Nothing else is a source: a policy someone would prefer
+# and a pattern across other bookings are opinions, and this section is read as
+# the correction to a documented gap.
+AOI_SOURCES = ("operational_failure", "sop_gap", "flag")
+
+
+def _improvements(raw, issues, flags, notes):
+    """Area of improvement: one pointer per line, each tied to what it came from.
+
+    PROVENANCE IS A CONSTRAINT ON THE MODEL, not decoration. The section used to
+    weld five recommendations into one paragraph, half of it material that
+    appeared in no finding on the card. Requiring each point to name the
+    operational failure, SOP gap or flag it derives from is what makes an
+    invented point impossible to write: there is nowhere to put a source it does
+    not have.
+
+    So it is CHECKED here, not trusted. A point whose stated source matches
+    nothing on this card is dropped before it renders — the same way `fix` is
+    null when no evidence entry shows a gap — and the drop is counted and named,
+    because a section that silently shrank is indistinguishable from a model
+    that had less to say.
+    """
+    rows = raw if isinstance(raw, list) else ([raw] if raw else [])
+    # What this card can actually support, by kind.
+    have = {
+        "operational_failure": [i.get("operational_failure") for i in issues],
+        "sop_gap":             [i.get("sop_gap") for i in issues],
+        "flag":                [f"{f.get('flag') or ''} {f.get('evidence') or ''}"
+                                for f in (flags or [])],
+    }
+    have = {k: [t for t in v if _clean(t)] for k, v in have.items()}
+
+    out, unsourced, unmatched = [], 0, 0
+    for r in rows:
+        if isinstance(r, str):
+            # The pre-provenance shape. Keeping it would be keeping exactly the
+            # points this rule exists to remove, since a bare string is a point
+            # with no derivation at all.
+            if _clean(r):
+                unsourced += 1
+            continue
+        if not isinstance(r, dict):
+            continue
+        point = _clean(r.get("point")) or _clean(r.get("text"))
+        if not point:
+            continue
+        kind = _enum(r.get("from"), AOI_SOURCES, None)
+        source = _clean(r.get("source"))
+        if not kind or not source:
+            unsourced += 1
+            continue
+        # Against its OWN kind. A point that says it comes from the SOP gap and
+        # matches only a flag is not derived from what it claims, and the claim
+        # is the thing being relied on.
+        if not any(_overlaps(source, t, 0.5) or _overlaps(t, source, 0.5)
+                   for t in have.get(kind, [])):
+            unmatched += 1
+            continue
+        out.append({"point": point, "from": kind, "source": source})
+
+    if unsourced:
+        notes.append(f"area of improvement: {unsourced} point(s) named no "
+                     f"operational failure, SOP gap or flag they came from — "
+                     f"dropped, not rendered unsourced")
+    if unmatched:
+        notes.append(f"area of improvement: {unmatched} point(s) named a source "
+                     f"that matches no operational failure, SOP gap or flag on "
+                     f"this card — dropped as invented")
+    return out
+
+
+def _alias_flag_teams(raw, notes):
+    """Legacy team codes, translated into the nine-team vocabulary.
+
+    CE and RO were the two support-side chips and both are the CO team now. A
+    draft written under the old vocabulary would otherwise fail the enum and
+    land on OTHER, which raises nothing — a real flag against a real team,
+    silently unrouted. The translation is REPORTED: we changed what the model
+    said, and the trail is where this build says so.
+    """
+    out = []
+    for f in (raw if isinstance(raw, list) else []):
+        if isinstance(f, dict):
+            code = str(f.get("team") or "").strip().lower()
+            alias = FLAG_TEAM_ALIASES.get(code)
+            if alias:
+                notes.append(f"flag team {f.get('team')!r} → {alias.upper()} "
+                             f"({ACTION_TABS[alias]['label']})")
+                f = {**f, "team": alias.upper()}
+        out.append(f)
+    return out
+
+
 def _taxonomy(rca, notes):
     """l1/l2 against the real taxonomy, with the raw kept when it fails.
 
@@ -540,9 +649,15 @@ def validate(rca: dict, scenarios_routed=None) -> tuple[dict, list]:
 
     # Findings about us, wrongly filed as complaints from the guest, move to
     # flags before anything downstream counts them as guest issues.
-    _flags = _rows(rca.get("flags"), ("team", "flag", "evidence", "zd_ref"),
+    _flags = _rows(_alias_flag_teams(rca.get("flags"), notes),
+                   ("team", "flag", "evidence", "zd_ref"),
                    notes, enums={"team": (FLAG_TEAMS, "OTHER")})
     issues, _flags = _demote_findings(issues, _flags, notes, scenarios_routed)
+
+    # Actions Taken. The DSS guidelines say what must be raised for the routed
+    # scenarios; the flags say what actually went wrong. A row needs both.
+    _actions, _ar = actions_raised(scenarios_routed, _flags)
+    notes.extend(_ar["notes"])
 
     return {
         "stated_issue":      _clean(rca.get("stated_issue")),
@@ -603,8 +718,12 @@ def validate(rca: dict, scenarios_routed=None) -> tuple[dict, list]:
         # chip-select over the closed list, and a null would either blank the
         # control or add a stray option to it. OTHER is a real member.
         "flags":             _flags,
-        "area_of_improving": [c for c in (_clean(x) for x in
-                                          (rca.get("area_of_improving") if isinstance(rca.get("area_of_improving"), list) else [])) if c],
+        # Computed, not copied: see actions_raised. The tabs are always all
+        # nine keys, so an empty tab is a tab with nothing raised rather than a
+        # tab the projection forgot.
+        "actions_taken":     _actions,
+        "area_of_improving": _improvements(rca.get("area_of_improving"),
+                                           issues, _flags, notes),
         "resolution":         _clean(rca.get("resolution")),
         "suggested_response": _clean(reply),
         "takedown": {"verdict": _enum(_obj(rca.get("takedown")).get("verdict"),
