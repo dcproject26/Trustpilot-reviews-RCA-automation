@@ -650,8 +650,8 @@
  {
   "file": "server/checklist.py",
   "name": "the AND becomes an OR \u2014 guidelines alone fill the tabs",
-  "find": "tabs = {t: (list(items) if t in flagged else []) for t, items in guideline.items()}",
-  "replace": "tabs = {t: list(items) for t, items in guideline.items()}"
+  "find": "        if t not in flagged:\n            tabs[t] = []\n            continue",
+  "replace": "        if False:\n            tabs[t] = []\n            continue"
  },
  {
   "file": "server/checklist.py",
@@ -1312,5 +1312,125 @@
   "name": "rule 2f stops telling the model to write the process failure",
   "find": "   WRITE THE PROCESS FAILURE, NOT THE SHEET'S COVERAGE.",
   "replace": "   WRITE WHATEVER.  NOT THE SHEET'S COVERAGE."
+ },
+ {
+  "file": "server/api.py",
+  "name": "the scenario list stops being deduplicated",
+  "find": "        if not s or s in seen:\n            continue\n        seen.add(s)\n        out.append(s)",
+  "replace": "        if not s:\n            continue\n        seen.add(s)\n        out.append(s)"
+ },
+ {
+  "file": "server/api.py",
+  "name": "the primary is served as its own overlay again",
+  "find": "    return out, (out[0] if out else None), out[1:]",
+  "replace": "    return out, (out[0] if out else None), out"
+ },
+ {
+  "file": "server/api.py",
+  "name": "a scenario patch stops settling the three columns",
+  "find": "        d.scenarios, d.primary_scenario, d.overlay_scenarios = \\\n            settle_scenarios(patch.scenarios)",
+  "replace": "        d.primary_scenario = (patch.scenarios or [None])[0]\n        d.overlay_scenarios = list(patch.scenarios or [])[1:]"
+ },
+ {
+  "file": "server/api.py",
+  "name": "regenerate-rca writes the union back unsettled",
+  "find": "    scenarios, _p, _o = settle_scenarios(\n        [s for s in (body.scenarios or []) if s in SCENARIO_CHECKS])",
+  "replace": "    scenarios = [s for s in (body.scenarios or []) if s in SCENARIO_CHECKS]\n    _p, _o = (scenarios[0] if scenarios else None), scenarios[1:]"
+ },
+ {
+  "file": "server/api.py",
+  "name": "an edited DSS stops reaching the prompt",
+  "find": "            dss_rec=_dss_for_prompt(d),",
+  "replace": "            dss_rec=d.dss_rec or {},"
+ },
+ {
+  "file": "server/api.py",
+  "name": "an unedited DSS projection shadows the lookup",
+  "find": "    if isinstance(v3dss, dict) and v3dss.get(\"by_hand\") and v3dss.get(\"prescribes\"):",
+  "replace": "    if isinstance(v3dss, dict) and v3dss.get(\"prescribes\"):"
+ },
+ {
+  "file": "server/checklist.py",
+  "name": "the relevance condition stops running",
+  "find": "    _rel_ran = findings is not None",
+  "replace": "    _rel_ran = False"
+ },
+ {
+  "file": "server/checklist.py",
+  "name": "a card with no findings has every tab emptied",
+  "find": "        if not _find_toks:",
+  "replace": "        if False:"
+ },
+ {
+  "file": "server/checklist.py",
+  "name": "the withheld-as-irrelevant rows are not named",
+  "find": "    elif n_irrelevant:\n        notes.append(",
+  "replace": "    elif False:\n        notes.append("
+ },
+ {
+  "file": "server/checklist.py",
+  "name": "a relevance filter that never ran reports as clean",
+  "find": "    if not _rel_ran:\n        notes.append(\"actions taken: relevance to this case was NOT checked \u2014 \"",
+  "replace": "    if False:\n        notes.append(\"actions taken: relevance to this case was NOT checked \u2014 \""
+ },
+ {
+  "file": "server/checklist.py",
+  "name": "a row can no longer be carried by its own flag",
+  "find": "        for f in flags:\n            if team_of_flag(f) != team:\n                continue",
+  "replace": "        for f in []:\n            if team_of_flag(f) != team:\n                continue"
+ },
+ {
+  "file": "client/index.html",
+  "name": "the scenario rows render the whole list twice",
+  "find": "${chipRow('Primary', (rc.scenarios || []).slice(0, 1), 'data-scenario-add', SCENARIO_OPTIONS, 'data-scenario-remove')}",
+  "replace": "${chipRow('Primary', rc.scenarios || [], 'data-scenario-add', SCENARIO_OPTIONS, 'data-scenario-remove')}"
+ },
+ {
+  "file": "client/index.html",
+  "name": "the overlay delete loses its index offset",
+  "find": "  const off = attr === 'data-overlay-remove' ? 1 : 0;",
+  "replace": "  const off = 0;"
+ },
+ {
+  "file": "client/index.html",
+  "name": "the regen request stops deduplicating the union",
+  "find": "  const scenarios = [...new Set([...(rca.scenarios || []),\n                                 ...(rca.overlayScenarios || [])].filter(Boolean))];",
+  "replace": "  const scenarios = [...(rca.scenarios || []),\n                     ...(rca.overlayScenarios || [])].filter(Boolean);"
+ },
+ {
+  "file": "client/index.html",
+  "name": "a hand-corrected DSS row loses its marker",
+  "find": "}${dss.by_hand ? `<span class=\"dss-hand\" title=\"Corrected by hand \u2014 this is not the row the lookup matched\">by hand</span>` : ''}</div>`",
+  "replace": "}</div>`"
+ },
+ {
+  "file": "client/index.html",
+  "name": "the edit mark is never written",
+  "find": "      if (el.dataset.v3pMark) {",
+  "replace": "      if (false) {"
+ },
+ {
+  "file": "client/index.html",
+  "name": "an unmatched DSS row becomes unwritable again",
+  "find": "            state.dssEdit\n              // EDITABLE EVEN WHEN NOTHING MATCHED.",
+  "replace": "            state.dssEdit && dss.prescribes\n              // EDITABLE EVEN WHEN NOTHING MATCHED."
+ },
+ {
+  "file": "client/index.html",
+  "name": "the block's controls lose their shared height",
+  "find": "    height: 24px; box-sizing: border-box; line-height: 1;",
+  "replace": "    line-height: 1;"
+ },
+ {
+  "file": "client/index.html",
+  "name": "the send button stops looking clickable",
+  "find": "    font-weight: 600; border: none; cursor: pointer;\n    background: var(--accent); color: #fff;",
+  "replace": "    font-weight: 600; border: none;\n    background: var(--accent); color: #fff;"
+ },
+ {
+  "file": "server/services/rca_v4_validate.py",
+  "name": "validate stops passing the findings",
+  "find": "    _actions, _ar = actions_raised(scenarios_routed, _flags, keep=keep_actions,\n                                   findings=_findings)",
+  "replace": "    _actions, _ar = actions_raised(scenarios_routed, _flags, keep=keep_actions)"
  }
 ]

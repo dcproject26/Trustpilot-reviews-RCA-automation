@@ -488,3 +488,215 @@ def test_a_drafted_reply_keeps_the_normal_editing_prompt(page):
     assert "curate the response yourself" not in (got["placeholder"] or "")
     assert "Editable" in got["meta"]
     assert "no approved macro" not in got["meta"].lower()
+
+
+# ── the census: no control ships without a test that clicks it ─────────────
+#
+# "Make sure all buttons throughout the dashboard work" is not a thing one
+# assertion can prove. What CAN be proved is that no control reaches the card
+# unaccounted for: every `data-*` control rendered anywhere is either driven by
+# a test in this suite or named here as deliberately not driven, with a reason.
+#
+# This is a coverage guard, not a claim that each control works — it says
+# "nothing new appeared unnoticed". A control added tomorrow with no test fails
+# this immediately, by name, which is the only cheap defence against the
+# failure this whole file exists for: a dead control and a live one look
+# identical.
+
+# Driven by a test somewhere in this suite. The comment names where.
+DRIVEN = {
+    "data-log-add",            # test_rca_ui_rendered::test_add_event_still_works…
+    "data-log-del",            # same
+    "data-log-field",          # …::test_editing_a_booking_log_row_persists
+    "data-log-idx",            # same (the row index that handler reads)
+    "data-tl-toggle",          # …::test_the_machinery_toggle_works…
+    "data-raw-err",            # …::test_the_raw_error_is_behind_a_toggle_and_capped
+    "data-slack-customize",    # …::test_customize_reveals_the_chips…
+    "data-slack-section",      # …::test_the_collapsed_line_still_states…
+    "data-slack-edit",         # …::test_the_post_has_one_block_per_guest_issue
+    "data-aoi-idx",            # …::test_editing_a_pointer_keeps_the_finding…
+    "data-flag-idx",           # test_rca_edits_and_slack_post
+    "data-flag-del",           # same
+    "data-takedown-rec",       # test_recent_changes_rendered::…colour_roles
+    "data-takedown-reason",    # test_takedown_reason
+    "data-v3p",                # this file, the add-row tests
+    "data-v3p-mark",           # test_recent_changes_rendered::…marked…
+    "data-dss-edit",           # …::test_the_dss_block_exists_and_toggles_into_edit
+    "data-res-type",           # …::test_every_control_shares_one_border…
+    "data-res-amount",         # test_resolution_card
+    "data-close-out",          # …::test_close_out_arms_before_it_fires…
+    "data-close-reason",       # same (an attribute that handler reads)
+    "data-scenario-add",       # test_recent_changes_rendered::…delete…
+    "data-scenario-remove",    # …::test_the_primary_delete_is_live_too
+    "data-overlay-add",        # …::test_the_scenario_delete_removes_it…
+    "data-overlay-remove",     # same
+    "data-subtheme-add",       # test_classification_selects
+    "data-subtheme-remove",    # same
+    "data-classify",           # same
+    "data-rerun-match",        # test_confirm_candidate_refreshes
+    "data-wwr-issue-add",      # this file, test_every_add_button_produces_a_row
+    "data-aline-add",          # same
+    "data-sp-rec-add",         # …::test_a_record_added_to_a_draft…
+    "data-add-action",         # test_rca_ui_rendered::…renders_under_its_team
+    "data-scenario-revert",    # test_scenario_override_api
+    "data-tab",                # …::test_an_empty_tab_says_which_kind_of_empty…
+    "data-window",             # test_insights_window_picker
+    "data-resize",             # test_column_resize
+}
+
+# Not controls: status targets, stamps and identifiers the handlers read.
+NOT_CONTROLS = {
+    "data-scenario-regen-status", "data-build", "data-stale", "data-id",
+    "data-ph", "data-flag-field", "data-chk-section",
+    # A provenance marker span, not a control: it carries the source in its
+    # title so a reader who doubts a point can check it.
+    "data-aoi-src",
+}
+
+# Deliberately not driven, each with the reason.
+UNDRIVEN_BY_DESIGN = {
+    "data-print",      # opens a native dialog the harness cannot dismiss
+    "data-open-bms",   # navigates away, ending the session for every later test
+}
+
+# A KNOWN, NAMED GAP. These render and no test clicks them. Listed rather than
+# folded into DRIVEN, because a census that quietly counts an undriven control
+# as covered is worth less than no census: it would report full coverage of a
+# card with dead buttons on it, which is the exact failure this file exists
+# for. Anything moved out of here must be moved because a test now drives it.
+NOT_YET_DRIVEN = {
+    "data-aoi-add", "data-chk-group-toggle", "data-claim-del",
+    "data-contact-add", "data-ev-del", "data-flag-add", "data-ix-toggle",
+    "data-rca-only-regen", "data-refresh-slack", "data-reply-copy",
+    "data-reply-edit", "data-rerun-all", "data-slack-post", "data-slack-regen",
+    "data-slack-sec-all", "data-slack-sec-none", "data-trail-toggle",
+    "data-v3sel", "data-wwr-all", "data-wwr-ev-add", "data-wwr-toggle",
+    "data-aoi-del",
+}
+
+
+def test_no_control_is_unaccounted_for(page):
+    """Enumerate every data-* control on the card and account for all of them.
+
+    Not a claim that each works — the tests named above are that. This is the
+    guard that stops a NEW control arriving with no test at all, which is
+    exactly how the three dead ones in this file's docstring shipped.
+    """
+    found = page.evaluate("""() => {
+      const out = new Set();
+      document.querySelectorAll('*').forEach(el => {
+        for (const a of el.attributes)
+          if (a.name.startsWith('data-') && a.name !== 'data-ph') out.add(a.name);
+      });
+      return [...out].sort(); }""")
+    assert len(found) > 15, (
+        f"only {len(found)} data-* attributes found on the whole card — the "
+        f"enumeration is looking at the wrong document, and this test would "
+        f"pass by checking nothing")
+    accounted = DRIVEN | UNDRIVEN_BY_DESIGN | NOT_CONTROLS | NOT_YET_DRIVEN
+    unknown = sorted(set(found) - accounted)
+    assert not unknown, (
+        f"{len(unknown)} control(s) render and are accounted for NOWHERE: "
+        f"{unknown}. A dead control and a live one look identical — add a test "
+        f"that clicks it, or name it in NOT_YET_DRIVEN / UNDRIVEN_BY_DESIGN "
+        f"with the reason.")
+
+
+def test_the_driven_list_has_not_gone_stale(page):
+    """The other direction. A name left here after its control stopped
+    rendering makes the census look more complete than it is."""
+    found = set(page.evaluate("""() => {
+      const out = new Set();
+      document.querySelectorAll('*').forEach(el => {
+        for (const a of el.attributes)
+          if (a.name.startsWith('data-')) out.add(a.name);
+      });
+      return [...out]; }"""))
+    # Only checked for controls that the seeded card is expected to show. The
+    # rest render in buckets this fixture is not in (untraceable, processing),
+    # so their absence here is not staleness.
+    # data-tl-toggle is NOT here: it renders only when the timeline has
+    # internal events to hide, which this fixture's does not.
+    always_on = {"data-log-add", "data-slack-customize",
+                 "data-v3p", "data-dss-edit", "data-scenario-add",
+                 "data-takedown-rec"}
+    missing = sorted(always_on - found)
+    assert not missing, (
+        f"{missing} are listed as driven but no longer render on a normal "
+        f"card — either the control was removed and this list did not follow, "
+        f"or it stopped rendering by accident")
+
+
+def test_every_rendered_button_has_a_cursor_that_says_it_is_live(page):
+    """A cheap, real signal. A disabled or decorative element must not present
+    itself as clickable, and a live one must."""
+    bad = page.evaluate("""() => {
+      const out = [];
+      document.querySelectorAll('#rca-col button, #review-col button').forEach(b => {
+        const cs = getComputedStyle(b);
+        if (b.disabled) { if (cs.cursor === 'pointer') out.push(b.textContent.trim() + ' [disabled but pointer]'); }
+        else if (cs.cursor !== 'pointer') out.push(b.textContent.trim() + ' [live but ' + cs.cursor + ']');
+      });
+      return out; }""")
+    assert not bad, f"controls whose cursor contradicts their state: {bad}"
+
+
+def test_the_known_gap_is_reported_not_hidden(page):
+    """The census must SAY how much of the card it does not cover.
+
+    A coverage guard that reports only "nothing unknown" reads identically
+    whether it covers every control or three of them. This is the count, in
+    words, so the gap cannot quietly grow.
+    """
+    found = set(page.evaluate("""() => {
+      const out = new Set();
+      document.querySelectorAll('*').forEach(el => {
+        for (const a of el.attributes)
+          if (a.name.startsWith('data-')) out.add(a.name);
+      });
+      return [...out]; }"""))
+    rendered_gap = sorted(found & NOT_YET_DRIVEN)
+    driven_here = sorted(found & DRIVEN)
+    assert driven_here, "no driven control rendered — the census found nothing"
+    # Not an assertion that the gap is empty; an assertion that it is KNOWN.
+    assert set(rendered_gap) <= NOT_YET_DRIVEN
+    print(f"\ncontrol census: {len(driven_here)} driven, "
+          f"{len(rendered_gap)} rendered but not yet driven: {rendered_gap}")
+
+
+def test_every_toggle_control_actually_changes_something(page):
+    """Drive the toggles generically: click, and require the DOM to move.
+
+    A toggle is the cheapest control to check and the commonest to find dead —
+    two of the three in this file's docstring were toggles. Clicking every one
+    and requiring the card's markup to differ afterwards catches an unbound
+    handler without needing to know what each toggle means.
+    """
+    result = page.evaluate("""async () => {
+      const sels = ['[data-tl-toggle]', '[data-trail-toggle]', '[data-wwr-toggle]',
+                    '[data-ix-toggle]', '[data-chk-group-toggle]',
+                    '[data-slack-customize]', '[data-dss-edit]'];
+      const out = [];
+      // Watch BOTH columns. A control in the review column re-renders that
+      // column, and comparing only the RCA column reported it dead — which is
+      // the same false alarm, one level up, as a lookup that cannot say it
+      // ran and found nothing.
+      const snap = () => (document.querySelector('#rca-col') || {}).innerHTML
+                       + '||' + ((document.querySelector('#review-col') || {}).innerHTML || '');
+      for (const s of sels) {
+        const el = document.querySelector(s);
+        if (!el) { out.push([s, 'absent']); continue; }
+        const before = snap();
+        el.click();
+        await new Promise(r => setTimeout(r, 250));
+        out.push([s, before === snap() ? 'DEAD' : 'live']);
+        const again = document.querySelector(s);
+        if (again) { again.click(); await new Promise(r => setTimeout(r, 250)); }
+      }
+      return out; }""")
+    dead = [s for s, v in result if v == "DEAD"]
+    present = [s for s, v in result if v != "absent"]
+    assert present, "none of the toggles rendered — NOT BUILT, not passing"
+    assert not dead, (
+        f"{len(dead)} toggle(s) rendered and changed nothing when clicked: "
+        f"{dead}")

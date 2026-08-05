@@ -124,7 +124,11 @@
     border-color: var(--empty); color: var(--text);
   }
   .btn.primary, .send-btn, .candidate-confirm-btn {
-    font-weight: 600; border: none;
+    /* cursor too. `.send-btn` and `.candidate-confirm-btn` are their own
+       classes, not `.btn`, so they never picked up the pointer the base rule
+       sets — the two most consequential buttons on the card presented as
+       unclickable. Found by the control sweep, not by anyone looking. */
+    font-weight: 600; border: none; cursor: pointer;
     background: var(--accent); color: #fff;
   }
   .btn.primary:hover, .send-btn:hover, .candidate-confirm-btn:hover {
