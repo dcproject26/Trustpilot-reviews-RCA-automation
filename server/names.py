@@ -42,6 +42,51 @@ _NOISE = {"mr", "mrs", "ms", "miss", "dr", "prof", "sir", "jr", "sr",
           "ii", "iii", "iv", "and", "&", "family", "the"}
 
 
+# Display names that are not names. Trustpilot lets a reviewer post as
+# "customer", and the pipeline searched Zendesk for it exactly as it would
+# search for "Bhayani": the search returned half the desk, got truncated, and
+# the card offered three bookings ranked on visit date alone with no venue
+# agreement. Weak candidates from a meaningless query read as a near-miss —
+# the associate checks three bookings that were never evidence of anything.
+#
+# A placeholder is not a weak identifier. It is the ABSENCE of one, and the
+# two have to end differently: absent means untraceable, weak means confirm.
+#
+# Kept to words that are never a real given name in this dataset. "Guest" and
+# "Client" are surnames somewhere in the world, but not here, and a false
+# negative costs one review routed to untraceable that an associate can still
+# open — against a false positive that sends them hunting through candidates
+# assembled from nothing.
+_PLACEHOLDER = {
+    "customer", "customers", "guest", "guests", "anonymous", "anon",
+    "user", "username", "client", "visitor", "buyer", "traveller", "traveler",
+    "reviewer", "review", "trustpilot", "someone", "somebody", "person",
+    "none", "null", "na", "n/a", "unknown", "test", "testing", "name",
+    # Articles, so "a customer" reads the same as "customer". Placed
+    # here rather than in _NOISE because _NOISE is stripped before
+    # tokens are counted, and "A" is a legitimate initial - "A Cariello"
+    # must stay a real name with one placeholder token in it.
+    "a", "an",
+}
+
+
+def is_placeholder(name: str) -> bool:
+    """Whether a display name carries no identifier at all.
+
+    True when every usable token is a placeholder — so "customer" and
+    "a customer" are both placeholders, while "Customer Cariello" is not: one
+    real token is enough to search on.
+
+    Distinct from an EMPTY name, which parse_author already reports as
+    (None, None). This is the case that looks like a name, parses like a name,
+    and identifies nobody.
+    """
+    toks = name_tokens(name)
+    if not toks:
+        return False          # nothing there at all - a different fact
+    return all(re.sub(r"[^\w]", "", t).lower() in _PLACEHOLDER for t in toks)
+
+
 def name_tokens(name: str) -> list[str]:
     """Every usable token in a display name, in order.
 

@@ -851,13 +851,32 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 # the search can use every token in it. "Bhayani Salim F" was
                 # reduced to ("Bhayani", "F") here and the middle name was gone
                 # for good — the search never saw it, and neither did the card.
+                from server.names import is_placeholder as _is_placeholder
+
                 search_identities = []
+                _placeholders = []
                 for _f, _l, _full in ((author_first, author_last, review.author or ""),
                                       (ind_first, ind_last,
                                        str(indicators.get("guest_name") or ""))):
+                    # "customer" is not a weak name, it is the ABSENCE of one.
+                    # Searched as though it were a name it returned half the
+                    # desk, truncated, and produced three bookings ranked on
+                    # visit date with no venue agreement - which reads as a
+                    # near-miss and sends an associate through candidates
+                    # assembled from nothing. Absent must end untraceable;
+                    # weak may end in confirm. Different answers.
+                    if _is_placeholder(_full):
+                        _placeholders.append(_full.strip())
+                        continue
                     if _name_parseable(_f, _l) and \
                             (_f, _l) not in [(a, b) for a, b, _ in search_identities]:
                         search_identities.append((_f, _l, _full))
+                for _p in dict.fromkeys(_placeholders):
+                    confidence_trail.append({"mark": "warn",
+                        "text": f"<strong>No name to search</strong> — the review is "
+                                f"posted as '{_p}', which identifies nobody. No name "
+                                f"search was run; this is a missing identifier, not a "
+                                f"search that found nothing."})
                 name_parseable = bool(search_identities)
 
                 # ── Shared helpers ────────────────────────────────────────────
@@ -943,14 +962,29 @@ async def process_review(review_id: str, force_candidates: bool = False):
                     # candidates from a truncated search does not mean five
                     # exist - and an associate reading the card has no other
                     # way to know the right booking may never have been in it.
+                    # One line per DISTINCT search, not one per call. The same
+                    # label truncating twice printed the same four-line warning
+                    # twice, and the trail became a wall the reader skims past -
+                    # at which point the warning has stopped working. The count
+                    # is kept: "twice" is a fact about how hard the search
+                    # struggled, and dropping it silently would be the other bug.
+                    _seen_notes = {}
                     for _n in _notes:
+                        _k = (_n.get("kind"), _n.get("label"))
+                        _seen_notes[_k] = _seen_notes.get(_k, 0) + 1
+                    _notes = [dict(_n, _times=_seen_notes[(_n.get("kind"), _n.get("label"))])
+                              for _n in {(_x.get("kind"), _x.get("label")): _x
+                                         for _x in _notes}.values()]
+                    for _n in _notes:
+                        _again = (f" (twice)" if _n.get("_times") == 2
+                                  else f" ({_n['_times']} times)" if _n.get("_times", 1) > 2
+                                  else "")
                         if _n.get("kind") == "truncated":
                             _ctr["t2_zendesk_truncated"] += 1
                             confidence_trail.append({"mark": "warn",
                                 "text": f"<strong>Zendesk returned too many results</strong> "
-                                        f"for the {_n['label']} search and dropped the rest. "
-                                        f"Anything below is what came back, not everything "
-                                        f"that matches — the right booking may not be here."})
+                                        f"for the {_n['label']} search{_again} and dropped "
+                                        f"the rest — the right booking may not be below."})
                         elif _n.get("kind") == "failed":
                             confidence_trail.append({"mark": "warn",
                                 "text": f"<strong>Zendesk {_n['label']} search failed</strong> "

@@ -2023,6 +2023,30 @@ def _fmt_date_ist(dt_str: str) -> str:
         from datetime import datetime, timezone, timedelta
         IST = timezone(timedelta(hours=5, minutes=30))
         s = str(dt_str).strip()
+        # BigQuery hands a TIMESTAMP back as epoch seconds, and a float that
+        # large str()s into scientific notation. "1.785752592E9" reached the
+        # timeline as the booking-created time and rendered verbatim — a
+        # 13-character machine number where a date belongs, which reads as a
+        # broken row rather than as a booking created on 2 Aug.
+        #
+        # Seconds, not milliseconds: bounded to a plausible window rather than
+        # by digit count, because both units are 10-13 digits at different
+        # points in history and guessing wrong is 50 years out, silently.
+        _num = None
+        try:
+            _num = float(s)
+        except (TypeError, ValueError):
+            pass
+        if _num is not None:
+            if _num > 1e11:              # milliseconds
+                _num /= 1000.0
+            if 1e9 < _num < 4e9:         # 2001-2096, i.e. a real booking
+                return (datetime.fromtimestamp(_num, timezone.utc)
+                        .astimezone(IST).strftime("%d %b %H:%M IST"))
+            # A number outside that window is not a timestamp we can read.
+            # Returning it unchanged put "1.78E9" on the card; saying so puts
+            # a fact there instead.
+            return "unreadable timestamp"
         if "T" in s or (len(s) > 10 and ":" in s[10:]):
             dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
             if dt.tzinfo is None:
