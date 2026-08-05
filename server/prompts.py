@@ -1703,7 +1703,7 @@ that turned out fine is silence — never a line in the output.
         "pattern": "<counts and window from INSIGHTS | null>",
         "fix": {
           "action":   "<what to do>",
-          "owner":    "<Content | CE | SP | RO | Product | Biz | Ops>",
+          "owner":    "<GUEST | SP | CONTENT | CO | TECH | INVENTORY | PRODUCT | BIZ | FINANCE — the SAME nine as flags[].team>",
           "because":  "<the gap this fixes, restated from the evidence>",
           "source":   "<booking | bms | zendesk | insights | dss | exp-page>"
         },

@@ -511,7 +511,18 @@ def team_of_flag(flag) -> str:
     return code if code in ACTION_TEAMS else ""
 
 
-def actions_raised(scenario_names, flags) -> tuple[dict, dict]:
+# Every action string the guidelines can produce, anywhere in the corpus.
+# Used to tell a row a PERSON typed from one the sheet supplied: presence here
+# means the sheet wrote it, whatever this particular card routed.
+_ALL_GUIDELINE_ACTIONS = {
+    str(a).strip()
+    for rows in SCENARIO_CHECKS.values()
+    for a in rows
+    if str(a).strip()
+}
+
+
+def actions_raised(scenario_names, flags, keep=None) -> tuple[dict, dict]:
     """Actions Taken, and what it could not raise.
 
     THE RULE, which is an AND and not an OR: a row appears because the DSS
@@ -532,11 +543,42 @@ def actions_raised(scenario_names, flags) -> tuple[dict, dict]:
     flagged = {t for t in (team_of_flag(f) for f in flags) if t}
 
     tabs = {t: (list(items) if t in flagged else []) for t, items in guideline.items()}
+
+    # A ROW SOMEONE TYPED SURVIVES A RE-RUN. This is recomputed from the
+    # guidelines and the flags every time, so a row an associate added by hand
+    # was silently gone the next time the RCA was regenerated — the work of
+    # deciding it mattered, discarded with nothing on screen to say so.
+    #
+    # `keep` is the PREVIOUS tabs. Anything in it that the guidelines do not
+    # contain was put there by a person, so it is carried forward. Anything
+    # the guidelines DO contain is left to the rule above, or a withheld row
+    # would return by the back door and the AND would stop meaning anything.
+    _kept = 0
+    for _t, _items in (keep or {}).items():
+        if _t not in tabs:
+            continue
+        # Compared against the WHOLE guideline corpus, not just the rows
+        # routed for this card. Against the routed set alone, a row the AND
+        # deliberately withheld — or one whose wording changed in the sheet —
+        # reads as hand-typed and comes back through this door, which is the
+        # AND quietly stopping to mean anything.
+        _known = _ALL_GUIDELINE_ACTIONS
+        for _row in (_items or []):
+            _txt = str(_row or "").strip()
+            if _txt and _txt not in _known and _txt not in tabs[_t]:
+                tabs[_t].append(_txt)
+                _kept += 1
     withheld = {t: items for t, items in guideline.items()
                 if items and t not in flagged}
     n_withheld = sum(len(v) for v in withheld.values())
 
     notes = []
+    if _kept:
+        # Said out loud: these rows are on the card for a different reason
+        # from the rest, and a reader comparing two runs deserves to know
+        # which survived because a person wrote them.
+        notes.append(f"actions taken: {_kept} hand-added row(s) carried "
+                     f"forward through this re-run")
     if not scenario_names:
         notes.append("actions taken: no scenario routed, so the guidelines "
                      "name nothing to raise")
@@ -555,6 +597,7 @@ def actions_raised(scenario_names, flags) -> tuple[dict, dict]:
     # the rows, which is the report.
     return tabs, {
         "raised":        sum(len(v) for v in tabs.values()),
+        "kept_by_hand":  _kept,
         "withheld":      n_withheld,
         "withheld_teams": sorted(withheld),
         "flagged_teams": sorted(flagged),

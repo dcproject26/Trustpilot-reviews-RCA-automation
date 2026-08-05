@@ -23,7 +23,19 @@ CLAIM_ACCURACY = ("Accurate", "Partly accurate", "Inaccurate", "Unknown")
 ISA_VERDICT    = ("Yes", "No", "Unknown")
 SOURCES        = ("booking", "bms", "zendesk", "insights", "dss", "exp-page")
 TAKEDOWN       = ("Yes", "No", "Untraceable")
-OWNERS         = ("Content", "CE", "SP", "RO", "Product", "Biz", "Ops")
+# `fix.owner` names the team that closes the gap, so it has to be the SAME
+# nine as Flags and Actions Taken. It was a THIRD vocabulary - Content, CE,
+# SP, RO, Product, Biz, Ops - which meant a fix could name "RO" or "Ops",
+# neither of which is a chip on the card: the reader is told who owns the fix
+# and then cannot find them anywhere. Two of those seven had already been
+# retired from the other two lists.
+#
+# Upper-case, like FLAG_TEAMS, because they are read together on the card and
+# two spellings of one team is the defect this whole vocabulary exists to
+# prevent. Legacy values are TRANSLATED through the same aliases as flags,
+# not failed - a draft written under the old list names a real team, and
+# dropping it to null would lose an owner the model correctly identified.
+OWNERS         = tuple(t.upper() for t in ACTION_TEAMS)
 # The nine teams, and nothing else. Flags and Actions Taken share one
 # vocabulary because they are JOINED on it: a guideline action is raised only
 # where a flag names the same team, and two spellings of one team would make
@@ -287,9 +299,20 @@ def _fix_obj(raw, notes):
     out = {k: _clean(raw.get(k)) for k in FIX_FIELDS}
     if not out["action"]:
         return None
+    # Same aliases as flags, and for the same reason: a draft written under the
+    # old vocabulary names a REAL team, and failing it to null would lose an
+    # owner the model got right. Translated, then reported - we changed what
+    # the model said.
+    _own_raw = str(out["owner"] or "").strip()
+    _alias = FLAG_TEAM_ALIASES.get(_own_raw.lower())
+    if _alias:
+        notes.append(f"fix.owner {_own_raw!r} → {_alias.upper()} "
+                     f"({ACTION_TABS[_alias]['label']})")
+        out["owner"] = _alias.upper()
     out["owner"] = _enum(out["owner"], OWNERS, None)
     if raw.get("owner") and not out["owner"]:
-        notes.append(f"fix.owner {raw.get('owner')!r} is not a team → null")
+        notes.append(f"fix.owner {raw.get('owner')!r} is not one of the nine "
+                     f"teams → null (it would name an owner with no chip)")
     out["source"] = _enum(out["source"], SOURCES, None)
     return out
 
@@ -597,7 +620,7 @@ def _taxonomy(rca, notes):
     return {"l1": CATCH_ALL[0], "l2": CATCH_ALL[1], "l1_raw": l1, "l2_raw": l2}
 
 
-def validate(rca: dict, scenarios_routed=None) -> tuple[dict, list]:
+def validate(rca: dict, scenarios_routed=None, keep_actions=None) -> tuple[dict, list]:
     """Return (coerced rca, notes). Never raises."""
     notes: list[str] = []
     if not isinstance(rca, dict):
@@ -656,7 +679,11 @@ def validate(rca: dict, scenarios_routed=None) -> tuple[dict, list]:
 
     # Actions Taken. The DSS guidelines say what must be raised for the routed
     # scenarios; the flags say what actually went wrong. A row needs both.
-    _actions, _ar = actions_raised(scenarios_routed, _flags)
+    # keep_actions is the PREVIOUS Actions Taken, when there is one. A row an
+    # associate typed is carried forward; the guidelines' own rows are left to
+    # the AND. Without it, regenerating an RCA silently discarded work someone
+    # had decided mattered.
+    _actions, _ar = actions_raised(scenarios_routed, _flags, keep=keep_actions)
     notes.extend(_ar["notes"])
 
     return {

@@ -264,8 +264,12 @@ def test_a_flag_from_the_old_vocabulary_reaches_the_team_that_owns_it_now():
         {"team": "RO", "flag": "Vendor issue never raised", "evidence": "No ticket."},
         {"team": "Business", "flag": "Recurring on this TID-VID", "evidence": "9 in 30d."}]))
     assert [f["team"] for f in out["flags"]] == ["CO", "CO", "BIZ"]
-    assert sum("→ CO" in n for n in notes) == 2, notes
-    assert any("→ BIZ" in n for n in notes), notes
+    # Scoped to FLAG notes. `fix.owner` is translated through the same aliases
+    # and emits "→ CO" too, so counting the arrow anywhere counted a different
+    # coercion and broke the moment owners joined the nine.
+    _flag_notes = [n for n in notes if n.startswith("flag team")]
+    assert sum("→ CO" in n for n in _flag_notes) == 2, _flag_notes
+    assert any("→ BIZ" in n for n in _flag_notes), _flag_notes
 
 
 def test_a_note_may_carry_a_time_and_a_channel_but_never_invent_the_channel():

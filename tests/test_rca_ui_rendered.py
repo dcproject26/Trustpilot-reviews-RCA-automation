@@ -49,7 +49,7 @@ RCA = {
         # top level it does not survive projection, and the Slack post loses
         # the team beside the verdict — which is the line leadership scans.
         "fix": {"action": "Add the two-hour delivery window to the page",
-                "owner": "Content",
+                "owner": "CONTENT",
                 "because": "The experience page states no delivery window",
                 "source": "exp-page",
                 },
@@ -486,7 +486,10 @@ def test_the_post_has_one_block_per_guest_issue(page):
     txt = _post(page)
     i = txt.find("*What went wrong*")
     assert "*1. Delivery window not disclosed*" in txt, txt[i:i + 400]
-    assert "·  Accurate" in txt and "·  Content" in txt, txt[i:i + 400]
+    # The team beside the verdict is the line leadership scans. Spelled in
+    # the nine-team vocabulary now — "Content" was one of a fourth copy of
+    # the team list that named two teams with no tab on the card.
+    assert "·  Accurate" in txt and "·  CONTENT" in txt, txt[i:i + 400]
 
 
 def test_a_block_carries_only_the_lines_that_issue_has(page):
@@ -513,7 +516,7 @@ def test_the_fix_object_is_written_out_rather_than_stringified(page):
     txt = _post(page)
     assert "[object Object]" not in txt, \
         txt[txt.find("*What went wrong*"):][:600]
-    assert "• Fix: Add the two-hour delivery window to the page (owner: Content)" \
+    assert "• Fix: Add the two-hour delivery window to the page (owner: CONTENT)" \
         in txt, txt[txt.find("*What went wrong*"):][:600]
     assert "- closes: The experience page states no delivery window" in txt
 

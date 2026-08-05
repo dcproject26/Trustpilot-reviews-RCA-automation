@@ -2229,7 +2229,11 @@ async def process_review(review_id: str, force_candidates: bool = False):
         if rca_v3:
             try:
                 from server.services.rca_v4_validate import validate as _validate_rca
-                rca_v3, rca_notes = _validate_rca(rca_v3, _scenarios_routed)
+                # Same on a re-run from the pipeline: hand-typed rows are
+                # carried forward, guideline rows are left to the AND.
+                _prev_actions = getattr(draft, 'actions_taken', None) or None
+                rca_v3, rca_notes = _validate_rca(rca_v3, _scenarios_routed,
+                                                  keep_actions=_prev_actions)
                 # A coercion the reader cannot see is a silent edit. The trail
                 # is where this build already puts "we changed what the model
                 # said, and here is why", so each note goes there verbatim.
@@ -2405,6 +2409,9 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # One shared projection with regenerate-rca. Written out twice, the two
         # paths drift, and the drift is invisible: both look like working code.
         from server.services.rca_v4_validate import project_v4
+        # The rows already on this draft, read BEFORE the projection
+        # overwrites them - that is the only moment they still exist.
+        _prev_actions = getattr(draft, 'actions_taken', None) or None
         for _col, _val in project_v4(_v3).items():
             setattr(draft, _col, _val)
 

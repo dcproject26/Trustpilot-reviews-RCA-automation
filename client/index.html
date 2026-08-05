@@ -1261,7 +1261,7 @@
         <div class="inbox-tabs">
           <button class="inbox-tab active" data-tab="all">All <span class="num" id="cnt-all">0</span></button>
           <button class="inbox-tab" data-tab="identified">Matched <span class="num" id="cnt-identified">0</span></button>
-          <button class="inbox-tab" data-tab="candidates">Confirm <span class="num" id="cnt-candidates">0</span></button>
+          <button class="inbox-tab" data-tab="candidates">Possible matches <span class="num" id="cnt-candidates">0</span></button>
           <button class="inbox-tab" data-tab="processing">Processing <span class="num" id="cnt-processing">0</span></button>
           <button class="inbox-tab" data-tab="untraceable">Untraceable <span class="num" id="cnt-untraceable">0</span></button>
           <button class="inbox-tab" data-tab="sent">Sent <span class="num" id="cnt-sent">0</span></button>
@@ -1525,7 +1525,31 @@ function buildState(v) {
 }
 
 function bookingCreatedAt(db) {
-  return (db && (db.date_of_booking || db.creationDate || db.bookedOn)) || '';
+  return normaliseStamp((db && (db.date_of_booking || db.creationDate
+                               || db.bookedOn)) || '');
+}
+
+// BigQuery hands a TIMESTAMP back as epoch seconds, and a float that large
+// str()s into scientific notation. "1.785791592E9" reached the Booking date
+// row verbatim, and lead time - which does new Date(booking) - got NaN and
+// printed a dash. So the card showed a booking with no computable lead time
+// next to a booking date that was plainly a machine number, and neither said
+// why. Normalised once, here, because both readers take this value.
+//
+// Seconds or milliseconds, bounded by a plausible date window rather than by
+// digit count: both units are 10-13 digits at different points in history and
+// reading one as the other is fifty years out, silently. Anything else is
+// returned untouched - an ISO string is already what the callers want, and a
+// value we cannot read must not be dressed as a date.
+function normaliseStamp(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return '';
+  if (!/^[0-9.eE+]+$/.test(s)) return s;          // not a bare number
+  let n = Number(s);
+  if (!isFinite(n)) return s;
+  if (n > 1e11) n = n / 1000;                     // milliseconds
+  if (n > 1e9 && n < 4e9) return new Date(n * 1000).toISOString();
+  return s;
 }
 
 function trailSafe(text) {
@@ -2076,7 +2100,11 @@ async function loadDraftOverlays() {
           const bookingMs = new Date(bookingStr).getTime();
           const visitMs   = new Date(visitStr).getTime();
           const diffDays  = Math.round((visitMs - bookingMs) / 86400000);
-          r.booking.leadTime = diffDays >= 2 ? `${diffDays} days`
+          // A dash for "we had no dates" and a dash for "we had dates and
+          // could not read them" is the same dash, and only one of them is
+          // something to go and fix. NaN says WHICH.
+          r.booking.leadTime = !isFinite(diffDays) ? 'unreadable dates'
+                             : diffDays >= 2 ? `${diffDays} days`
                              : diffDays === 1 ? '1 day'
                              : diffDays === 0 ? '0 days'
                              : '—';
@@ -4405,7 +4433,13 @@ function renderRcaCol() {
     // §1 closed vocabularies. The chip is a select, so the only values that
     // can reach the screen are these - a sentence-length verdict cannot.
     const ACC  = ['Accurate', 'Partly accurate', 'Inaccurate', 'Unknown'];
-    const OWNS = ['Content', 'CE', 'SP', 'RO', 'Product', 'Biz', 'Ops'];
+    // The SAME nine as the flag chips and the Actions Taken tabs. This was
+    // a fourth copy of the team vocabulary - server enum, prompt schema,
+    // flag list, and this - and it still held 'CE', 'RO' and 'Ops', two of
+    // which name no tab on this card. Kept in sync with
+    // server/taxonomy.py::ACTION_TABS; test_the_verdict_and_owner_are_selects_not_free_text compares them.
+    const OWNS = ['GUEST', 'SP', 'CONTENT', 'CO', 'TECH', 'INVENTORY',
+                  'PRODUCT', 'BIZ', 'FINANCE'];
     const accCls = a => { const t = String(a || '').toLowerCase();
       return t.startsWith('accur') ? 'ok' : t.startsWith('part') ? 'part'
            : t.startsWith('inacc') ? 'bad'

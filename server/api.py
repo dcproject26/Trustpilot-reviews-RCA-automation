@@ -42,6 +42,28 @@ router = APIRouter()
 
 # ── Pydantic models ─────────────────────────────────────────────────────────
 
+def _received_at_from(slack_ts, rid=""):
+    """When the review reached the channel, from the message timestamp.
+
+    Falls back to now, and SAYS SO: a review stamped with the ingest moment
+    looks like a review that arrived then, and a whole batch stamped
+    identically looks like fifteen reviews posted in one second. If the
+    fallback ever fires we want it in the log rather than inferred from a
+    suspicious-looking column.
+    """
+    from datetime import datetime, timezone
+    try:
+        ts = float(str(slack_ts).strip())
+        if 1e9 < ts < 4e9:                      # 2001-2096: a real message
+            return datetime.fromtimestamp(ts, timezone.utc).replace(tzinfo=None)
+        log.warning(f"[ingest] {rid}: slack_ts {slack_ts!r} is outside any "
+                    f"plausible date range - using the ingest time instead")
+    except (TypeError, ValueError):
+        log.warning(f"[ingest] {rid}: slack_ts {slack_ts!r} is not a timestamp "
+                    f"- using the ingest time instead")
+    return datetime.utcnow()
+
+
 class ManualReview(BaseModel):
     body: str
     rating: int = 1
@@ -1224,11 +1246,23 @@ async def refresh_slack(hours: int = 72, background_tasks: BackgroundTasks = Non
         if db.query(Review).filter(Review.id == rid).first():
             skipped += 1
             continue
+        # WHEN THE REVIEW CAME IN, not when we happened to fetch it. This row
+        # was created without received_at, so the column default fired and
+        # every review in a batch got the same value - the ingest moment. On
+        # screen that is fifteen reviews all stamped 05 Aug 07:47, which reads
+        # as fifteen reviews posted in the same second.
+        #
+        # slack_ts is the message's own timestamp and it is already in hand -
+        # the review id is built from it. It is when the review reached the
+        # channel, which is the closest thing to the review's own date that
+        # this pipeline ever sees; Trustpilot's publish time is not in the
+        # payload.
+        _at = _received_at_from(parsed["slack_ts"], rid)
         db.add(Review(
             id=rid, slack_ts=parsed["slack_ts"],
             slack_channel=parsed["slack_channel"], rating=parsed["rating"],
             language=parsed["language"], author=parsed.get("author") or None,
-            body_original=parsed["body_original"],
+            body_original=parsed["body_original"], received_at=_at,
             reference_number=parsed["reference_number"], status="new"))
         db.commit()
         queued += 1
@@ -1518,7 +1552,11 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
     rca_notes: list = []
     try:
         from server.services.rca_v4_validate import validate as _validate_rca
-        rca_v3, rca_notes = _validate_rca(rca_v3, scenarios)
+        # The rows already on this draft, so a row an associate typed
+        # survives a regenerate. Read here because the projection below
+        # overwrites the column a few lines later.
+        rca_v3, rca_notes = _validate_rca(rca_v3, scenarios,
+                                          keep_actions=(d.actions_taken or None))
         for _n in rca_notes:
             log.warning(f"[regenerate-rca] {review_id}: {_n}")
     except Exception as e:
