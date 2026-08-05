@@ -1744,8 +1744,13 @@ async function regenerateForScenarios(reviewId) {
   const r = REVIEWS.find(x => x.id === reviewId);
   if (!r || !r.rca) return;
   const rca = r.rca;
-  const scenarios = [...(rca.scenarios || []),
-                     ...(rca.overlayScenarios || [])].filter(Boolean);
+  // DEDUPED. `rca.scenarios` is the whole ordered list and already contains
+  // the overlays, so concatenating them appended every overlay a second time —
+  // and regenerate-rca writes this list straight back over d.scenarios. That
+  // is what multiplied the chips, and what made removing one look dead: the
+  // removal was saved and then overwritten by a union that still held it.
+  const scenarios = [...new Set([...(rca.scenarios || []),
+                                 ...(rca.overlayScenarios || [])].filter(Boolean))];
   rca.primaryScenario = scenarios[0] || '';
   // Save first: if generation fails the chips still reflect what the person
   // chose, instead of snapping back on the next render.
@@ -1784,10 +1789,12 @@ async function regenerateForScenarios(reviewId) {
 }
 
 // The chip controls, delegated. See regenerateForScenarios above for why.
-const _CHIP_KEYS = {
-  'data-scenario-add': 'scenarios', 'data-scenario-remove': 'scenarios',
-  'data-overlay-add': 'overlayScenarios', 'data-overlay-remove': 'overlayScenarios',
-};
+//
+// There is no attribute-to-store map any more. There used to be one, pointing
+// the scenario controls at `scenarios` and the overlay controls at
+// `overlayScenarios` — two arrays for one ordered list, which is what let a
+// deleted overlay survive in the list the next save wrote back. Both rows
+// edit `scenarios`; the overlays are its tail.
 document.addEventListener('change', async ev => {
   const sel = ev.target.closest && ev.target.closest(
     '[data-scenario-add], [data-overlay-add]');
@@ -1796,8 +1803,15 @@ document.addEventListener('change', async ev => {
     ? 'data-scenario-add' : 'data-overlay-add';
   const r = REVIEWS.find(x => x.id === state.selected);
   if (!r || !r.rca) return;
-  const key = _CHIP_KEYS[attr];
-  r.rca[key] = [...(r.rca[key] || []), sel.value];
+  // One list again. Adding from either row appends to `scenarios`; the first
+  // entry is the primary and the rest are the overlays, so which row the add
+  // came from decides nothing except where the chip lands on redraw. A value
+  // already present is a no-op rather than a second chip.
+  const list = [...(r.rca.scenarios || [])];
+  if (!list.includes(sel.value)) list.push(sel.value);
+  r.rca.scenarios = list;
+  r.rca.overlayScenarios = list.slice(1);
+  r.rca.primaryScenario = list[0] || '';
   await regenerateForScenarios(r.id);
 });
 document.addEventListener('click', async ev => {
@@ -1808,10 +1822,18 @@ document.addEventListener('click', async ev => {
     ? 'data-scenario-remove' : 'data-overlay-remove';
   const r = REVIEWS.find(x => x.id === state.selected);
   if (!r || !r.rca) return;
-  const key = _CHIP_KEYS[attr];
   const idx = parseInt(btn.getAttribute(attr));
   if (Number.isNaN(idx)) return;
-  r.rca[key] = (r.rca[key] || []).filter((_, i) => i !== idx);
+  // BOTH ROWS EDIT ONE LIST. The Primary row renders scenarios[0] and the
+  // Overlays row renders scenarios[1:], so an overlay's index is offset by
+  // one. Removing from a separate overlayScenarios array is what made the ×
+  // look dead: the item was still in `scenarios`, and the very next save
+  // wrote it back.
+  const off = attr === 'data-overlay-remove' ? 1 : 0;
+  const list = (r.rca.scenarios || []).filter((_, i) => i !== idx + off);
+  r.rca.scenarios = list;
+  r.rca.overlayScenarios = list.slice(1);
+  r.rca.primaryScenario = list[0] || '';
   await regenerateForScenarios(r.id);
 });
 
@@ -3297,7 +3319,11 @@ function renderReviewCol() {
           </label>
         </div>
         ${chipRow('Sub-themes', rc.subThemes || [], 'data-subtheme-add', subOpts, 'data-subtheme-remove')}
-        ${chipRow('Scenarios', rc.scenarios || [], 'data-scenario-add', SCENARIO_OPTIONS, 'data-scenario-remove')}
+        <!-- ONE LIST, TWO ROWS, NO OVERLAP. rc.scenarios is the whole ordered
+             list; the primary is its first element and the overlays are the
+             rest. Rendering the whole list here AND its tail again as
+             "Overlays" is what showed one scenario twice on the card. -->
+        ${chipRow('Primary', (rc.scenarios || []).slice(0, 1), 'data-scenario-add', SCENARIO_OPTIONS, 'data-scenario-remove')}
         ${(() => {
           // The scenario was set by hand and routing has since moved. Not a
           // "manual" tag: provenance alone makes the reader reconstruct months
@@ -3318,7 +3344,7 @@ function renderReviewCol() {
                     title="Use the routed scenario instead">Use routed</button>
           </div>`;
         })()}
-        ${chipRow('Overlays', rc.overlayScenarios || [], 'data-overlay-add',
+        ${chipRow('Overlays', (rc.scenarios || []).slice(1), 'data-overlay-add',
                   SCENARIO_OPTIONS.filter(o => !(rc.scenarios || []).includes(o)), 'data-overlay-remove')}
         ${(() => {
           // Output rule 13 guarantees every routed scenario is covered by a

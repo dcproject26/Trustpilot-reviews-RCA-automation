@@ -1393,14 +1393,18 @@ that turned out fine is silence — never a line in the output.
                    booking is required, and no Baby option exists
      YES  because  No Baby/Infant option exists for the guest to select
 
-2f. `sop_gap` IS CHECKED AGAINST DSS AND WRITTEN ABOUT THE PROCESS. Look up
-   the needle for this scenario BEFORE you answer. DSS tells you whether a
-   control existed and whether it was followed; it is never itself the
-   subject of the sentence.
+2f. USE DSS TO DETERMINE WHAT THE NEXT STEP SHOULD HAVE BEEN, THEN NAME THAT
+   STEP. DSS is a LOOKUP, never a subject. Look up the needle for this
+   scenario BEFORE you answer, work out what the correct next escalation step
+   would have been, and write THAT — not the sheet, not its coverage, not
+   whether a row exists.
      A path exists and was followed  ->  null. Say nothing.
      A path exists and was skipped   ->  name the STEP, not the outcome.
-     No path covers this scenario    ->  the gap is the CONTROL NOBODY OWNS,
-                                         stated as the process failure.
+     No path covers this scenario    ->  REASON THE NEXT ESCALATION STEP from
+                                         the playbook you do have, and name
+                                         that step. The absence of a row is an
+                                         internal fact about our tooling; it is
+                                         NEVER the finding.
      DSS unavailable                 ->  null, and name the source in
                                          `claim_accuracy_note`.
    NEVER write a step you cannot find in DSS. An invented process produces a
@@ -1420,8 +1424,12 @@ that turned out fine is silence — never a line in the output.
      WRONG: "Define a DSS path for system-initiated vendor reassignments."
      RIGHT: "Require proactive notification to the guest whenever a
             reassignment shortens the rescheduling window."
-   Never name DSS, the decision sheet, a needle, a row or a path in `sop_gap`,
-   in `fix.action` or in `fix.because`.
+   NEVER NAME DSS ANYWHERE A READER SEES A FINDING: not in `root_cause`, not
+   in `operational_failure`, not in `sop_gap`, not in `fix.action` or
+   `fix.because`, and not in any `evidence[].text`. No "no DSS row covers
+   this", no "define a DSS path", no commentary on the sheet at all. What the
+   matched row prescribes belongs in `dss.prescribes`, which is its own field
+   and is where a reader looks for it.
 
 2g. DO NOT REPEAT. The commonest failure is one fact restated across the
    block. Each field earns its place by saying something the others do not.

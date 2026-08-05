@@ -188,7 +188,7 @@ def test_a_gap_written_as_sheet_coverage_is_reported():
     _, notes = validate(_ok(issue_patch={"sop_gap": DSS_GAP}))
     said = [n for n in notes if "sop_gap" in n and "DSS" in n]
     assert said, f"the DSS-shaped gap went unreported: {notes}"
-    assert "what nobody was required to do" in said[0], said[0]
+    assert "not something the finding talks about" in said[0], said[0]
 
 
 def test_a_fix_written_as_authoring_a_dss_row_is_reported():
@@ -243,9 +243,52 @@ def test_the_prompt_still_tells_the_model_to_look_dss_up():
     """The other half. Removing the source must not remove the LOOKUP — that
     is how the model knows whether a control existed at all."""
     from server.prompts import RCA_V4_TEMPLATE as BODY
-    assert "the needle for this scenario BEFORE you answer." in BODY, (
+    assert "Look up the needle for this" in BODY, (
         "the DSS lookup was removed along with the source — that is how the "
-        "model knows whether a control existed at all")
-    assert "CHECKED AGAINST DSS" in BODY
-    assert "WRITE THE PROCESS FAILURE" in BODY, (
-        "rule 2f no longer tells the model to write the gap about the process")
+        "model works out what the next step should have been")
+    assert "USE DSS TO DETERMINE WHAT THE NEXT STEP SHOULD HAVE BEEN" in BODY, (
+        "rule 2f no longer frames DSS as a lookup that informs the answer")
+    assert "REASON THE NEXT ESCALATION STEP" in BODY, (
+        "a scenario with no DSS row no longer tells the model to reason the "
+        "step from the playbook it does have — it will report the absence")
+
+
+# ── DSS is named nowhere a reader sees a finding ────────────────────────────
+#
+# The instruction that superseded the first pass: DSS is a LOOKUP THAT INFORMS
+# THE ANSWER, never a subject the answer talks about. The model consults it to
+# work out what the next escalation step would have been and writes THAT step.
+
+@pytest.mark.parametrize("field,patch", [
+    ("root_cause", {"root_cause": "No DSS row covers a vendor reassignment."}),
+    ("operational_failure",
+     {"operational_failure": "The decision sheet has no path for this."}),
+    ("sop_gap", {"sop_gap": DSS_GAP}),
+])
+def test_dss_named_in_any_finding_is_reported(field, patch):
+    _, notes = validate(_ok(issue_patch=patch))
+    assert any(field in n and "DSS" in n for n in notes), (
+        f"{field} named the DSS and nothing said so: {notes}")
+
+
+def test_dss_named_in_an_evidence_row_is_reported():
+    """The text, not just the source. Dropping the `dss` source value does not
+    stop the model writing the same remark into a row sourced `booking`."""
+    _, notes = validate(_ok(issue_patch={"evidence": [
+        {"text": "No DSS row covers a system-initiated reassignment.",
+         "source": "booking"}]}))
+    assert any("evidence[0]" in n for n in notes), (
+        f"a DSS remark wearing a booking source went unreported: {notes}")
+
+
+def test_a_case_that_names_dss_nowhere_is_silent():
+    """The control. If this fired too, the note would mean nothing and every
+    healthy run would carry a warning."""
+    _, notes = validate(_ok(issue_patch={
+        "root_cause": "The reassignment did not trigger a guest notification.",
+        "operational_failure": "No notification fires on operator change.",
+        "sop_gap": "Nobody was required to contact the guest before the "
+                   "rescheduling window closed.",
+        "evidence": [{"text": "The booking log shows the reassignment.",
+                      "source": "booking"}]}))
+    assert not [n for n in notes if "DSS" in n], notes

@@ -90,9 +90,17 @@ def test_nothing_flagged_says_so_rather_than_reporting_a_bare_zero():
 
 def test_a_clean_run_puts_nothing_on_the_trail():
     """Everything prescribed was raised: the rows are the report. A note on
-    every healthy run is how a trail stops being read."""
-    flags = [{"team": t.upper(), "flag": "x", "evidence": "y"}
-             for t, v in actions_for([SCENARIO]).items() if v]
+    every healthy run is how a trail stops being read.
+
+    Each flag carries the wording of its own team's guideline rows, so the
+    third condition — does this row bear on what the case found — passes for
+    all of them. A flag reading "x" would fail it, and rightly: a row about
+    escalating a recurring issue has nothing to do with a card that never
+    mentions one.
+    """
+    guideline = actions_for([SCENARIO])
+    flags = [{"team": t.upper(), "flag": " ".join(v), "evidence": "y"}
+             for t, v in guideline.items() if v]
     _, notes = validate(_rca(flags=flags), [SCENARIO])
     assert not [n for n in notes if "actions taken" in n], notes
 

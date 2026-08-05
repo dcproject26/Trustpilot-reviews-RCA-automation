@@ -12,7 +12,7 @@ an entire RCA to one bad enum is worse than rendering it with one grey chip.
 import re
 
 from server.checklist import (ACTION_TEAMS, FLAG_TEAM_ALIASES, ACTION_TABS,
-                              actions_raised)
+                              actions_raised, findings_text)
 from server.taxonomy import L1_CATEGORIES, L2_OPTIONS
 
 # Four. "Unknown" carries both "we checked and nothing can settle it" and "we
@@ -365,7 +365,16 @@ _DSS_WORDED = re.compile(
 
 
 def _flag_dss_wording(issue, notes):
-    """Say when the gap or the fix was written as DSS coverage.
+    """Say when a finding was written ABOUT the DSS instead of about the case.
+
+    DSS is a LOOKUP THAT INFORMS THE ANSWER, never a subject the answer talks
+    about. The model consults it to work out what the correct next escalation
+    step would have been, and then writes THAT STEP. It must not be named in
+    root_cause, operational_failure, sop_gap, fix or any evidence row — and if
+    the sheet has no row for the scenario, the model reasons the next step from
+    the playbook it does have rather than reporting the absence as the finding.
+    The absence of a DSS row is an internal fact about our tooling; the guest's
+    case is about what should have happened and did not.
 
     REPORTED, NOT REWRITTEN. The sentence is the model's analysis and there is
     no mechanical way to restate it correctly — deleting it would lose a real
@@ -376,17 +385,22 @@ def _flag_dss_wording(issue, notes):
     It has to be able to say it found nothing, and it does: no note at all
     when the wording is clean, which is the ordinary case.
     """
-    for field, value in (("sop_gap", issue.get("sop_gap")),
-                         ("fix.action", (issue.get("fix") or {}).get("action")
-                          if isinstance(issue.get("fix"), dict) else None),
-                         ("fix.because", (issue.get("fix") or {}).get("because")
-                          if isinstance(issue.get("fix"), dict) else None)):
+    fix = issue.get("fix") if isinstance(issue.get("fix"), dict) else {}
+    fields = [("root_cause", issue.get("root_cause")),
+              ("operational_failure", issue.get("operational_failure")),
+              ("sop_gap", issue.get("sop_gap")),
+              ("fix.action", fix.get("action")),
+              ("fix.because", fix.get("because"))]
+    fields += [(f"evidence[{i}]", e.get("text"))
+               for i, e in enumerate(issue.get("evidence") or [])
+               if isinstance(e, dict)]
+    for field, value in fields:
         if value and _DSS_WORDED.search(str(value)):
             notes.append(
-                f"{field} is written about the DSS sheet's coverage rather "
-                f"than about the process — kept as written, but the gap a "
-                f"team can act on is what nobody was required to do: "
-                f"{str(value)[:80]!r}")
+                f"{field} names the DSS or its coverage rather than the step "
+                f"that should have been taken — kept as written, but DSS is "
+                f"what you look the next escalation step UP in, not something "
+                f"the finding talks about: {str(value)[:80]!r}")
 
 
 def _issue(raw, notes):
@@ -757,7 +771,13 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None) -> tuple[dict,
     # associate typed is carried forward; the guidelines' own rows are left to
     # the AND. Without it, regenerating an RCA silently discarded work someone
     # had decided mattered.
-    _actions, _ar = actions_raised(scenarios_routed, _flags, keep=keep_actions)
+    # THIRD CONDITION: the row must bear on what this case actually found.
+    # Built from the validated issues and flags, not from the model's raw
+    # output, so a finding that was coerced or dropped cannot keep a row alive.
+    _findings = findings_text({"what_went_wrong": {"guest_issues": issues},
+                               "flags": _flags})
+    _actions, _ar = actions_raised(scenarios_routed, _flags, keep=keep_actions,
+                                   findings=_findings)
     notes.extend(_ar["notes"])
 
     return {

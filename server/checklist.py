@@ -522,27 +522,147 @@ _ALL_GUIDELINE_ACTIONS = {
 }
 
 
-def actions_raised(scenario_names, flags, keep=None) -> tuple[dict, dict]:
+# Words that carry no subject matter. A guideline row and a finding sharing
+# only "with", "the" or "raise" have nothing to do with each other.
+_RELEVANCE_STOP = {
+    "the", "a", "an", "of", "to", "for", "and", "or", "in", "on", "at", "by",
+    "is", "was", "were", "be", "been", "with", "from", "this", "that", "it",
+    "if", "as", "not", "no", "any", "all", "has", "have", "had", "will",
+    "raise", "raised", "share", "check", "verify", "confirm", "ensure",
+    "team", "teams", "issue", "issues", "case", "guest", "customer", "please",
+    "via", "per", "our", "their", "his", "her", "them", "they", "we", "us",
+    "when", "where", "which", "who", "what", "how", "then", "than", "so",
+}
+
+
+def _relevance_tokens(text) -> set:
+    """Subject-matter words in a string, lower-cased and stemmed crudely.
+
+    A trailing 's' is dropped so "refunds" matches "refund" and
+    "reassignments" matches "reassignment". Crude on purpose: the cost of a
+    loose match is a row that stays on the card, which is the safe direction.
+    """
+    out = set()
+    for t in re.findall(r"[a-z]{3,}", str(text or "").lower()):
+        if t in _RELEVANCE_STOP:
+            continue
+        out.add(t[:-1] if len(t) > 4 and t.endswith("s") else t)
+    return out
+
+
+def findings_text(rca) -> str:
+    """Everything on a card a guideline row could bear on.
+
+    The root cause, the operational failure, the SOP gap and the flags — the
+    four things the card actually FOUND. Built here rather than at the call
+    site so the pipeline and regenerate-rca cannot assemble it differently.
+    """
+    rca = rca if isinstance(rca, dict) else {}
+    bits = []
+    wwr = rca.get("what_went_wrong")
+    for gi in ((wwr or {}).get("guest_issues") or []):
+        if not isinstance(gi, dict):
+            continue
+        for k in ("issue", "root_cause", "operational_failure", "sop_gap"):
+            if gi.get(k):
+                bits.append(str(gi[k]))
+        fx = gi.get("fix")
+        if isinstance(fx, dict):
+            for k in ("action", "because"):
+                if fx.get(k):
+                    bits.append(str(fx[k]))
+    for f in (rca.get("flags") or []):
+        if isinstance(f, dict):
+            for k in ("flag", "evidence"):
+                if f.get(k):
+                    bits.append(str(f[k]))
+    return " ".join(bits)
+
+
+def actions_raised(scenario_names, flags, keep=None,
+                   findings=None) -> tuple[dict, dict]:
     """Actions Taken, and what it could not raise.
 
-    THE RULE, which is an AND and not an OR: a row appears because the DSS
-    guidelines say it must be raised for the routed scenario AND because a flag
-    on this card names the team it belongs to. Guidelines alone would put the
-    same generic list on every card of a given L2, flagged alone would invent
-    work nobody's playbook asks for, and the card is read as "this is what we
-    did", so neither half may carry it on its own.
+    THE RULE IS AN AND OF THREE THINGS. A row appears because the DSS
+    guidelines say it must be raised for the routed scenario, AND because a
+    flag on this card names the team it belongs to, AND because it BEARS ON
+    WHAT THIS CASE FOUND. Guidelines alone would put the same generic list on
+    every card of a given L2, flagged alone would invent work nobody's playbook
+    asks for, and the card is read as "this is what we did", so no half may
+    carry it on its own.
+
+    THE THIRD CONDITION, and why two were not enough. A booking reassigned to
+    a new operator without the guest's consent, remedied with a partial wallet
+    credit, showed three rows on the Supply Partner tab: "Verify meeting point
+    with SP if reported", "BMS refund error -> raise with Leads", and "Share
+    ARN number for delayed refunds". No meeting point, no BMS refund error, no
+    delayed refund. All three satisfied the AND — routed scenario, flag naming
+    SP — and all three were still wrong. A guideline row for a scenario is not
+    automatically a step that was or should have been taken on THIS booking.
+
+    Relevance is decided by subject-matter overlap with the card's own
+    findings: the root cause, the operational failure, the SOP gap, the fix and
+    the flags. Crude on purpose — a loose match leaves a row on the card, which
+    is the safe direction, while a tight one silently empties a tab.
+
+    `findings` IS OPTIONAL AND ITS ABSENCE IS REPORTED. A caller that does not
+    pass it gets the two-condition behaviour, and the report says the filter
+    did not run — because a filter that never ran and a filter that ran and
+    withheld nothing are the thing this codebase must never confuse.
 
     Returns (tabs, report). The report is not decoration: a tab that is empty
-    because nothing was flagged and a tab that is empty because the guidelines
-    list nothing are the same blank space on screen, and they mean opposite
-    things. `report["notes"]` is written for the confidence trail, which is
-    where this build already says "we changed what the model gave you".
+    because nothing was flagged, a tab empty because the guidelines list
+    nothing, and a tab empty because nothing the guidelines list bears on this
+    case are the same blank space on screen and mean three different things.
+    `report["notes"]` is written for the confidence trail.
+
     """
     guideline = actions_for(scenario_names)
     flags = [f for f in (flags or []) if isinstance(f, dict)]
     flagged = {t for t in (team_of_flag(f) for f in flags) if t}
 
-    tabs = {t: (list(items) if t in flagged else []) for t, items in guideline.items()}
+    # The third condition. `findings is None` means the caller did not ask for
+    # it; `""` means it asked and the card had nothing to say, which is a
+    # different fact and is reported differently below.
+    _rel_ran = findings is not None
+    _find_toks = _relevance_tokens(findings) if _rel_ran else set()
+    _irrelevant = {}
+
+    def _bears_on_the_case(team, row):
+        if not _rel_ran:
+            return True
+        if not _find_toks:
+            # Nothing was found on this card, so nothing can be shown to bear
+            # on it. Withholding everything here would be a filter deciding a
+            # question it has no evidence for, so it stands aside and says so.
+            return True
+        row_toks = _relevance_tokens(row)
+        if not row_toks:
+            return True
+        if row_toks & _find_toks:
+            return True
+        # A row also earns its place from the flag that routed its team: the
+        # flag IS a finding, and its wording is often closer to the guideline
+        # row than the prose of the root cause.
+        for f in flags:
+            if team_of_flag(f) != team:
+                continue
+            if row_toks & _relevance_tokens(
+                    f"{f.get('flag', '')} {f.get('evidence', '')}"):
+                return True
+        return False
+
+    tabs = {}
+    for t, items in guideline.items():
+        if t not in flagged:
+            tabs[t] = []
+            continue
+        keep_rows, drop_rows = [], []
+        for row in items:
+            (keep_rows if _bears_on_the_case(t, row) else drop_rows).append(row)
+        tabs[t] = keep_rows
+        if drop_rows:
+            _irrelevant[t] = drop_rows
 
     # A ROW SOMEONE TYPED SURVIVES A RE-RUN. This is recomputed from the
     # guidelines and the flags every time, so a row an associate added by hand
@@ -593,6 +713,23 @@ def actions_raised(scenario_names, flags, keep=None) -> tuple[dict, dict]:
             f"actions taken: {n_withheld} guideline action(s) withheld — no flag "
             f"names " + ", ".join(ACTION_TABS[t]["label"] for t in sorted(withheld))
             + "; flagged: " + ", ".join(ACTION_TABS[t]["label"] for t in sorted(flagged)))
+    # The relevance filter announces itself. Grouping a guideline row with a
+    # case by word overlap is a JUDGEMENT, and nothing else on the card says
+    # one was made.
+    n_irrelevant = sum(len(v) for v in _irrelevant.values())
+    if not _rel_ran:
+        notes.append("actions taken: relevance to this case was NOT checked — "
+                     "rows are here because the guidelines list them and a flag "
+                     "names the team, nothing more")
+    elif n_irrelevant:
+        notes.append(
+            f"actions taken: {n_irrelevant} guideline action(s) withheld as not "
+            f"bearing on this case (judged by subject-matter overlap with the "
+            f"root cause, operational failure, SOP gap, fix and flags) — "
+            + "; ".join(f"{ACTION_TABS[t]['label']}: "
+                        + ", ".join(repr(r[:60]) for r in rows)
+                        for t, rows in sorted(_irrelevant.items())))
+
     # Nothing withheld and something raised is the quiet case: the card shows
     # the rows, which is the report.
     return tabs, {
@@ -601,6 +738,9 @@ def actions_raised(scenario_names, flags, keep=None) -> tuple[dict, dict]:
         "withheld":      n_withheld,
         "withheld_teams": sorted(withheld),
         "flagged_teams": sorted(flagged),
+        "relevance_checked": _rel_ran,
+        "irrelevant":    n_irrelevant,
+        "irrelevant_teams": sorted(_irrelevant),
         "notes":         notes,
     }
 

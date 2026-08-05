@@ -235,12 +235,33 @@ def test_a_run_with_nothing_to_raise_says_which_kind_of_nothing():
 def test_a_clean_run_is_quiet():
     """The inverse bug: a note on every healthy run is how a trail stops being
     read. Everything the guidelines prescribe was raised, so there is nothing
-    to report — the rows themselves are the report."""
+    to report — the rows themselves are the report.
+
+    `findings` carries the guideline rows' own wording, so the third condition
+    passes every row. Anything less and this test would be asserting that the
+    relevance filter is silent about work it withheld.
+    """
+    scen = ["Tickets sent late"]
+    guideline = actions_for(scen)
+    flags = [_flag(t.upper()) for t, items in guideline.items() if items]
+    findings = " ".join(r for items in guideline.values() for r in items)
+    _, report = actions_raised(scen, flags, findings=findings)
+    assert report["withheld"] == 0
+    assert report["irrelevant"] == 0, report["notes"]
+    assert report["relevance_checked"] is True
+    assert report["notes"] == [], report["notes"]
+
+
+def test_not_asking_for_relevance_is_not_the_same_as_finding_none():
+    """A caller that omits `findings` gets the two-condition behaviour, and
+    the report SAYS the third was never applied. A filter that did not run and
+    a filter that ran and withheld nothing must not read alike."""
     scen = ["Tickets sent late"]
     flags = [_flag(t.upper()) for t, items in actions_for(scen).items() if items]
     _, report = actions_raised(scen, flags)
-    assert report["withheld"] == 0
-    assert report["notes"] == [], report["notes"]
+    assert report["relevance_checked"] is False
+    assert report["irrelevant"] == 0
+    assert any("was NOT checked" in n for n in report["notes"]), report["notes"]
 
 
 # ── the flag is what carries the team, so reading it has to be exact ────────

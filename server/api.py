@@ -368,6 +368,12 @@ def _draft_dict(d: RcaDraft) -> dict:
     # of this blob, so it has to be the same value `_v4()` below resolves —
     # see _resolve_v3_sections for the chip that disagreed with its own payload.
     _v3_resolved, _v3_folded = _resolve_v3_sections(d)
+    # The scenario list, settled once. A draft written before the dedupe can
+    # hold the same scenario twice, and the card renders the list and its own
+    # tail as two rows — so an unsettled list is what put one chip on screen
+    # three times. Derived here, together, from the one stored list.
+    _scen, _primary_scen, _overlays = settle_scenarios(
+        d.scenarios or ([d.primary_scenario] + list(d.overlay_scenarios or [])))
 
     def _first_name(*cands):
         for c in cands:
@@ -430,9 +436,13 @@ def _draft_dict(d: RcaDraft) -> dict:
         "sub_themes":                  d.sub_themes or ([d.sub_theme] if d.sub_theme else []),
         "rca_posted_at":               d.rca_posted_at.isoformat() if d.rca_posted_at else None,
         "rca_v3_edited_at":            d.rca_v3_edited_at.isoformat() if d.rca_v3_edited_at else None,
-        "primary_scenario":            d.primary_scenario or "",
-        "scenarios":                   d.scenarios or ([d.primary_scenario] if d.primary_scenario else []),
-        "overlay_scenarios":           d.overlay_scenarios or [],
+        "primary_scenario":            _primary_scen or "",
+        # Deduplicated on the way out too, so a row written by an older build
+        # renders clean immediately instead of only after the next edit. Both
+        # keys come from ONE settle, so the card cannot be handed a scenario
+        # list and an overlay list that disagree.
+        "scenarios":                   _scen,
+        "overlay_scenarios":           _overlays,
         # How the primary got there, and how it stands against what routing
         # would say NOW. Computed here rather than in the client so the card,
         # the regenerate endpoint and the trail cannot each reach a slightly
@@ -1138,6 +1148,47 @@ _V4_SECTIONS = {
 }
 
 
+def settle_scenarios(raw):
+    """One ordered, deduplicated scenario list, plus the two scalars it implies.
+
+    THREE STORES FOR ONE FACT, and they disagreed. `scenarios`,
+    `primary_scenario` and `overlay_scenarios` are three columns describing one
+    ordered list, written from two endpoints, and the card renders two of them
+    side by side. The reported symptom was a Classification block showing
+    `Refund issues` twice under Scenarios and a third time under Overlays, with
+    a delete button that did nothing.
+
+    Both halves came from the same place. `regenerate-rca` is sent
+    `[...scenarios, ...overlayScenarios]` by the card — and `scenarios`
+    ALREADY CONTAINS the overlays, so every scenario edit appended the overlays
+    to the list a second time and wrote the result straight back over
+    `d.scenarios`. That is why the chips multiplied, and why removing one
+    looked dead: the removal was saved and then immediately overwritten by the
+    union that still held it.
+
+    So: ONE list. `primary_scenario` is its first element and
+    `overlay_scenarios` is the rest, both DERIVED here and never authored
+    independently.
+
+    THE PRIMARY IS NOT ITS OWN OVERLAY. An overlay is an ADDITIONAL scenario
+    layered on the primary, and a scenario cannot be additional to itself.
+    A primary that also appeared in the overlays is what put one chip on the
+    card three times.
+
+    Returns (scenarios, primary, overlays).
+    """
+    seen, out = set(), []
+    for s in (raw or []):
+        if not isinstance(s, str):
+            continue
+        s = s.strip()
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+    return out, (out[0] if out else None), out[1:]
+
+
 @router.patch("/api/reviews/{review_id}/draft-v2")
 def patch_draft_v2(review_id: str, patch: DraftPatchV2,
                     db: Session = Depends(get_session)):
@@ -1174,8 +1225,15 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
     if patch.sub_themes is not None:
         d.sub_theme = (patch.sub_themes or [None])[0]
     if patch.scenarios is not None:
-        d.primary_scenario = (patch.scenarios or [None])[0]
-        d.overlay_scenarios = list(patch.scenarios or [])[1:]
+        # The list the loop above just assigned is the raw one the card sent.
+        # Settle it here so all three columns come out of one decision — the
+        # loop wrote `scenarios` and `overlay_scenarios` independently, and
+        # then this block used to overwrite the second from the first, so a
+        # deleted overlay came back derived from a list that still held it.
+        d.scenarios, d.primary_scenario, d.overlay_scenarios = \
+            settle_scenarios(patch.scenarios)
+        flag_modified(d, "scenarios")
+        flag_modified(d, "overlay_scenarios")
     if patch.sub_theme is not None and patch.sub_themes is None:
         d.sub_themes = [patch.sub_theme] if patch.sub_theme else []
     if patch.primary_scenario is not None and patch.scenarios is None:
@@ -1606,10 +1664,15 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
     if not r or not d:
         raise HTTPException(404, "Not found")
 
-    scenarios = [s for s in (body.scenarios or []) if s in SCENARIO_CHECKS]
+    scenarios, _p, _o = settle_scenarios(
+        [s for s in (body.scenarios or []) if s in SCENARIO_CHECKS])
     if scenarios:
-        d.primary_scenario  = scenarios[0]
-        d.overlay_scenarios = scenarios[1:]
+        # Deduplicated BEFORE it is written back. The card sends
+        # `[...scenarios, ...overlayScenarios]` and the overlays are already
+        # in `scenarios`, so writing the body verbatim doubled the list on
+        # every scenario edit and undid whatever had just been deleted.
+        d.primary_scenario  = _p
+        d.overlay_scenarios = _o
         d.scenarios         = scenarios
     else:
         # RCA-only re-run: keep whatever routing the draft already has.

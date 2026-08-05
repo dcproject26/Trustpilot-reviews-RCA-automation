@@ -487,7 +487,53 @@ blank the panel on every partial refresh, which is the bug the fallback was
 written to prevent. Both halves are pinned by a test, so the fix cannot be
 traded for the defect it replaced.
 
-### 11.4 The mutation pass
+### 11.4 DSS is what a gap is checked against, not what the reader is shown
+
+Two things reached a card and neither should have. An EVIDENCE ROW sourced
+`dss` — *"DSS matched row is for 'Tour started late / guide arrived late at
+MP'; no row covers a system-initiated vendor reassignment"* — which is a remark
+about our own decision sheet's coverage sitting in a list of records of what
+happened to this booking. And `sop_gap` / `fix` written as DSS paths: *"No DSS
+path governs a system-initiated vendor reassignment…"* and *"Define a DSS path
+for system-initiated vendor reassignments…"*. The reader of those fields owns
+an operation, not a spreadsheet.
+
+**THE TENSION, RECORDED RATHER THAN BURIED.** Prompt rule 2f said `sop_gap`
+COMES FROM DSS, and that rule came from the written what_went_wrong spec
+earlier in the same session. This narrows that rule; it does not delete the
+concept. The DSS lookup stays — it is how the model knows whether a control
+existed and whether it was followed. What changed is what gets WRITTEN: "no row
+covers this" stops being the gap and *"nobody was required to contact the guest
+before the window closed"* becomes it; "define a DSS path" stops being the fix
+and *"require proactive notification when a reassignment compresses the
+rescheduling window"* becomes it. Rule 2f now carries both worked examples,
+wrong and right, and forbids naming DSS in `sop_gap`, `fix.action` or
+`fix.because`.
+
+**The removal is deliberately narrow.** `dss` stays in `SOURCES`, because
+`fix.source` records where a gap was READ — a field that never renders on the
+card or in the Slack post — and `issue_specific_answers` still uses it. Only
+the evidence path is closed, through a separate `EVIDENCE_SOURCES`. Deleting
+the value globally would have taken two working things with it.
+
+A row citing DSS keeps its TEXT and loses its source: dropping it would delete
+a sentence the model wrote, and the finding may still be worth reading — it is
+the SOURCE that was wrong. The demotion is counted and reported, because a
+source that quietly became null looks exactly like one the model never
+supplied; a clean evidence list produces no note at all, or every healthy run
+would carry a warning. The legacy `[dss] …` string prefix is still RECOGNISED
+and stripped before being demoted, because leaving it unmatched would render
+the bracket inline — the defect the structured fields exist to remove.
+
+The gap and fix wording is **reported, not rewritten**. There is no mechanical
+way to restate an analysis correctly: deleting it loses a real finding, and
+paraphrasing puts words in the model's mouth. So the sentence stands and the
+trail says the field was written about the sheet rather than about the process,
+which is something a reader can act on.
+
+Tests: `tests/test_dss_is_not_a_finding.py`.
+
+### 11.5 The mutation pass
 
 MUTATION_SUMMARY_PLACEHOLDER
 
