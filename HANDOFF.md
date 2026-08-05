@@ -87,9 +87,19 @@ material that appears in no finding on the card.
   gap, not an opinion about a better world.
 - **Empty when nothing was found**, not padded with generic advice.
 
-**Open question:** the user did not answer whether each point should carry a
-quiet marker of which failure/gap/flag it came from. Without one there is no
-way to tell a derived point from an invented one. Ask.
+**Decided: yes, provenance — but as a CONSTRAINT ON THE MODEL, not as
+decoration.** The user's words: *"okay add, only if it is helping ai"*.
+
+So each point carries the failure, gap or flag it derives from, and the value
+is that it forces the derivation: a point that cannot name its source is
+invented and is dropped before it is written, the same way `fix` is null when
+no evidence entry shows a gap. Validate it server-side — a point whose source
+does not match an operational_failure, sop_gap or flag on that card does not
+render.
+
+On screen it stays quiet: a small marker on the point, not a second column.
+It exists so the model cannot invent, and so a reader who doubts a point can
+check it — not to be read on every pass.
 
 ## 6. Classification — website messaging is a Product Issue
 
