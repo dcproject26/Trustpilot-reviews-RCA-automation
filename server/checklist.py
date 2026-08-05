@@ -368,7 +368,34 @@ _OWNER_RULES = [
 ]
 
 
+# A question is a check, not an action taken. The Guidelines sheet mixes the
+# two, and the SP tab filled with "Refund-done tags on ZD updated + refund
+# status on checkout?" and "Refund done within promised timeframe?" — the
+# dashboard asking the reader whether the work was done, under a heading that
+# claims to record what WAS done.
+#
+# Matched on shape, not on a word list: a check is phrased as a question, or
+# as a bare "verify / confirm / check that" instruction. Anything else is an
+# action someone can have taken.
+_CHECK_RE = re.compile(
+    r"\?\s*$|^\s*(?:verify|confirm|check|ensure|validate|did|is|are|was|were|has|have)\b",
+    re.I)
+
+
+def is_check(text: str) -> bool:
+    """Whether this Guidelines row asks a question rather than naming an action.
+
+    Actions Taken records what was done. A check belongs to the RCA's own
+    reasoning, not to a list of completed work, and putting one there means
+    the card cannot distinguish "we did this" from "someone should look at
+    whether this was done".
+    """
+    return bool(_CHECK_RE.search(str(text or "").strip()))
+
+
 def _owner_for_action(text: str):
+    if is_check(text):
+        return None
     t = " " + (text or "").lower() + " "
     for owner, kws in _OWNER_RULES:
         if any(k in t for k in kws):
