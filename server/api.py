@@ -730,7 +730,40 @@ def _read_head_sha() -> str:
         return "unknown"
 
 
+def _source_fingerprint() -> str:
+    """A hash of the source this call can see, or "unknown".
+
+    A deployment ships without .git, so the commit is unreadable there and no
+    one can tell which code is serving. Both environments hash the same way,
+    so equal fingerprints mean identical source - answerable without git, and
+    without trusting a build label anyone can forget to bump.
+
+    Never raises. A fingerprint that fails to compute must cost this one line,
+    not the endpoint, and it returns "unknown" rather than "" so it cannot
+    compare equal to another failure and read as a match.
+    """
+    try:
+        import hashlib
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parent.parent
+        h = hashlib.sha256()
+        files = sorted(list((root / "server").rglob("*.py"))
+                       + [root / "client" / "index.html"])
+        for f in files:
+            if "__pycache__" in str(f) or not f.is_file():
+                continue
+            h.update(f.name.encode())
+            h.update(f.read_bytes())
+        return h.hexdigest()[:12]
+    except Exception:
+        return "unknown"
+
+
 _BUILD_SHA = _read_head_sha()   # frozen at import, like the code itself
+# Frozen at import too, and for the same reason: this has to describe the code
+# THIS PROCESS LOADED. Read per request, it described the files instead, and a
+# server running month-old code beside a fresh checkout reported the checkout.
+_BUILD_FINGERPRINT = _source_fingerprint()
 
 
 @router.get("/api/version")
@@ -771,27 +804,45 @@ def get_version():
     # then disagree, no amount of cache clearing changes it, and the difference
     # is invisible from the UI. Reported here, credentials stripped.
     db_info = {"dialect": "unknown", "target": "unknown", "shared": False}
-    # A deployment ships without .git, so commit/on_disk come back "unknown"
-    # there and no one can tell which code is serving. Hash the source instead:
-    # both environments compute it the same way, so equal fingerprints mean
-    # identical code and different fingerprints mean the deployment is behind -
-    # answerable without git, and without trusting a build label.
-    fingerprint = "unknown"
-    try:
-        import hashlib
-        import pathlib
-        root = pathlib.Path(__file__).resolve().parent.parent
-        h = hashlib.sha256()
-        files = sorted(list((root / "server").rglob("*.py"))
-                       + [root / "client" / "index.html"])
-        for f in files:
-            if "__pycache__" in str(f) or not f.is_file():
-                continue
-            h.update(f.name.encode())
-            h.update(f.read_bytes())
-        fingerprint = h.hexdigest()[:12]
-    except Exception:
-        pass
+    # WHAT THIS PROCESS IS RUNNING, and what is on disk beside it. This was
+    # ONE number, recomputed from disk on every request, and so it described
+    # the FILES rather than the running build. Two consequences, both bad:
+    # comparing it across environments compared their disks, and it could
+    # never show a process that had not picked up its own files - which is
+    # exactly the failure the whole endpoint exists to surface.
+    #
+    # `fingerprint` is now frozen at import, like the code. `fingerprint_on_disk`
+    # is read now. Different means this process has not loaded what is beside
+    # it - answerable WITHOUT git, which is the only thing a deployment has.
+    fingerprint = _BUILD_FINGERPRINT
+    fp_on_disk = _source_fingerprint()
+
+    # Two ways to answer "is this process behind its files", and the second
+    # works where the first cannot. The commit is the better answer when it is
+    # readable; the fingerprint is the one a deployment can give. Which one was
+    # used is reported, because a judgement made silently is a judgement the
+    # reader cannot check - the fingerprint compares SOURCE, so it cannot see
+    # a commit that changed only tests or docs, and a reader told "current"
+    # deserves to know that is what was compared.
+    _fp_known = "unknown" not in (fingerprint, fp_on_disk)
+    if _build_known:
+        _stale, _stale_by = on_disk != sha, "commit"
+        _stale_reason = ""
+    elif _fp_known:
+        _stale, _stale_by = fp_on_disk != fingerprint, "fingerprint"
+        _stale_reason = (
+            f"no .git here, so this compares SOURCE, not commits: the code "
+            f"this process loaded ({fingerprint}) against the files on disk "
+            f"now ({fp_on_disk}). A commit touching only tests or docs would "
+            f"not show up. To compare environments, match `fingerprint` "
+            f"against the repl's /api/version.")
+    else:
+        _stale, _stale_by = None, "nothing"
+        _stale_reason = (
+            f"neither the commit nor a source fingerprint could be read "
+            f"(sha={sha}, on_disk={on_disk}, fingerprint={fingerprint}). "
+            f"Nothing was compared - this is NOT a report that the build is "
+            f"current. Restart the server and check the logs at startup.")
     try:
         from server.db import engine, SessionLocal, Review, RcaDraft
         url = engine.url
@@ -868,7 +919,6 @@ def get_version():
     return {
         "commit":     sha,
         "short":      sha[:7],
-        "fingerprint": fingerprint,
         "db":         db_info,
         "connectors": connectors,
         # What is checked out right now. If it differs from commit, the files
@@ -886,12 +936,12 @@ def get_version():
         #
         # null means unknown. `stale_reason` says what could not be read and
         # what would answer it instead.
-        "stale":      (on_disk != sha) if _build_known else None,
-        "stale_reason": "" if _build_known else (
-            f"no .git in this environment, so the commit is unknown "
-            f"(sha={sha}, on_disk={on_disk}). Compare `fingerprint` "
-            f"{fingerprint} with the repl's /api/version: equal fingerprints "
-            f"mean identical code, different means this one is behind."),
+        "stale":      _stale,
+        "stale_by":   _stale_by,
+        "stale_reason": _stale_reason,
+        # What this process LOADED, and what sits on disk beside it now.
+        "fingerprint":         fingerprint,
+        "fingerprint_on_disk": fp_on_disk,
         "environment": "deployment" if is_deploy else "dev",
         "reload":     os.environ.get("UVICORN_RELOAD", "") .lower() in ("1", "true", "yes"),
         "started_at": _STARTED_AT,

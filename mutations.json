@@ -414,12 +414,6 @@
     "replace": "    _build_known = True"
   },
   {
-    "file": "server/api.py",
-    "name": "the unknown-build reason stops naming the fingerprint",
-    "find": "f\"{fingerprint} with the repl's /api/version: equal fingerprints \"",
-    "replace": "f\"with the repl's /api/version: equal fingerprints \""
-  },
-  {
     "file": "client/index.html",
     "name": "a missing stale field reads as current",
     "find": "  if (!v || v.stale === null || v.stale === undefined) return 'unknown';",
@@ -436,5 +430,71 @@
     "name": "the unknown build draws no banner",
     "find": "    if (st !== 'current') {",
     "replace": "    if (st === 'stale') {"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the running fingerprint is read from disk again",
+    "find": "    fingerprint = _BUILD_FINGERPRINT",
+    "replace": "    fingerprint = _source_fingerprint()"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the weaker comparison stops saying it is weaker",
+    "find": "        _stale, _stale_by = fp_on_disk != fingerprint, \"fingerprint\"",
+    "replace": "        _stale, _stale_by = fp_on_disk != fingerprint, \"commit\""
+  },
+  {
+    "file": "server/api.py",
+    "name": "a failed fingerprint compares equal to another failure",
+    "find": "    except Exception:\n        return \"unknown\"\n\n\n_BUILD_SHA",
+    "replace": "    except Exception:\n        return \"\"\n\n\n_BUILD_SHA"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the fingerprint fallback is skipped so a deployment learns nothing",
+    "find": "    elif _fp_known:",
+    "replace": "    elif False:"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the fingerprint answer stops naming its blind spot",
+    "find": "f\"now ({fp_on_disk}). A commit touching only tests or docs would \"",
+    "replace": "f\"now ({fp_on_disk}). \""
+  },
+  {
+    "file": "server/api.py",
+    "name": "the dead end names no next step",
+    "find": "f\"current. Restart the server and check the logs at startup.\")",
+    "replace": "f\"current.\")"
+  },
+  {
+    "file": "tools/rerun_all.py",
+    "name": "a machine-prefilled resolution protects the draft again",
+    "find": "            if f == \"resolution\" and val == _machine_resolution(draft):",
+    "replace": "            if f == \"resolution\" and False:"
+  },
+  {
+    "file": "tools/rerun_all.py",
+    "name": "every resolution is treated as a prefill",
+    "find": "    return str(rec.get(\"compensation\") or \"\").strip()",
+    "replace": "    return str(rec.get(\"compensation\") or \"\")"
+  },
+  {
+    "file": "tools/rerun_all.py",
+    "name": "the prefill rebuild is not announced",
+    "find": "        if prefilled:",
+    "replace": "        if False:"
+  },
+  {
+    "file": "tools/purge_reviews.py",
+    "name": "the purge deletes parents before children",
+    "find": "        n_m = db.query(ReviewMetric).delete(synchronize_session=False)\n        n_d = db.query(RcaDraft).delete(synchronize_session=False)\n        n_r = db.query(Review).delete(synchronize_session=False)",
+    "replace": "        n_r = db.query(Review).delete(synchronize_session=False)\n        n_m = db.query(ReviewMetric).delete(synchronize_session=False)\n        n_d = db.query(RcaDraft).delete(synchronize_session=False)"
+  },
+  {
+    "file": "tools/purge_reviews.py",
+    "name": "a partial purge reports success",
+    "find": "        if left:",
+    "replace": "        if False:"
   }
 ]

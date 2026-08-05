@@ -52,6 +52,29 @@ def _migrate_first():
     init_db()
 
 
+def _machine_resolution(draft) -> str:
+    """What the PREFILL would have written into `resolution`.
+
+    api.py fills it from the DSS recommendation's compensation line whenever
+    it is empty — `if not d.resolution and dss_rec.get("compensation")`. So a
+    non-empty `resolution` says nothing about whether a person wrote one, and
+    treating its presence as human work protected every draft in the database
+    from the tool whose entire job is rebuilding them: 45 rows reported as
+    "human work would be lost", 0 rebuilt, and not one of them touched by a
+    human.
+
+    Comparing against the value the machine would have put there is what
+    separates the two. A person who edits the text changes it, and it stops
+    matching. A person who happens to type the prefill back verbatim loses a
+    resolution identical to the one the re-run regenerates, which costs
+    nothing.
+    """
+    rec = getattr(draft, "dss_rec", None)
+    if not isinstance(rec, dict):
+        return ""
+    return str(rec.get("compensation") or "").strip()
+
+
 def _has_human_work(review, draft) -> list:
     marks = []
     if getattr(review, "status", "") == "sent":
@@ -65,9 +88,30 @@ def _has_human_work(review, draft) -> list:
         if getattr(draft, "rca_v3_edited_at", None):
             marks.append("rca edited")
         for f in HUMAN_FIELDS:
-            if (getattr(draft, f, "") or "").strip():
-                marks.append(f)
-    return marks
+            val = getattr(draft, f, "")
+            val = (val if isinstance(val, str) else "").strip()
+            if not val:
+                continue
+            if f == "resolution" and val == _machine_resolution(draft):
+                marks.append("resolution (prefilled — not human)")
+                continue
+            marks.append(f)
+    # A mark that only says "the machine put this here" is not human work.
+    # Kept in the list so the count can be reported rather than vanishing.
+    return [m for m in marks if "prefilled" not in m]
+
+
+def _prefilled_only(review, draft) -> bool:
+    """Whether this draft's ONLY resolution is the machine's prefill.
+
+    Reported rather than silently skipped: "45 protected" became "0 protected"
+    overnight, and a reader deserves to know which rule changed under them.
+    """
+    if _has_human_work(review, draft):
+        return False
+    val = getattr(draft, "resolution", "") if draft is not None else ""
+    val = (val if isinstance(val, str) else "").strip()
+    return bool(val) and val == _machine_resolution(draft)
 
 
 def _buckets(db) -> Counter:
@@ -121,13 +165,22 @@ def main():
         print(f"{len(reviews)} review(s) in the database")
         _show("before", before)
 
-        targets, protected = [], []
+        targets, protected, prefilled = [], [], 0
         for r in reviews:
             marks = _has_human_work(r, r.draft)
+            if _prefilled_only(r, r.draft):
+                prefilled += 1
             if marks and not args.include_edited:
                 protected.append((r.id, marks))
             else:
                 targets.append(r.id)
+
+        if prefilled:
+            # Announce the judgement. These rows LOOK edited - they carry a
+            # resolution - and are being rebuilt anyway because the machine is
+            # what wrote it.
+            print(f"\n  {prefilled} draft(s) carry a resolution the DSS prefill "
+                  f"wrote, not a person — rebuilding those")
 
         if protected:
             print(f"\n  protected ({len(protected)}) - human work would be lost:")
