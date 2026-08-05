@@ -1541,6 +1541,25 @@ function bookingCreatedAt(db) {
 // reading one as the other is fifty years out, silently. Anything else is
 // returned untouched - an ISO string is already what the callers want, and a
 // value we cannot read must not be dressed as a date.
+// A stored `time` rendered for a human. Epoch values reach the timeline from
+// BigQuery through the model, and printing one verbatim puts "1.785791592E9"
+// where a clock belongs - which is what the reader sees on every row built
+// from booking metadata rather than from a Zendesk event.
+//
+// "DD Mon HH:MM", matching what zendesk._to_ist gives real events, so the two
+// kinds of row read the same. A value that is not an epoch is returned as it
+// was: it is already a formatted time, and reformatting it would be guessing.
+function stampText(v) {
+  const s = normaliseStamp(v);
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(s)) return String(s || '').replace(/ IST$/, '');
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return String(v || '');
+  return d.toLocaleString('en-GB', {day: '2-digit', month: 'short',
+                                    hour: '2-digit', minute: '2-digit',
+                                    hour12: false, timeZone: 'Asia/Kolkata'})
+          .replace(',', '');
+}
+
 function normaliseStamp(v) {
   const s = String(v == null ? '' : v).trim();
   if (!s) return '';
@@ -2453,9 +2472,18 @@ function eventsTimelineHtml(r) {
                                           : _allEvents.filter(e => !e.is_internal);
 
   const _zdBase = (r.zendeskSubdomain || 'headout');
+  // stampText, not e.time: a stored draft can hold a raw epoch in its time
+  // field ("1.785791592E9"), and rendering that verbatim put a machine number
+  // where the reader expects a clock. Also fixed at the prompt, so new drafts
+  // never carry one - this is what makes an EXISTING draft readable without a
+  // re-run.
+  //
+  // The comment lives HERE and not inside the template below, because it
+  // mentions a field name in backticks and a backtick inside a template
+  // literal ends the string. That is exactly how it broke the first time.
   const events = _shown.map(e => `
     <div class="tl-event${e.is_internal ? ' tl-internal' : ''}">
-      <div class="tl-time" title="${e.time_sort || ''}">${(e.time || '').replace(/ IST$/, '')}</div>
+      <div class="tl-time" title="${e.time_sort || ''}">${stampText(e.time)}</div>
       <div class="tl-content">
         <div class="tl-header">
           ${(!e._isBookend && !e._isElided && e.thread)

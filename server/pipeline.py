@@ -1800,11 +1800,31 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # BID itself becomes the match, flagged unverified. The dashboard shows
         # the id with a warning instead of hiding the review in Untraceable,
         # and the reason is recorded rather than inferred.
+        # TWO CONDITIONS WERE MISSING, and each on its own produced the card
+        # the user reported: T1 "BID from the review" over a trail saying the
+        # BID was not found and one booking matched the name.
+        #
+        # 1. `not booking` is not `nothing found`. Tier 2 puts its results in
+        #    `candidates`, not in `booking`, so a review with a perfectly good
+        #    name match fell into this floor and had candidate_state cleared —
+        #    the picker the associate needed was deleted to make room for a
+        #    booking id BigQuery had denied.
+        #
+        # 2. "BigQuery could not be asked" and "BigQuery was asked and said no"
+        #    are different facts. The floor was written for the first: a
+        #    connector down, a token expired, a permissions change. When the
+        #    warehouse IS live and returns nothing, the id is a string the
+        #    guest typed, not a match — and presenting it as tier 1 is a
+        #    confidence claim the data contradicts.
+        #
+        # So: the floor is now only for the case it was written for, and only
+        # when tier 2 also came up empty. A live BigQuery saying no sends the
+        # review down the tier-2 indicator search and into the picker.
         untraceable_reason = None
-        if not booking and review.reference_number and bid_source:
-            why = ("BigQuery is not live on this server"
-                   if not is_live("bigquery")
-                   else "BigQuery did not return this booking")
+        _bq_could_not_be_asked = not is_live("bigquery")
+        if (not booking and not candidate_state and review.reference_number
+                and bid_source and _bq_could_not_be_asked):
+            why = "BigQuery is not live on this server"
             booking = {
                 "id": str(review.reference_number),
                 "_unverified": True,
@@ -1812,13 +1832,16 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 "_match": {"tier": 1, "confidence": "unverified",
                            "method": f"BID {bid_source} from the review — {why}"},
             }
-            match_tier      = 1
+            # Tier 2, not tier 1. Tier 1 means a verified direct match, and
+            # nothing here has been verified — the warehouse was never asked.
+            match_tier      = 2
             candidate_state = False
             confidence_trail.append({
                 "mark": "warn",
                 "text": (f"<strong>BID {review.reference_number}</strong> taken from the "
-                         f"review ({bid_source}) but NOT verified — {why}. "
-                         f"Shown so the review is not filed as untraceable."),
+                         f"review ({bid_source}) and NOT checked — {why}. Shown so "
+                         f"the review is not filed as untraceable, but nothing has "
+                         f"confirmed this booking exists."),
             })
             log.warning(f"[pipeline] {review_id}: unverified BID fallback "
                         f"{review.reference_number} ({why})")
@@ -1829,8 +1852,17 @@ async def process_review(review_id: str, force_candidates: bool = False):
             if not is_live("bigquery"):
                 untraceable_reason = "BigQuery is not live on this server, so no match was attempted."
             elif review.reference_number:
-                untraceable_reason = (f"BID {review.reference_number} was on the review but "
-                                      f"BigQuery did not return it.")
+                # Both facts, because they are different failures. The id was
+                # denied by the warehouse AND the indicator search that ran
+                # instead came up empty; saying only the first reads as though
+                # nothing else was tried.
+                untraceable_reason = (
+                    f"BID {review.reference_number} was on the review but BigQuery "
+                    f"did not return it, so it is not a match. The indicator search "
+                    f"that ran instead " +
+                    (f"tried {len(narrowing_attempts)} query(ies) and found nothing."
+                     if narrowing_attempts else "had no usable venue, date or name "
+                                                "signal to search with."))
             elif narrowing_attempts:
                 untraceable_reason = (f"No BID on the review; {len(narrowing_attempts)} "
                                       f"search attempt(s) returned nothing.")

@@ -1095,7 +1095,7 @@ def rca_v3_prompt(
         "<<SUB_THEME>>":        sub_theme or "",
         "<<SCENARIOS_ROUTED>>": ", ".join(routed) or "(none routed)",
         "<<REVIEW_TEXT>>":      review_text or "",
-        "<<BOOKING>>":          json.dumps(bk, default=str),
+        "<<BOOKING>>":          json.dumps(_readable_booking(bk), default=str),
         "<<TIMELINE>>":         json.dumps((timeline or [])[:30], indent=2, default=str),
         "<<ZENDESK_RAW>>":      "\n".join(raw_lines) or "(no raw ticket bodies)",
         "<<TICKET_FACTS>>":     (json.dumps(_tf, indent=2, default=str)
@@ -2039,6 +2039,39 @@ RCA_V3_TEMPLATE = RCA_V4_TEMPLATE
 # work" or "this row predates the clause" - the same ambiguity one level down.
 # The suffix changes whenever the template text changes, so the question is
 # answerable exactly rather than by reading timestamps against deploy times.
+_BOOKING_DATE_KEYS = ("date_of_booking", "creationDate", "bookedOn",
+                      "visitDate", "date_of_visit", "experienceDate",
+                      "bookingDate")
+
+
+def _readable_booking(bk: dict) -> dict:
+    """The booking dict with its timestamps in a form a human wrote.
+
+    <<BOOKING>> handed the model json.dumps(bk) verbatim, and BigQuery returns
+    a TIMESTAMP as epoch seconds - so the model was shown
+    "date_of_booking": "1.785791592E9" and wrote a timeline row whose time was
+    that string. It cannot emit a clock time it was never given.
+
+    Converted here rather than in the bookend alone, because the model builds
+    booking-created events from this dict as well as from the bookend, and the
+    bookend fix left those rows showing a bare date.
+    """
+    out = dict(bk or {})
+    for k in _BOOKING_DATE_KEYS:
+        v = out.get(k)
+        if v in (None, ""):
+            continue
+        pretty = _fmt_date_ist(v)
+        # Only when it actually read as a date. "unreadable timestamp" and the
+        # untouched original both mean we could not parse it, and replacing a
+        # value with a phrase would hand the model a sentence to copy into a
+        # time field.
+        if pretty and pretty not in ("unknown", "unreadable timestamp") \
+                and pretty != str(v):
+            out[k] = pretty
+    return out
+
+
 def _bookend(bk: dict, *keys) -> str:
     """A date the model can put in `time`, or a phrase saying we do not have it.
 
