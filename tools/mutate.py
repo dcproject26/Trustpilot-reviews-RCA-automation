@@ -71,7 +71,7 @@ def main():
         cmd = cmd + ["-x"]
 
     caught = skipped = survived = 0
-    for m in muts:
+    for i, m in enumerate(muts, 1):
         path = os.path.join(tree, m["file"])
         try:
             orig = open(path, encoding="utf-8").read()
@@ -88,6 +88,13 @@ def main():
             skipped += 1
             continue
         open(path, "w", encoding="utf-8").write(orig.replace(m["find"], m["replace"], 1))
+        # A HEARTBEAT, so a dead shard is distinguishable from a slow one.
+        # Three passes have now been killed mid-run in this container, and a
+        # worker that died at mutation 9 looks exactly like one still grinding
+        # through it — same log, same last line, for hours. Printed BEFORE the
+        # run rather than after, because "started and never finished" is the
+        # state that needs saying.
+        print(f"{'  …running':44} {i}/{len(muts)} {m['name'][:40]}", flush=True)
         try:
             r = subprocess.run(cmd, cwd=tree, capture_output=True, text=True)
             tail = (r.stdout.strip().splitlines() or [""])[-1]

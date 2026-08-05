@@ -114,6 +114,38 @@ def _shape_weak_bid(row: dict, why: list) -> dict:
     return out
 
 
+def tier1_promotable(conf: float, corroboration: float,
+                     threshold: float = 3.0) -> tuple:
+    """May a Zendesk-sourced booking id be presented as a verified Tier 1?
+
+    Returns (ok, why_not). Its own function so the RULE can be driven — the
+    decision used to be an inline `if` inside a 2000-line coroutine, and the
+    only test of it asserted that the string `_conf >= 3.0` appeared in the
+    file, which is the spelling check CLAUDE.md forbids: it broke when a
+    comment was added above the line and it would have passed just as happily
+    against a build where the branch was unreachable.
+
+    TWO CONDITIONS, NOT ONE. The score has to clear the threshold AND
+    something other than the guest name has to agree.
+
+    `_name_pts` returns 3.0 for a full name agreement, which cleared a 3.0
+    threshold ON ITS OWN. So a review with no booking id, no venue and no city
+    was auto-promoted to Tier 1 on a name alone, and the card showed
+    "T1 · BID 33211960" above a trail reading venue='—' city='—' visit≈'—'.
+    §10.2 already states the asymmetry for bid_indicator_check — people book
+    under a partner's name, a maiden name, a company name, so venue, city and
+    date decide and the name only corroborates — and this promotion rule was
+    the same claim from the other direction.
+    """
+    if conf < threshold:
+        return False, (f"indicator confidence {conf:.1f} is below the {threshold:.1f} "
+                       f"needed to call this a verified match")
+    if corroboration <= 0:
+        return False, ("the only agreement is the guest name; nothing about the "
+                       "venue, the date or the ticket corroborates it")
+    return True, ""
+
+
 def complete_booking_row(booking: dict, lookup) -> tuple:
     """Fill the fields the matching query never selected. (booking, trail entry)
 
@@ -1345,8 +1377,11 @@ async def process_review(review_id: str, force_candidates: bool = False):
                         cascade_done = True
                     else:
                         confidence_trail.append({"mark": "warn",
-                            "text": "<strong>No booking matches these indicators</strong> — "
-                                    "Zendesk returned nothing that satisfies them."})
+                            "text": "<strong>The indicator shortlist found nothing</strong> — "
+                                    "no booking on the Zendesk tickets satisfies the venue, "
+                                    "city and date extracted from the review. This is that "
+                                    "ONE search reporting a miss; a booking found further "
+                                    "down by another route is not contradicted by it."})
 
                 # ── Legacy requester lookup (only if the shortlist found none) ──
                 if name_parseable and not cascade_done:
@@ -1627,7 +1662,28 @@ async def process_review(review_id: str, force_candidates: bool = False):
                             # first-name-only brush (0.9) cannot reach it alone.
                             _pgn  = bq_row.get("primary_guest_name") or ""
                             _conf = _score(bq_row, bid)
-                            if _conf >= 3.0 and not force_candidates:
+                            # THE NAME IS NEVER DECISIVE ON ITS OWN. _name_pts
+                            # returns 3.0 for a full agreement, which met the
+                            # 3.0 threshold by itself — so a review with no id,
+                            # no venue and no city was auto-promoted to Tier 1
+                            # on a name, and the card showed "T1 · BID
+                            # 33211960" over a trail reading venue='—' city='—'
+                            # visit≈'—'. People book under a partner's name, a
+                            # maiden name, a company name; §10.2 already states
+                            # this asymmetry for bid_indicator_check — venue,
+                            # city and date decide, the name corroborates — and
+                            # the promotion rule contradicted it.
+                            #
+                            # Corroboration is everything EXCEPT the name.
+                            _corrob = (_venue_pts(bq_row, bid) + _date_pts(bq_row)
+                                       + _ticket_pts(bid) + _both_pts(bid))
+                            _ok, _why_not = tier1_promotable(_conf, _corrob)
+                            if not _ok and _conf >= 3.0:
+                                confidence_trail.append({"mark": "warn",
+                                    "text": f"<strong>Not promoted to Tier 1</strong> — "
+                                            f"{_why_not}. A name alone is not a verified match, "
+                                            f"so this is offered as a candidate to confirm."})
+                            if _ok and not force_candidates:
                                 booking = bq_row.copy()
                                 booking["id"] = bid
                                 booking.setdefault(
@@ -1640,9 +1696,13 @@ async def process_review(review_id: str, force_candidates: bool = False):
                                 _ctr["t1_auto_promoted"] += 1
                                 _ctr["t2_auto_promoted"] += 1
                                 confidence_trail.append({"mark": "pass",
-                                    "text": f"<strong>Tier 1 auto-promote</strong> — indicator "
-                                            f"confidence {_conf:.1f} (name {_name_pts(bq_row, bid):.1f} · "
-                                            f"venue {_venue_pts(bq_row, bid):.1f} · ticket {_ticket_pts(bid):.1f})"})
+                                    "text": f"<strong>Tier 1 from a Zendesk ticket</strong> — this "
+                                            f"booking id came off a ticket found by guest name, not "
+                                            f"from the review text, and the name is corroborated "
+                                            f"({_corrob:.1f} from venue/date/ticket). Confidence "
+                                            f"{_conf:.1f} (name {_name_pts(bq_row, bid):.1f} · "
+                                            f"venue {_venue_pts(bq_row, bid):.1f} · date "
+                                            f"{_date_pts(bq_row):.1f} · ticket {_ticket_pts(bid):.1f})"})
                             else:
                                 candidates = [_make_candidate(
                                     bq_row, "zendesk_requester", ["name", "zendesk", "unconfirmed"])]

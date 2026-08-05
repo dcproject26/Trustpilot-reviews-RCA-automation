@@ -291,10 +291,61 @@ def test_the_date_only_path_warns_that_it_is_weak():
 def test_a_single_requester_bid_is_not_auto_promoted_on_a_weak_name():
     """Being the only survivor is not evidence. A wrong BID promoted to Tier 1
     presents as a direct match and the whole RCA is built on another guest's
-    booking."""
-    i = PIPE.find("_conf = _score(bq_row, bid)")
-    block = PIPE[i:i + 300]
-    assert "_conf >= 3.0" in block, "the auto-promote threshold is gone"
+    booking.
+
+    DRIVEN, not spelled. This used to assert that `_conf >= 3.0` appeared
+    within 300 characters of `_conf = _score(...)`, which broke the moment a
+    comment was written above the line and would have passed against a build
+    where the branch had become unreachable. The rule now lives in
+    `tier1_promotable` and is exercised directly.
+    """
+    from server.pipeline import tier1_promotable
+    ok, why = tier1_promotable(2.9, 2.9)
+    assert ok is False, "a score below the threshold was promoted"
+    assert "below the 3.0" in why, why
+
+
+def test_a_full_name_agreement_alone_is_not_a_tier_1_match():
+    """THE REPORTED BUG. _name_pts returns 3.0 for a full name agreement,
+    which cleared the 3.0 threshold by itself — so a review with no booking id,
+    no venue and no city came back "T1 · BID 33211960" above a trail reading
+    venue='—' city='—' visit≈'—'."""
+    from server.pipeline import tier1_promotable
+    ok, why = tier1_promotable(3.0, 0.0)
+    assert ok is False, (
+        "a guest name on its own still promotes to Tier 1, which asserts a "
+        "confidence the trail on the same card contradicts")
+    assert "only agreement is the guest name" in why, why
+
+
+def test_a_corroborated_name_still_promotes():
+    """The other direction. A rule that promotes nothing is not a fix — venue,
+    date or ticket agreement alongside the name is a real match and must still
+    reach Tier 1."""
+    from server.pipeline import tier1_promotable
+    assert tier1_promotable(4.0, 1.0)[0] is True
+    assert tier1_promotable(3.0, 0.5)[0] is True
+
+
+def test_the_two_refusals_do_not_read_alike():
+    """"below the threshold" and "nothing but the name" are different facts
+    and send the reader to different places."""
+    from server.pipeline import tier1_promotable
+    a = tier1_promotable(1.0, 0.0)[1]
+    b = tier1_promotable(3.0, 0.0)[1]
+    assert a and b and a != b, (a, b)
+
+
+def test_the_promotion_rule_is_the_one_the_pipeline_uses():
+    """The wire. A rule the pipeline does not call is a rule that does not
+    exist, and this file has a history of asserting exactly that."""
+    import inspect
+    from server import pipeline as P
+    src = inspect.getsource(P.process_review)
+    assert "tier1_promotable(" in src, (
+        "process_review no longer calls tier1_promotable, so the rule above "
+        "guards nothing")
+
 
 
 def test_an_unavailable_model_is_disclosed_like_an_unavailable_warehouse():
