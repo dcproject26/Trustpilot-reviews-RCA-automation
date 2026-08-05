@@ -211,30 +211,6 @@
   },
   {
     "file": "server/checklist.py",
-    "name": "refunds route away from SP again",
-    "find": "                  \"refund\", \"credit note\", \"chargeback\", \"arn\",",
-    "replace": "                  \"credit note\", \"chargeback\","
-  },
-  {
-    "file": "server/checklist.py",
-    "name": "experience problems route away from SP again",
-    "find": "                  \"redemption\", \"redeem\", \"voucher\", \"qr\", \"entry denied\",",
-    "replace": "                  \"qr\","
-  },
-  {
-    "file": "server/checklist.py",
-    "name": "CE stops picking up mishandling and process gaps",
-    "find": "                  \"48-72h\", \"action per dss\", \"tag\", \"tagging\", \"not handled\",\n                  \"mishandled\", \"process gap\", \"sop\"]),",
-    "replace": "                  \"48-72h\", \"action per dss\"]),"
-  },
-  {
-    "file": "server/checklist.py",
-    "name": "SP stops leading the routing order",
-    "find": "_OWNER_RULES = [\n    # SP: the supply partner",
-    "replace": "_OWNER_RULES = [\n    (\"customer\", [\"refund\"]),\n    # SP: the supply partner"
-  },
-  {
-    "file": "server/checklist.py",
     "name": "an unroutable action is assigned anyway",
     "find": "            owner = _owner_for_action(item)\n            if not owner:\n                continue",
     "replace": "            owner = _owner_for_action(item) or \"ce\""
@@ -400,12 +376,6 @@
     "name": "an unrecognised experience name is flagged as a mismatch",
     "find": "    if bf is None:",
     "replace": "    if False:"
-  },
-  {
-    "file": "server/checklist.py",
-    "name": "pricing stops being commercial",
-    "find": "\"#co-issue\", \" fin \", \"on priority\", \"pricing\", \"commercial\"]),",
-    "replace": "\"#co-issue\", \" fin \", \"on priority\"]),"
   },
   {
     "file": "server/api.py",
@@ -886,5 +856,35 @@
     "name": "the answers section comes back",
     "find": "  const isaBlock = '';",
     "replace": "  const isaBlock = `<div class=\"section\" id=\"rca-issue-answers-section\">\n      <div class=\"section-label\">Issue-specific answers<span class=\"section-chev\">▾</span></div></div>`;"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "a guest's own mistake is routed to a team anyway",
+    "find": "    (\"guest\",     [\"guest error\", \"customer error\", \"double booking\",",
+    "replace": "    (\"guest\",     [\"___never___\","
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "guest error stops leading, so any rule mentioning the guest swallows it",
+    "find": "_OWNER_RULES = [\n    # The guest's own mistake",
+    "replace": "_OWNER_RULES = [\n    (\"sp\", [\"guest\"]),\n    # The guest's own mistake"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "a missing pax type routes to Product instead of Content",
+    "find": "\"inclusions\", \"pax type\", \"pax-type\", \"child ticket\",",
+    "replace": "\"inclusions\", \"child ticket\","
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "money that has to move stops reaching Finance",
+    "find": "    (\"finance\",   [\" fin \", \"fin on priority\", \" arn \", \"arn number\",",
+    "replace": "    (\"finance\",   [\"___never___\","
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "Content stops being read before Product",
+    "find": "    (\"product\",   [\"booking flow\", \"app issue\", \"app issues\", \"in-app\",",
+    "replace": "    (\"product\",   [\"content\", \"catalog\", \"booking flow\", \"app issue\", \"app issues\", \"in-app\","
   }
 ]
