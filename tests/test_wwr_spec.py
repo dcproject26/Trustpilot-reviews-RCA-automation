@@ -37,7 +37,7 @@ def _issue(**over):
                     "owner": "RO",
                     "because": "No alert fires when a run returns no tickets",
                     "source": "zendesk",
-                    "sized_by": "4 similar reviews on TID 43605 in 30 days"},
+                    },
             "evidence": [{"text": "The 15:28 run returned no ticket URLs",
                           "source": "zendesk", "ref": "ZD-34011333",
                           "backs_claim": "Yes"}]}
@@ -92,7 +92,7 @@ def test_dropping_them_is_reported_not_silent():
 
 def test_the_fix_carries_all_five_parts():
     got, _ = _issue()
-    for k in ("action", "owner", "because", "source", "sized_by"):
+    for k in ("action", "owner", "because", "source"):
         assert k in got["fix"], k
 
 

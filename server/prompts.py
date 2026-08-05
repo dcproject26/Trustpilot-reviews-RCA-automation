@@ -1290,6 +1290,14 @@ that turned out fine is silence — never a line in the output.
    Three sentences, one fact. Ask of each: WHAT DOES THIS ADD THAT THE ONE
    ABOVE IT DID NOT SAY? If nothing, that field is null.
 
+   `operational_failure` IS NULL MORE OFTEN THAN NOT. It is not "the
+   mechanism, restated" — it is the reason that mechanism was allowed to
+   exist. If you do not know why the gap was never closed, you do not have
+   one.
+     NO   root_cause           The booking flow has no Baby/Infant pax type.
+          operational_failure  The pax-selection UI presented a single Child
+                               category without differentiating the tiers.
+
 2d. `fix` IS THE NEGATIVE OF A GAP YOU FOUND. `because` restates the gap;
    `action` closes it. Read them together — the action must be the negative of
    the gap, or the fix is invented.
@@ -1305,9 +1313,15 @@ that turned out fine is silence — never a line in the output.
    the SLA". Those are opinions about a better world, not corrections to a
    documented gap.
 
-   `sized_by` is the INSIGHTS count that justifies a structural fix. On a
-   one-off it is null: `pattern` already says there is no pattern, and a field
-   named for a count must not carry a sentence saying there is not one.
+   A structural fix needs a pattern behind it. `pattern` carries the count; do
+   not repeat it anywhere else. Where `pattern` is null, the fix is scoped to
+   this case.
+
+   `because` is THE GAP, ONE CLAUSE. Not the rule, and not the rule plus the
+   gap.
+     NO   because  The page states children under 1.00 m enter free but a
+                   booking is required, and no Baby option exists
+     YES  because  No Baby/Infant option exists for the guest to select
 
 2f. `sop_gap` COMES FROM DSS. Look up the needle for this scenario BEFORE you
    answer.
@@ -1331,6 +1345,13 @@ that turned out fine is silence — never a line in the output.
        note says how the facts reach the verdict; it does not list them again.
      * `fix.because` restates THE GAP, not the whole diagnosis. One line, drawn
        from one evidence entry.
+     * ONCE A FACT IS IN `evidence`, REFER TO IT — DO NOT RESTATE IT. The
+       analysis fields exist for what the evidence does not say. If a figure
+       or a rule appears in evidence, later fields say "the free tier" rather
+       than repeating "under 1.00 m, free, booking required".
+     * 25 WORDS IS A HARD CEILING, NOT A TARGET. A 40-word field is two
+       sentences welded together — split it, or cut the half that restates
+       something above.
      * A ONE-LINE REVIEW PRODUCES A ONE-LINE RCA. Length comes from the case
        having more in it, never from saying the same thing more ways.
 
@@ -1363,6 +1384,16 @@ that turned out fine is silence — never a line in the output.
      NO   "Italy Pass is a partnered vendor, but the escalation email field is
            blank, meaning a formal SP escalation email could not be sent."
            (true, and it says nothing about whether the refund was owed)
+   A PATTERN COUNT IS NOT EVIDENCE. It does not verify the claim — its
+   `backs_claim` would be null — so it belongs in `pattern`, not here. One
+   count, one place.
+
+   ONE FACT, ONE ENTRY. Two sources stating the same rule is ONE entry unless
+   the second contradicts or qualifies the first.
+     NO   exp-page  Children under 1.00 m enter free but a booking is required
+          zendesk   Ticket notes state infants under 1.00 m enter free but a
+                    reservation is required
+
    Three to five entries per issue is normal. More than six means context is
    being filed as evidence.
 
@@ -1646,8 +1677,7 @@ that turned out fine is silence — never a line in the output.
           "action":   "<what to do>",
           "owner":    "<Content | CE | SP | RO | Product | Biz | Ops>",
           "because":  "<the gap this fixes, restated from the evidence>",
-          "source":   "<booking | bms | zendesk | insights | dss | exp-page>",
-          "sized_by": "<the count that justifies it | null on a one-off>"
+          "source":   "<booking | bms | zendesk | insights | dss | exp-page>"
         },
         "evidence": [
           {

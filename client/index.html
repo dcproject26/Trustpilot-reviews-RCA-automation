@@ -1557,6 +1557,26 @@ function trailStep(st, key) {
 // they do — and collapse the steps that went right into one line. The full
 // trail stays one click away rather than being dropped: a shorter trail must
 // not become a trail that hides that a step ran at all.
+// "How we built this match" is the MATCH. Steps from every later stage were
+// landing in it — "Reply voice — written against 5 approved macro(s)…",
+// "RCA — 2 event(s) have no ticket id and were grouped by a 30-minute
+// window" — so the section that answers "is this the right booking?" was
+// mostly about drafting a reply. A reader looking for the identifiers had to
+// find them among steps that could not bear on the question.
+//
+// Matched on the step's own bold label, which every appender writes. An
+// unlabelled step is KEPT: dropping something we cannot classify would hide
+// a match step for the sake of tidiness, and the identifiers are the one
+// thing this section must never lose.
+const _NOT_MATCH = /^(RCA|Reply voice|Draft|Response|DSS|Insights|Classification|Macros?|Slack post|Sub-?themes?|Checklist|Scenario)\b/i;
+
+function matchTrail(steps) {
+  return (steps || []).filter(st => {
+    const m = String(st && st.text || '').match(/^\s*<strong>([^<]*)<\/strong>/i);
+    return !m || !_NOT_MATCH.test(m[1].trim());
+  });
+}
+
 function trailView(steps, prefix) {
   const all = steps || [];
   const notable = all.filter(s => s.mark !== 'pass');
@@ -2505,7 +2525,7 @@ function renderReviewCol() {
           ${(r.confidenceTrail || []).length ? `
           <div class="confidence-trail">
             <div class="confidence-trail-label">How we built this match</div>
-            ${trailView(r.confidenceTrail, 'a')}
+            ${trailView(matchTrail(r.confidenceTrail), 'a')}
           </div>` : ''}
         </div>
       </div>
@@ -2647,7 +2667,7 @@ function renderReviewCol() {
   const confTrail = r.confidenceTrail
     ? `<div class="confidence-trail">
          <div class="confidence-trail-label">How we built this match</div>
-         ${trailView(r.confidenceTrail, 'b')}
+         ${trailView(matchTrail(r.confidenceTrail), 'b')}
        </div>`
     : '';
 
@@ -4023,7 +4043,6 @@ function renderRcaCol() {
         if (fx && fx.action) {
           block.push('• Fix: ' + fx.action + (fx.owner ? ' (owner: ' + fx.owner + ')' : ''));
           if (fx.because)  block.push('   - closes: ' + fx.because);
-          if (fx.sized_by) block.push('   - sized by: ' + fx.sized_by);
         } else if (typeof g.fix === 'string' && g.fix) {
           block.push('• Fix: ' + g.fix);          // pre-object drafts
         }
@@ -4492,15 +4511,15 @@ function renderRcaCol() {
               ${(() => {
                 // The fix, as its own block. `because` is the gap and `action`
                 // closes it — shown together because that pairing is the only
-                // way to tell a derived fix from an invented one. `sized_by`
-                // is the count that justifies a structural change and is null
-                // on a one-off, so it draws nothing rather than "no pattern".
+                // way to tell a derived fix from an invented one. The count
+                // that justifies a structural change lives in `pattern` and
+                // only there: it used to be repeated here as `sized_by`, which
+                // put one number in two places and let them disagree.
                 const fx = gi.fix;
                 if (!fx || typeof fx !== 'object') return '';
                 const rows = [
                   ['action',   'Fix'],
                   ['because',  'Closes'],
-                  ['sized_by', 'Sized by'],
                 ].filter(([k]) => String(fx[k] || '').trim());
                 if (!rows.length) return '';
                 return `<div class="wwr-fix">${rows.map(([k, label]) => `

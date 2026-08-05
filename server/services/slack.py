@@ -795,8 +795,6 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
                 block.append(line)
                 if _fx.get("because"):
                     block.append(f"   - closes: {_fx['because']}")
-                if _fx.get("sized_by"):
-                    block.append(f"   - sized by: {_fx['sized_by']}")
             elif isinstance(g.get("fix"), str) and g["fix"]:
                 block.append(f"\u2022 Fix: {g['fix']}")     # pre-object drafts
             for e in (g.get("evidence") or []):

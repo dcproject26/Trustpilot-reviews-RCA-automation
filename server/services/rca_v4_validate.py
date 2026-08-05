@@ -257,7 +257,7 @@ def _evidence_rows(raw):
 # that gap was read, and the count that justifies it. It used to be one string
 # beside a separate `owner`, so nothing tied the action to the evidence it came
 # from — and an invented fix reads exactly like a derived one.
-FIX_FIELDS = ("action", "owner", "because", "source", "sized_by")
+FIX_FIELDS = ("action", "owner", "because", "source")
 
 
 def _fix_obj(raw, notes):

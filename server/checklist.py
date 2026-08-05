@@ -377,9 +377,16 @@ _OWNER_RULES = [
 # Matched on shape, not on a word list: a check is phrased as a question, or
 # as a bare "verify / confirm / check that" instruction. Anything else is an
 # action someone can have taken.
-_CHECK_RE = re.compile(
-    r"\?\s*$|^\s*(?:verify|confirm|check|ensure|validate|did|is|are|was|were|has|have)\b",
+_QUESTION_RE = re.compile(r"\?\s*$")
+_CHECK_VERB_RE = re.compile(
+    r"^\s*(?:verify|confirm|check|ensure|validate|did|is|are|was|were|has|have)\b",
     re.I)
+# A leading "check" is only a check when nothing says who to do it WITH.
+# "Check inventory with IO" is an action - it names the team - and reading it
+# as a check deleted a real Business row from the tab, which is worse than the
+# bug being fixed.
+_ROUTING_RE = re.compile(
+    r"\bwith\b|\braise\b|\bshare\b|\bemail\b|\bescalate\b|→|->|#\w", re.I)
 
 
 def is_check(text: str) -> bool:
@@ -390,7 +397,12 @@ def is_check(text: str) -> bool:
     the card cannot distinguish "we did this" from "someone should look at
     whether this was done".
     """
-    return bool(_CHECK_RE.search(str(text or "").strip()))
+    t = str(text or "").strip()
+    if not t:
+        return False
+    if _QUESTION_RE.search(t):
+        return True
+    return bool(_CHECK_VERB_RE.search(t)) and not _ROUTING_RE.search(t)
 
 
 def _owner_for_action(text: str):

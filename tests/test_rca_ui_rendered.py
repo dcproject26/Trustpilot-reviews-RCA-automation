@@ -52,7 +52,7 @@ RCA = {
                 "owner": "Content",
                 "because": "The experience page states no delivery window",
                 "source": "exp-page",
-                "sized_by": "41 negative reviews in the window"},
+                },
         "root_cause": "The page did not state the window.",
         # Three refs, three shapes, because the renderer treats them
         # differently and only one of them used to work: a URL, a ZD id (which
@@ -510,7 +510,6 @@ def test_the_fix_object_is_written_out_rather_than_stringified(page):
     assert "• Fix: Add the two-hour delivery window to the page (owner: Content)" \
         in txt, txt[txt.find("*What went wrong*"):][:600]
     assert "- closes: The experience page states no delivery window" in txt
-    assert "- sized by: 41 negative reviews in the window" in txt
 
 
 def test_an_issue_carries_one_fix_line(page):
