@@ -44,11 +44,16 @@ and every test naming the old five (`tests/test_actions_routing.py`,
 
 Flags use the same team vocabulary as Actions Taken. No separate list.
 
-**Open question for the user:** the flag *"No Baby/Infant (<1.00 m, free) pax
-type exists in the guest-facing booking flow for TGID 20842"* — is that
-Content/Catalog/Media (the page promises a free tier that cannot be selected)
-or Product (the booking flow is missing an option)? It currently renders as
-CONTENT. Ask before assuming.
+**Decided: Content/Catalog/Media.** The flag *"No Baby/Infant (<1.00 m, free)
+pax type exists in the guest-facing booking flow for TGID 20842"* is a catalog
+problem — the pax structure on the product does not match the vendor's, and
+that is the Content/Catalog/Media team's to correct. It is NOT Product: the
+booking flow renders whatever pax types the catalog defines, so the missing
+option is an artefact of the configuration, not of the flow.
+
+The general rule that follows: a missing or wrong VARIANT, PAX TYPE, INCLUSION
+or PAGE STATEMENT is Content/Catalog/Media. Product is for the flow, app or
+site failing to do its job with a correct catalog.
 
 ## 3. Issue-specific answers — remove the section
 
