@@ -17,7 +17,7 @@ and adds the demo-parity endpoints:
   GET    /api/reviews/{id}/similar          — fetch similar complaints on demand
   GET    /api/taxonomy                      — return L1/L2/checks catalogue (dashboard uses this)
 """
-import asyncio, logging, os, subprocess, time
+import asyncio, copy, logging, os, subprocess, time
 from datetime import datetime
 
 log = logging.getLogger(__name__)
@@ -177,7 +177,7 @@ def _looks_like_hash(s: str) -> bool:
 _ABSENT = object()
 
 
-def _v4(d, column: str, v3_path: str, default):
+def _v4(d, column: str, v3_path: str, default, v3=None):
     """A v4 field, preferring the edited rca_v3 over the denormalised column.
 
     Both hold the same thing. rca_v3 is what the dashboard writes when someone
@@ -191,8 +191,13 @@ def _v4(d, column: str, v3_path: str, default):
     Falling back on falsiness would let the populated column win, so the delete
     would appear to work and then undo itself on the next load. An empty list
     beats a populated column. So does an explicit null.
+
+    `v3` overrides which blob to read. _draft_dict passes the SAME resolved
+    blob it ships to the client, so the top-level field and the client's own
+    copy cannot answer differently — they are one read, not two reads that
+    happen to implement the same rule. See _resolve_v3_sections.
     """
-    node = d.rca_v3 or {}
+    node = (v3 if isinstance(v3, dict) else d.rca_v3) or {}
     for part in v3_path.split("."):
         if not isinstance(node, dict) or part not in node:
             node = _ABSENT
@@ -205,6 +210,64 @@ def _v4(d, column: str, v3_path: str, default):
         return default if node is None else node
     col = getattr(d, column, None)
     return default if col is None else col
+
+
+def _resolve_v3_sections(d) -> tuple:
+    """rca_v3 with every v4 section resolved the way `_v4()` resolves it.
+
+    TWO STORES FOR ONE FACT. The takedown verdict is the instance that was
+    caught: the card's chip renders from `rca.v3.takedown` — the client's only
+    copy, taken straight from the `rca_v3` blob — while `_draft_dict` serves a
+    separate top-level `takedown` resolved through `_v4()`, which falls back to
+    the column. Set the column and nothing else and the two disagree: the
+    payload, Slack and the sheet export all say "Yes" and the chip on the card
+    says "No". A test that set the column got a chip showing the other store.
+
+    It was never only takedown. All six v4 sections are read by the client out
+    of the `rca_v3` blob and by everything else through `_v4()`, so all six
+    could diverge the same way — the same shape as the four copies of the team
+    vocabulary that produced the owner bug.
+
+    So: ONE store, `rca_v3`, and the column follows it. `project_v4()` already
+    makes the column follow rca_v3 on the write path. This is the read path's
+    half — where rca_v3 has no such section, the column's value is folded in
+    before the blob goes out, so the client's copy and `_v4()`'s answer are the
+    same value by construction rather than by two functions agreeing.
+
+    Presence, not truthiness, exactly as `_v4()` does it: a section deliberately
+    emptied to `[]` in rca_v3 must beat a populated column, or a delete undoes
+    itself on the next load.
+
+    Returns (resolved_v3, columns_folded_in). The second half is the account —
+    an empty list means this ran and had nothing to fold, which is the healthy
+    case and must not look like the resolver having never run at all.
+    """
+    src = d.rca_v3 if isinstance(d.rca_v3, dict) else {}
+    v3 = copy.deepcopy(src)
+    folded = []
+    for column, path in _V4_SECTIONS.items():
+        # Walk to the parent of the leaf. A missing parent means the section is
+        # absent, which is the fallback case.
+        node, reached = v3, True
+        for part in path[:-1]:
+            nxt = node.get(part) if isinstance(node, dict) else None
+            if not isinstance(nxt, dict):
+                reached = False
+                break
+            node = nxt
+        if reached and isinstance(node, dict) and path[-1] in node:
+            continue                     # rca_v3 has an answer; it wins
+        col = getattr(d, column, None)
+        if col is None:
+            continue                     # neither store has it — nothing to fold
+        node = v3
+        for part in path[:-1]:
+            if not isinstance(node.get(part), dict):
+                node[part] = {}
+            node = node[part]
+        node[path[-1]] = copy.deepcopy(col)
+        folded.append(column)
+    return v3, folded
 
 
 def _biz_facts(body) -> str:
@@ -301,6 +364,10 @@ def _indicator_match(d: RcaDraft) -> dict:
 def _draft_dict(d: RcaDraft) -> dict:
     _tf = d.ticket_facts or {}
     _bk = d.booking or {}
+    # ONE store for each v4 section. The client renders every one of them out
+    # of this blob, so it has to be the same value `_v4()` below resolves —
+    # see _resolve_v3_sections for the chip that disagreed with its own payload.
+    _v3_resolved, _v3_folded = _resolve_v3_sections(d)
 
     def _first_name(*cands):
         for c in cands:
@@ -397,7 +464,7 @@ def _draft_dict(d: RcaDraft) -> dict:
         # the pipeline's projection, and an operator who deletes the last
         # improvement point produces [] - which a truthiness fallback would
         # lose to the stale column, so the delete would undo itself.
-        "area_of_improving":           _v4(d, "area_of_improving", "area_of_improving", []),
+        "area_of_improving":           _v4(d, "area_of_improving", "area_of_improving", [], _v3_resolved),
         "actions_taken":               d.actions_taken or {"sp":[],"customer":[],"business":[],"product":[],"ce":[]},
         "resolution":                  d.resolution,
 
@@ -409,18 +476,25 @@ def _draft_dict(d: RcaDraft) -> dict:
         "flag_to_biz_state":           d.flag_to_biz_state,
         "flag_to_biz_message":         d.flag_to_biz_message,
 
-        "rca_v3":                      d.rca_v3 or {},
+        "rca_v3":                      _v3_resolved,
+        # Which sections came from the column because rca_v3 had none. An
+        # EMPTY LIST is the healthy answer and says the resolver ran; the key
+        # missing entirely would say it did not. Those are different facts and
+        # a silent zero merges them.
+        "v4_sections_from_column":     _v3_folded,
 
         # ── RCA v4 ──
         # rca_v3 is the source of truth: it is what the dashboard's data-v3p
         # editor writes to. The columns are the pipeline's queryable copy, so
         # they are the FALLBACK - reading them first would let a stale
         # denormalised value shadow an edit someone just made.
-        "guest_issues":     _v4(d, "guest_issues", "what_went_wrong.guest_issues", []),
-        "booking_logs":     _v4(d, "booking_logs", "booking_logs", []),
-        "flags":            _v4(d, "flags", "flags", []),
-        "takedown":         _v4(d, "takedown", "takedown", {}),
-        "dss":              _v4(d, "dss", "dss", {}),
+        # These now read out of the SAME resolved blob the client renders from,
+        # so the two cannot answer differently.
+        "guest_issues":     _v4(d, "guest_issues", "what_went_wrong.guest_issues", [], _v3_resolved),
+        "booking_logs":     _v4(d, "booking_logs", "booking_logs", [], _v3_resolved),
+        "flags":            _v4(d, "flags", "flags", [], _v3_resolved),
+        "takedown":         _v4(d, "takedown", "takedown", {}, _v3_resolved),
+        "dss":              _v4(d, "dss", "dss", {}, _v3_resolved),
         # Facts and interpretation, sent separately and merged by the renderer.
         # These are NOT two copies of one value like the six above, so _v4()
         # is the wrong tool: presence-based reading would let the model's
@@ -461,7 +535,7 @@ def _draft_dict(d: RcaDraft) -> dict:
         # card, one Send away from a public review page. `"suggested_response"
         # in rca_v3` wins whatever the value — including "" and None.
         "suggested_response": _v4(d, "suggested_response",
-                                  "suggested_response", ""),
+                                  "suggested_response", "", _v3_resolved),
         "final_response":     d.final_response or "",
         # Which prompt body wrote this row. It is what makes "did the new rule
         # run?" answerable, and a copied draft without it reads as the legacy

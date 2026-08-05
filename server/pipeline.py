@@ -688,9 +688,18 @@ async def process_review(review_id: str, force_candidates: bool = False):
     the candidate list rather than silently auto-promoting the best one — which
     would drop them straight back into a confirmed state they were trying to
     leave.
+
+    THE SESSION IS OPENED INSIDE THE TRY, deliberately. It used to be opened
+    one line above it, which meant a pool timeout or an unreachable database
+    raised straight out of this function — past its own handler, past the
+    failure it records, past its finally. run_batch catches that now so it can
+    no longer take the queue down, but a function whose first statement can
+    escape its own error handling is not self-consistent: the one failure it
+    cannot report is the one that stops it from reporting anything.
     """
-    db = SessionLocal()
+    db = None
     try:
+        db = SessionLocal()
         review = db.query(Review).filter(Review.id == review_id).first()
         if not review:
             log.error(f"Review {review_id} not found")
@@ -2701,16 +2710,34 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # left nothing written at all: no result, no error, just a spinner that
         # timed out after three minutes. Record the failure and stamp the run so
         # it terminates visibly instead of silently.
+        # Three different endings, three different sentences. "Recorded",
+        # "there was no draft row to record it on" and "we could not reach the
+        # database to try" are not the same event, and a reader who sees one
+        # generic line cannot tell which happened.
         log.exception(f"[pipeline] {review_id} failed: {_fatal}")
+        if db is None:
+            log.error(f"[pipeline] {review_id}: the failure was opening the "
+                      f"database session itself, so this run never had one. "
+                      f"Trying a fresh session to record it.")
         try:
+            # db is None when SessionLocal() was what failed; record_run_failure
+            # then opens its own, which is a real second chance — a pool that
+            # was exhausted a moment ago may not be now.
             if not record_run_failure(review_id, _fatal, db):
                 log.error(f"[pipeline] {review_id}: died with no draft row to "
                           f"record it on — the run failed before the early "
                           f"persist, so the review carries no trace of it")
         except Exception:
-            log.exception(f"[pipeline] {review_id}: could not record the failure")
+            log.exception(
+                f"[pipeline] {review_id}: could not record the failure — the "
+                f"database was unreachable for the recording too, so the only "
+                f"trace of this run is this log line")
     finally:
         # Absent entry = no run in flight. Leaving a terminal entry behind
         # would make the next poll read a finished run as a stuck one.
         PIPELINE_PROGRESS.pop(review_id, None)
-        db.close()
+        # None when SessionLocal() itself raised. Unconditionally closing here
+        # would raise AttributeError out of the finally and REPLACE the real
+        # exception with a misleading one.
+        if db is not None:
+            db.close()

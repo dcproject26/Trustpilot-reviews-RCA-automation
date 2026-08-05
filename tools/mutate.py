@@ -42,6 +42,13 @@ def main():
     ap.add_argument("spec", help="JSON file: [{file, name, find, replace}, ...]")
     ap.add_argument("-k", help="pytest -k expression (default: the whole suite)")
     ap.add_argument("--keep", action="store_true", help="leave the copy on disk")
+    ap.add_argument("--fail-fast", action="store_true",
+                    help="stop each mutated run at its first failing test. The "
+                         "verdict is unchanged — CAUGHT is a non-zero exit "
+                         "either way, and a SURVIVOR still runs the whole "
+                         "suite because nothing failed to stop it. It only "
+                         "stops paying for the rest of a suite whose answer "
+                         "is already known.")
     a = ap.parse_args()
 
     muts = json.loads(open(a.spec, encoding="utf-8").read())
@@ -50,6 +57,9 @@ def main():
     print(f"tree under test: {tree}\n")
 
     cmd = [sys.executable, "-m", "pytest", "-q"] + (["-k", a.k] if a.k else [])
+    # The baseline is always a COMPLETE run: -x on a green suite changes
+    # nothing, but if it were ever red we want the whole count, not the first
+    # failure.
     base = subprocess.run(cmd, cwd=tree, capture_output=True, text=True)
     if base.returncode:
         print("BASELINE IS RED — fix the suite before mutating. Nothing below "
@@ -57,6 +67,8 @@ def main():
         print(base.stdout[-2000:])
         return 1
     print(f"baseline: {base.stdout.strip().splitlines()[-1]}\n")
+    if a.fail_fast:
+        cmd = cmd + ["-x"]
 
     caught = skipped = survived = 0
     for m in muts:
