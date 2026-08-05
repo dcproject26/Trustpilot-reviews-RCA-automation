@@ -1001,7 +1001,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
                                         f"booking that does not match this review</strong> — "
                                         f"BigQuery returned "
                                         + (f"'{_exp}'" if _exp else "a booking")
-                                        + f", whose guest '{pgn or '—'}' scores "
+                                        + f", whose guest name scores "
                                         f"{name_conf:.1f} against the reviewer"
                                         + (" and whose experience is not mentioned in "
                                            "the review" if not venue_ok else "")
@@ -1655,8 +1655,9 @@ async def process_review(review_id: str, force_candidates: bool = False):
                                              f"listed for you to confirm rather than applied."
                                              if force_candidates else
                                              f"<strong>Not auto-matched</strong> — single Zendesk BID "
-                                             f"{bid} at confidence {_conf:.1f} (need 3.0). Booking guest "
-                                             f"'{_pgn or '—'}'. Needs confirmation.")})
+                                             f"{bid} at confidence {_conf:.1f} (need 3.0). The "
+                                             f"booking's guest name does not match this reviewer. "
+                                             f"Needs confirmation.")})
                                 log.info(f"[tier2] single BID {bid} withheld: conf={_conf:.2f} "
                                          f"guest={_pgn!r} vs review={author_first} {author_last}")
                             cascade_done = True
