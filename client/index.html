@@ -1506,6 +1506,29 @@ async function fetchInbox() {
 //
 // So: escape everything, then put back the ONE tag this text is allowed to
 // use. Anything else renders as the characters it is.
+// When the booking was created. ONE FACT, THREE NAMES, and this read only the
+// first of them:
+//
+//   bigquery_patch.verify_bid    date_of_booking   (full timestamp)
+//   bigquery._row_to_dict        bookedOn
+//   pipeline._make_candidate     bookedOn + creationDate
+//
+// A booking that arrived by either of the last two rendered "Booking date —",
+// which is exactly what a booking with no creation date renders. A field that
+// moved and a field that is genuinely empty must not print the same thing.
+// Which of the three answers /api/version gave: 'stale', 'current', or
+// 'unknown' when the commit could not be read at all. Hoisted so the banner
+// and the build stamp read ONE rule — they are two renderings of the same
+// fact, and a copy of this logic in each is a copy that drifts.
+function buildState(v) {
+  if (!v || v.stale === null || v.stale === undefined) return 'unknown';
+  return v.stale ? 'stale' : 'current';
+}
+
+function bookingCreatedAt(db) {
+  return (db && (db.date_of_booking || db.creationDate || db.bookedOn)) || '';
+}
+
 function trailSafe(text) {
   return esc(String(text == null ? '' : text))
     .replace(/&lt;strong&gt;/g, '<strong>')
@@ -1960,6 +1983,7 @@ async function loadDraftOverlays() {
             : r.matchMethod || '—');
 
       // ── Wire booking fields from draft.booking ────────────────────────────
+      // (bookingCreatedAt is hoisted below — one fact, three names.)
       if (draft.booking) {
         const db = draft.booking;
         r.booking = r.booking || {};
@@ -1973,8 +1997,8 @@ async function loadDraftOverlays() {
         r.booking.vendorName       = db.vendorName || db.vendor_name      || r.booking.vendorName;
         r.booking.fulfilmentType   = db.fulfilmentType || db.fulfilment_type || r.booking.fulfilmentType;
         r.booking.experienceDate   = db.visitDate || db.date_of_visit     || r.booking.experienceDate;
-        r.booking.creationDate     = db.date_of_booking       || r.booking.creationDate || '';
-        r.booking.bookingDate      = db.date_of_booking       || r.booking.bookingDate;
+        r.booking.creationDate     = bookingCreatedAt(db)     || r.booking.creationDate || '';
+        r.booking.bookingDate      = bookingCreatedAt(db)     || r.booking.bookingDate;
         r.booking.bmsLink          = db.bms_link;
         r.booking.tgidLink         = db.tgid_link;
         r.booking.ticketMailSeen   = !!db.ticket_mail_seen;
@@ -3422,15 +3446,27 @@ document.addEventListener('blur', async ev => {
     const v = await (await fetch('/api/version', {cache: 'no-store'})).json();
     const tag = `${v.short} · ${v.fingerprint} · ${v.environment} · up ${v.uptime_s}s`;
     document.body.dataset.build = tag;
-    document.body.dataset.stale = v.stale ? 'yes' : 'no';
+    // Three states. `stale === null` is "this environment has no .git, so the
+    // commit could not be read" — which used to arrive as false and read as
+    // "you are current". Say it, and say what answers it, because the reader
+    // of a deployment has no other way to find out which code is serving.
+    const st = buildState(v);
+    document.body.dataset.stale =
+      st === 'unknown' ? 'unknown' : st === 'stale' ? 'yes' : 'no';
     const logo = document.querySelector('.logo, .brand, .topbar-title, .top-bar');
     if (logo) logo.title = tag;
-    console.info('[build] ' + tag + (v.stale ? '  ← STALE' : ''));
-    if (v.stale) {
+    console.info('[build] ' + tag + (st === 'stale' ? '  ← STALE'
+                                     : st === 'unknown' ? '  ← BUILD UNKNOWN' : ''));
+    if (st !== 'current') {
       const bar = document.createElement('div');
       bar.className = 'stale-bar';
-      bar.textContent = `This page is talking to an older build — running ${v.short}, `
-        + `checked out ${String(v.on_disk).slice(0, 7)}. Restart the server to pick up the pull.`;
+      bar.textContent = st === 'stale'
+        ? `This page is talking to an older build — running ${v.short}, `
+          + `checked out ${String(v.on_disk).slice(0, 7)}. Restart the server to pick up the pull.`
+        : `Cannot tell which build this is — no .git in this environment. `
+          + `Fingerprint ${v.fingerprint}: compare it with the repl's `
+          + `/api/version. Equal means identical code; different means this `
+          + `one is behind and needs a Deploy.`;
       document.body.prepend(bar);
     }
   } catch (_) { document.body.dataset.build = 'unknown'; }
@@ -6494,9 +6530,14 @@ renderRcaCol();
     // v.stale is the server comparing the code it LOADED against the files on
     // disk. Do not recompute it here from anything this page knows - the page
     // is as old as the server that sent it.
+    // null is "could not read the commit", not "current". The stamp says so:
+    // "build unknown" beside a fingerprint is actionable; a clean-looking
+    // build line on a deployment that is 24 commits behind is not.
+    const st = buildState(v);
     el.textContent = 'build ' + (v.short || '?') + ' · ' + env
-                   + (v.stale ? ' · STALE' : '');
-    if (v.stale) el.classList.add('is-stale');
+                   + (st === 'stale' ? ' · STALE'
+                      : st === 'unknown' ? ' · BUILD UNKNOWN' : '');
+    if (st !== 'current') el.classList.add('is-stale');
     el.title = 'server ' + (v.commit || '') + '\nenvironment: ' + env
              + '\nreload: ' + (v.reload ? 'on' : 'off')
              + '\nup ' + (v.uptime_s || 0) + 's'

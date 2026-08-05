@@ -752,6 +752,10 @@ def get_version():
 
     sha = _BUILD_SHA
     on_disk = _read_head_sha()
+    # Whether the comparison below can be made at all. Either side reading
+    # "unknown" means there is nothing to compare, which is a different answer
+    # from "compared, and they match".
+    _build_known = "unknown" not in (sha, on_disk)
 
     # Dev repl or published deployment? A deployment is a frozen snapshot that
     # only changes when Deploy is pressed - a git pull in the repl does not
@@ -872,7 +876,22 @@ def get_version():
         # mode this endpoint exists to catch, and which it previously hid by
         # reporting on_disk as though it were the running build.
         "on_disk":    on_disk,
-        "stale":      on_disk != sha and sha != "unknown",
+        # THREE STATES, NOT TWO. This was `on_disk != sha and sha != "unknown"`,
+        # so an environment where the commit could not be read at all - a
+        # published deployment, which ships without .git - answered
+        # `stale: false`. "We checked and you are current" and "we could not
+        # check" came out as the same word, on the one endpoint whose entire
+        # job is telling you which build you are talking to. It reported
+        # in-sync to a deployment that was 24 commits behind.
+        #
+        # null means unknown. `stale_reason` says what could not be read and
+        # what would answer it instead.
+        "stale":      (on_disk != sha) if _build_known else None,
+        "stale_reason": "" if _build_known else (
+            f"no .git in this environment, so the commit is unknown "
+            f"(sha={sha}, on_disk={on_disk}). Compare `fingerprint` "
+            f"{fingerprint} with the repl's /api/version: equal fingerprints "
+            f"mean identical code, different means this one is behind."),
         "environment": "deployment" if is_deploy else "dev",
         "reload":     os.environ.get("UVICORN_RELOAD", "") .lower() in ("1", "true", "yes"),
         "started_at": _STARTED_AT,
