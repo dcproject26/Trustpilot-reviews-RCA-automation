@@ -73,7 +73,13 @@ def test_shortlist_candidates_carry_every_field_the_card_renders():
     """The shortlist hands raw ticket signals to _make_candidate. Each key it
     reads has to be supplied under the name it expects."""
     i = PIPE.find("_short = await zendesk.shortlist(")
-    block = PIPE[i:i + 3200]
+    # Sliced to a real end marker, not a fixed 3200 characters. The window
+    # silently stopped reaching _make_candidate when a dozen lines were added
+    # between the two, and the test then failed for a reason that had nothing
+    # to do with what it checks.
+    j = PIPE.find("narrowing_path", i)
+    assert i > 0 and j > i, "the shortlist-to-candidate block could not be located"
+    block = PIPE[i:j]
     for key in ("primary_guest_name", "experienceName", "date_of_visit",
                 "vendorName"):
         assert key in block, f"{key} is not passed through to the candidate"
@@ -126,7 +132,7 @@ def test_every_search_carries_a_date_floor():
 
 def test_the_pipeline_passes_the_floor_and_reads_the_notes():
     i = PIPE.find("_short = await zendesk.shortlist(")
-    block = PIPE[i - 700:i + 1600]
+    block = PIPE[i - 900:i + 2400]
     assert "since=_since" in block, "the date floor is never passed"
     assert "notes=_notes" in block, "truncation is reported and never read"
     assert "truncated" in block, "a truncated search is not surfaced"
@@ -139,7 +145,12 @@ def test_truncation_reaches_the_associate_not_just_the_log():
     assert i > 0, "truncation is not surfaced at all"
     block = PIPE[i:i + 700]
     assert "confidence_trail.append" in block
-    assert "may not be here" in block or "not everything" in block
+    # Matched on the DISCLOSURE, not on a sentence. This assertion broke
+    # when the wording was shortened, which is what a source assertion
+    # does: it spell-checks a string rather than testing the behaviour.
+    assert "may not be" in block, \
+        "the truncation warning no longer tells the reader the right "\
+        "booking may be missing"
     # The branch existing is not enough — it has to actually be reached. A
     # disabled loop above it leaves all of the above true and nothing shown.
     loop = PIPE[:i][-400:]
