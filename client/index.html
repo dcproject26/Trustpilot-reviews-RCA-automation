@@ -2082,6 +2082,22 @@ async function loadDraftOverlays() {
       if (draft.booking) {
         const db = draft.booking;
         r.booking = r.booking || {};
+        // A DIFFERENT BOOKING STARTS FROM EMPTY. Every line below keeps the
+        // value already on screen when the incoming one is blank
+        // (`db.x || r.booking.x`), which is right for a refresh of the SAME
+        // booking — a partial payload must not blank a panel — and wrong the
+        // moment a re-run or a confirmed candidate matches a different one.
+        // The old booking's fulfilment type, vendor and lead time would sit
+        // under the new booking's id, and a field belonging to a booking we
+        // are no longer looking at is worse than a dash: the dash says we do
+        // not know, the stale value asserts something false.
+        //
+        // Only on a real change of id. Clearing whenever the id is absent
+        // would blank the panel on every partial refresh, which is the bug
+        // the fallback exists to prevent.
+        const _newBid = db.id || '';
+        if (_newBid && r.booking.bid && String(r.booking.bid) !== String(_newBid))
+          r.booking = {};
         // Fresh draft data ALWAYS wins over whatever is on screen — a re-run
         // can change the matched booking entirely; stale values must not stick.
         r.booking.bid              = db.id                                || r.booking.bid;

@@ -1120,5 +1120,149 @@
   "name": "the non-decisive disagreement stops naming what disagreed",
   "find": "               + \"; \".join(s[\"why\"] for s in signals\n                           if s[\"name\"] in contradictions)",
   "replace": "               + \"\""
+ },
+ {
+  "file": "server/pipeline.py",
+  "name": "the session moves back outside its own try",
+  "find": "    db = None\n    try:\n        db = SessionLocal()",
+  "replace": "    db = SessionLocal()\n    try:\n        pass"
+ },
+ {
+  "file": "server/pipeline.py",
+  "name": "the finally closes a session that was never opened",
+  "find": "        if db is not None:\n            db.close()",
+  "replace": "        db.close()"
+ },
+ {
+  "file": "server/pipeline.py",
+  "name": "a run that never got a session does not say so",
+  "find": "            log.error(f\"[pipeline] {review_id}: the failure was opening the \"\n                      f\"database session itself, so this run never had one. \"\n                      f\"Trying a fresh session to record it.\")",
+  "replace": "            pass"
+ },
+ {
+  "file": "server/pipeline.py",
+  "name": "nowhere to record the failure stops being reported",
+  "find": "                log.error(f\"[pipeline] {review_id}: died with no draft row to \"\n                          f\"record it on \u2014 the run failed before the early \"\n                          f\"persist, so the review carries no trace of it\")",
+  "replace": "                pass"
+ },
+ {
+  "file": "server/pipeline.py",
+  "name": "a database unreachable for the recording too goes silent",
+  "find": "            log.exception(\n                f\"[pipeline] {review_id}: could not record the failure \u2014 the \"\n                f\"database was unreachable for the recording too, so the only \"\n                f\"trace of this run is this log line\")",
+  "replace": "            pass"
+ },
+ {
+  "file": "server/api.py",
+  "name": "the client gets the unresolved rca_v3 blob again",
+  "find": "        \"rca_v3\":                      _v3_resolved,",
+  "replace": "        \"rca_v3\":                      d.rca_v3 or {},"
+ },
+ {
+  "file": "server/api.py",
+  "name": "the fold turns on truthiness rather than presence",
+  "find": "        if reached and isinstance(node, dict) and path[-1] in node:\n            continue                     # rca_v3 has an answer; it wins",
+  "replace": "        if reached and isinstance(node, dict) and node.get(path[-1]):\n            continue                     # rca_v3 has an answer; it wins"
+ },
+ {
+  "file": "server/api.py",
+  "name": "what was folded in from the column is not reported",
+  "find": "        node[path[-1]] = copy.deepcopy(col)\n        folded.append(column)",
+  "replace": "        node[path[-1]] = copy.deepcopy(col)"
+ },
+ {
+  "file": "server/api.py",
+  "name": "reading a draft mutates the stored rca_v3",
+  "find": "    v3 = copy.deepcopy(src)",
+  "replace": "    v3 = src"
+ },
+ {
+  "file": "server/api.py",
+  "name": "a nested section never builds its parent",
+  "find": "        node = v3\n        for part in path[:-1]:\n            if not isinstance(node.get(part), dict):\n                node[part] = {}\n            node = node[part]",
+  "replace": "        node = v3\n        for part in path[:-1]:\n            if part not in node:\n                continue\n            node = node[part]"
+ },
+ {
+  "file": "server/api.py",
+  "name": "building the parent clobbers its siblings",
+  "find": "            if not isinstance(node.get(part), dict):\n                node[part] = {}",
+  "replace": "            node[part] = {}"
+ },
+ {
+  "file": "server/api.py",
+  "name": "the top-level field stops reading the blob the client gets",
+  "find": "        \"takedown\":         _v4(d, \"takedown\", \"takedown\", {}, _v3_resolved),",
+  "replace": "        \"takedown\":         _v4(d, \"takedown\", \"takedown\", {}),"
+ },
+ {
+  "file": "server/pipeline.py",
+  "name": "the booking merge lets the warehouse rename the booking",
+  "find": "    merged = {**full, **{k: v for k, v in booking.items() if v not in (None, \"\")}}",
+  "replace": "    merged = {**booking, **full}"
+ },
+ {
+  "file": "server/pipeline.py",
+  "name": "a lookup that returned nothing reads like one that raised",
+  "find": "                                 f\"nothing. Those fields are blank because they were \"\n                                 f\"not retrieved, not because the booking has none.\"}",
+  "replace": "                                 f\"nothing.\"}"
+ },
+ {
+  "file": "client/index.html",
+  "name": "the fulfilment type row stops reading its field",
+  "find": "<span class=\"k\">Fulfilment type</span><span class=\"v\">${b.fulfilmentType || '\u2014'}</span>",
+  "replace": "<span class=\"k\">Fulfilment type</span><span class=\"v\">${'\u2014'}</span>"
+ },
+ {
+  "file": "client/index.html",
+  "name": "the lead time row stops reading its field",
+  "find": "<span class=\"k\">Lead time</span><span class=\"v\">${b.leadTime || '\u2014'}</span>",
+  "replace": "<span class=\"k\">Lead time</span><span class=\"v\">${'\u2014'}</span>"
+ },
+ {
+  "file": "client/index.html",
+  "name": "partnered vendor loses its tri-state and reads absent as No",
+  "find": "        r.booking.isPartnered      = db.isPartnered ?? db.is_partnered ?? null;",
+  "replace": "        r.booking.isPartnered      = db.isPartnered || db.is_partnered || false;"
+ },
+ {
+  "file": "client/index.html",
+  "name": "the indicator warning draws on every state, not only a mismatch",
+  "find": "          if (!im || im.state !== 'mismatch') return '';",
+  "replace": "          if (!im) return '';"
+ },
+ {
+  "file": "client/index.html",
+  "name": "the indicator warning names the signals that AGREED too",
+  "find": "          const rows = (im.signals || []).filter(s => s.state === 'mismatch');",
+  "replace": "          const rows = (im.signals || []);"
+ },
+ {
+  "file": "client/index.html",
+  "name": "a PII hash is accepted as a guest name again",
+  "find": "            && (rawGuest.length <= 20 || /\\s/.test(rawGuest))) {",
+  "replace": "            ) {"
+ },
+ {
+  "file": "client/index.html",
+  "name": "the booking timestamp is no longer normalised for a reader",
+  "find": "  return normaliseStamp((db && (db.date_of_booking || db.creationDate\n                               || db.bookedOn)) || '');",
+  "replace": "  return String((db && (db.date_of_booking || db.creationDate\n                               || db.bookedOn)) || '');"
+ },
+ {
+  "file": "client/index.html",
+  "name": "a different booking keeps the previous booking's fields",
+  "find": "        if (_newBid && r.booking.bid && String(r.booking.bid) !== String(_newBid))\n          r.booking = {};",
+  "replace": "        if (false)\n          r.booking = {};"
+ },
+ {
+  "file": "client/index.html",
+  "name": "the booking is cleared on every refresh, not only a change of id",
+  "find": "        const _newBid = db.id || '';\n        if (_newBid && r.booking.bid && String(r.booking.bid) !== String(_newBid))",
+  "replace": "        const _newBid = db.id || '';\n        if (true)"
+ },
+ {
+  "file": "server/pipeline.py",
+  "name": "the ungated actions_taken is assigned at save again",
+  "find": "        # Actions Taken is NOT assigned here. It used to be \u2014 an UNGATED list",
+  "replace": "        draft.actions_taken = {\"sp\":[],\"customer\":[]}\n        # Actions Taken is NOT assigned here. It used to be \u2014 an UNGATED list"
  }
 ]

@@ -626,3 +626,95 @@ def test_the_whole_card_raised_no_javascript_error(page):
     candidate, arming and firing close out, six re-renders of the booking
     panel and both mismatch states."""
     assert page.errors == [], f"JavaScript errors on the card: {page.errors}"
+
+
+# ── a re-run that matches a DIFFERENT booking ───────────────────────────────
+#
+# Found by the harness above rather than reported: rendering a partial row
+# after a full one still showed the full one's fields, because every line of
+# the client's booking mapping keeps what is on screen when the incoming value
+# is blank. That is right for a refresh of the same booking and wrong the
+# moment the matched booking changes — the old booking's fulfilment type sits
+# under the new booking's id, and a value belonging to a booking nobody is
+# looking at any more is worse than a dash. The dash says we do not know; the
+# stale value asserts something false.
+
+def test_a_rerun_onto_a_different_booking_does_not_keep_the_old_ones_fields(page):
+    full, _ = _complete(lambda bid: dict(WAREHOUSE_ROW))
+    rows = _render_booking(page, full)
+    assert rows["Fulfilment type"] == "MOBILE_TICKET", (
+        f"the first booking did not render — NOT BUILT: {rows}")
+
+    # A different BID, partial the way an auto-promote path used to hand it on.
+    other = dict(PARTIAL_ROW, id="99887766", experience="Sintra Palace Tour",
+                 experienceName="Sintra Palace Tour",
+                 experience_name="Sintra Palace Tour")
+    rows2 = page.evaluate("""async (bk) => {
+      if (!window.__realFetch) window.__realFetch = window.fetch.bind(window);
+      window.fetch = async (url, opts) => {
+        const u = String(url);
+        const res = await window.__realFetch(url, opts);
+        if (/\\/api\\/reviews\\/[^/?]+$/.test(u.split('?')[0])) {
+          const body = await res.clone().json();
+          if (body.draft) body.draft.booking = bk;
+          return new Response(JSON.stringify(body), {status: 200});
+        }
+        return res;
+      };
+      await loadDraftOverlays();
+      renderReviewCol();
+      window.fetch = window.__realFetch;
+      const out = {};
+      document.querySelectorAll('.detail-row').forEach(el => {
+        const k = el.querySelector('.k'), v = el.querySelector('.v');
+        if (k && v) out[k.textContent.trim()] = v.textContent.trim();
+      });
+      return out; }""", other)
+
+    assert rows2["Booking ID"] == "99887766", (
+        f"the new booking id did not take: {rows2}")
+    assert rows2["Fulfilment type"] == "—", (
+        f"the previous booking's fulfilment type is showing under the new "
+        f"booking's id: {rows2['Fulfilment type']!r}")
+    assert rows2["Partnered vendor"] == "—", rows2
+    assert rows2["Lead time"] == "—", rows2
+    assert rows2["Experience"] == "Sintra Palace Tour", rows2
+
+
+def test_a_refresh_of_the_SAME_booking_still_keeps_what_it_has(page):
+    """The other half, and the reason the fallback exists.
+
+    Clearing on every partial payload would blank the panel on an ordinary
+    refresh — which is the bug the `db.x || r.booking.x` fallback was written
+    to prevent, and re-introducing it would be a straight trade of one defect
+    for another.
+    """
+    full, _ = _complete(lambda bid: dict(WAREHOUSE_ROW))
+    assert _render_booking(page, full)["Fulfilment type"] == "MOBILE_TICKET"
+
+    same_but_partial = dict(PARTIAL_ROW)              # same id, fewer fields
+    rows = page.evaluate("""async (bk) => {
+      if (!window.__realFetch) window.__realFetch = window.fetch.bind(window);
+      window.fetch = async (url, opts) => {
+        const u = String(url);
+        const res = await window.__realFetch(url, opts);
+        if (/\\/api\\/reviews\\/[^/?]+$/.test(u.split('?')[0])) {
+          const body = await res.clone().json();
+          if (body.draft) body.draft.booking = bk;
+          return new Response(JSON.stringify(body), {status: 200});
+        }
+        return res;
+      };
+      await loadDraftOverlays();
+      renderReviewCol();
+      window.fetch = window.__realFetch;
+      const out = {};
+      document.querySelectorAll('.detail-row').forEach(el => {
+        const k = el.querySelector('.k'), v = el.querySelector('.v');
+        if (k && v) out[k.textContent.trim()] = v.textContent.trim();
+      });
+      return out; }""", same_but_partial)
+
+    assert rows["Booking ID"] == "33204378", rows
+    assert rows["Fulfilment type"] == "MOBILE_TICKET", (
+        f"a partial refresh of the SAME booking blanked the panel: {rows}")

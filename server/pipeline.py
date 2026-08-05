@@ -2379,16 +2379,17 @@ async def process_review(review_id: str, force_candidates: bool = False):
             ticket_facts = {}
 
         # ── 11e. Scenario routing (sub-theme → primary scenario + overlays) ──
-        primary_scenario, overlay_scenarios, guideline_actions = None, [], {}
+        # actions_for() is NOT called here any more. Its result was assigned to
+        # draft.actions_taken at save and overwritten by the projection before
+        # the commit, so it was computed for nobody. The gated list is derived
+        # inside validate(), from the routed scenarios AND the flags.
+        primary_scenario, overlay_scenarios = None, []
         try:
             from server.checklist import (
-                scenarios_for, compute_overlay_scenarios, actions_for, SCENARIO_CHECKS)
+                scenarios_for, compute_overlay_scenarios, SCENARIO_CHECKS)
             primary_scenario = scenarios_for(l1, l2, sub_theme)["primary"]
             overlay_scenarios = compute_overlay_scenarios(
                 l1, l2, sub_theme, ticket_facts, booking)
-            scenario_keys = [s for s in ([primary_scenario] + overlay_scenarios)
-                             if s in SCENARIO_CHECKS]
-            guideline_actions = actions_for(scenario_keys)
             log.info(f"[pipeline] scenario routing: primary={primary_scenario!r} "
                      f"overlays={overlay_scenarios}")
         except Exception as e:
@@ -2593,12 +2594,16 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # Area of Improvement auto-fills from each WWR scenario's fix bullet.
         _wwr_fixes = [s.get("fix", "").strip() for s in (wwr_scenarios or []) if s.get("fix")]
         draft.area_of_improving           = _wwr_fixes or rca_v2.get("areaOfImproving", [])
-        # Actions Taken sourced from Guidelines scenario action lists (Task #13).
-        # Fall back to the AI's actions only when routing produced none.
-        draft.actions_taken               = (
-            guideline_actions if any((guideline_actions or {}).values())
-            else rca_v2.get("actionsTaken",
-                            {"sp":[],"customer":[],"business":[],"product":[],"ce":[]}))
+        # Actions Taken is NOT assigned here. It used to be — an UNGATED list
+        # straight from the guideline routing, which project_v4 then overwrote
+        # four lines below with the gated one. Correct output, misleading code:
+        # a reader following `draft.actions_taken =` landed on the version that
+        # does not survive, and the AND that §1 is built on (the guidelines say
+        # raise it AND something flagged it) appeared not to be applied.
+        #
+        # The one write is the projection, from validate()'s actions_raised —
+        # which is the only place holding both halves of the rule. See
+        # V4_PROJECTION in rca_v4_validate.
         # v4 settles the resolution off the full evidence base; rca_v2's is the
         # fallback for a draft whose RCA call failed.
         draft.resolution                  = ((rca_v3 or {}).get("resolution")
@@ -2644,9 +2649,10 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # One shared projection with regenerate-rca. Written out twice, the two
         # paths drift, and the drift is invisible: both look like working code.
         from server.services.rca_v4_validate import project_v4
-        # The rows already on this draft, read BEFORE the projection
-        # overwrites them - that is the only moment they still exist.
-        _prev_actions = getattr(draft, 'actions_taken', None) or None
+        # The rows already on this draft are read at step 12c and handed to
+        # validate() as keep_actions — which is where they have to be read,
+        # because that is the call that decides which of them survive. Reading
+        # them again here did nothing with the result.
         for _col, _val in project_v4(_v3).items():
             setattr(draft, _col, _val)
 
