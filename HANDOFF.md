@@ -802,7 +802,37 @@ partial state to unpick.
 
 ### 11.15 The mutation pass
 
-MUTATION_SUMMARY_PLACEHOLDER
+**The spec is 252 mutations.** Every anchor was verified to match exactly once
+against the final tree before launching, and every shard's baseline is green at
+1935 tests.
+
+**AT THE END OF THIS SESSION THE PASS WAS STILL RUNNING: 25 of 252 complete,
+0 survivors, 0 skips.** That is not a result and must not be read as one. The
+run needs roughly three more hours on this box.
+
+To read it when it lands:
+
+    grep -h "caught ·" /tmp/combined_*.log        # the four shard totals
+    grep -h "SURVIVED\|SKIP" /tmp/combined_*.log  # anything to act on
+
+A SURVIVOR is a test gap: close it with a driven test and re-run that one
+mutation to confirm it is CAUGHT. A SKIP is an anchor that no longer matches
+exactly once — not a pass, and re-anchoring it is the fix.
+
+**This pass has been killed mid-run four times in this container**, which is
+why `tools/mutate.py` now prints a heartbeat line before each mutation: a
+worker that died at mutation 9 used to look exactly like one still grinding
+through it, same log, same last line, for hours.
+
+**Four shards, not eight.** Eight had them sharing four cores and each full
+run stretched past eight minutes. `--fail-fast` is the other half of making
+this finish: the verdict is unchanged — CAUGHT is a non-zero exit either way,
+and a SURVIVOR still runs the whole suite because nothing failed to stop it —
+but a caught mutation stops paying for the rest of a suite whose answer is
+already known, which cut a caught run from ~9 minutes to ~90 seconds.
+
+**The last complete pass was the 68-mutation one recorded in §7** (65 caught ·
+3 survived · 0 skipped), and all three of its survivors were closed.
 
 `tools/mutate.py` gained `--fail-fast`. The verdict is unchanged — CAUGHT is a
 non-zero exit either way, and a SURVIVOR still runs the whole suite because
