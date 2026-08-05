@@ -33,6 +33,33 @@ _GENERIC = {
 }
 
 
+def _place_words() -> set:
+    """City and country names, from the ONE vocabulary that already exists.
+
+    server/bid_indicator_check.py::CITIES is the city list this project keeps
+    and extends from real misses. A second copy here would be a fifth team
+    vocabulary — the defect that produced the owner bug — so it is read, not
+    duplicated. Country names are added because the model writes
+    "Rome, Italy".
+    """
+    out = {"italy", "france", "spain", "portugal", "germany", "austria",
+           "netherlands", "belgium", "england", "scotland", "ireland",
+           "greece", "turkey", "croatia", "hungary", "czechia", "poland",
+           "switzerland", "denmark", "sweden", "norway", "finland", "iceland",
+           "morocco", "egypt", "india", "thailand", "vietnam", "singapore",
+           "japan", "china", "mexico", "brazil", "argentina", "peru",
+           "australia", "canada", "america", "emirates", "dubai"}
+    try:
+        from server.bid_indicator_check import CITIES
+        out |= {c.lower() for c in CITIES}
+    except Exception:                       # never break matching over a list
+        pass
+    return out
+
+
+_PLACES = _place_words()
+
+
 def venue_tokens(hint: str) -> list[str]:
     """The words in a hint that could actually identify a venue.
 
@@ -51,11 +78,38 @@ def venue_tokens(hint: str) -> list[str]:
     Longest first: the most specific token is the one most likely to be the
     venue, and it is tried before the vaguer ones.
     """
-    words = re.findall(r"[a-z0-9]+", (hint or "").lower())
-    toks = [w for w in words if len(w) >= 5 and w not in _GENERIC]
-    # Deduplicate, keeping the longest-first order.
+    words = [w for w in re.findall(r"[a-z0-9]+", (hint or "").lower())
+             if w not in _GENERIC]
+
+    # ADJACENT PAIRS FIRST. Plenty of venues are two words and the second one
+    # is short: "London Eye" tokenised to single words of five characters or
+    # more leaves "london", which is a CITY — it would go looking for a TGID
+    # called London and match a great many wrong products. The pair is a far
+    # more specific probe than either half, so it is tried first.
+    # A pair of two PLACE names is not a venue either — "rome italy" names a
+    # country in a city, not a thing to book. Dropped, so the resolver reports
+    # honestly that no venue was named rather than probing for a product
+    # called Italy.
+    pairs = [f"{a} {b}" for a, b in zip(words, words[1:])
+             # At least one half must be substantial: "zoo spa" is two words
+             # and identifies nothing, while "london eye" earns its place on
+             # the strength of "london".
+             if len(a) >= 3 and len(b) >= 3 and max(len(a), len(b)) >= 5
+             # A word repeated is not a pair.
+             and a != b
+             and not (a in _PLACES and b in _PLACES)]
+
+    # A BARE PLACE NAME IS NOT A VENUE. The city is extracted separately and
+    # has its own use; resolving on it either misses or, worse, hits an
+    # unrelated product that happens to carry the country's name. It is only
+    # dropped as a LONE probe — "london eye" above keeps it, because there the
+    # place name is qualified by the thing it names.
+    singles = [w for w in words if len(w) >= 5 and w not in _PLACES]
+
+    # Deduplicate; pairs before singles, longest first within each group.
     seen, out = set(), []
-    for w in sorted(toks, key=len, reverse=True):
+    for w in (sorted(pairs, key=len, reverse=True)
+              + sorted(singles, key=len, reverse=True)):
         if w not in seen:
             seen.add(w)
             out.append(w)

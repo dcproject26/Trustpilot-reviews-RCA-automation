@@ -1432,5 +1432,83 @@
   "name": "validate stops passing the findings",
   "find": "    _actions, _ar = actions_raised(scenarios_routed, _flags, keep=keep_actions,\n                                   findings=_findings)",
   "replace": "    _actions, _ar = actions_raised(scenarios_routed, _flags, keep=keep_actions)"
+ },
+ {
+  "file": "server/pipeline.py",
+  "name": "a guest name alone promotes to tier 1 again",
+  "find": "    if corroboration <= 0:\n        return False, (\"the only agreement is the guest name; nothing about the \"",
+  "replace": "    if False:\n        return False, (\"the only agreement is the guest name; nothing about the \""
+ },
+ {
+  "file": "server/pipeline.py",
+  "name": "the tier-1 confidence threshold is dropped",
+  "find": "    if conf < threshold:\n        return False, (f\"indicator confidence {conf:.1f} is below the {threshold:.1f} \"",
+  "replace": "    if False:\n        return False, (f\"indicator confidence {conf:.1f} is below the {threshold:.1f} \""
+ },
+ {
+  "file": "server/pipeline.py",
+  "name": "the date-only shortlist is offered again",
+  "find": "        if candidate_state and candidates and candidates_are_noise(candidates):",
+  "replace": "        if False:"
+ },
+ {
+  "file": "server/pipeline.py",
+  "name": "a venue agreement no longer saves the shortlist",
+  "find": "        if c.get(\"venue_signal\"):\n            return False",
+  "replace": "        if False:\n            return False"
+ },
+ {
+  "file": "server/pipeline.py",
+  "name": "a scoreless candidate is withheld as noise",
+  "find": "        if not any(k in c for k in (\"score_venue\", \"score_name\", \"score_ticket\")):\n            return False",
+  "replace": "        if False:\n            return False"
+ },
+ {
+  "file": "server/pipeline.py",
+  "name": "the city is passed to the venue resolver again",
+  "find": "                venue_hints = [h for h in (\n                    indicators.get(\"experience_or_venue\"),) if h and str(h).strip()]",
+  "replace": "                venue_hints = [h for h in (\n                    indicators.get(\"experience_or_venue\"),\n                    indicators.get(\"city_or_country\")) if h and str(h).strip()]"
+ },
+ {
+  "file": "server/services/venue_resolver.py",
+  "name": "the whole phrase is matched instead of its tokens",
+  "find": "    toks = [w for w in words if len(w) >= 5 and w not in _GENERIC]",
+  "replace": "    toks = [w for w in words if len(w) >= 5]"
+ },
+ {
+  "file": "server/services/venue_resolver.py",
+  "name": "short words get a spelling budget",
+  "find": "    if n < FUZZY_MIN_LEN:\n        return 0",
+  "replace": "    if False:\n        return 0"
+ },
+ {
+  "file": "server/services/venue_resolver.py",
+  "name": "the spelling budget is unbounded",
+  "find": "    return max(1, min(FUZZY_MAX_EDITS, n // 4))",
+  "replace": "    return 5"
+ },
+ {
+  "file": "server/services/venue_resolver.py",
+  "name": "a token matching the whole catalogue is kept",
+  "find": "        if len(_ids) >= 100:\n            log.info(f\"venue_resolver: token {hint!r} matched {len(_ids)}+ \"",
+  "replace": "        if False:\n            log.info(f\"venue_resolver: token {hint!r} matched {len(_ids)}+ \""
+ },
+ {
+  "file": "server/api.py",
+  "name": "the sent route is taken from the caller",
+  "find": "    _already_posted = bool(d.rca_posted_at)",
+  "replace": "    _already_posted = False"
+ },
+ {
+  "file": "server/api.py",
+  "name": "a send with no RCA is filed as a reply",
+  "find": "                    else \"no_rca\" if not has_rca_to_post(d)",
+  "replace": "                    else \"reply\" if not has_rca_to_post(d)"
+ },
+ {
+  "file": "client/index.html",
+  "name": "mark sent is live before the RCA is posted",
+  "find": "                ${r.rcaPostedAt ? '' : 'disabled'}",
+  "replace": "                ${''}"
  }
 ]

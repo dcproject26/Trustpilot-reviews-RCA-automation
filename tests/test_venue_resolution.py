@@ -61,10 +61,19 @@ def test_short_words_are_dropped():
     assert venue_tokens("zoo spa bar") == []
 
 
-def test_the_longest_token_comes_first():
-    """The most specific word is the one most likely to be the venue."""
+def test_the_most_specific_probe_comes_first():
+    """Pairs before singles, longest first within each group.
+
+    The order IS the policy: the resolver tries probes in turn and the most
+    specific one should get the first chance. This test asserted "louvre"
+    first, from before adjacent pairs existed — a two-word probe is strictly
+    more specific than either of its halves.
+    """
     toks = venue_tokens("Louvre Museum Paris entry")
-    assert toks and toks[0] == "louvre", toks
+    assert toks, toks
+    assert " " in toks[0], f"a single word is being tried before a pair: {toks}"
+    assert "louvre" in toks, toks
+    assert toks.index("louvre paris") < toks.index("louvre"), toks
 
 
 def test_tokens_are_deduplicated():
@@ -165,3 +174,70 @@ def test_the_city_is_not_passed_to_the_venue_resolver():
         "as one of the venues we extracted")
     assert "experience_or_venue" in block, (
         "the venue itself is no longer being passed either")
+
+
+# ── a city is not a venue, and a two-word venue survives ───────────────────
+#
+# Raised against the first cut of this fix: `venue_tokens('Rome, Italy')`
+# returned `['italy']`, so the resolver went looking for a TGID called Italy —
+# which either misses or, worse, hits an unrelated country-named product. And
+# `venue_tokens('London Eye Admission Tickets')` returned `['london']`: the
+# venue token for a REAL venue was a city name, which would match a great many
+# wrong products.
+
+def test_a_city_and_country_yield_no_venue_probe_at_all():
+    """The honest answer is that no venue was named. The city is extracted
+    separately and has its own use in bid_indicator_check."""
+    assert venue_tokens("Rome, Italy") == []
+    assert venue_tokens("Paris France") == []
+    assert venue_tokens("Barcelona, Spain") == []
+
+
+def test_a_bare_place_name_is_never_a_lone_probe():
+    from server.services.venue_resolver import _PLACES
+    assert "london" in _PLACES and "rome" in _PLACES
+    for h in ("London", "Rome", "Amsterdam tickets"):
+        assert not any(t in _PLACES for t in venue_tokens(h)), venue_tokens(h)
+
+
+def test_a_two_word_venue_survives_as_a_pair():
+    """"London Eye" tokenised to words of five characters or more leaves
+    "london", which is the city. The pair is a far more specific probe than
+    either half and is tried first."""
+    toks = venue_tokens("London Eye Admission Tickets")
+    assert toks and toks[0] == "london eye", toks
+    assert "london" not in toks, (
+        "the bare city name is still being probed on its own")
+
+
+def test_a_qualified_place_name_is_kept_in_its_pair():
+    """The place name is only dropped as a LONE probe. In "london eye" it is
+    qualified by the thing it names, which is exactly what identifies it."""
+    assert "eiffel tower" in venue_tokens("Eiffel Tower Paris")
+
+
+def test_pairs_come_before_singles():
+    """The pair is the more specific probe, so it is tried first."""
+    toks = venue_tokens("Sagrada Familia skip the line")
+    assert toks[0] == "sagrada familia", toks
+
+
+def test_the_place_vocabulary_is_the_one_that_already_exists():
+    """A second copy of the city list would be a fifth team vocabulary — the
+    defect that produced the owner bug. It is READ from
+    bid_indicator_check.CITIES, not duplicated."""
+    from server.bid_indicator_check import CITIES
+    from server.services.venue_resolver import _PLACES
+    missing = {c.lower() for c in CITIES} - _PLACES
+    assert not missing, (
+        f"{sorted(missing)} are cities the indicator check knows about and "
+        f"the venue resolver does not — two vocabularies for one fact")
+
+
+def test_a_real_venue_is_still_probed_after_all_this_filtering():
+    """The control, again. Every rule above removes probes; without this one
+    the safest implementation would be to return nothing ever."""
+    for h, want in (("premo tickets for collosseum", "collosseum"),
+                    ("Colosseum Guided Tour", "colosseum"),
+                    ("Borghese Gallery Entry Tickets", "borghese")):
+        assert want in venue_tokens(h), (h, venue_tokens(h))
