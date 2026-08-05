@@ -886,5 +886,239 @@
     "name": "Content stops being read before Product",
     "find": "    (\"product\",   [\"booking flow\", \"app issue\", \"app issues\", \"in-app\",",
     "replace": "    (\"product\",   [\"content\", \"catalog\", \"booking flow\", \"app issue\", \"app issues\", \"in-app\","
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "the guest name alone becomes decisive",
+    "find": "DECISIVE = (\"venue\", \"city\", \"date\")",
+    "replace": "DECISIVE = (\"venue\", \"city\", \"date\", \"guest\")"
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "a review naming two venues is no longer ambiguous",
+    "find": "    if len(rl) > 1:\n        return _sig(\"venue\", \"unchecked\", \", \".join(rl), \", \".join(bl),\n                    \"the review names more than one venue\")",
+    "replace": "    pass"
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "a review naming two cities is no longer ambiguous",
+    "find": "    if len(rc) > 1:\n        return _sig(\"city\", \"unchecked\", \", \".join(rl), \", \".join(bl),\n                    \"the review names more than one city\")",
+    "replace": "    pass"
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "may and march become months again",
+    "find": "_AMBIGUOUS_MONTHS = {\"may\", \"march\", \"mar\", \"august\", \"aug\"}",
+    "replace": "_AMBIGUOUS_MONTHS = set()"
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "the date tolerance collapses",
+    "find": "DATE_TOLERANCE_DAYS = 45",
+    "replace": "DATE_TOLERANCE_DAYS = 0"
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "a bare month is resolved without a reference date",
+    "find": "        if reference is None:\n            continue",
+    "replace": "        if reference is None:\n            reference = date(2026, 8, 1)"
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "an unchecked result reports as a pass",
+    "find": "    return {\"mark\": \"warn\",\n            \"text\": \"<strong>Indicators could not be checked</strong> against \"",
+    "replace": "    return {\"mark\": \"pass\",\n            \"text\": \"<strong>Indicators could not be checked</strong> against \""
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "a mismatch stops saying the match still stands",
+    "find": "\"exists; this may be someone else's reference number. \"\n                        \"Not unmatched — confirm before relying on it.\"",
+    "replace": "\"exists.\""
+  },
+  {
+    "file": "server/api.py",
+    "name": "the indicator check loses the untranslated body",
+    "find": "        text = (getattr(r, \"body_english\", None)\n                or getattr(r, \"body_original\", None) or \"\") if r else \"\"\n        return bic.check(text, d.booking,",
+    "replace": "        text = (getattr(r, \"body_english\", None) or \"\") if r else \"\"\n        return bic.check(text, d.booking,"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the indicator check never sees the author",
+    "find": "                         author=getattr(r, \"author\", None) if r else None,",
+    "replace": "                         author=None,"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the indicator check never sees the review date",
+    "find": "                         received_at=getattr(r, \"received_at\", None) if r else None)",
+    "replace": "                         received_at=None)"
+  },
+  {
+    "file": "server/api.py",
+    "name": "indicator_match never reaches the payload",
+    "find": "        \"indicator_match\":             _indicator_match(d),",
+    "replace": "        \"indicator_match\":             None,"
+  },
+  {
+    "file": "server/api.py",
+    "name": "an empty what_went_wrong wrapper counts as an RCA",
+    "find": "        if isinstance(wwr, dict):\n            if wwr.get(\"guest_issues\"):\n                return True",
+    "replace": "        if isinstance(wwr, dict):\n            if wwr is not None:\n                return True"
+  },
+  {
+    "file": "server/api.py",
+    "name": "everything counts as an RCA to post",
+    "find": "def has_rca_to_post(d) -> bool:",
+    "replace": "def has_rca_to_post(d) -> bool:\n    return True"
+  },
+  {
+    "file": "server/api.py",
+    "name": "send posts an RCA that does not exist",
+    "find": "    elif not has_rca_to_post(d):",
+    "replace": "    elif False:"
+  },
+  {
+    "file": "server/api.py",
+    "name": "closing out stops recording why",
+    "find": "    r.close_reason = reason",
+    "replace": "    r.close_reason = None"
+  },
+  {
+    "file": "server/api.py",
+    "name": "closing out no longer reaches the trail",
+    "find": "        d.confidence_trail = trail\n        flag_modified(d, \"confidence_trail\")\n\n    m = db.query(ReviewMetric)",
+    "replace": "\n    m = db.query(ReviewMetric)"
+  },
+  {
+    "file": "server/api.py",
+    "name": "close 404s without a draft, as send does",
+    "find": "    d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()\n\n    from server.tiers import classify",
+    "replace": "    d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()\n    if not d:\n        raise HTTPException(404, \"Draft not found\")\n\n    from server.tiers import classify"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the booking row is no longer completed",
+    "find": "    merged = {**full, **{k: v for k, v in booking.items() if v not in (None, \"\")}}",
+    "replace": "    merged = dict(booking)"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the completion merge overrules the match path",
+    "find": "    merged = {**full, **{k: v for k, v in booking.items() if v not in (None, \"\")}}",
+    "replace": "    merged = {**booking, **full}"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a failed completion says nothing",
+    "find": "    if not full:\n        # Says the true thing.",
+    "replace": "    if not full:\n        return booking, None\n    if False:\n        # Says the true thing."
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a raised completion is reported as not found",
+    "find": "                                 f\"{type(e).__name__}. The fields below came from the \"\n                                 f\"matching query only; a dash there means we did not \"\n                                 f\"fetch it, not that the booking has no value.\"}",
+    "replace": "                                 f\"lookup returned nothing. Those fields are blank \"\n                                 f\"because they were not retrieved, not because the \"\n                                 f\"booking has none.\"}"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the surname clause prints None again",
+    "find": "                    _parsed = f\"first='{author_first or '—'}'\"\n                    if author_last:",
+    "replace": "                    _parsed = f\"first='{author_first}' last='{author_last}'\"\n                    if False:"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "an empty extraction is ticked as a pass",
+    "find": "                        \"mark\": \"pass\" if _found else \"warn\",",
+    "replace": "                        \"mark\": \"pass\","
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the indicator check is never run in the pipeline",
+    "find": "                confidence_trail.append(_bic.trail_entry(_im))",
+    "replace": "                pass"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the weak BID line goes back to saying nothing was found",
+    "find": "                                \"text\": f\"<strong>BID {review.reference_number} resolves to a \"",
+    "replace": "                                \"text\": f\"<strong>Weak BID</strong> — number found in text, but a \""
+  },
+  {
+    "file": "client/index.html",
+    "name": "the reply-macro step returns to the match trail",
+    "find": "|\\b(repl(?:y|ies)|macros?)\\b/i;",
+    "replace": "/i;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the refresh stops recomputing the bucket",
+    "find": "    const fresh = await fetchInbox();\n    await loadDraftOverlays();",
+    "replace": "    const fresh = true;\n    await loadDraftOverlays();"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a refresh that could not reach the server reports success",
+    "find": "    REVIEWS.push(...merged);\n    return true;",
+    "replace": "    REVIEWS.push(...merged);"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the confirm poll finishes on the first tick again",
+    "find": "              if (d && d.generated_at && d.generated_at !== before) {\n                clearInterval(poll);\n                await reloadFromServer();\n                return;\n              }",
+    "replace": "              if (d && !d.candidate_state) {\n                clearInterval(poll);\n                await reloadFromServer();\n                return;\n              }"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the indicator warning draws on every state",
+    "find": "          if (!im || im.state !== 'mismatch') return '';",
+    "replace": "          if (!im) return '';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "close out fires on the first click",
+    "find": "  if (btn.dataset.armed !== '1') {",
+    "replace": "  if (false) {"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the processing bucket loses its gate and its route to Sent",
+    "find": "  if (r.type === 'processing') {\n    col.innerHTML = `",
+    "replace": "  if (false) {\n    col.innerHTML = `"
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the refund-denial rule leaves the priority block",
+    "find": "A REMEDY REFUSED IS NOT ITS OWN ISSUE.",
+    "replace": "A remedy refused is worth a thought."
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the refund-denial boundary leaves the L2 where the model stops",
+    "find": "  BOUNDARY — STOP BEFORE USING \"Refund denied\".",
+    "replace": "  NOTE: refunds are denied for reasons."
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the Zoomarine worked example is dropped",
+    "find": "WORKED EXAMPLE (Zoomarine):",
+    "replace": "For instance:"
+  },
+  {
+    "file": "server/db.py",
+    "name": "the reviews table stops self-healing",
+    "find": "    _ensure_table_columns(\"reviews\", _WANTED_REVIEW_COLUMNS(is_pg), log)",
+    "replace": "    pass"
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "a signal that disagreed reports as nothing compared",
+    "find": "    elif contradictions:",
+    "replace": "    elif False:"
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "the non-decisive disagreement stops naming what disagreed",
+    "find": "               + \"; \".join(s[\"why\"] for s in signals\n                           if s[\"name\"] in contradictions)",
+    "replace": "               + \"\""
   }
 ]

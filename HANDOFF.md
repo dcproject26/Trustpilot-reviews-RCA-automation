@@ -265,6 +265,148 @@ runner catches it now, but the function is not self-consistent.
 
 ---
 
+## 10. Confirming a candidate, indicators on a verified BID, a route to Sent,
+## and a refund denial that outranked its cause — BUILT
+
+Four items the user specified, plus a trail-honesty pass raised mid-session.
+
+### 10.1 Confirming a candidate appeared to do nothing — CLIENT half
+
+The server half was already fixed by `073ed6a`: `select-candidate` queues
+`run_batch_sync`, which supervises, bounds and accounts for the run. Verified,
+not assumed.
+
+The CLIENT half had two faults, either of which reproduces the report exactly:
+
+- **The poll waited for something that had already happened.** It polled for
+  `!draft.candidate_state`, and the confirm request clears and commits that
+  flag before it returns. The condition was true when the first poll fired
+  three seconds later, so the poll stopped while the pipeline was at step 1.
+- **The refresh read the store the renderer does not use.** It called
+  `loadDraftOverlays()`, which never touches `r.type` — and `r.type` decides
+  whether the RCA column draws the analysis or its gate. Only `fetchInbox()`
+  recomputes it. So a confirmed review stayed typed `candidates` and kept
+  drawing "Locked until a booking is confirmed" for the rest of the session.
+
+Now: `generated_at` is the completion signal (the same one the Re-run button
+waits on), `/progress` names the stage and ends the poll on a stalled run, the
+budget is the runner's own ten minutes rather than sixty seconds, and
+`reloadFromServer()` does BOTH halves. `fetchInbox()` returns whether it
+actually reached the server, so a refresh that kept stale rows can no longer
+report itself as a refresh.
+
+Tests: `tests/test_confirm_candidate_refreshes.py`, driven in Chromium with
+fetch stubbed so the run's timing is controllable.
+
+### 10.2 A verified BID must also match the review's indicators
+
+`server/bid_indicator_check.py`, mirroring `booking_match_check.py`'s
+three-state design (match / mismatch / unchecked, never a bool). Four signals —
+venue, city, date, guest name — each with its own three states.
+
+**The guest name is reported but never decisive on its own.** People book
+under a partner's name, a maiden name, a company name; a name disagreement
+alone would flag a large share of correct matches. Venue, city and date decide;
+the name corroborates. That asymmetry is the design.
+
+Every signal has an ambiguity guard: two cities in a review is a transfer, two
+venues on a booking is a combo, "may"/"march" without a day or year are English
+words rather than months, a bare month with no review date cannot be resolved
+to a year at all. Anything less than a clear contradiction is `unchecked`.
+
+Wired in ONE place in the pipeline, after the whole match cascade, so every
+path is checked identically — attachment, manual, regex, auto-promoted tier 2
+and associate-confirmed. It writes one of three trail lines (agree / disagree /
+could not be compared) and **never unmatches**. `_indicator_match` in
+`server/api.py` recomputes it live for the card, so existing drafts get it with
+no migration.
+
+Tests: `tests/test_bid_indicator_check.py` (mostly about NOT firing),
+`tests/test_indicator_match_reaches_the_card.py` (the wire, plus the pipeline
+trail, driven), `tests/test_indicator_and_close_ui.py` (the card draws only on
+a mismatch).
+
+### 10.3 Every bucket now has a route to Sent
+
+`POST /api/reviews/{id}/close` — its own action, not a flag on `/send`.
+Sending means the RCA and the reply have gone; closing out means there was
+nothing to send. It needs no draft (so the processing bucket can reach Sent),
+posts nothing to Slack, records `Review.closed_at` / `Review.close_reason`
+(new columns, self-healing via `_ensure_columns`, which now covers both
+tables), and writes the close onto the confidence trail.
+
+`/send` no longer posts an RCA that does not exist — `has_rca_to_post()` is a
+driveable predicate, and the response now says whether it posted and why not,
+instead of `{"ok": true, "ts": null}` meaning three different things.
+
+Buttons: the untraceable panel, the candidate picker, and a new
+nothing-analysed-yet gate for the processing bucket (which previously fell
+through to the full RCA layout and offered a Send button that could only
+404). Two clicks to arm, because it moves the card out of every working tab.
+"Closed out" is its own inbox chip — a closed review and a replied one are two
+different pieces of work and the Sent count must not merge them.
+
+Tests: `tests/test_route_to_sent.py`, `tests/test_indicator_and_close_ui.py`.
+
+### 10.4 A refund denial does not outrank the failure that caused it
+
+The Zoomarine review — charged for a child ticket that should have been free,
+refund then denied — came back Customer Support Issues (the symptom) instead of
+Content/Misleading Info (the cause). The within-Operations order was already
+right; nothing said that a denial ARISING FROM another failure is classified as
+that failure.
+
+Written in TWO places, for the same reason §6 was: the priority block is read
+once, and the "Refund denied" examples under Customer Support Issues are where
+the model actually stops. Both carry the Zoomarine worked example, and the rule
+comes with a mechanical test — remove the denial; if a complaint remains, that
+complaint is the L2. Force majeure is explicitly excluded, so the existing FM
+boundary (a refusal after a flight cancellation IS Customer Support) still
+holds.
+
+Tests: six new cases in `tests/test_rca_finding_rules.py`.
+
+### 10.5 The trail said things the card contradicted
+
+Raised mid-session against a real card (BID 33204378, Pena Palace):
+
+- **A PARTIAL BOOKING ROW reached the card.** `_make_candidate()` builds what
+  the picker needs; the auto-promote paths hand that same narrow dict through
+  as the matched booking. `_get_booking_extra()` is called there — hence
+  booking_status and tid_name — but `verify_bid()`, the only query selecting
+  `created_at` and `fulfilment_type`, is never called on those paths.
+  Fulfilment type, booking date, partnered vendor and lead time were not empty
+  in the warehouse; nobody asked for them. `complete_booking_row()` now does
+  the same merge `select-candidate` already did, in one place every path
+  passes. **This is a behaviour change** — presentation alone cannot fill a
+  field that was never fetched.
+- `last='None'` — Python's None in a sentence a person reads.
+- A green tick on `venue='—' city='—' visit≈'—'`; an empty extraction is a
+  finding, not a success.
+- "Indicators" meaning the extraction on one line and the search on the next;
+  the extraction line is now headed "Extracted from review", which is what the
+  card calls that panel.
+- "Weak BID — number found in text" read as "the id went nowhere". BigQuery
+  RETURNED a booking; we scored it and it disagreed. Reworded to say so.
+- The floor line and the "not verified" tier label were already dead at HEAD
+  (the floor cannot fire while candidates exist); asserted so they stay dead.
+
+**LEFT ALONE, needs the user's decision:** the PII hash printed as a guest name
+(`FjpJxbSfpb65bny/…`). Dropping it reads better; keeping it lets someone
+confirm the comparison actually ran.
+
+### Still open from this session
+
+- `fix.owner` is still a third team vocabulary (see §9).
+- The indicator check's city/landmark vocabularies are deliberately small.
+  A missing entry costs an "unchecked", which is the safe direction; a sloppy
+  entry costs a false flag. Extend them from real misses, not from imagination.
+- `booking_match_check` and `bid_indicator_check` are two checks on one card.
+  They answer different questions (same product family vs same trip) and both
+  are needed, but a reader now has two warnings that can fire independently.
+
+---
+
 ## 9. Still open after §1-§6
 
 - **`fix.owner` is a third team vocabulary.** `Content | CE | SP | RO |

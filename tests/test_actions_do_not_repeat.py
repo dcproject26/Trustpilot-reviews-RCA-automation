@@ -49,13 +49,13 @@ def test_the_client_knows_the_rca_is_already_posted():
         "a deliberate second post must say so explicitly"
 
 
-def test_send_does_not_post_an_rca_that_is_already_in_the_thread():
-    """Send closes the review AND posts the RCA. "Post to thread" exists so
-    the RCA can go to the team while the reply is still being edited - so
-    using both, which is the documented workflow, posted it twice."""
-    body = _fn(API, "send_review")
-    assert "not d.rca_posted_at" in body, \
-        "send re-posts an RCA that is already in the thread"
+# "Send does not re-post an RCA already in the thread" used to live here as
+# `assert "not d.rca_posted_at" in body`. It broke when the condition was
+# rewritten from `and not d.rca_posted_at` into its own `elif` branch — the
+# behaviour was identical and the test failed on the spelling, which is the
+# exact weakness CLAUDE.md names. It is now driven against the endpoint in
+# tests/test_route_to_sent.py::test_send_does_not_repost_an_rca_already_posted,
+# which counts the Slack posts instead of reading the source.
 
 
 # ── flagging to the business team ───────────────────────────────────────────

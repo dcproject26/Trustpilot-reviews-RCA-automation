@@ -23,6 +23,28 @@ Each review gets exactly ONE L1. If multiple sections below match, use the highe
   Operations Issue > Product Issue > Supply Partner Issue > Venue Related Issue > Business Issue > External Factor > Miscellaneous Issue
 Within Operations Issue, check in this order: Meeting Point Issues → Ticket Issues → Content/Misleading Info → Customer Support Issues → Inventory Listing Issue
 Apply this rule before reading the sections below.
+
+A REMEDY REFUSED IS NOT ITS OWN ISSUE. When support denied a refund, a
+reschedule or a goodwill gesture that was owed BECAUSE OF ANOTHER FAILURE OF
+OURS (not an external event — a refusal after a flight cancellation or a storm
+stays Customer Support Issues, because nothing of ours failed first),
+classify the FAILURE, not the denial. The denial is what the guest writes
+about — it is the last thing that happened to them — but it is the
+consequence, and the L2 must name the cause. Customer Support Issues is for a
+support failure that IS the complaint: rudeness, no reply, a reply that never
+came, factually wrong information given by support. It is not for the refusal
+of a remedy another failure created the need for.
+WORKED EXAMPLE (Zoomarine): the guest was charged for a child ticket that
+should have been free, and the refund they asked for was then denied. Two
+things happened; only one of them is the issue. The charge exists because the
+free-child pax type is missing from what we published and sold, so
+  → L1 = "Operations Issue" / L2 = "Content - Instructions not clear / Misleading Info".
+NOT Customer Support Issues, which describes only the second half and sends the
+case to the team that refused the refund instead of the team whose page caused
+the charge.
+TEST: remove the denial from the review. If a complaint remains, that
+complaint is the L2. If nothing remains — the guest's only grievance is how
+support treated them — then it is Customer Support Issues.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -116,6 +138,23 @@ refused a reasonable reschedule request, or gave factually incorrect information
   BOUNDARY: if the underlying complaint is about the experience itself (guide was bad, tour was poor) and
     support is only mentioned in passing → classify the primary experience issue, not Customer Support Issues
   BOUNDARY: if support eventually resolved the issue → consider External Factor / Rating Mismatch
+  BOUNDARY — STOP BEFORE USING "Refund denied". A refund is denied for a
+    reason, and if the reason is another failure of ours then THAT failure is
+    the L2 and this one is not. Ask what the refund was FOR:
+      - charged for something that should have been free, or for something we
+        described wrongly → Content - Instructions not clear / Misleading Info
+      - tickets late, invalid, wrong, or never delivered → Ticket Issues
+      - could not find the guide, the pickup or the entrance → Meeting Point Issues
+      - the app or website failed, or advertised an offer with an unstated
+        condition → Product Issue / App and Website Issues
+    Use Customer Support Issues ONLY when the refusal itself is the whole
+    complaint — the guest changed their own plans, or asked for something we
+    never owed, and how we handled the request is what they are reviewing.
+    EXAMPLE (Zoomarine): "my child should not have been charged, and they
+    refused to refund it" → Content - Instructions not clear / Misleading
+    Info. The missing free-child pax type caused the charge; the denial is its
+    consequence, and classifying the consequence routes the case to the team
+    that refused the money instead of the team whose page took it.
 
 If the schedule on Headout's listing was wrong, or a ticket was listed that wasn't actually available:
   → L2 = "Inventory Listing Issue"

@@ -1412,6 +1412,11 @@ async function fetchInbox() {
           ...demo,
           receivedAt:     row.received_at || demo.receivedAt,
           status:         row.status      || demo.status,
+          // Which kind of Sent this is. Carried on BOTH branches below,
+          // because a review the API knows about and one the client already
+          // had are the same review and must not disagree about it.
+          closedAt:       row.closed_at    || null,
+          closeReason:    row.close_reason || '',
           matchTier:      t,
           candidateState: c,
           type:           row.bucket || _bucketFallback(row, t, c),
@@ -1438,6 +1443,8 @@ async function fetchInbox() {
         receivedAt:     row.received_at,
         time:           row.received_at ? new Date(row.received_at).toLocaleString('en-GB', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '',
         status:         row.status || 'new',
+        closedAt:       row.closed_at    || null,
+        closeReason:    row.close_reason || '',
         matchTier:      tier,
         matchTitle:     _matchTitle(row, tier, row.candidate_state),
         candidateState: row.candidate_state || false,
@@ -1483,8 +1490,15 @@ async function fetchInbox() {
     merged.sort((a, b) => new Date(b.receivedAt || b.time || 0) - new Date(a.receivedAt || a.time || 0));
     REVIEWS.length = 0;
     REVIEWS.push(...merged);
+    return true;
   } catch (e) {
     console.warn('[inbox] fetch failed, keeping last loaded reviews:', e);
+    // Keeping the old rows on screen is the right call — a blank inbox is
+    // worse than a stale one — but the CALLER has to be able to tell. A
+    // refresh that could not reach the server and one that reached it and
+    // found no change look identical from outside this function, and the
+    // difference is whether waiting longer will help.
+    return false;
   }
 }
 
@@ -1610,7 +1624,16 @@ function trailStep(st, key) {
 // unlabelled step is KEPT: dropping something we cannot classify would hide
 // a match step for the sake of tidiness, and the identifiers are the one
 // thing this section must never lose.
-const _NOT_MATCH = /^(RCA|Reply voice|Draft|Response|DSS|Insights|Classification|Macros?|Slack post|Sub-?themes?|Checklist|Scenario)\b/i;
+//
+// ANCHORING ON THE FIRST WORD IS WHY THIS LEAKED TWICE. The step
+// "<strong>The reply is an approved macro, sent as written</strong> — no
+// booking was matched…" is pure reply-drafting and survived every prefix in
+// the list, because it leads with "The". A label is a sentence someone wrote,
+// not an enum, so the words that identify the STAGE can sit anywhere in it.
+// Reply/macro/response labels are therefore matched wherever they appear;
+// the rest stay anchored, since "Draft" and "Response" are common enough
+// words to swallow a match step if let loose mid-label.
+const _NOT_MATCH = /^(RCA|Reply voice|Draft|Response|DSS|Insights|Classification|Macros?|Slack post|Sub-?themes?|Checklist|Scenario)\b|\b(repl(?:y|ies)|macros?)\b/i;
 
 function matchTrail(steps) {
   return (steps || []).filter(st => {
@@ -1884,6 +1907,11 @@ async function loadDraftOverlays() {
       // guard, any review without a draft row (every untraceable one, if the
       // pipeline never saved) was left showing a sentence cut mid-word.
       if (review) {
+        // Kept in step with fetchInbox: both endpoints answer about the same
+        // review, and a card that learns its text from one and its Sent state
+        // from the other is a card that can show a closed review as open.
+        r.closedAt     = review.closed_at    || r.closedAt    || null;
+        r.closeReason  = review.close_reason || r.closeReason || '';
         r.original     = review.body_original || r.original     || '';
         r.originalText = review.body_original || r.originalText || '';
         r.english      = review.body_english  || r.english      || null;
@@ -1928,6 +1956,7 @@ async function loadDraftOverlays() {
       // trail cannot each reach a different answer.
       r.rca.scenarioRouting  = draft.scenario_routing || null;
       r.contentMatch         = draft.content_match || null;
+      r.indicatorMatch       = draft.indicator_match || null;
       r.rca.wwrScenarios     = draft.wwr_scenarios    || [];
 
       // actions_taken: API returns {sp: [strings], ce: [strings], …}
@@ -2149,6 +2178,34 @@ async function loadDraftOverlays() {
   renderInbox();
 }
 
+// Everything a finished background run can have changed, in the order the
+// screen depends on it.
+//
+// BOTH halves are required and the second one is the one that gets forgotten.
+// loadDraftOverlays() refreshes the RCA body; it does not touch r.type, which
+// is what decides whether the RCA column draws the analysis or its
+// "Locked until a booking is confirmed" gate. Only fetchInbox() recomputes
+// that, from the server's own bucket rule. A refresh that calls the overlay
+// loader alone leaves a confirmed review typed 'candidates' for the rest of
+// the session — the run finished, the data landed, and the card looks exactly
+// like one where nothing ran.
+async function reloadFromServer() {
+  try {
+    // fetchInbox keeps the old rows when it cannot reach the server, which is
+    // right on screen and wrong to report as a refresh. Its answer is carried
+    // out of here rather than dropped.
+    const fresh = await fetchInbox();
+    await loadDraftOverlays();
+    renderInbox(); renderReviewCol(); renderRcaCol();
+    if (!fresh) console.error('[reload] the inbox could not be re-read — the '
+      + 'cards below are the ones that were already on screen');
+    return fresh;
+  } catch (e) {
+    console.error('[reload] refresh after a background run failed:', e);
+    return false;
+  }
+}
+
 let REVIEWS = [];   // populated live from /api/reviews — no demo/placeholder rows
 
 const state = {
@@ -2305,7 +2362,13 @@ function renderInbox() {
   // amber = a human must act, red = stuck. A review still being processed
   // asks for nothing but patience, so it must not be red — it was, because it
   // was being filed as Untraceable.
-  const stageOf = (r) => r.status === 'sent'          ? ['Sent', 'ok']
+  // "Closed out" is not "Sent". Both have status sent; one had an RCA and a
+  // reply, the other was finished by someone deciding there was nothing to
+  // send. One chip for both would make the Sent tab a count of two different
+  // pieces of work.
+  const stageOf = (r) => r.status === 'sent'          ? (r.closedAt
+                                                          ? ['Closed out', 'warn']
+                                                          : ['Sent', 'ok'])
                        : r.type === 'candidates'      ? ['Confirm match', 'warn']
                        : r.type === 'processing'      ?
                            (r.processingState === 'stalled'
@@ -2542,9 +2605,26 @@ function renderReviewCol() {
   // traceable branch below would dereference one. What differs is the CLAIM
   // the panel makes — "no booking found" is a result, and a run that has not
   // searched yet has produced no result to report.
-  if (r.type === 'untraceable' || r.type === 'processing') {
+  // A review closed out of Untraceable / Candidates / Processing keeps its
+  // bucket only until it is sent — after that classify() answers "sent", and
+  // the branch below is the only one that can render a card with no booking
+  // on it. Before Close out existed those reviews could never reach Sent, so
+  // this state could not occur; now it can, and the full layout would draw a
+  // booking panel over an empty object.
+  const _closedNoBooking = r.type === 'sent'
+    && !((r.booking || {}).bid || (r.booking || {}).id);
+  if (r.type === 'untraceable' || r.type === 'processing' || _closedNoBooking) {
     col.innerHTML = `
       <div class="col-label">The facts</div>
+      ${r.closedAt ? `
+      <div class="content-mismatch">
+        <span class="reconcile-mark">✓</span>
+        <span class="reconcile-text">Closed out ${esc(
+          new Date(r.closedAt).toLocaleString('en-GB',
+            {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}))} —
+          ${esc(r.closeReason || 'no reason was recorded')} Nothing was posted
+          to Slack.</span>
+      </div>` : ''}
 
       <div class="review-card">
         <div class="review-card-head">
@@ -2776,6 +2856,25 @@ function renderReviewCol() {
               before relying on the match.</span>
           </div>`;
         })()}
+        ${(() => {
+          // The same rule as the content check above, and for the same
+          // reason: only a clear disagreement draws. "match" and "unchecked"
+          // are NOT silent — the pipeline writes both onto the confidence
+          // trail below this line, which is where a reader goes to see what
+          // ran. Drawing them here as well would put an amber-adjacent row on
+          // every card and turn this whole area into furniture.
+          const im = r.indicatorMatch;
+          if (!im || im.state !== 'mismatch') return '';
+          const rows = (im.signals || []).filter(s => s.state === 'mismatch');
+          return `<div class="content-mismatch">
+            <span class="reconcile-mark">⚠</span>
+            <span class="reconcile-text">This booking id is real, but it does
+              not match what the review says. ${rows.map(s =>
+                `<strong>${esc(s.name)}</strong>: ${esc(s.why)}`).join('; ')}.
+              The guest may be quoting someone else's reference number. The
+              match has NOT been undone — confirm before relying on it.</span>
+          </div>`;
+        })()}
         ${signalsBox}
         ${confTrail}
         ${slackPings}
@@ -2822,6 +2921,13 @@ function renderReviewCol() {
             <button class="candidate-confirm-btn">Confirm · run full RCA</button>
             <button class="skip-btn" data-mark-untraceable
                     title="None of these is this guest's booking">None → Untraceable</button>
+            <!-- The third outcome, which had nowhere to go. Send ↑ lives in
+                 the RCA column header, and that header is replaced by this
+                 picker for a review in candidate state — so a review nobody
+                 could confirm could not be finished at all. -->
+            <button class="skip-btn" data-close-out
+                    data-close-reason="Closed without confirming a booking — none of the candidates was this guest's."
+                    title="Finish this review without confirming a booking. Nothing is posted to Slack.">Close out → Sent</button>
           </div>
         </div>
       ` : ''}
@@ -3331,24 +3437,78 @@ function renderReviewCol() {
         if (!res.ok) throw new Error(await res.text());
         confirmBtn.textContent = '✓ Confirmed · pipeline running…';
         r.candidateState = false;
-        // Poll every 3 s until the pipeline finishes (candidate_state clears)
+        // THE COMPLETION SIGNAL IS generated_at, NOT candidate_state.
+        //
+        // This polled `!d.candidate_state`, which the confirm request itself
+        // clears and commits before it returns — so the condition was already
+        // true when the first poll fired three seconds later. The poll stopped
+        // while the run was still at step 1, and nothing looked at the review
+        // again. Worse, it refreshed with loadDraftOverlays() alone, which
+        // does not touch r.type; r.type is only recomputed by fetchInbox().
+        // So the review stayed typed 'candidates' for the rest of the session
+        // and the RCA column kept drawing its gate — "Locked until a booking
+        // is confirmed", on a booking that had just been confirmed. Exactly
+        // the two shapes this codebase keeps hitting: a signal that cannot
+        // distinguish "not started" from "finished", and a refresh that reads
+        // one store while the screen renders off another.
+        //
+        // generated_at moves only when the run writes its result, and it is
+        // the same signal the Re-run button waits on.
+        let before = null;
+        try {
+          const pre = await fetch(`/api/reviews/${r.id}`);
+          if (pre.ok) before = ((await pre.json()).draft || {}).generated_at || null;
+        } catch (_) {}
         let polls = 0;
         const poll = setInterval(async () => {
           polls++;
           try {
             const check = await fetch(`/api/reviews/${r.id}`);
-            if (!check.ok) return;
-            const payload = await check.json();
-            const d = payload.draft;
-            if (d && !d.candidate_state) {
-              clearInterval(poll);
-              await loadDraftOverlays();
-              renderInbox();
-              renderReviewCol();
-              renderRcaCol();
+            if (check.ok) {
+              const d = (await check.json()).draft;
+              if (d && d.generated_at && d.generated_at !== before) {
+                clearInterval(poll);
+                await reloadFromServer();
+                return;
+              }
             }
           } catch (_) {}
-          if (polls > 20) clearInterval(poll); // give up after 60 s
+          // Stage naming, and the one case where waiting is wrong: the run
+          // has an entry that has stopped moving. Display only — a progress
+          // endpoint with nothing to say is a restarted server, not a
+          // finished run, so silence there never ends the poll.
+          try {
+            const pr = await fetch(`/api/reviews/${r.id}/progress`);
+            if (pr.ok) {
+              const p = await pr.json();
+              if (p.state === 'queued') {
+                confirmBtn.textContent = p.queue_size > 1
+                  ? `⋯ queued ${p.queue_position}/${p.queue_size}` : '⋯ queued';
+              } else if (p.state === 'stalled') {
+                clearInterval(poll);
+                await reloadFromServer();
+                confirmBtn.disabled = false;
+                confirmBtn.textContent =
+                  `✗ no progress for ${Math.round(p.since_progress_s / 60)}m — re-run`;
+                return;
+              } else if (p.running) {
+                const m = String(Math.floor(p.elapsed_s / 60));
+                const sec = String(p.elapsed_s % 60).padStart(2, '0');
+                confirmBtn.textContent = `⟳ ${p.step}/${p.total} ${p.stage} · ${m}:${sec}`;
+              }
+            }
+          } catch (_) {}
+          // A confirmed candidate runs the FULL pipeline — Zendesk, insights,
+          // RCA, response draft — which is minutes, not seconds. Sixty seconds
+          // was the old budget and no run has ever finished inside it, so the
+          // poll gave up every single time and the only visible difference
+          // between that and a broken confirm was nothing at all.
+          if (polls > 200) {              // ~10 min, the runner's own budget
+            clearInterval(poll);
+            await reloadFromServer();     // it may have landed just after
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = '⏱ still running after 10m — reload to check';
+          }
         }, 3000);
       } catch (e) {
         confirmBtn.textContent = '✗ Error — try again';
@@ -3747,6 +3907,28 @@ function renderRcaCol() {
   // The RCA runs against a specific booking, so an unconfirmed candidate set
   // gets a gate rather than a half-built workspace: editing an analysis that
   // is about to be regenerated against a different booking wastes the work.
+  // Closed out with no analysis. Without this the Sent tab draws the full RCA
+  // workspace over an empty draft — twelve blank sections and a Send button —
+  // which reads as an RCA that came back empty rather than one that was never
+  // written. The reason is the whole content of the card.
+  if (r.closedAt && !((r.rca || {}).issueL1)) {
+    col.innerHTML = `
+      <div class="rca-head">
+        <div>
+          <div class="rca-title">RCA &amp; response</div>
+          <div class="rca-sub">Closed out — no analysis was written</div>
+        </div>
+      </div>
+      <div class="rca-gate">
+        <div class="rca-gate-title">This review was closed, not answered</div>
+        <div class="rca-gate-body">${esc(r.closeReason
+          || 'No reason was recorded.')} Nothing was posted to Slack and no RCA
+          exists for it. Re-run matching from the middle panel if a booking has
+          since come to light.</div>
+      </div>`;
+    return;
+  }
+
   if (r.type === 'candidates') {
     col.innerHTML = `
       <div class="rca-head">
@@ -3759,7 +3941,37 @@ function renderRcaCol() {
         <div class="rca-gate-title">Confirm the booking first</div>
         <div class="rca-gate-body">The RCA runs against a specific booking. Pick the
           correct candidate in the middle panel — the full analysis fills in here
-          once confirmed.</div>
+          once confirmed. If none of them is this guest's booking, the picker
+          offers Untraceable and Close out.</div>
+      </div>`;
+    return;
+  }
+
+  // A review with no draft row. It used to fall through to the full RCA
+  // layout, whose Send ↑ button calls an endpoint that needs a draft — so the
+  // one bucket guaranteed not to have one was offered the one button
+  // guaranteed to 404 on it. It gets the same gate as candidates, and the
+  // route to Sent that actually works.
+  if (r.type === 'processing') {
+    col.innerHTML = `
+      <div class="rca-head">
+        <div>
+          <div class="rca-title">RCA &amp; response</div>
+          <div class="rca-sub">Nothing has been analysed yet</div>
+        </div>
+      </div>
+      <div class="rca-gate">
+        <div class="rca-gate-title">${r.processingState === 'stalled'
+          ? 'The run stopped before it wrote anything'
+          : 'The run has not finished'}</div>
+        <div class="rca-gate-body">${esc(r.processingReason
+          || 'This review has no draft row yet.')}</div>
+        <div class="untraceable-actions" style="margin-top:12px">
+          <button class="btn" data-rerun-match>↻ Re-run</button>
+          <button class="btn" data-close-out
+                  data-close-reason="Closed before the pipeline produced a draft."
+                  title="Finish this review. Nothing is posted to Slack.">Close out → Sent</button>
+        </div>
       </div>`;
     return;
   }
@@ -3784,6 +3996,14 @@ function renderRcaCol() {
                hand like every other response in this app. -->
           <button class="btn primary" data-copy-untraceable>Copy reply</button>
           <button class="btn" data-rerun-match>↻ Re-run matching</button>
+          <!-- Closing out is its own action, deliberately not "Send ↑".
+               There is no RCA and no reply to post here — the reply above is
+               pasted into the Slack thread by hand — so "send" would be a
+               verb for something that does not happen. This finishes the
+               review and posts nothing. -->
+          <button class="btn" data-close-out
+                  data-close-reason="Untraceable — asked the guest for a booking reference; there is no RCA and no reply to post."
+                  title="Finish this review. Nothing is posted to Slack.">Close out → Sent</button>
         </div>
       </div>
 
@@ -6564,6 +6784,57 @@ document.addEventListener('click', async (ev) => {
   setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 4000);
 });
 
+// Close out → Sent. One delegated handler for every bucket that has no reply
+// to post: the untraceable panel, the candidate picker, and the
+// nothing-analysed-yet gate.
+//
+// Deliberately NOT the Send button. Send posts the RCA into the review's Slack
+// thread and means "the analysis and the reply have gone out". These reviews
+// have neither, and overloading one verb with both is how the Sent tab stops
+// telling anyone anything.
+//
+// Two clicks, not a confirm() dialog: this moves the card out of every working
+// tab, and a mis-click on a one-shot button is a review that quietly leaves
+// the queue. Arming is visible, reversible by doing nothing, and testable —
+// a native dialog is none of the three.
+document.addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('[data-close-out]');
+  if (!btn || btn.disabled) return;
+  const r = REVIEWS.find(x => x.id === state.selected);
+  if (!r) return;
+  if (btn.dataset.armed !== '1') {
+    btn.dataset.armed = '1';
+    const was = btn.textContent;
+    btn.textContent = 'Click again to close out';
+    setTimeout(() => {
+      if (btn.dataset.armed === '1') { btn.dataset.armed = ''; btn.textContent = was; }
+    }, 4000);
+    return;
+  }
+  btn.dataset.armed = '';
+  btn.disabled = true;
+  btn.textContent = '⟳ Closing…';
+  try {
+    const res = await fetch(`/api/reviews/${r.id}/close`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({reason: btn.dataset.closeReason || null}),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`.slice(0, 200));
+    const out = await res.json();
+    r.status = 'sent';
+    r.closedAt = new Date().toISOString();
+    r.closeReason = out.reason || '';
+    btn.textContent = '✓ Closed out';
+    // The whole screen, not just this button: the review has left every
+    // working tab and the counts above it are now wrong.
+    await reloadFromServer();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = '✗ Could not close — try again';
+    _saveToast(String(e.message || e));
+  }
+});
+
 // ↻ Re-run matching — one delegated handler covers the Booking Match header
 // button and the Untraceable panel button. Re-runs the FULL pipeline for the
 // selected review, then reloads when the fresh result lands.
@@ -6596,9 +6867,7 @@ document.addEventListener('click', async (ev) => {
         const d = (await check.json()).draft;
         if (d && d.generated_at && d.generated_at !== before) {
           clearInterval(poll);
-          await fetchInbox();
-          await loadDraftOverlays();
-          renderInbox(); renderReviewCol(); renderRcaCol();
+          await reloadFromServer();
           return;
         }
       }
@@ -6639,11 +6908,7 @@ document.addEventListener('click', async (ev) => {
       // Refresh anyway. Giving up used to just re-enable the button, so a run
       // that finished slightly after the deadline left the old result on screen
       // with nothing to say the data underneath had changed.
-      try {
-        await fetchInbox();
-        await loadDraftOverlays();
-        renderInbox(); renderReviewCol(); renderRcaCol();
-      } catch (_) {}
+      await reloadFromServer();
       btn.disabled = false; btn.textContent = orig;
     }
   }, 3000);

@@ -114,6 +114,74 @@ def _shape_weak_bid(row: dict, why: list) -> dict:
     return out
 
 
+def complete_booking_row(booking: dict, lookup) -> tuple:
+    """Fill the fields the matching query never selected. (booking, trail entry)
+
+    THE BUG. The booking panel showed Pena Palace & Park with Experience,
+    TGID/TID, Vendor, Visit date, Primary guest and Booking status filled in,
+    and Fulfilment type, Booking date, Partnered vendor and Lead time all "—".
+    That is not a booking with empty fields; it is a PARTIAL ROW.
+
+    _make_candidate() builds what the candidate PICKER needs — id, experience,
+    tgid/tid, vendor, visit date — and the auto-promote paths hand that same
+    narrow dict straight through as the matched booking. _get_booking_extra()
+    IS called there, which is why booking_status and tid_name were present;
+    verify_bid() — the only query that selects created_at and fulfilment_type —
+    is never called on those paths at all. Those four fields were not empty in
+    the warehouse. Nobody asked for them. Lead time follows, being computed
+    from the booking date.
+
+    select-candidate already merges verify_bid for exactly this reason, and
+    says so in its own comment. This is that merge, in one place every path
+    passes through, so no future path can forget it.
+
+    DIRECTION OF THE MERGE: the full row underneath, the match path's values on
+    top. Matching decided which booking this is and carries things the
+    warehouse row does not know about (matchReasons, narrowing_path, _match);
+    the warehouse fills what nobody fetched. A blank from the match path never
+    beats a value from the warehouse.
+
+    Its own function so it can be driven. The trail entry it returns is the
+    part that matters most and the part a source assertion cannot check: three
+    outcomes, three sentences — filled, the lookup returned nothing, the lookup
+    raised — and the last two must never be readable as "this booking has no
+    booking date".
+    """
+    if not isinstance(booking, dict) or not booking.get("id"):
+        return booking, None
+    before = {k for k, v in booking.items() if v not in (None, "")}
+    try:
+        full = lookup(str(booking["id"]))
+    except Exception as e:
+        log.warning(f"[complete] verify_bid raised for {booking.get('id')}: {e}")
+        return booking, {"mark": "warn",
+                         "text": f"<strong>Booking row not completed</strong> — the "
+                                 f"lookup for the rest of BID {booking['id']} raised "
+                                 f"{type(e).__name__}. The fields below came from the "
+                                 f"matching query only; a dash there means we did not "
+                                 f"fetch it, not that the booking has no value."}
+    if not full:
+        # Says the true thing. "BigQuery did not return this booking" sat on a
+        # card beside a booking BigQuery had plainly returned, and a false
+        # sentence in the trail is worse than a missing one.
+        return booking, {"mark": "warn",
+                         "text": f"<strong>Booking row not completed</strong> — BID "
+                                 f"{booking['id']} matched, but the follow-up lookup "
+                                 f"for its booking date and fulfilment type returned "
+                                 f"nothing. Those fields are blank because they were "
+                                 f"not retrieved, not because the booking has none."}
+    merged = {**full, **{k: v for k, v in booking.items() if v not in (None, "")}}
+    filled = sorted({k for k, v in merged.items() if v not in (None, "")} - before)
+    if not filled:
+        return merged, None      # nothing was missing; nothing to report
+    return merged, {"mark": "pass",
+                    "text": f"<strong>Booking row completed</strong> from BigQuery — "
+                            f"the matching query does not select "
+                            f"{', '.join(filled[:6])}"
+                            + (" and others" if len(filled) > 6 else "")
+                            + ", so they were fetched separately."}
+
+
 def _venue_token_overlap(review_text: str, exp_name: str) -> bool:
     """
     Robust venue signal: True only when the review and the experience name
@@ -915,11 +983,31 @@ async def process_review(review_id: str, force_candidates: bool = False):
                             match_tier = 2
                             candidate_state = True
                             _ctr["t1_regex_downgraded"] += 1
+                            # "Weak BID — number found in text" read as though
+                            # the number went nowhere. It did not: BigQuery
+                            # RETURNED a booking for it, and we then scored
+                            # that booking's guest and venue against the
+                            # review and found they disagree. Those are
+                            # different facts and they need different
+                            # responses — "the warehouse does not have this
+                            # id" is a dead end, "the id resolves to a booking
+                            # that is not this guest's" is a reference number
+                            # quoted from somewhere else. The reader could not
+                            # tell them apart, and a second line elsewhere on
+                            # the card said the opposite.
+                            _exp = (bq_row.get("experienceName") or "").strip()
                             confidence_trail.append({"mark": "warn",
-                                "text": f"<strong>Weak BID</strong> — number found in text, but "
-                                        f"booking guest '{pgn or '—'}' scores {name_conf:.1f} and no "
-                                        f"venue match{' (date only)' if date_ok else ''}. "
-                                        f"Needs confirmation."})
+                                "text": f"<strong>BID {review.reference_number} resolves to a "
+                                        f"booking that does not match this review</strong> — "
+                                        f"BigQuery returned "
+                                        + (f"'{_exp}'" if _exp else "a booking")
+                                        + f", whose guest '{pgn or '—'}' scores "
+                                        f"{name_conf:.1f} against the reviewer"
+                                        + (" and whose experience is not mentioned in "
+                                           "the review" if not venue_ok else "")
+                                        + (" (the visit date does line up)" if date_ok else "")
+                                        + ". The id is real; it may be someone "
+                                          "else's. Needs confirmation."})
                         else:
                             booking = bq_row
                             match_tier = 1
@@ -977,12 +1065,35 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 # the Zendesk extractor does not populate one either. Wiring it
                 # needs the pax column name in fct_bookings.
                 extracted_sigs["pax_hint"] = indicators.get("pax")
+                # TWO WORDING FIXES, both about the same line.
+                #
+                # It was ticked "pass" while reporting venue='—' city='—'
+                # visit≈'—' — a green tick on a step that found nothing. The
+                # extraction ran; it came back empty, and an empty extraction
+                # is what sends the search down the weakest path it has. That
+                # is a finding, not a success.
+                #
+                # And it was headed "Indicators:", one line above "5
+                # booking(s) match the indicators from this review" — the same
+                # word for what was pulled OUT of the review and for what the
+                # search matched bookings ON. The extraction is now headed
+                # with the name the card already uses for it, "Extracted from
+                # review", and "indicators" is left to mean the search.
                 if indicators:
-                    confidence_trail.append({"mark": "pass",
-                        "text": "<strong>Indicators:</strong> "
+                    _found = [v for v in (indicators.get("experience_or_venue"),
+                                          indicators.get("city_or_country"),
+                                          indicators.get("visit_date_hint"))
+                              if v and str(v).strip()]
+                    confidence_trail.append({
+                        "mark": "pass" if _found else "warn",
+                        "text": "<strong>Extracted from review:</strong> "
                                 f"venue='{indicators.get('experience_or_venue') or '—'}' · "
                                 f"city='{indicators.get('city_or_country') or '—'}' · "
-                                f"visit≈'{indicators.get('visit_date_hint') or '—'}'"})
+                                f"visit≈'{indicators.get('visit_date_hint') or '—'}'"
+                                + ("" if _found else
+                                   " — nothing usable was found in the review "
+                                   "text, so the search has only the author's "
+                                   "name to work with")})
 
                 # Resolve venue hints → TGIDs
                 tgids = None
@@ -1030,8 +1141,20 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 extracted_sigs["review_pub_date"] = pub_date
 
                 if author_first or author_last:
+                    # `last='None'` reached the screen: the f-string rendered
+                    # Python's None into a sentence an associate reads. A
+                    # surname we do not have is an em dash like every other
+                    # absent value on this card, and the clause is dropped
+                    # entirely when there is nothing to put in it — printing
+                    # "last=—" beside a name that has no surname is a fact
+                    # about the name, not a gap in the parse.
+                    _parsed = f"first='{author_first or '—'}'"
+                    if author_last:
+                        _parsed += f" last='{author_last}'"
+                    else:
+                        _parsed += " (no surname in the display name)"
                     confidence_trail.append({"mark": "pass",
-                        "text": f"<strong>Author parsed:</strong> first='{author_first}' last='{author_last}'"})
+                        "text": f"<strong>Author parsed:</strong> {_parsed}"})
 
                 # ── Name parseability check (Step 0) ─────────────────────────
                 def _name_parseable(first, last):
@@ -1870,6 +1993,76 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 untraceable_reason = ("No BID in the review text and no usable name or "
                                       "venue signal to search with.")
             log.info(f"[pipeline] {review_id} untraceable: {untraceable_reason}")
+
+        # ── 5a-i. Complete the booking row before anything reads it ──────────
+        # THE BUG: the booking panel showed Pena Palace & Park with Experience,
+        # TGID/TID, Vendor, Visit date, Primary guest and Booking status filled
+        # in, and Fulfilment type, Booking date, Partnered vendor and Lead time
+        # all "—". That is not a booking with empty fields; it is a PARTIAL ROW.
+        #
+        # _make_candidate() builds what the candidate PICKER needs — id,
+        # experience, tgid/tid, vendor, visit date — and the auto-promote paths
+        # (venue_date_30_auto, venue_date_60_auto) hand that same narrow dict
+        # straight through as the matched booking. _get_booking_extra() is
+        # called there, which is why booking_status and tid_name ARE present,
+        # but verify_bid() — the only query that selects created_at and
+        # fulfilment_type — is never called on those paths at all. So those
+        # four fields were not empty in the warehouse; nobody asked for them.
+        # Lead time follows, because it is computed from the booking date.
+        #
+        # select-candidate already merges verify_bid for exactly this reason
+        # and says so in its comment. This is the same merge, moved to where
+        # every path passes, so no future path can forget it.
+        #
+        # DIRECTION OF THE MERGE: the full row underneath, the match path's own
+        # values on top. Matching decided which booking this is and carries
+        # things verify_bid does not know about (matchReasons, narrowing_path,
+        # _match); the warehouse fills what nobody fetched. A blank from the
+        # match path never beats a value from the warehouse.
+        if (booking and booking.get("id") and not booking.get("_unverified")
+                and is_live("bigquery")):
+            from server.services.bigquery_patch import verify_bid as _vb_full
+            booking, _entry = complete_booking_row(booking, _vb_full)
+            if _entry:
+                confidence_trail.append(_entry)
+
+        # ── 5a-ii. Does the booking we ended up with match the review? ───────
+        # A booking id verifying in BigQuery says the ID is real. It says
+        # nothing about whose booking it is, and for a Tier 1 BID nothing above
+        # ever asked: indicator extraction only runs when the id path fails, so
+        # the review's venue, city, date and guest name were compared to
+        # nothing at all. A guest quoting someone else's reference number —
+        # from a shared voucher, a forwarded confirmation, a screenshot in a
+        # group chat — lands here with a green trail and an RCA about a
+        # stranger's trip.
+        #
+        # ONE PLACE, after the whole cascade, so every path that ends with a
+        # booking is checked the same way: attachment, manual, regex,
+        # auto-promoted tier 2, and an associate-confirmed candidate (which
+        # re-enters this function with selected_candidate_bid set).
+        #
+        # It never unmatches. The result is a line on the trail and a line on
+        # the card; the booking stands either way, because the alternative is a
+        # heuristic quietly discarding correct matches.
+        if booking:
+            from server import bid_indicator_check as _bic
+            try:
+                _im = _bic.check(review_text or review.body_original or "",
+                                 booking, author=review.author,
+                                 received_at=review.received_at)
+                confidence_trail.append(_bic.trail_entry(_im))
+                if _im["state"] == "mismatch":
+                    _ctr["indicator_mismatch"] = _ctr.get("indicator_mismatch", 0) + 1
+                    log.warning(f"[indicators] {review_id}: booking "
+                                f"{booking.get('id')} contradicts the review — "
+                                f"{_im['why']}")
+            except Exception as e:
+                # An exception is not "no contradiction". Say which it was.
+                log.warning(f"[indicators] {review_id}: check raised: {e}")
+                confidence_trail.append({"mark": "warn",
+                    "text": "<strong>Indicator check did not run</strong> — it "
+                            f"raised {type(e).__name__}. Nothing was compared "
+                            "against this booking; this is not agreement."})
 
         # ── 5b. PERSIST THE MATCH NOW, before anything else can fail ─────────
         # The draft row used to be created only at the final save step, so a

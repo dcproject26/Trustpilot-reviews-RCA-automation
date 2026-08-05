@@ -579,3 +579,83 @@ def test_content_about_the_experience_stays_with_operations():
     seg = TEXT[TEXT.index("10-teams."):TEXT.index("10a.")]
     assert "an offer the site advertises without its precondition" in seg, (
         "the RCA prompt and the classifier disagree about where this lands")
+
+
+# ── a refund denial does not outrank the failure that caused it ────────────
+#
+# The Zoomarine review: the guest was charged for a child ticket that should
+# have been free, and the refund was then denied. It came back L2 = "Customer
+# Support Issues" — the symptom — instead of Content/Misleading Info, which
+# outranks it in the within-Operations order the ruleset already states.
+#
+# The order was never the problem. Nothing told the model that a refund denial
+# ARISING FROM another failure is classified as that failure, so it read the
+# review's headline complaint (the denial), matched the "Refund denied"
+# examples verbatim, and stopped.
+
+def test_the_priority_rule_says_a_denied_remedy_is_not_its_own_issue():
+    text = _classify()
+    head = text[:text.index("CLASSIFICATION RULES")]
+    assert "A REMEDY REFUSED IS NOT ITS OWN ISSUE" in head, (
+        "the rule has to be in the priority block, which is what the model "
+        "reads before it starts matching sections")
+    assert "classify the FAILURE, not the denial" in head
+
+
+def test_the_priority_rule_carries_the_zoomarine_worked_example():
+    text = _classify()
+    head = " ".join(text[:text.index("CLASSIFICATION RULES")].split())
+    assert "WORKED EXAMPLE (Zoomarine)" in head
+    assert "charged for a child ticket that should have been free" in head
+    assert 'L2 = "Content - Instructions not clear / Misleading Info"' in head
+
+
+def test_the_rule_gives_a_test_the_model_can_apply():
+    """A rule stating a principle and nothing else is a rule the model applies
+    to the cases it already got right. Removing the denial and asking what is
+    left is mechanical."""
+    head = " ".join(_classify().split())
+    assert "TEST: remove the denial from the review." in head
+    assert "If a complaint remains, that complaint is the L2." in head
+
+
+def test_the_boundary_is_repeated_where_the_model_actually_stops():
+    """Same lesson as the offer-precondition rule: the priority block is read
+    once and the section is read at the moment of decision. The "Refund
+    denied" examples under Customer Support Issues are what matched the
+    Zoomarine review, so the boundary has to be there too."""
+    text = _classify()
+    cs = text[text.index('→ L2 = "Customer Support Issues"'):
+              text.index('→ L2 = "Inventory Listing Issue"')]
+    assert 'STOP BEFORE USING "Refund denied"' in cs
+    assert "charged for something that should have been free" in cs
+    assert "Content - Instructions not clear / Misleading Info" in cs
+    assert "EXAMPLE (Zoomarine)" in cs
+
+
+def test_customer_support_issues_keeps_the_cases_that_are_really_its_own():
+    """The boundary must not empty the L2 it sits in. A support failure that
+    IS the complaint stays here, or every unanswered email starts hunting for
+    an underlying cause that does not exist."""
+    text = _classify()
+    head = " ".join(text[:text.index("CLASSIFICATION RULES")].split())
+    assert ("Customer Support Issues is for a support failure that IS the "
+            "complaint" in head)
+    assert "rudeness, no reply" in head
+    cs = " ".join(text[text.index('→ L2 = "Customer Support Issues"'):
+                       text.index('→ L2 = "Inventory Listing Issue"')].split())
+    assert "ONLY when the refusal itself is the whole complaint" in cs
+
+
+def test_an_external_event_refusal_is_still_customer_support():
+    """The existing Force Majeure boundary sends "we refused to refund after
+    your flight was cancelled" to Customer Support Issues, and it is right:
+    nothing of ours failed first. The new rule must not contradict it."""
+    text = _classify()
+    head = " ".join(text[:text.index("CLASSIFICATION RULES")].split())
+    assert "not an external event" in head
+    assert "stays Customer Support Issues" in head
+    fm = text[text.index('→ L2 = "Force Majeure"'):]
+    assert "Operations / Customer Support Issues" in fm, (
+        "the force-majeure boundary was removed or reworded — the two rules "
+        "have to keep agreeing about the case they share")

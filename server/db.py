@@ -48,6 +48,12 @@ class Review(Base):
     reference_number = Column(String, nullable=True)
     received_at      = Column(DateTime, default=datetime.utcnow)
     status           = Column(String, default="new")   # new|draft|sent
+    # Closed out rather than replied to. An untraceable review reaches Sent by
+    # someone deciding there is nothing more to do — no RCA, no posted reply —
+    # and the Sent tab has to say which kind of Sent it is looking at. A single
+    # `status` cannot: "sent" would then mean two different pieces of work.
+    closed_at        = Column(DateTime, nullable=True)
+    close_reason     = Column(Text, nullable=True)
     draft            = relationship("RcaDraft", back_populates="review", uselist=False)
 
 
@@ -221,17 +227,69 @@ def _ensure_columns():
     Idempotently add columns introduced after the initial schema so existing
     installations self-heal on deploy without a manual migration.
     create_all() only creates missing tables, never missing columns.
+
+    Two tables now. `reviews` grew the close-out fields, and a per-table loop
+    is the only version of this that can report which table it failed on —
+    the earlier one named rca_drafts in every message because rca_drafts was
+    the only thing it could be.
     """
     import logging
     log = logging.getLogger(__name__)
+    is_pg = engine.dialect.name == "postgresql"
+    _ensure_table_columns("rca_drafts", _WANTED_DRAFT_COLUMNS(is_pg), log)
+    _ensure_table_columns("reviews", _WANTED_REVIEW_COLUMNS(is_pg), log)
+
+
+def _ensure_table_columns(table: str, wanted: dict, log) -> None:
     from sqlalchemy import inspect as _inspect, text as _text
     try:
-        existing = {c["name"] for c in _inspect(engine).get_columns("rca_drafts")}
+        existing = {c["name"] for c in _inspect(engine).get_columns(table)}
     except Exception as e:
-        log.error(f"[db] cannot inspect rca_drafts, skipping migration: {e}")
+        log.error(f"[db] cannot inspect {table}, skipping migration: {e}")
         return
-    is_pg = engine.dialect.name == "postgresql"
-    wanted = {
+    added, failed = [], []
+    for col, coltype in wanted.items():
+        if col in existing:
+            continue
+        try:
+            with engine.begin() as conn:
+                conn.execute(_text(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}"))
+            added.append(col)
+        except Exception as e:
+            failed.append(f"{col}: {e}")
+    if added:
+        log.info(f"[db] migration added {table} columns: {', '.join(added)}")
+    # A swallowed migration failure is not a small problem: the model declares
+    # the column, so every SELECT on the table then fails with "no such
+    # column", the reviews list returns nothing, and the dashboard shows every
+    # review as untraceable - a symptom that looks nothing like its cause.
+    # Loud, and re-checked, so the log names the missing column.
+    if failed:
+        log.error(f"[db] MIGRATION FAILED for {len(failed)} {table} column(s): "
+                  f"{'; '.join(failed)}")
+    try:
+        now = {c["name"] for c in _inspect(engine).get_columns(table)}
+        missing = sorted(set(wanted) - now)
+        if missing:
+            log.error(f"[db] {table} is MISSING declared columns {missing} - "
+                      f"queries on this table will fail until they are added")
+    except Exception:
+        pass
+
+
+def _WANTED_REVIEW_COLUMNS(is_pg: bool) -> dict:
+    return {
+        # Closing a review out is not the same as replying to it, and the
+        # Sent tab has to be able to tell them apart. Without these two, an
+        # untraceable review moved to Sent looks exactly like one that got a
+        # full RCA and a posted reply.
+        "closed_at":    "TIMESTAMP",
+        "close_reason": "TEXT",
+    }
+
+
+def _WANTED_DRAFT_COLUMNS(is_pg: bool) -> dict:
+    return {
         "primary_scenario":       "VARCHAR",
         "sub_themes":             "JSONB" if is_pg else "JSON",
         "scenarios":              "JSONB" if is_pg else "JSON",
@@ -253,33 +311,6 @@ def _ensure_columns():
         "guest_issues":           "JSONB" if is_pg else "JSON",
         "rca_prompt_version":     "VARCHAR",
     }
-    added, failed = [], []
-    for col, coltype in wanted.items():
-        if col in existing:
-            continue
-        try:
-            with engine.begin() as conn:
-                conn.execute(_text(f"ALTER TABLE rca_drafts ADD COLUMN {col} {coltype}"))
-            added.append(col)
-        except Exception as e:
-            failed.append(f"{col}: {e}")
-    if added:
-        log.info(f"[db] migration added columns: {', '.join(added)}")
-    # A swallowed migration failure is not a small problem: the model declares
-    # the column, so every SELECT on rca_drafts then fails with "no such
-    # column", the reviews list returns nothing, and the dashboard shows every
-    # review as untraceable - a symptom that looks nothing like its cause.
-    # Loud, and re-checked, so the log names the missing column.
-    if failed:
-        log.error(f"[db] MIGRATION FAILED for {len(failed)} column(s): {'; '.join(failed)}")
-    try:
-        now = {c["name"] for c in _inspect(engine).get_columns("rca_drafts")}
-        missing = sorted(set(wanted) - now)
-        if missing:
-            log.error(f"[db] rca_drafts is MISSING declared columns {missing} - "
-                      f"queries on this table will fail until they are added")
-    except Exception:
-        pass
 
 
 def init_db():

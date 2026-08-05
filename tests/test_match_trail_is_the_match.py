@@ -44,6 +44,11 @@ def test_a_match_step_is_kept(page, label):
 @pytest.mark.parametrize("label", [
     "RCA", "Reply voice", "Draft", "DSS", "Insights", "Classification",
     "Macros", "Slack post", "Sub-themes", "Checklist",
+    # Reported twice from the dashboard, and the reason it survived is that
+    # the filter anchored on the first word: this label leads with "The". The
+    # FULL label, not a prefix — a test asserting on "The reply" would have
+    # passed against a regex that only ever saw the first two words.
+    "The reply is an approved macro, sent as written",
 ])
 def test_a_later_stage_step_is_not_in_the_match_trail(page, label):
     assert _keep(page, label) is False, (

@@ -5,6 +5,11 @@ Keeps the original endpoints (health, signals, list, manual, get, patch, send, r
 and adds the demo-parity endpoints:
 
   POST   /api/reviews/{id}/select-candidate — associate confirms a Tier 2 candidate
+  POST   /api/reviews/{id}/close            — move a review to Sent with nothing
+                                              to post (untraceable, unconfirmed,
+                                              or never processed). /send needs a
+                                              draft AND an RCA; this needs
+                                              neither, and posts nothing.
   POST   /api/reviews/{id}/connect-dss      — pull DSS on demand
   POST   /api/reviews/{id}/flag-to-biz      — draft + send Slack flag
   PATCH  /api/reviews/{id}/action           — add/edit/delete a single actions_taken row
@@ -265,6 +270,34 @@ def _content_match(d: RcaDraft) -> dict:
                 "why": "the check did not run"}
 
 
+def _indicator_match(d: RcaDraft) -> dict:
+    """Whether the booking this id returned is the trip the review describes.
+
+    A verified BID is where this check is MISSING, not where it is redundant:
+    the pipeline skips indicator extraction entirely when a review carries its
+    own booking id, so venue, city, date and name are never compared to
+    anything. A guest quoting someone else's reference gets a real booking and
+    a green trail.
+
+    Same contract as _content_match: additive, non-blocking, a line on the
+    match card and never a gate. Any failure returns "unchecked" rather than
+    raising — a hint must not be able to stop a draft rendering.
+    """
+    from server import bid_indicator_check as bic
+    try:
+        r = getattr(d, "review", None)
+        text = (getattr(r, "body_english", None)
+                or getattr(r, "body_original", None) or "") if r else ""
+        return bic.check(text, d.booking,
+                         author=getattr(r, "author", None) if r else None,
+                         received_at=getattr(r, "received_at", None) if r else None)
+    except Exception as e:              # never break the card over a hint
+        log.warning(f"[indicator-match] skipped: {e}")
+        return {"state": "unchecked", "signals": [], "contradictions": [],
+                "agreements": [], "checked": 0,
+                "why": "the check did not run"}
+
+
 def _draft_dict(d: RcaDraft) -> dict:
     _tf = d.ticket_facts or {}
     _bk = d.booking or {}
@@ -348,6 +381,11 @@ def _draft_dict(d: RcaDraft) -> dict:
         # every other check — the id is real, the booking exists, the dates
         # line up — and describes a different product entirely.
         "content_match":               _content_match(d),
+        # And is it the same TRIP? content_match compares product families;
+        # this compares venue, city, date and guest name. A museum review
+        # against a museum booking in another country passes the first check
+        # cleanly and fails this one.
+        "indicator_match":             _indicator_match(d),
         "wwr_scenarios":               d.wwr_scenarios or [],
         "l1_reasoning":                d.l1_reasoning,
         "diagnostic_checks":           d.diagnostic_checks or [],
@@ -538,6 +576,11 @@ def list_reviews(status: str | None = None, tab: str | None = None,
             # inferred from Zendesk. Without this the client cannot tell them
             # apart and every row falls through to chip 2.
             "bid_source":  draft.bid_source if draft else None,
+            # Which kind of Sent. A review closed out and a review replied to
+            # both have status "sent"; without this the tab shows them as one
+            # thing and the count means two different pieces of work.
+            "closed_at":   r.closed_at.isoformat() if r.closed_at else None,
+            "close_reason": r.close_reason,
             "reference_number": r.reference_number,
             "experience":  (draft.booking or {}).get("experienceName") if draft else None,
         })
@@ -603,6 +646,8 @@ def get_review(review_id: str, db: Session = Depends(get_session)):
             "slack_channel":    r.slack_channel,
             "slack_ts":         r.slack_ts,
             "received_at":      r.received_at.isoformat() if r.received_at else None,
+            "closed_at":        r.closed_at.isoformat() if r.closed_at else None,
+            "close_reason":     r.close_reason,
         },
         "draft": _draft_dict(r.draft) if r.draft else None,
     }
@@ -1837,6 +1882,47 @@ async def similar(review_id: str, db: Session = Depends(get_session)):
 
 # ── Existing send + reporting (unchanged shape) ─────────────────────────────
 
+def has_rca_to_post(d) -> bool:
+    """Is there an analysis on this draft worth putting in a Slack thread?
+
+    Send used to post unconditionally. For an untraceable or an unconfirmed
+    review that means posting the SHELL of an RCA — a header, a booking id of
+    "—", and a dozen empty sections — into a channel leadership reads, which
+    is worse than posting nothing: it looks like an analysis that found
+    nothing rather than one that was never written.
+
+    A hand-written thread override counts. Somebody typed it; that is the
+    clearest possible statement that there is something to post.
+
+    Driveable on purpose. The condition matters more than the endpoint around
+    it, and a source assertion on `if has_rca` cannot tell a reachable guard
+    from an unreachable one.
+    """
+    if d is None:
+        return False
+    if (getattr(d, "slack_thread_override", None) or "").strip():
+        return True
+    v3 = getattr(d, "rca_v3", None)
+    if isinstance(v3, dict):
+        # what_went_wrong is a WRAPPER — {"guest_issues": [...]} — and the
+        # validator writes the wrapper whether or not there are issues in it.
+        # A truthiness test on the key alone calls an empty analysis an
+        # analysis, which is exactly the shell this guard exists to stop.
+        wwr = v3.get("what_went_wrong")
+        if isinstance(wwr, dict):
+            if wwr.get("guest_issues"):
+                return True
+        elif wwr:
+            return True
+        if any(v3.get(k) for k in ("stated_issue", "tldr", "l1", "flags",
+                                   "resolution")):
+            return True
+    return bool(getattr(d, "l1", None)
+                or getattr(d, "what_went_wrong_bullets", None)
+                or getattr(d, "wwr_scenarios", None)
+                or getattr(d, "guest_issues", None))
+
+
 @router.post("/api/reviews/{review_id}/send")
 async def send_review(review_id: str, db: Session = Depends(get_session)):
     r = db.query(Review).filter(Review.id == review_id).first()
@@ -1847,22 +1933,119 @@ async def send_review(review_id: str, db: Session = Depends(get_session)):
     d.sent_at = datetime.utcnow()
     r.status  = "sent"
     ts = None
+    posted_why = ""
     # Send posts the RCA as well as closing the review — but "Post to thread"
     # exists precisely so the RCA can go to the team while the reply is still
     # being edited, and using both put the same RCA in the thread twice. The
     # post here is for the case where nobody used that button.
-    if r.slack_channel != "C_MANUAL" and not d.rca_posted_at:
+    #
+    # And it only fires when there IS an RCA. Reaching Sent from a review with
+    # no analysis is now a supported route (see /close), so this path can be
+    # entered with nothing to say — and an empty RCA posted into the team
+    # channel reads as an analysis that came up blank.
+    if r.slack_channel == "C_MANUAL":
+        posted_why = "added by hand — no Slack thread to post into"
+    elif d.rca_posted_at:
+        posted_why = "already posted to the thread"
+    elif not has_rca_to_post(d):
+        posted_why = ("no RCA on this draft — nothing was posted to Slack. "
+                      "This review was closed out, not analysed.")
+        log.info(f"[send] {review_id}: no RCA to post, marked sent only")
+    else:
         rca_text = (d.slack_thread_override or "").strip() or format_rca_slack(r, d)
         ts = await post_to_thread(r.slack_channel, r.slack_ts, rca_text, as_user=True)
         if ts:
             d.rca_posted_at = datetime.utcnow()
+        else:
+            posted_why = "Slack did not accept the post"
     m = db.query(ReviewMetric).filter(ReviewMetric.review_id == review_id).first()
     if m:
         if r.received_at:
             m.minutes_to_send = (datetime.utcnow() - r.received_at).total_seconds() / 60
         m.sent = True
     db.commit()
-    return {"ok": True, "ts": ts}
+    # `posted` is a separate fact from `ok`. The caller used to get {"ok":
+    # true, "ts": null} for a post that was skipped, for one that failed and
+    # for one that was never attempted, and had to guess which.
+    return {"ok": True, "ts": ts, "posted": bool(ts), "why": posted_why}
+
+
+class CloseOut(BaseModel):
+    """Why this review is being closed without a reply."""
+    reason: str | None = None
+
+
+# Default reasons per bucket. Not decoration: a Sent review whose reason is
+# blank cannot be told from one whose reason was never asked for.
+_CLOSE_REASONS = {
+    "untraceable": "Untraceable — asked the guest for a booking reference; "
+                   "there is no RCA and no reply to post.",
+    "candidates":  "Closed without confirming a booking — none of the "
+                   "candidates was this guest's.",
+    "processing":  "Closed before the pipeline produced a draft.",
+    "identified":  "Closed without posting an RCA.",
+    "sent":        "Already sent; closed again.",
+}
+
+
+@router.post("/api/reviews/{review_id}/close")
+async def close_review(review_id: str, body: CloseOut | None = None,
+                       db: Session = Depends(get_session)):
+    """Move a review to Sent WITHOUT posting anything.
+
+    THE GAP THIS FILLS. /send needs a review AND a draft and 404s otherwise,
+    and the Send button lives in the RCA column header — which is replaced by
+    the candidate picker for a review in candidate state and by the
+    ask-the-guest panel for an untraceable one. So two whole buckets had no
+    route to Sent at all: the work was finished and the card could not be put
+    down.
+
+    Its own action rather than a flag on /send, because it is a different
+    piece of work. Sending means "the reply and the RCA have gone"; closing
+    out means "there is nothing to send and this is finished". Overloading one
+    verb with both is how a Sent tab stops meaning anything.
+
+    Never posts to Slack. There is nothing to post — that is the premise.
+    """
+    r = db.query(Review).filter(Review.id == review_id).first()
+    if not r:
+        # The one genuine not-found. A missing DRAFT is not: it is the
+        # commonest state this endpoint exists to serve.
+        raise HTTPException(404, f"No review {review_id}. The id comes from "
+                                 f"the inbox; try GET /api/reviews to list them.")
+    d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
+
+    from server.tiers import classify
+    bucket = classify(r, d)
+    reason = ((body.reason if body else None) or "").strip() or \
+        _CLOSE_REASONS.get(bucket, "Closed out.")
+
+    now = datetime.utcnow()
+    r.status       = "sent"
+    r.closed_at    = now
+    r.close_reason = reason
+    if d is not None:
+        d.sent_at = now
+        # On the trail, because the trail is what a reader opens to find out
+        # what happened to a review. A review that appears in Sent with no
+        # RCA and no explanation is the "did it run?" ambiguity again, wearing
+        # a different hat.
+        trail = list(d.confidence_trail or [])
+        trail.append({"mark": "warn",
+                      "text": f"<strong>Closed out</strong> from {bucket} — "
+                              f"{reason} Nothing was posted to Slack."})
+        d.confidence_trail = trail
+        flag_modified(d, "confidence_trail")
+
+    m = db.query(ReviewMetric).filter(ReviewMetric.review_id == review_id).first()
+    if m:
+        if r.received_at:
+            m.minutes_to_send = (now - r.received_at).total_seconds() / 60
+        m.sent = True
+    db.commit()
+    log.info(f"[close] {review_id}: closed from {bucket} — {reason}")
+    return {"ok": True, "closed_from": bucket, "reason": reason,
+            "posted": False, "had_draft": d is not None}
 
 
 @router.post("/api/reviews/{review_id}/translate-reply")
