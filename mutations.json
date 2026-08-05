@@ -1471,9 +1471,9 @@
  },
  {
   "file": "server/services/venue_resolver.py",
-  "name": "the whole phrase is matched instead of its tokens",
-  "find": "    toks = [w for w in words if len(w) >= 5 and w not in _GENERIC]",
-  "replace": "    toks = [w for w in words if len(w) >= 5]"
+  "name": "a bare city name is probed as a venue again",
+  "find": "    singles = [w for w in words if len(w) >= 5 and w not in _PLACES]",
+  "replace": "    singles = [w for w in words if len(w) >= 5]"
  },
  {
   "file": "server/services/venue_resolver.py",

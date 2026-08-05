@@ -693,7 +693,114 @@ in `NOT_YET_DRIVEN` in `tests/test_controls_actually_work.py`. Closing it is
 ordinary work: each needs a test that clicks it and asserts the change reaches
 the server and survives a re-render.
 
-### 11.11 The mutation pass
+### 11.11 Mark sent, beside the button people work from
+
+`/post-rca` sets `rca_posted_at` and NOTHING else, so a matched review whose
+RCA had gone to the Slack thread stayed in Matched. Only `/send` moves a review
+to Sent, and Send ↑ lives in the RCA column header while the work happens in
+the Slack-post block at the bottom.
+
+**One endpoint, not two.** The control calls `/send` — the same endpoint Send ↑
+calls. Two code paths to one outcome is how the RCA got posted into a thread
+twice; `/send` already refuses to post when `rca_posted_at` is set and that
+guard is reused rather than re-implemented. **Disabled until the RCA is in the
+thread**, because enabled earlier it would call `/send` with nothing posted and
+`/send` posts in that case.
+
+`sent_route` is DERIVED server-side from whether the RCA was already in the
+thread. A route the client asserts is a route that can be wrong. Four values,
+because four different pieces of work end in Sent: `reply`, `rca_posted`,
+`no_rca`, `closed`.
+
+**On "does this duplicate Send ↑":** in the state where it is enabled, yes —
+both mark sent and neither posts. That is deliberate: two placements of ONE
+action calling ONE endpoint. If one must go it should be Send ↑, because the
+header control is the one that can still post an RCA as a side effect of
+"sending", which is the ambiguity that caused the double post.
+
+### 11.12 A guest name is not a verified match
+
+A review with no booking id in its text came back **T1 · BID 33211960** over a
+trail reading `venue='—' city='—' visit≈'—'`.
+
+The id came off a Zendesk ticket found by searching the guest's name. The
+auto-promote gate was `_conf >= 3.0`, and `_name_pts` returns `3.0 * max(...)`
+— so a full name agreement scored exactly 3.0 and cleared the gate ALONE.
+§10.2 already states the asymmetry for `bid_indicator_check`: venue, city and
+date decide, the name corroborates. The promotion rule was the same claim from
+the other direction, and the two live 300 lines apart.
+
+`tier1_promotable(conf, corroboration)` requires the threshold AND agreement
+from something other than the name. Its own function so the rule can be driven
+— the only test of it asserted that `_conf >= 3.0` appeared within 300
+characters of another string, which broke when a comment was added above the
+line.
+
+The two trail lines were both TRUE and one was badly worded: "No booking
+matches these indicators" came from the indicator-shortlist step, which
+genuinely found nothing, while the booking came from the later requester
+lookup. It now names which search reported the miss.
+
+### 11.13 A water park is not a Colosseum booking
+
+A Colosseum review produced a German water park and a New York observatory as
+possible matches. Four causes:
+
+- **The hint is a phrase, not a venue.** The resolver matched the whole string
+  against `experience_name` with `LIKE '%...%'`. Guests write sentences.
+  Resolution is now on the significant WORDS inside the phrase, with generic
+  travel vocabulary dropped and a token matching 100+ experiences discarded as
+  non-discriminating.
+- **Adjacent pairs, tried first.** "London Eye" tokenised to words of five
+  characters or more leaves "london", a CITY. The pair is a far more specific
+  probe than either half.
+- **A bare place name is never a lone probe**, and two place names are not a
+  pair. `Rome, Italy` yields NO probe, which is the honest answer. The place
+  vocabulary READS `bid_indicator_check.CITIES` rather than copying it, with a
+  test that fails if they diverge.
+- **A narrow spelling tolerance.** Second pass only, tokens of 7+ characters
+  only, never more than a quarter of the word to a maximum of two edits.
+  "collosseum" qualifies; "rome", "paris", "italy" do not — at five characters
+  an edit distance of two reaches rome/roma/rope/role.
+
+**DECIDED: a date-only shortlist is withheld, not ranked.** Proximity ranking
+with no venue resolved is noise with an ordering on it. Three unrelated
+bookings cost three lookups and invite a confirmation, and a wrong booking
+confirmed by a person becomes the foundation of the whole RCA. Withheld only
+when NOTHING agrees except the date; any venue, name or ticket signal keeps the
+list, and a candidate with no recorded sub-scores is left alone because it
+cannot be SHOWN to be noise. The withholding is counted and stated.
+
+**Not verified against live BigQuery:** the fuzzy SQL runs only in a real
+warehouse, so the budget policy is tested and the query is not. It is guarded
+and degrades to exact matching.
+
+### 11.14 Specified and NOT built — the honest list
+
+These were specified by the user late in the session and the session ended
+before they were built. They are recorded here as SPECIFICATIONS, not as
+half-applied code: nothing in the tree implements any of them, so there is no
+partial state to unpick.
+
+1. **The Slack post's what-went-wrong must follow a five-heading structure.**
+   `checklist.WHAT_WENT_WRONG_STRUCTURE` already holds the five headings and
+   its wording matches what the user wrote; it is the source of truth to build
+   from. Headings 1–5 mandatory, sub-points indicative. Evidence rows, the
+   verbatim guest quote, `pattern`, `backs_claim`, per-issue owner chips and
+   the accuracy note come OUT of the post and stay on the card.
+   **The hard part is that there are TWO composers** — `services/slack.py` and
+   the client's own preview — which is how "• Fix: [object Object]" once
+   reached a real post. Making the client render the server's text would kill
+   that whole defect class; it needs the section picker's chosen keys passed
+   to the server composer. Open questions the user must not have guessed at:
+   what "Unknown" prints under a heading asking for Yes/Partially True/No, and
+   whether several guest issues repeat the whole structure or list under 1a.
+2. **The guest response must go out in the review's language**, with an English
+   working view whose edits propagate back through a translation call. One
+   store (the outgoing response), the English box a projection; failure must
+   leave them un-diverged and say so.
+
+### 11.15 The mutation pass
 
 MUTATION_SUMMARY_PLACEHOLDER
 
