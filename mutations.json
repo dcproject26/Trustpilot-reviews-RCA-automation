@@ -370,5 +370,41 @@
     "name": "the reason control renders only on a Yes again",
     "find": "        const chosen = td.reason || '';\n        return `<div class=\"res-block\">",
     "replace": "        const chosen = td.reason || '';\n        if (cur !== 'Yes') return '';\n        return `<div class=\"res-block\">"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the trail toggle looks live and does nothing",
+    "find": "  state.trailOpen[k] = !state.trailOpen[k];\n  renderReviewCol();",
+    "replace": "  state.trailOpen[k] = !state.trailOpen[k];"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a collapsed trail with nothing passing still says 0 passed",
+    "find": "  const head = passed",
+    "replace": "  const head = true"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the content check never reaches the dashboard",
+    "find": "        \"content_match\":               _content_match(d),",
+    "replace": "        \"content_match\":               None,"
+  },
+  {
+    "file": "server/api.py",
+    "name": "a review written in another language is never checked",
+    "find": "                or getattr(r, \"body_original\", None) or \"\") if r else \"\"",
+    "replace": "                or \"\") if r else \"\""
+  },
+  {
+    "file": "server/booking_match_check.py",
+    "name": "an unrecognised experience name is flagged as a mismatch",
+    "find": "    if bf is None:",
+    "replace": "    if False:"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "pricing stops being commercial",
+    "find": "\"#co-issue\", \" fin \", \"on priority\", \"pricing\", \"commercial\"]),",
+    "replace": "\"#co-issue\", \" fin \", \"on priority\"]),"
   }
 ]
