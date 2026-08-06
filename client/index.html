@@ -6222,14 +6222,19 @@ function renderRcaCol() {
       slackPostBtn.textContent = data.already_posted
         ? '✓ Already posted ' + _shortWhen(r.rcaPostedAt)
         : (_sentOk ? '✓ Posted & sent' : '✓ Posted to thread');
-      setTimeout(async () => {
-        slackPostBtn.disabled = false;
-        slackPostBtn.textContent = '✓ Posted ' + _shortWhen(r.rcaPostedAt);
-        // Refresh last, so the review moves into the Sent tab on screen. Not
-        // before the label settles, or the re-render throws the confirmation
-        // away before it has been read.
-        if (_sentOk) await reloadFromServer();
-      }, 2500);
+      // REFRESH NOW, NOT ON A TIMER. A delayed reload re-renders this column
+      // two and a half seconds after the click and replaces the button under
+      // whoever is still looking at it — and the review moving to Sent is the
+      // confirmation, so there is nothing to wait for. The transient label
+      // above is a courtesy; the card leaving the queue is the answer.
+      if (_sentOk) {
+        await reloadFromServer();
+      } else {
+        setTimeout(() => {
+          slackPostBtn.disabled = false;
+          slackPostBtn.textContent = '✓ Posted ' + _shortWhen(r.rcaPostedAt);
+        }, 2500);
+      }
     } catch (e) {
       // The button says only that it did not go. The REASON goes in the
       // notice, because it is two sentences and a button label is not.

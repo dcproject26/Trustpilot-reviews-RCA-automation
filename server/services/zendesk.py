@@ -1078,10 +1078,35 @@ def matches_indicators(sig: dict, ind: dict, first, last) -> tuple[bool, list]:
     """
     used = []
 
+    # THE NAME REJECTS ONLY WHEN THE TICKET HAS ONE AND IT DISAGREES.
+    #
+    # This read `if not name_matches(sig["guest_name"], ...)` and returned
+    # False, so a ticket whose guest-name CUSTOM FIELD is empty was rejected
+    # outright — an ABSENT field treated as a DISAGREEMENT, which is the one
+    # thing the venue check ten lines below is careful not to do:
+    #
+    #     "A ticket that records NO experience cannot contradict the review's
+    #      venue - it simply has nothing to say."
+    #
+    # Exactly the same is true of the guest name, and getting it wrong here
+    # costs more, because the tickets with an empty guest-name field are the
+    # SAME sparse tickets that have an empty booking-id field — the ones the
+    # body-BID fallback exists for. They were being thrown away before that
+    # fallback could ever look at them: found by a `requester:"..."` search
+    # that matched the guest exactly, then rejected for not repeating the name
+    # in a custom field nobody filled in.
+    #
+    # An unnamed ticket does NOT count as agreement either — "name" is only
+    # appended when a name was compared and matched, so a ticket carried this
+    # far on venue and city alone cannot claim the name as evidence.
+    sig["name_checked"] = False
     if first or last:
-        if not name_matches(sig.get("guest_name") or "", first, last):
-            return False, used
-        used.append("name")
+        _tname = (sig.get("guest_name") or "").strip()
+        if _tname:
+            if not name_matches(_tname, first, last):
+                return False, used
+            sig["name_checked"] = True
+            used.append("name")
 
     venue = (ind.get("experience_or_venue") or "").strip()
     if venue:
@@ -1546,6 +1571,18 @@ async def shortlist(indicators: dict, author_first, author_last,
                     continue
 
                 if ok:
+                    if not sig.get("name_checked") and (author_first or author_last):
+                        # SURVIVING WITHOUT A NAME COMPARISON IS NEW, and the
+                        # card must not present it as one. The ticket carried
+                        # no guest name, so whatever "name" reaches matched_on
+                        # came from the QUERY that found it — Zendesk matching
+                        # a requester, or the name appearing somewhere in the
+                        # text — not from the ticket agreeing about the guest.
+                        # Different strengths, and the reader is choosing a
+                        # booking on them.
+                        if notes is not None:
+                            notes.append({"kind": "name_unverified",
+                                          "label": label, "detail": tid})
                     sig["matched_on"] = used
                     # "Satisfies every indicator" is vacuous when the review
                     # gave us one. Amanda's review has a first name and nothing

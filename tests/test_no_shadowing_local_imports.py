@@ -89,3 +89,106 @@ def test_an_ordinary_local_import_is_not_flagged(tmp_path):
         "    from server.services import zendesk\n"
         "    return zendesk\n")
     assert _shadowing(p) == []
+
+
+# ── and the behaviour it cost, driven ──────────────────────────────────────
+
+def test_the_zendesk_shortlist_is_reachable_for_a_review_with_no_bid(
+        live_db, monkeypatch):
+    """THE BUG THIS FILE EXISTS FOR, as a user saw it.
+
+    A review with no booking id in its text skips the Tier-1 branch — which is
+    where the shadowing import sat — so `zendesk` was never bound, and the
+    shortlist call raised UnboundLocalError inside a try/except that logged
+    and carried on. `_short` came back [], the review was filed Untraceable,
+    and the card said "no usable name or venue signal to search with" about a
+    review with a perfectly good name.
+
+    The static sweep above catches the SHAPE. This catches the CONSEQUENCE:
+    the shortlist has to actually be reached and called.
+    """
+    import asyncio
+    import importlib
+    import server.pipeline as P
+    importlib.reload(P)
+
+    called = {}
+
+    async def _shortlist(indicators, first, last, **kw):
+        called["hit"] = True
+        return []
+
+    async def _call(*a, **k):
+        return ('{"experience_or_venue": null, "city_or_country": null, '
+                '"visit_date_hint": null, "issue_terms": ["wrong ticket"]}')
+
+    monkeypatch.setattr(P.claude, "_call", _call)
+    monkeypatch.setattr(P.zendesk, "shortlist", _shortlist)
+    monkeypatch.setattr(P, "is_live", lambda name: name in ("bigquery", "zendesk"))
+
+    from datetime import datetime
+    s = live_db.SessionLocal()
+    s.add(live_db.Review(
+        id="tp_nobid", slack_ts="tp_nobid", slack_channel="C_MOCK_ORM",
+        rating=1, author="Mariana Campos", status="new",
+        received_at=datetime(2026, 8, 1),
+        body_original="I bought 4 tickets for Universal and the ticket was "
+                      "the wrong one."))
+    s.commit()
+    s.close()
+
+    try:
+        asyncio.run(P.process_review("tp_nobid"))
+    except Exception:
+        pass
+
+    assert called.get("hit"), (
+        "the Zendesk shortlist was never called for a review with no booking "
+        "id in its text — the search that finds these reviews did not run")
+
+
+def test_the_trail_does_not_silently_swallow_a_shortlist_crash(
+        live_db, monkeypatch):
+    """The other half. The call site catches every exception and logs, so a
+    crash and a genuinely empty search produced the same card. A reader has to
+    be able to tell "we searched and found nothing" from "the search died"."""
+    import asyncio
+    import importlib
+    import server.pipeline as P
+    importlib.reload(P)
+
+    async def _boom(*a, **k):
+        raise RuntimeError("shortlist exploded")
+
+    async def _call(*a, **k):
+        return ('{"experience_or_venue": null, "city_or_country": null, '
+                '"visit_date_hint": null, "issue_terms": ["wrong ticket"]}')
+
+    monkeypatch.setattr(P.claude, "_call", _call)
+    monkeypatch.setattr(P.zendesk, "shortlist", _boom)
+    monkeypatch.setattr(P, "is_live", lambda name: name in ("bigquery", "zendesk"))
+
+    from datetime import datetime
+    s = live_db.SessionLocal()
+    s.add(live_db.Review(
+        id="tp_boom", slack_ts="tp_boom", slack_channel="C_MOCK_ORM",
+        rating=1, author="Mariana Campos", status="new",
+        received_at=datetime(2026, 8, 1),
+        body_original="I bought 4 tickets for Universal."))
+    s.commit()
+    s.close()
+
+    try:
+        asyncio.run(P.process_review("tp_boom"))
+    except Exception:
+        pass
+
+    s = live_db.SessionLocal()
+    d = s.query(live_db.RcaDraft).filter_by(review_id="tp_boom").first()
+    trail = " ".join(t.get("text", "") for t in ((d.confidence_trail or []) if d else []))
+    s.close()
+    assert "search" in trail.lower(), trail[:400]
+    assert ("failed" in trail.lower() or "did not run" in trail.lower()
+            or "could not" in trail.lower()), (
+        "a shortlist that CRASHED leaves the same trail as one that searched "
+        "and found nothing:\n" + trail[:600])

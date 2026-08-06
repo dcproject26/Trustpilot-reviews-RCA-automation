@@ -1445,34 +1445,46 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 # truthiness is exactly what the coercion destroyed.
                 indicators = {}
                 _extract_state, _extract_why = "ok", ""
-                if not MOCK_MODE and not is_live("anthropic"):
-                    _extract_state = "unavailable"
-                    _extract_why = ("the AI provider is not configured on this "
-                                    "server, so no extraction was attempted")
-                else:
-                    try:
-                        from server.prompts import match_indicator_prompt
-                        _pub = (review.received_at or datetime.utcnow()).date().isoformat()
-                        raw = await claude._call(
-                            match_indicator_prompt(match_text or "", _pub,
-                                                   reviewer_name=review.author or ""),
-                            max_tokens=400)
-                        _parsed = claude._extract_json_object(raw)
-                        if isinstance(_parsed, dict):
-                            indicators = _parsed
-                        else:
-                            # The call returned and the answer was not usable.
-                            # A DIFFERENT FACT from the call failing, and from
-                            # an empty review: this one is worth a re-run.
-                            _extract_state = "unparsed"
-                            _extract_why = (
-                                f"the model answered but the reply was not a "
-                                f"JSON object ({len(str(raw or ''))} character(s) "
-                                f"came back) — it may have been truncated")
-                    except Exception as e:
+                # THE ATTEMPT IS ALWAYS MADE. An earlier version vetoed the
+                # call when is_live("anthropic") was false, which read as a
+                # cheap optimisation and was a design fault: it decided the
+                # outcome from configuration rather than from what happened,
+                # so a caller that HAD supplied a working client — a test, a
+                # stub, a provider is_live is wrong about — got "not
+                # configured" for a call that would have succeeded. The reason
+                # is derived from the failure instead, which is the only thing
+                # that can distinguish the cases honestly.
+                try:
+                    from server.prompts import match_indicator_prompt
+                    _pub = (review.received_at or datetime.utcnow()).date().isoformat()
+                    raw = await claude._call(
+                        match_indicator_prompt(match_text or "", _pub,
+                                               reviewer_name=review.author or ""),
+                        max_tokens=400)
+                    _parsed = claude._extract_json_object(raw)
+                    if isinstance(_parsed, dict):
+                        indicators = _parsed
+                    else:
+                        # The call returned and the answer was not usable. A
+                        # DIFFERENT FACT from the call failing, and from an
+                        # empty review: this one is worth a re-run.
+                        _extract_state = "unparsed"
+                        _extract_why = (
+                            f"the model answered but the reply was not a "
+                            f"JSON object ({len(str(raw or ''))} character(s) "
+                            f"came back) — it may have been truncated")
+                except Exception as e:
+                    # An unconfigured provider and a provider that broke are
+                    # different things to a reader: one is how this server is
+                    # set up, the other is worth chasing.
+                    if not MOCK_MODE and not is_live("anthropic"):
+                        _extract_state = "unavailable"
+                        _extract_why = ("the AI provider is not configured on "
+                                        "this server")
+                    else:
                         _extract_state = "failed"
                         _extract_why = f"{type(e).__name__}: {str(e)[:120]}"
-                        log.warning(f"Indicator extraction failed: {e}")
+                    log.warning(f"Indicator extraction failed: {e}")
                 # THE CITY IS NOT A VENUE. "Rome, Italy" was being passed to
                 # the venue resolver alongside the venue itself, which
                 # guarantees a miss — no experience is named "Rome, Italy" —
@@ -1714,8 +1726,30 @@ async def process_review(review_id: str, force_candidates: bool = False):
                             review_date=(review.received_at or datetime.utcnow())
                                         .date().isoformat())
                     except Exception as e:
+                        # A CRASHED SEARCH IS NOT AN EMPTY SEARCH, and until
+                        # this line existed the two produced the same card:
+                        # `_short = []`, no candidates, "the indicator
+                        # shortlist found nothing", Untraceable. That is how an
+                        # UnboundLocalError took the whole Zendesk half of
+                        # matching out of service for a release without one
+                        # visible symptom — every affected review simply looked
+                        # unmatchable, which is a thing reviews genuinely are.
+                        #
+                        # The log line was already here and was not enough: the
+                        # people reading these cards do not read the server log,
+                        # and the card is where the claim is made.
                         log.warning(f"[tier2] shortlist failed: {e}")
                         _short = []
+                        _ctr["t2_shortlist_crashed"] = _ctr.get(
+                            "t2_shortlist_crashed", 0) + 1
+                        confidence_trail.append({"mark": "fail",
+                            "text": "<strong>The Zendesk search did not run</strong> "
+                                    f"— it raised {type(e).__name__}: "
+                                    f"{str(e)[:140]}. No booking was ruled out "
+                                    f"and none was found: this review is "
+                                    f"unmatched because the search failed, not "
+                                    f"because nothing matched it. Re-run once "
+                                    f"it is fixed."})
 
                     # Say when a search came back incomplete. Zendesk drops
                     # everything past its result cap without a word, so five
@@ -1772,6 +1806,17 @@ async def process_review(review_id: str, force_candidates: bool = False):
                                         f"a candidate when the name, venue and date "
                                         f"line up too (ticket "
                                         f"{_n.get('detail', '?')})."})
+                        elif _n.get("kind") == "name_unverified":
+                            confidence_trail.append({"mark": "warn",
+                                "text": f"<strong>The ticket carries no guest "
+                                        f"name</strong>{_again}, so the name was "
+                                        f"not verified against it — the match "
+                                        f"rests on the venue, city and date, plus "
+                                        f"the search that found it. A ticket with "
+                                        f"no name recorded cannot contradict the "
+                                        f"reviewer, and is no longer rejected for "
+                                        f"failing to repeat a name nobody filled "
+                                        f"in (ticket {_n.get('detail', '?')})."})
                         elif _n.get("kind") == "ambiguous_bid":
                             _tid, _, _nums = str(_n.get("detail", "")).partition(":")
                             confidence_trail.append({"mark": "warn",
