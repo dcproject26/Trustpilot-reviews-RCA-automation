@@ -981,8 +981,12 @@ each would have reported SKIP, which is not a pass.
 
 **THE 44-MUTATION PASS ON THIS DIFF WAS STILL RUNNING WHEN THE SESSION ENDED.**
 That is not a result. Three shards in `.snap/mine/`, baselines all green at
-2065 passed, and at hand-off **3 of 44 complete — 3 CAUGHT, 0 survived,
-0 skipped**. The remaining 41 are unknown, not passing.
+2065 passed, and at hand-off **16 of 44 complete — 16 CAUGHT, 0 survived,
+0 skipped**. The remaining 28 are UNKNOWN, not passing. Every heading-2
+verdict mutation, the empty-heading sentences, the several-issues flattening,
+the stringified fix object and the pre-v4 document-level fallback are among
+the 16 that are caught; the reply-language and apply-english mutations are
+mostly still queued.
 
 It is slow because the older 252-mutation pass is running at the same time:
 seven concurrent full suites on four cores, ~10 minutes per mutation. To read
