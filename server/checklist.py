@@ -967,6 +967,41 @@ def _remember(text, seen, group="finding") -> None:
     seen["tokens"].setdefault(group, []).append(_dedup_key(text))
 
 
+def team_for_fix(issue, flags) -> tuple:
+    """(team, how) — who owns this issue's fix, and on what basis.
+
+    THE MIS-ROUTE THIS REPLACES. When `fix.owner` was absent the router fell
+    back on `_sole`: the single team that happened to hold a flag anywhere on
+    the card. One CONTENT flag and a refund fix sent the refund to CONTENT.
+    That is the silent mis-route this module's own docstring calls worse than
+    a row reported as unplaced.
+
+    So the fallback is now a TIE TO THIS ISSUE rather than to the card: a flag
+    whose wording overlaps this issue's own failure, gap or title. If nothing
+    ties, the answer is "" and the caller reports it unrouted — the honest
+    outcome, and distinguishable from a routed one because `how` says which
+    of the three happened.
+    """
+    fix = issue.get("fix") if isinstance(issue.get("fix"), dict) else {}
+    owner = str(fix.get("owner") or "").strip().lower()
+    owner = FLAG_TEAM_ALIASES.get(owner, owner)
+    if owner in ACTION_TEAMS:
+        return owner, "the fix names its owner"
+
+    mine = " ".join(str(issue.get(k) or "") for k in
+                    ("issue", "operational_failure", "sop_gap"))
+    if mine.strip():
+        for f in (flags or []):
+            if not isinstance(f, dict):
+                continue
+            text = f"{f.get('flag') or ''} {f.get('evidence') or ''}"
+            if text.strip() and _overlaps_tokens(text, mine):
+                t = team_of_flag(f)
+                if t:
+                    return t, "matched to a flag raised on this same issue"
+    return "", "the fix names no owner and no flag on this issue matches it"
+
+
 def _team_of_improvement(point, issues, flags) -> str:
     """The team an improvement point belongs to, from the finding it cites.
 
@@ -1025,6 +1060,7 @@ def actions_from_findings(issues, flags, improvements=None, dss_miss=None,
     tabs = {t: [] for t in ACTION_TEAMS}
     seen = {"exact": set(), "tokens": {}}
     unrouted, counts = [], {}
+    routed_how = {}
 
     def _add(team, text, kind):
         text = str(text or "").strip()
@@ -1048,12 +1084,24 @@ def actions_from_findings(issues, flags, improvements=None, dss_miss=None,
     flagged_teams = [t for t in {team_of_flag(f) for f in flags} if t]
     _sole = flagged_teams[0] if len(flagged_teams) == 1 else ""
 
-    def _route(explicit, text, kind):
+    def _route(explicit, text, kind, allow_sole=True):
+        # NOTHING TO ROUTE IS NOT A ROUTING FAILURE. An issue with no
+        # operational failure, no SOP gap and no fix is the ordinary shape of
+        # a clean issue; counting its three empty fields as unplaceable
+        # findings put "3 finding(s) name no team" on the trail of a run that
+        # found nothing wrong. `_add` already ignored the empty text — only
+        # the unrouted tally was reading absence as failure.
+        if not str(text or "").strip():
+            return False
         team = str(explicit or "").strip().lower()
         team = FLAG_TEAM_ALIASES.get(team, team)
         if team in tabs:
             return _add(team, text, kind)
-        if _sole:
+        # `_sole` IS NOT OFFERED TO ISSUE-DERIVED ROWS. `team_for_fix` has
+        # already tried the owner and a flag tied to that same issue; falling
+        # through to "the one team with a flag somewhere on this card" would
+        # undo that work and reinstate the mis-route it exists to stop.
+        if _sole and allow_sole:
             return _add(_sole, text, kind)
         unrouted.append((kind, str(text or "")[:80]))
         return False
@@ -1069,10 +1117,16 @@ def actions_from_findings(issues, flags, improvements=None, dss_miss=None,
     #      three that names a team.
     for i in issues:
         fix = i.get("fix") if isinstance(i.get("fix"), dict) else {}
-        owner = fix.get("owner")
-        _route(owner, i.get("operational_failure"), "operational_failure")
-        _route(owner, i.get("sop_gap"), "sop_gap")
-        _route(owner, fix.get("action"), "fix")
+        # Per-issue, not card-wide. `_sole` — the one team holding a flag
+        # anywhere on the card — used to answer this, which put a refund fix
+        # on CONTENT because CONTENT held the only flag.
+        owner, how = team_for_fix(i, flags)
+        if owner:
+            routed_how[how] = routed_how.get(how, 0) + 1
+        _route(owner, i.get("operational_failure"), "operational_failure",
+               allow_sole=False)
+        _route(owner, i.get("sop_gap"), "sop_gap", allow_sole=False)
+        _route(owner, fix.get("action"), "fix", allow_sole=False)
 
     # 5. Area of improvement. Already provenance-checked upstream, so a point
     #    that survives to here has a source that exists on this card — and
@@ -1111,6 +1165,11 @@ def actions_from_findings(issues, flags, improvements=None, dss_miss=None,
     if kept:
         notes.append(f"actions taken: {kept} hand-added row(s) carried forward "
                      f"through this re-run")
+    _matched = routed_how.get("matched to a flag raised on this same issue", 0)
+    if _matched:
+        notes.append(f"actions taken: {_matched} fix(es) named no owner and "
+                     f"were routed by matching a flag raised on the same "
+                     f"issue — a judgement, not a stated owner")
     if counts.get("repeat"):
         # A judgement, announced. Two findings worded differently were treated
         # as one, and nothing else on the card would say so.

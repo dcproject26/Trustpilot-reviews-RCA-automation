@@ -38,6 +38,37 @@ def _draft(page):
         "async () => (await (await fetch('/api/reviews/tp_ui')).json()).draft")
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _restore_classification(page):
+    """Put L1/L2 back the way this module found them.
+
+    The tests below change the classification FOR REAL — that is the point of
+    them, since a select nobody can operate cannot be observed saving. The
+    browser and the server are shared across every UI module now, so what they
+    save outlives them: test_inbox_search searches for "Ticket Issues" and
+    stopped finding it, because by then this module had changed it to
+    something else. Restoring here is cheaper and less fragile than reseeding
+    the database between all 28 modules, which fought uvicorn for the SQLite
+    write lock and wedged the run.
+    """
+    before = _draft(page) or {}
+    l1, l2 = before.get("l1"), before.get("l2")
+    yield
+    if not l1:
+        return
+    page.select_option("[data-classify=l1]", l1)
+    page.wait_for_timeout(300)
+    if l2:
+        try:
+            page.select_option("[data-classify=l2]", l2)
+        except Exception:
+            # The L2 list is derived from L1; if this build no longer offers
+            # the old pair, leaving L1 correct is the best available restore
+            # and is better than leaving both wrong.
+            pass
+    page.wait_for_timeout(400)
+
+
 def test_the_l1_select_offers_the_real_categories(page):
     got = _opts(page, "l1")
     assert got is not None, "the L1 select has no hook, so nothing can bind it"

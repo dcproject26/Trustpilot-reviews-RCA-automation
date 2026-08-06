@@ -94,15 +94,14 @@ FRAMES = [{"ticket_id": "34011401", "time": "22 Jul 15:41", "time_sort": "2026-0
            "thread": "chat", "guestSaid": "Still nothing.", "weDid": ""}]
 
 
-@pytest.fixture(scope="module")
-def page():
-    from playwright.sync_api import sync_playwright
-    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-    tmp.close()
-    url = f"sqlite:///{tmp.name}"
-    env = dict(os.environ, DATABASE_URL=url, MOCK_MODE="true")
+def seed_script(url: str) -> str:
+    """The seed program, as text, for whoever is standing the server up.
 
-    seed = f"""
+    A FUNCTION so conftest's session-scoped `ui_server` can reach it without
+    conftest owning this module's fixture data. The RCA and FRAMES below are
+    what these tests assert against, so they stay here beside the assertions.
+    """
+    return f"""
 import os, sys, json
 sys.path.insert(0, {os.getcwd()!r}); os.chdir({os.getcwd()!r})
 os.environ["DATABASE_URL"] = {url!r}
@@ -128,36 +127,43 @@ s.add(db.RcaDraft(id="d_ui", review_id="tp_ui", rca_v3=v, booking={{"id": "32908
                   **dict(project_v4(v))))
 s.commit(); s.close()
 """
-    subprocess.run([sys.executable, "-c", seed], check=True, capture_output=True, env=env)
 
-    port = _free_port()
-    srv = subprocess.Popen([sys.executable, "-m", "uvicorn", "server.main:app",
-                            "--port", str(port), "--log-level", "warning"],
-                           env=dict(env, SEED_MOCK="0"),
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    for _ in range(80):
-        try:
-            socket.create_connection(("127.0.0.1", port), 0.2).close()
-            break
-        except OSError:
-            time.sleep(0.25)
-    else:
-        srv.terminate()
-        pytest.skip("server did not start")
 
-    pw = sync_playwright().start()
-    br = pw.chromium.launch(executable_path=CHROME)
-    pg = br.new_page(viewport={"width": 1600, "height": 1200})
+@pytest.fixture(scope="module")
+def page(ui_browser, ui_server):
+    """A clean page per test module, on the shared browser and server.
+
+    Module scope is the isolation these tests rely on — one module's clicks
+    and inline edits must not reach the next. What it no longer means is a
+    fresh Chromium and a fresh uvicorn: those are session-scoped in conftest,
+    because this fixture is imported into 27 other modules and an imported
+    fixture is a separate definition in each of them.
+    """
+    pg = ui_browser.new_page(viewport={"width": 1600, "height": 1200})
+    # A HANG MUST NOT BE ABLE TO LOOK LIKE A SLOW RUN. Playwright's default is
+    # 30s per operation, but a fixture that never resolves takes the other 463
+    # tests down with it and reports nothing at all — the run simply stops at
+    # 46% with no name attached. Bounded, the same fault becomes one named
+    # failure in fifteen seconds and the rest of the suite still reports.
+    pg.set_default_timeout(15000)
+    pg.set_default_navigation_timeout(20000)
     errs = []
     pg.on("pageerror", lambda e: errs.append(str(e)))
-    pg.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
-    pg.wait_for_timeout(900)
-    pg.locator(".review-item").first.click()
-    pg.wait_for_timeout(1400)
-    pg.errors = errs
-    yield pg
-    br.close(); pw.stop(); srv.terminate()
-    os.unlink(tmp.name)
+    try:
+        # `load`, NOT `networkidle`. The dashboard opens a poll on some paths,
+        # and a page that never goes idle spends the full default timeout
+        # before failing — thirty seconds per module, for nothing. Waiting for
+        # the element the tests actually need is both faster and truthful
+        # about what is being waited on.
+        pg.goto(f"http://127.0.0.1:{ui_server.port}/", wait_until="load")
+        pg.wait_for_selector(".review-item", timeout=15000)
+        pg.locator(".review-item").first.click()
+        pg.wait_for_selector("#rca-col, .wwr-issue, .rca-col", timeout=15000)
+        pg.wait_for_timeout(400)
+        pg.errors = errs
+        yield pg
+    finally:
+        pg.close()
 
 
 def test_the_column_renders_without_a_javascript_error(page):

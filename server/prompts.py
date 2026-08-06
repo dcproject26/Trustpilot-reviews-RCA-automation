@@ -2005,6 +2005,25 @@ that turned out fine is silence — never a line in the output.
    about one event and both belong. What must not happen is the same wording twice.
 10. `flags` contains failures only — things a named team must act on. An empty array means
     everything was checked and nothing needed raising; return `[]`, not a placeholder entry.
+10-source. FLAGS AND FIXES COME FROM THE CASE HISTORY AS WELL AS THE REVIEW, and the case is
+    the larger source of the two. The review is what one guest chose to write publicly; the
+    Zendesk history is every ask, every reply, every internal note and every thing we did or
+    did not do. Read it for failures in its own right, not only to corroborate the review:
+      a request that sat unanswered past what we promised;
+      an escalation to SP or Tech that the case shows was needed and never raised;
+      a macro or DSS path applied to the wrong scenario;
+      a fulfilment or refund the case shows we said we would do and no record shows we did;
+      a content, catalog or inventory fault visible in the ticket that nobody flagged.
+    None of those needs a sentence in the review to be real, and a case whose history shows one
+    is not a clean case because the guest wrote about something else.
+    SAY SO WHEN IT IS CLEAN. If you read the case history and it raised nothing, that is a
+    result and `flags` is `[]`. What must not happen is a case history nobody read coming back
+    looking the same as one that was read and was fine.
+10-fix-owner. EVERY FIX NAMES ITS OWNER, from the nine teams in 10-teams, and the owner is the
+    team that must DO the fix — not the team the guest complained about and not the team that
+    owns the surrounding issue. A refund that has to move is FINANCE even when the failure that
+    caused it was CONTENT's. An unowned fix cannot be placed in Actions Taken: it is reported
+    as unrouted, which is a row nobody picks up.
 10-teams. `team` IS ONE OF THESE NINE, and nothing else. They are the teams work is actually
     raised with, and Actions Taken is built by joining them: a step the DSS guidelines prescribe
     is only raised where a flag names the same team, so a team spelled any other way raises

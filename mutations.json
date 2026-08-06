@@ -430,5 +430,35 @@
     "name": "trail: validation rows are never added to the trail",
     "find": "    confidence_trail.extend(validation_trail_rows(notes))",
     "replace": "    pass"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "actions: an unrelated flag claims the fix again",
+    "find": "        if _sole and allow_sole:",
+    "replace": "        if _sole:"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "actions: a fix owner is ignored in favour of a flag match",
+    "find": "    if owner in ACTION_TEAMS:\n        return owner, \"the fix names its owner\"",
+    "replace": "    if False:\n        return owner, \"the fix names its owner\""
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "actions: a flag on this same issue no longer routes it",
+    "find": "            if text.strip() and _overlaps_tokens(text, mine):",
+    "replace": "            if False and text.strip() and _overlaps_tokens(text, mine):"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "actions: routing by flag match stops being announced",
+    "find": "    if _matched:",
+    "replace": "    if False:"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "actions: an empty field is counted as an unroutable finding",
+    "find": "        if not str(text or \"\").strip():\n            return False",
+    "replace": "        if False:\n            return False"
   }
 ]

@@ -160,11 +160,30 @@ def test_short_rows_are_compared_exactly_rather_than_by_overlap():
 
 # ── routing that declines rather than guesses ──────────────────────────────
 
-def test_a_finding_with_no_team_falls_to_the_only_flagged_team():
-    """One flagged team is an unambiguous answer, not a guess."""
-    tabs, _ = actions_from_findings(
+def test_one_flagged_team_no_longer_claims_an_unrelated_finding():
+    """This used to assert the opposite, on the reasoning that a single
+    flagged team is "an unambiguous answer, not a guess". It is a guess: a
+    flag about a silent vendor says nothing about who watches the fulfilment
+    queue, and one CONTENT flag was enough to put a refund fix on CONTENT.
+
+    An issue-derived row now routes on its own fix owner, or on a flag whose
+    wording matches THAT issue, or not at all. `_sole` remains for the rows it
+    was defensible for — see the flag and improvement tests above.
+    """
+    tabs, report = actions_from_findings(
         [_issue(fix=None)], [_flag("sp", "Vendor never replied")])
+    assert "Nobody watched the fulfilment queue" not in tabs["sp"], tabs["sp"]
+    assert any("could not be routed" in n for n in report["notes"]), report
+
+
+def test_a_flag_matching_the_issue_does_route_it():
+    """Declining is only right when there is no basis. A flag that describes
+    this issue's own failure is a basis, and it is used."""
+    tabs, report = actions_from_findings(
+        [_issue(fix=None)], [_flag("sp", "Nobody watched the fulfilment queue")])
     assert "Nobody watched the fulfilment queue" in tabs["sp"], tabs["sp"]
+    assert any("a judgement, not a stated owner" in n for n in report["notes"]), \
+        report["notes"]
 
 
 def test_with_two_flagged_teams_an_unowned_finding_is_reported_not_guessed():
