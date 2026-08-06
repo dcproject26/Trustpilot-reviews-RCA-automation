@@ -284,8 +284,8 @@
   {
     "file": "server/pipeline.py",
     "name": "extraction: the state is no longer tracked, so {} reads as an answer",
-    "find": "                        if isinstance(_parsed, dict):\n                            indicators = _parsed\n                        else:",
-    "replace": "                        if True:\n                            indicators = _parsed or {}\n                        else:"
+    "find": "                    if isinstance(_parsed, dict):\n                        indicators = _parsed\n                    else:",
+    "replace": "                    if True:\n                        indicators = _parsed or {}\n                    else:"
   },
   {
     "file": "server/pipeline.py",
