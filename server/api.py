@@ -1997,7 +1997,8 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
         _confirmed = bool((d.booking or {}).get("id") and not d.candidate_state)
         rca_v3, rca_notes = _validate_rca(rca_v3, scenarios,
                                           keep_actions=(d.actions_taken or None),
-                                          booking_confirmed=_confirmed)
+                                          booking_confirmed=_confirmed,
+                                          events=(d.timeline or []))
         for _n in rca_notes:
             log.warning(f"[regenerate-rca] {review_id}: {_n}")
     except Exception as e:

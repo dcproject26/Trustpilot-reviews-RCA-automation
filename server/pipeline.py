@@ -3058,7 +3058,8 @@ async def process_review(review_id: str, force_candidates: bool = False):
                                           and not candidate_state)
                 rca_v3, rca_notes = _validate_rca(rca_v3, _scenarios_routed,
                                                   keep_actions=_prev_actions,
-                                                  booking_confirmed=_booking_confirmed)
+                                                  booking_confirmed=_booking_confirmed,
+                                                  events=timeline or [])
                 # A coercion the reader cannot see is a silent edit. The trail
                 # is where this build already puts "we changed what the model
                 # said, and here is why", so each note goes there verbatim.
@@ -3198,6 +3199,20 @@ async def process_review(review_id: str, force_candidates: bool = False):
         zd_requester = zd_meta.get("zendesk_requester_name", "")
         if zd_requester:
             booking_to_save["zendesk_requester_name"] = zd_requester
+        # THE CANCELLATION POLICY IS A PROPERTY OF THE BOOKING, not an event.
+        # It was being written onto every row of the timeline — on one real
+        # ticket, all of them — crowding out the fact each row existed to
+        # carry. Taking it off the timeline without putting it anywhere would
+        # have lost it, so it is extracted once and carried as a field.
+        #
+        # There is no cancellation column in the warehouse and none in the API
+        # payload, so the ticket text is the only place it exists. Both the
+        # answer and the REASON there is none are stored: a blank field and
+        # "no ticket event states the terms" send a reader to different places.
+        from server.ticket_notes import policy_from_events
+        _pol, _pol_why = policy_from_events(timeline or [])
+        booking_to_save["cancellation_policy"] = _pol
+        booking_to_save["cancellation_policy_note"] = "" if _pol else _pol_why
         draft.booking              = booking_to_save
         draft.match_tier           = match_tier or _match.get("tier")
         draft.match_confidence     = _match.get("confidence")

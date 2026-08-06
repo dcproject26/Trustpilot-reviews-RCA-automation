@@ -161,3 +161,68 @@ def ping_summary(group: dict) -> str:
     n, a, b = group.get("count", 0), group.get("from", ""), group.get("to", "")
     span = f"{a} to {b}" if a and b and a != b else (a or b or "an unknown span")
     return f"{n} system pings, {span}."
+
+
+# ── the cancellation policy ────────────────────────────────────────────────
+#
+# It is a property of the BOOKING, not an event, and it was being written onto
+# every row of the timeline — on one real ticket it appeared on all of them,
+# crowding out the fact each row existed to carry. Taking it off the timeline
+# without putting it anywhere would lose it, so it is extracted once here and
+# rendered as a booking detail.
+#
+# The source is the booking-info dump Zendesk posts onto the ticket. There is
+# no cancellation column in the warehouse and none in the API payload, so this
+# text is the only place the policy exists.
+
+_POLICY = [
+    # "non-cancellable", "non cancellable / non refundable"
+    (re.compile(r"\bnon[\s-]?cancell?able\b(?:[\s/]*non[\s-]?refundable\b)?", re.I),
+     lambda m: "Non-cancellable"),
+    # "cancellable and reschedulable to 1440 min prior"
+    (re.compile(r"\bcancell?able\b[^.\n]{0,40}?(\d{2,5})\s*min(?:ute)?s?\s*prior", re.I),
+     lambda m: f"Cancellable up to {int(m.group(1))} minutes before start"),
+    # "cancel/reschedule deadline 02 Aug 08:30"
+    (re.compile(r"\bcancel(?:/|\s+or\s+|\s*&\s*)?(?:reschedule)?\s*deadline\s*[:\-]?\s*"
+                r"([0-9]{1,2}\s+\w{3}[^;\n]{0,12})", re.I),
+     lambda m: f"Cancel or reschedule by {m.group(1).strip()}"),
+    # "free cancellation up to 24 hours before"
+    (re.compile(r"\bfree\s+cancellation\b[^.\n]{0,30}?(\d{1,3})\s*hours?\b", re.I),
+     lambda m: f"Free cancellation up to {int(m.group(1))} hours before start"),
+]
+
+
+def cancellation_policy(text: str) -> str:
+    """The booking's cancellation terms in one phrase, or "" when absent.
+
+    "" means the dump did not state it — NOT that the booking has no policy.
+    The caller says which, because a blank field and "we could not find it"
+    send a reader to different places.
+    """
+    body = str(text or "")
+    if not body.strip():
+        return ""
+    for rx, fmt in _POLICY:
+        m = rx.search(body)
+        if m:
+            return fmt(m)
+    return ""
+
+
+def policy_from_events(events) -> tuple[str, str]:
+    """(policy, why) across every raw body on the timeline.
+
+    Scans all of them rather than only the booking-info row: the terms turn up
+    in confirmation emails too, and a ticket without the dump would otherwise
+    report nothing when the answer was two rows away.
+    """
+    bodies = [str((e or {}).get("raw_body") or (e or {}).get("summary") or "")
+              for e in (events or []) if isinstance(e, dict)]
+    if not bodies:
+        return "", "there were no ticket events to read it from"
+    for b in bodies:
+        got = cancellation_policy(b)
+        if got:
+            return got, ""
+    return "", (f"none of the {len(bodies)} ticket event(s) state the "
+                f"cancellation terms")

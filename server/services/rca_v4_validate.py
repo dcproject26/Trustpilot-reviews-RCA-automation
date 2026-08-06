@@ -727,7 +727,7 @@ def _booking_logs(raw, booking_confirmed, notes):
 
 
 def validate(rca: dict, scenarios_routed=None, keep_actions=None,
-             booking_confirmed: bool = True) -> tuple[dict, list]:
+             booking_confirmed: bool = True, events=None) -> tuple[dict, list]:
     """Return (coerced rca, notes). Never raises."""
     notes: list[str] = []
     if not isinstance(rca, dict):
@@ -783,6 +783,34 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
                    ("team", "flag", "evidence", "zd_ref"),
                    notes, enums={"team": (FLAG_TEAMS, "OTHER")})
     issues, _flags = _demote_findings(issues, _flags, notes, scenarios_routed)
+
+    # BEING LEFT UNANSWERED IS COMPUTED, NOT NOTICED. The timeline says what
+    # happened; it cannot say what did not, and a guest who wrote three times
+    # over two days before anyone replied is a failure living entirely in the
+    # space between rows. The checklist has had the words since v7.1 and
+    # nothing computed them — they were left for the model to spot in a list of
+    # forty events, which it does when the gap is glaring and misses when it is
+    # merely long.
+    #
+    # Added, never replacing: a flag the model raised about the same silence
+    # stands, and the dedupe below drops the repeat rather than the finding.
+    if events:
+        from server.response_gaps import gap_flags
+        _seen = {(str(f.get("team") or "").upper(),
+                  str(f.get("flag") or "").strip().lower()) for f in _flags}
+        _added = 0
+        for _gf in gap_flags(events):
+            if (_gf["team"], _gf["flag"].lower()) in _seen:
+                continue
+            _flags.append(_gf)
+            _seen.add((_gf["team"], _gf["flag"].lower()))
+            _added += 1
+        if _added:
+            # Said out loud: these are on the card for a different reason from
+            # the rest, and a reader comparing two runs deserves to know which
+            # were measured rather than judged.
+            notes.append(f"flags: {_added} response-gap flag(s) raised from the "
+                         f"timeline — measured, not read out of the model's answer")
 
     # ACTIONS TAKEN IS BUILT FROM WHAT THIS CASE FOUND.
     #

@@ -2328,6 +2328,13 @@ async function loadDraftOverlays() {
         r.booking.vid              = db.vid || db.vendor_id               || r.booking.vid;
         r.booking.vendorName       = db.vendorName || db.vendor_name      || r.booking.vendorName;
         r.booking.fulfilmentType   = db.fulfilmentType || db.fulfilment_type || r.booking.fulfilmentType;
+        // Both halves. The NOTE is why there is no policy, and without it the
+        // row falls back to a generic sentence that cannot say whether the
+        // ticket was silent or there were no ticket events at all.
+        r.booking.cancellationPolicy     = db.cancellation_policy
+          || r.booking.cancellationPolicy || '';
+        r.booking.cancellationPolicyNote = db.cancellation_policy_note
+          || r.booking.cancellationPolicyNote || '';
         r.booking.experienceDate   = db.visitDate || db.date_of_visit     || r.booking.experienceDate;
         r.booking.creationDate     = bookingCreatedAt(db)     || r.booking.creationDate || '';
         r.booking.bookingDate      = bookingCreatedAt(db)     || r.booking.bookingDate;
@@ -3310,6 +3317,14 @@ function renderReviewCol() {
         <div class="detail-row"><span class="k">Vendor ID</span><span class="v">${b.vid || "—"}</span></div>
         <div class="detail-row"><span class="k">Vendor name</span><span class="v">${b.vendorName || "—"}</span></div>
         <div class="detail-row"><span class="k">Fulfilment type</span><span class="v">${b.fulfilmentType || '—'}</span></div>
+        <!-- Stated ONCE, here, because it is a property of the booking and
+             not an event. It used to be repeated on every timeline row. An
+             absent value says WHY rather than showing a dash, because a dash
+             reads as a lookup that failed. -->
+        <div class="detail-row"><span class="k">Cancellation</span><span class="v${
+          b.cancellationPolicy ? '' : ' v-absent'}">${b.cancellationPolicy
+            ? esc(b.cancellationPolicy)
+            : esc(b.cancellationPolicyNote || 'not stated on any ticket event')}</span></div>
         <!-- The placeholder is stripped HERE, not only where the name is
              resolved: drafts written before this change hold the literal
              string in primaryGuestName, so guarding the ingest path alone
