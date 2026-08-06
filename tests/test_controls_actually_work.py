@@ -505,6 +505,10 @@ def test_a_drafted_reply_keeps_the_normal_editing_prompt(page):
 
 # Driven by a test somewhere in this suite. The comment names where.
 DRIVEN = {
+    # Set-the-booking-id, driven at the bottom of this file: rendered in every
+    # state, gated correctly on what could be a booking id, and clicked to
+    # prove it reaches a handler.
+    "data-bid-set",
     "data-log-add",            # test_rca_ui_rendered::test_add_event_still_works…
     "data-log-del",            # same
     "data-log-field",          # …::test_editing_a_booking_log_row_persists
@@ -604,6 +608,13 @@ NOT_YET_DRIVEN = {
     # DRIVEN, because a census that counts an undriven control as covered is
     # worth less than no census.
     "data-reply-lang-name",
+    # The set-booking-id box. Its BUTTON (data-bid-set) is driven below; the
+    # input is the thing that enables it, and is listed here rather than
+    # folded into DRIVEN so the census keeps meaning something.
+    "data-bid-set-input",
+    # The note the box writes its outcome into. A render target, not a
+    # control — see data-slack-post-err.
+    "data-bid-set-note",
 }
 
 
@@ -1102,3 +1113,78 @@ def test_the_boxes_say_they_disagree_while_a_translation_is_in_flight(page):
     assert "IN FLIGHT" in got or "disagree" in got, (
         f"mid-translation the card said {got!r} — the two boxes disagree and "
         f"nothing on screen admits it")
+
+
+# ── set the booking id by hand ─────────────────────────────────────────────
+
+def test_the_booking_id_box_renders_in_every_state(page):
+    """It is the recovery route when the pipeline got the booking wrong, so it
+    has to be there when the review IS matched — that is exactly when it is
+    reached for."""
+    assert page.evaluate(
+        "() => !!document.querySelector('[data-bid-set-input]')"), \
+        "the set-booking-id box is not on the card"
+
+
+def test_the_set_button_is_dead_until_the_box_could_hold_a_booking_id(page):
+    """A click that round-trips to a certain 400 teaches people the control is
+    broken. Disabled with a reason in its title is a legitimate state."""
+    got = page.evaluate("""() => {
+      const i = document.querySelector('[data-bid-set-input]');
+      const b = document.querySelector('[data-bid-set]');
+      const out = {};
+      i.value = ''; i.dispatchEvent(new Event('input', {bubbles: true}));
+      out.empty = b.disabled;
+      i.value = '123'; i.dispatchEvent(new Event('input', {bubbles: true}));
+      out.tooShort = b.disabled;
+      i.value = '33204378'; i.dispatchEvent(new Event('input', {bubbles: true}));
+      out.valid = b.disabled;
+      i.value = '1234567890123456'; i.dispatchEvent(new Event('input', {bubbles: true}));
+      out.tooLong = b.disabled;
+      i.value = ''; i.dispatchEvent(new Event('input', {bubbles: true}));
+      return out; }""")
+    assert got["empty"] is True, "enabled on an empty box"
+    assert got["tooShort"] is True, "enabled on 3 digits"
+    assert got["tooLong"] is True, "enabled on 16 digits"
+    assert got["valid"] is False, "a real booking id did NOT enable the button"
+
+
+def test_spacing_and_punctuation_in_a_pasted_id_still_enables_it(page):
+    """Ids get pasted out of Zendesk and BMS with spaces and hashes around
+    them. A client rule stricter than the server's silently blocks ids the
+    server would accept."""
+    got = page.evaluate("""() => {
+      const i = document.querySelector('[data-bid-set-input]');
+      const b = document.querySelector('[data-bid-set]');
+      i.value = ' #33 204 378 '; i.dispatchEvent(new Event('input', {bubbles: true}));
+      const d = b.disabled;
+      i.value = ''; i.dispatchEvent(new Event('input', {bubbles: true}));
+      return d; }""")
+    assert got is False, "a pasted id with spaces was refused by the client"
+
+
+def test_the_button_is_bound_at_all(page):
+    """The census only proves it renders. This proves a click reaches a
+    handler — the difference between a live control and a dead one, which is
+    what this whole file exists for.
+
+    The fetch is stubbed: what is under test is the binding, not the server.
+    """
+    got = page.evaluate("""async () => {
+      const i = document.querySelector('[data-bid-set-input]');
+      const b = document.querySelector('[data-bid-set]');
+      const hits = [];
+      const real = window.fetch;
+      window.fetch = (u, o) => { hits.push(String(u));
+        return Promise.resolve({ok: true, json: () => Promise.resolve(
+          {ok: true, bid: '33204378', verified: true})}); };
+      i.value = '33204378'; i.dispatchEvent(new Event('input', {bubbles: true}));
+      b.click();
+      await new Promise(r => setTimeout(r, 400));
+      window.fetch = real;
+      return hits; }""")
+    # EVERY url, not the last one: the handler reloads the card on success, so
+    # capturing a single value would report whichever call happened to finish
+    # last and the test would fail against a working button.
+    assert any("set-booking-id" in u for u in (got or [])), \
+        f"clicking Set called {got!r} — the button is not wired"

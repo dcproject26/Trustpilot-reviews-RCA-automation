@@ -78,11 +78,17 @@ def test_the_requester_name_is_used_when_there_is_no_guest_field():
 def test_the_guest_field_is_preferred_over_the_requester():
     """The requester is whoever owns the Zendesk account — an assistant, a
     parent, a colleague. The ticket's own guest-name field is about the
-    booking, so it is the better of the two."""
+    booking, so it is the better of the two.
+
+    Asserted on the outcome and on the LOSING name's absence: the winning
+    name here is also the author's, so its presence in the sentence proves
+    nothing about which source was read."""
     got = _check({"primary_guest_name": "",
                   "zendesk_guest_name": "Mariana Campos",
                   "zendesk_requester_name": "Someone Else"})
-    assert "Mariana Campos" in _guest(got)["why"], _guest(got)["why"]
+    g = _guest(got)
+    assert g["state"] == "match", g
+    assert "Someone Else" not in g["why"], g["why"]
 
 
 def test_a_readable_warehouse_name_is_not_overridden():
@@ -218,7 +224,15 @@ def test_ticket_facts_guest_full_name_is_used():
 def test_ticket_facts_outranks_the_other_two_zendesk_sources():
     """The spec's field is the source of truth, and it is the best of the
     three: the name a CE actually addressed the guest by, rather than whoever
-    happens to own the Zendesk account."""
+    happens to own the Zendesk account.
+
+    ASSERTED ON THE OUTCOME, NOT ON A NAME IN THE SENTENCE. This first checked
+    that "Mariana Campos" appeared in `why` — which is the AUTHOR's name, and
+    is printed in the disagreement sentence too, so the assertion held however
+    the sources were ordered. A mutation reversing the order survived it. The
+    state is the thing that actually differs: the spec's field agrees with the
+    reviewer and the other two do not.
+    """
     got = check("the tickets never arrived",
                 {"experienceName": "Swiss Travel Pass",
                  "primary_guest_name": "Customer Ops Lead",
@@ -226,7 +240,25 @@ def test_ticket_facts_outranks_the_other_two_zendesk_sources():
                  "zendesk_requester_name": "Someone Else Again"},
                 author=AUTHOR, received_at="2026-08-05",
                 ticket_facts={"guest_full_name": "Mariana Campos"})
-    assert "Mariana Campos" in _guest(got)["why"], _guest(got)["why"]
+    g = _guest(got)
+    assert g["state"] == "match", g
+    assert "Someone Else" not in g["why"], (
+        "a weaker source was consulted before the spec's field", g["why"])
+
+
+def test_the_guest_field_outranks_the_requester_on_the_outcome():
+    """The same ordering rule one rung down, and the same trap avoided: the
+    ticket's guest-name field is about the BOOKING, the requester is whoever
+    owns the account."""
+    got = check("the tickets never arrived",
+                {"experienceName": "Swiss Travel Pass",
+                 "primary_guest_name": "Customer Ops Lead",
+                 "zendesk_guest_name": "Mariana Campos",
+                 "zendesk_requester_name": "Someone Else Again"},
+                author=AUTHOR, received_at="2026-08-05")
+    g = _guest(got)
+    assert g["state"] == "match", g
+    assert "Someone Else Again" not in g["why"], g["why"]
 
 
 def test_a_hashed_ticket_fact_is_rejected_like_any_other():

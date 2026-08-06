@@ -1492,6 +1492,107 @@ async def select_candidate(review_id: str, body: CandidateSelect,
     return {"ok": True, "draft": _draft_dict(d)}
 
 
+class BookingIdSet(BaseModel):
+    """A booking id an associate typed in, rather than picked from a list."""
+    bid: str
+
+
+@router.post("/api/reviews/{review_id}/set-booking-id")
+async def set_booking_id(review_id: str, body: BookingIdSet,
+                         background_tasks: BackgroundTasks,
+                         db: Session = Depends(get_session)):
+    """Set the booking from a booking id the associate found themselves.
+
+    WHY THIS IS NOT select-candidate. That one takes a bid from
+    `candidates_list` and 400s on anything else, which is right for the
+    picker: it exists so a mis-click cannot invent a booking. But it leaves no
+    route at all for the commonest recovery — the associate searches Zendesk
+    or BMS, finds the booking the pipeline could not, and has nowhere to put
+    it. The review then sits in candidates or untraceable holding a number the
+    person reading it already knows.
+
+    So this accepts ANY id, and works from any state:
+      * in candidate state it behaves exactly like confirming a candidate;
+      * on an already-matched review it OVERWRITES the match, because the
+        pipeline being wrong is precisely when this is needed.
+
+    IT VERIFIES FIRST. An id that BigQuery does not recognise is refused with
+    the reason, rather than stored and left to render as a booking with every
+    field blank — which looks like a lookup that failed rather than an id that
+    was wrong. Where the warehouse is unreachable, that is said too and is a
+    different sentence: refusing there would block the one recovery route on
+    the day the warehouse is down.
+    """
+    r = db.query(Review).filter(Review.id == review_id).first()
+    d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
+    if not r:
+        raise HTTPException(404, f"No review {review_id}.")
+    if not d:
+        d = RcaDraft(id=f"draft_{review_id}", review_id=review_id)
+        db.add(d)
+
+    bid = re.sub(r"\D", "", str(body.bid or ""))
+    if not bid:
+        raise HTTPException(400, detail={
+            "message": "That is not a booking id — enter the 7-12 digit "
+                       "number, with or without spaces.",
+            "kind": "not_a_number"})
+
+    full, why = None, ""
+    if not is_live("bigquery"):
+        why = ("BigQuery is not connected on this server, so this id could "
+               "not be checked against the warehouse — it has been set as "
+               "given")
+    else:
+        try:
+            from server.services.bigquery_patch import verify_bid
+            full = verify_bid(bid)
+        except Exception as e:
+            log.warning(f"[set-booking-id] verify_bid({bid}) failed: {e}")
+            why = (f"the warehouse lookup for this id failed "
+                   f"({type(e).__name__}) — it has been set as given")
+        if full is None and not why:
+            # THE ID IS WRONG, and that is a different fact from the lookup
+            # having broken. Refused, so a typo cannot become a booking.
+            raise HTTPException(404, detail={
+                "message": f"BigQuery has no booking {bid}. Check the number — "
+                           f"a booking id is 7-12 digits and is not the "
+                           f"Zendesk ticket number.",
+                "kind": "not_found", "bid": bid})
+
+    was = (d.booking or {}).get("id")
+    d.booking = {**(full or {}), "id": bid}
+    d.selected_candidate_bid = bid
+    d.candidate_state = False
+    d.candidates_list = []
+    d.match_tier = 1 if full else 2
+    d.match_confidence = "confirmed"
+    d.match_method = "Associate set the booking id"
+    d.bid_source = "manual"
+
+    # ON THE TRAIL, because the trail is what a reader opens to find out how a
+    # booking was arrived at. A match a person typed and a match the pipeline
+    # found must not read the same — and an OVERWRITE must say what it
+    # replaced, or the previous answer vanishes with nothing recording that it
+    # ever existed.
+    trail = list(d.confidence_trail or [])
+    trail.append({"mark": "warn" if why else "pass",
+                  "text": "<strong>Booking id set by the associate</strong> — "
+                          + (f"replacing {was}. " if was and was != bid else "")
+                          + (f"{why}." if why else
+                             "verified against BigQuery.")
+                          + " Everything below is regenerated from this id."})
+    d.confidence_trail = trail
+    flag_modified(d, "confidence_trail")
+    db.commit()
+
+    from server.pipeline import run_batch_sync
+    background_tasks.add_task(run_batch_sync, [review_id], "bid-set-by-hand")
+    return {"ok": True, "bid": bid, "verified": bool(full),
+            "replaced": was if was and was != bid else None,
+            "note": why, "draft": _draft_dict(d)}
+
+
 # ── NEW: DSS on-demand connect ──────────────────────────────────────────────
 
 @router.post("/api/reviews/{review_id}/connect-dss")

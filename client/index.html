@@ -949,6 +949,29 @@
   /* The code Slack returned. Kept, because it is the one string that is any
      use to whoever fixes the workspace, and dropped for tidiness it would be
      unrecoverable — but muted, because it means nothing to the associate. */
+  /* Set-the-booking-id, above Booking details in column 2. Built from the
+     tokens already on this card: the input is .res-amount's rule widened for
+     a 7-12 digit number, the button is .btn, and the note takes .match-warn's
+     amber block so a refusal reads like every other warning here rather than
+     like a new kind of error. */
+  .bid-set-block .facts-head { align-items: baseline; gap: 8px; }
+  .bid-set-hint { font-size: 10.5px; color: var(--dim); font-weight: 400; }
+  .bid-set-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .bid-set-input {
+    flex: 1 1 auto; min-width: 0; font: inherit; font-size: 12px;
+    font-family: var(--mono); letter-spacing: .02em;
+    padding: 5px 8px; border-radius: 6px; border: 1px solid var(--input-bd);
+    background: var(--facts-bg); color: var(--text); outline: none;
+  }
+  .bid-set-input:focus { border-color: var(--accent); }
+  .bid-set-note:empty { display: none; }
+  .bid-set-note {
+    margin-top: 8px; font-size: 12px; line-height: 1.55;
+    background: var(--amber-bg); color: var(--amber);
+    border-radius: 7px; padding: 8px 10px;
+  }
+  .bid-set-note.ok { background: var(--green-bg); color: var(--green); }
+
   /* The card asking for the guest's language, in the case where the review
      was translated inbound so it is known NOT to be English but no language
      code was ever recorded. The ROW is .reply-meta and the button is .btn —
@@ -3009,7 +3032,27 @@ function renderReviewCol() {
     <div class="review-card">
       <div class="review-card-head">
         <div class="review-author-line">${esc(r.author)}</div>
-        <div class="review-meta">${esc(r.lang)}${r.type === 'identified' ? ' · BID ' + esc(b.bid) : ' · no BID in text'}</div>
+        <!-- WHETHER THE REVIEW CARRIED A BOOKING ID, not which bucket it
+             landed in. This read r.type === 'identified', so every review
+             outside that bucket said "no BID in text" — including one whose
+             BID was extracted from the review, verified in BigQuery, and
+             named in the trail two panels down. The card contradicted itself
+             because two elements derived one fact from different stores.
+             _bidFromReview is the store: bid_source, or the review's own
+             reference number.
+             (No backticks in this comment: it sits inside a template literal,
+             and a backtick here ends the string and kills the dashboard.) -->
+        <div class="review-meta">${esc(r.lang)}${(() => {
+          const hasBid = _bidFromReview(r);
+          const shown  = (b && b.bid) || r.reference_number || '';
+          if (!hasBid) return ' · no BID in text';
+          // A BID that is present but not yet confirmed is a different fact
+          // from one that matched, and from none at all. Three states, three
+          // sentences — the middle one is exactly this case.
+          return r.type === 'identified'
+            ? ' · BID ' + esc(shown)
+            : ' · BID ' + esc(shown) + ' in text — not confirmed';
+        })()}</div>
       </div>
       <span class="review-stars">${r.stars}</span>
       <div class="review-body-original">${esc(r.original)}</div>
@@ -3123,6 +3166,29 @@ function renderReviewCol() {
         </div>
       ` : ''}
       </div>
+    </div>
+
+    <!-- SET THE BOOKING ID BY HAND. The commonest recovery there was no route
+         for: the associate searches Zendesk or BMS, finds the booking the
+         pipeline could not, and had nowhere to put it. Sits ABOVE Booking
+         details and the timeline because everything below is regenerated from
+         it. Shown in every state — on a matched review it overwrites, which
+         is exactly when it is needed, since the pipeline being wrong is the
+         reason to reach for it.
+         No backticks in this comment: it is inside a template literal. -->
+    <div class="facts-block bid-set-block">
+      <div class="facts-head">
+        <span class="facts-head-title">Booking ID</span>
+        <span class="bid-set-hint">${r.type === 'identified'
+          ? 'Replaces the current match and regenerates everything below'
+          : 'Found it yourself? Set it here and everything below is built from it'}</span>
+      </div>
+      <div class="bid-set-row">
+        <input class="bid-set-input" data-bid-set-input type="text" inputmode="numeric"
+               placeholder="e.g. 33204378" value="" aria-label="Booking ID">
+        <button class="btn" data-bid-set disabled>${r.type === 'identified' ? 'Replace' : 'Set'}</button>
+      </div>
+      <div class="bid-set-note" data-bid-set-note></div>
     </div>
 
     ${r.type === 'identified' ? `
@@ -6080,6 +6146,19 @@ function renderRcaCol() {
       if (!resp.ok) throw postError(data.detail);
       clearPostError(col);
       r.rcaPostedAt = data.posted_at || new Date().toISOString();
+      // MARK SENT IS GATED ON rcaPostedAt AND ITS `disabled` WAS RENDERED
+      // BEFORE THIS POST HAPPENED. Setting the field on the object changed
+      // nothing on screen, so the button stayed greyed out after a successful
+      // post and read as broken — the associate had just done the one thing
+      // that unlocks it. Nothing re-renders here on purpose (that would
+      // discard an in-progress edit of the post), so the control is released
+      // directly.
+      const _sentBtn = col.querySelector('[data-mark-sent]');
+      if (_sentBtn) {
+        _sentBtn.disabled = false;
+        _sentBtn.title = 'Finish this review. The RCA is already in the '
+                       + 'thread, so nothing is posted again.';
+      }
       slackPostBtn.textContent = data.already_posted
         ? '✓ Already posted ' + _shortWhen(r.rcaPostedAt)
         : '✓ Posted to thread';
@@ -7226,6 +7305,78 @@ document.addEventListener('click', async (ev) => {
   } catch (e) {
     btn.disabled = false; btn.textContent = was;
     alert('Could not mark sent: ' + e.message);
+  }
+});
+
+// Set the booking id by hand. DELEGATED, like every other control in this
+// file that survives a re-render — a handler bound after one render is dead
+// after the next, which is the failure this codebase has hit three times.
+//
+// The button is disabled until the box holds something that could be a
+// booking id, so a click never round-trips to a certain 400. What counts as
+// "could be" is deliberately loose (7-12 digits after stripping): the server
+// is what decides whether the id is real, and a client-side rule that is
+// stricter than the server's silently blocks ids the server would accept.
+function _bidSetSync(box) {
+  const input = box.querySelector('[data-bid-set-input]');
+  const btn   = box.querySelector('[data-bid-set]');
+  if (!input || !btn) return;
+  const digits = (input.value || '').replace(/\D/g, '');
+  btn.disabled = !(digits.length >= 7 && digits.length <= 12);
+  btn.title = btn.disabled
+    ? 'A booking id is 7-12 digits — this is not one yet.'
+    : 'Set ' + digits + ' as this review\u2019s booking and rebuild everything below.';
+}
+
+document.addEventListener('input', (ev) => {
+  const input = ev.target.closest && ev.target.closest('[data-bid-set-input]');
+  if (input) _bidSetSync(input.closest('.bid-set-block'));
+});
+
+document.addEventListener('click', async (ev) => {
+  const btn = ev.target.closest && ev.target.closest('[data-bid-set]');
+  if (!btn || btn.disabled) return;
+  const box   = btn.closest('.bid-set-block');
+  const input = box && box.querySelector('[data-bid-set-input]');
+  const note  = box && box.querySelector('[data-bid-set-note]');
+  const r = REVIEWS.find(x => x.id === state.selected);
+  if (!r || !input) return;
+  const was = btn.textContent;
+  btn.disabled = true; btn.textContent = 'setting…';
+  if (note) { note.className = 'bid-set-note'; note.textContent = ''; }
+  try {
+    const res = await fetch(`/api/reviews/${r.id}/set-booking-id`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({bid: input.value}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      // The server sends {message, kind}. Older shapes send a string; both
+      // are handled, because rendering an object here would print
+      // "[object Object]" — the defect this file has already shipped once.
+      const d = data.detail;
+      throw new Error((d && typeof d === 'object' && d.message)
+                      || (typeof d === 'string' && d)
+                      || `${res.status} — the booking id was not set`);
+    }
+    if (note) {
+      note.className = 'bid-set-note ok';
+      note.textContent = 'Booking ' + data.bid + ' set'
+        + (data.replaced ? ', replacing ' + data.replaced : '')
+        + (data.verified ? ' and verified against BigQuery.'
+                         : '. ' + (data.note || 'It was not verified.'))
+        + ' Rebuilding everything below — this takes a minute.';
+    }
+    await reloadFromServer();
+  } catch (e) {
+    // The booking was NOT changed. Say that, not just "failed" — a set that
+    // looks applied and is not is what this guards.
+    btn.disabled = false; btn.textContent = was;
+    if (note) {
+      note.className = 'bid-set-note';
+      note.textContent = 'Not set — the booking on this review is unchanged. '
+                       + String(e.message || e);
+    }
   }
 });
 

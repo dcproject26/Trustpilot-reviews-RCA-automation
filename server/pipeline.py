@@ -1159,16 +1159,74 @@ async def process_review(review_id: str, force_candidates: bool = False):
                         # matched "Olsen") and let a visit date landing anywhere
                         # in a 30-day window promote to Tier 1 unaided.
                         from server.names import parse_author as _pa
+                        from server.names import (is_internal_booking_name
+                                                  as _is_internal_booking_name)
                         from server.services.zendesk import _name_score as _nsc
+                        from server.services import zendesk
                         # The SECOND copy of the first/last split, and it had
                         # the same fault. One rule, one place.
                         _af, _al = _pa(review.author or "")
                         verify_hits = []
 
+                        # THE NAME, FROM WHATEVER SOURCE CAN ACTUALLY SUPPLY
+                        # ONE — and an honest answer when none can.
+                        #
+                        # This scored the reviewer straight against
+                        # bq_row["primary_guest_name"], which is a PII hash on
+                        # a large share of rows. A hash, an internal desk
+                        # label ("Customer Ops Lead"), a blank and a genuinely
+                        # different person ALL score 0.0, so the gate below
+                        # read "we could not compare" as "they disagree" and
+                        # sent a booking id the guest quoted in their own
+                        # review to manual confirmation.
+                        #
+                        # _is_hashed_name is defined at the top of THIS FILE
+                        # and was applied at exactly one place — the candidate
+                        # ranking — which also falls back to the ticket's own
+                        # guest name. So one file held two name comparisons
+                        # under different rules, and the weaker one made the
+                        # more consequential decision.
                         pgn = bq_row.get("primary_guest_name") or ""
-                        name_conf = _nsc(pgn, _af, _al)
-                        if name_conf >= 0.7:          # surname agrees at minimum
+                        _name_src, _name_why = "", ""
+                        if pgn and not _is_hashed_name(pgn) and \
+                                not _is_internal_booking_name(pgn):
+                            _cmp_name, _name_src = pgn, "the booking record"
+                        else:
+                            # The warehouse has nothing usable. Ask Zendesk —
+                            # the same source the ranking path already uses.
+                            _cmp_name, _zwhy = await zendesk.guest_name_for_bid(
+                                bq_row.get("booking_id") or review.reference_number)
+                            if _cmp_name:
+                                _name_src = _zwhy
+                            else:
+                                _name_why = _zwhy
+                        # WHETHER A COMPARISON HAPPENED AT ALL. This is the
+                        # distinction the gate was missing: `name_conf` alone
+                        # cannot carry it, because 0.0 is what both answers
+                        # look like.
+                        name_checked = bool(_cmp_name)
+                        name_conf = _nsc(_cmp_name, _af, _al) if name_checked else 0.0
+                        if name_checked and name_conf >= 0.7:   # surname agrees at minimum
                             verify_hits.append(f"name({name_conf:.1f})")
+                        if name_checked and _name_src != "the booking record":
+                            confidence_trail.append({"mark": "pass",
+                                "text": f"<strong>Guest name for BID "
+                                        f"{review.reference_number}</strong> came from "
+                                        f"{_name_src} — the booking record holds "
+                                        f"no readable name"})
+                        elif not name_checked:
+                            # COUNTED AND SAID. Without this the card reports a
+                            # score for a comparison that never ran.
+                            _ctr["t1_name_uncheckable"] = _ctr.get(
+                                "t1_name_uncheckable", 0) + 1
+                            confidence_trail.append({"mark": "warn",
+                                "text": f"<strong>The guest name could not be "
+                                        f"compared</strong> — the booking record holds "
+                                        + ("a warehouse hash" if _is_hashed_name(pgn)
+                                           else "an internal desk label" if pgn
+                                           else "no guest name")
+                                        + f", and {_name_why}. This is NOT a "
+                                          f"disagreement: nothing was compared."})
 
                         exp_name = (bq_row.get("experienceName") or "")
                         venue_ok = bool(exp_name) and _venue_token_overlap(review_text or "", exp_name)
@@ -1190,6 +1248,17 @@ async def process_review(review_id: str, force_candidates: bool = False):
 
                         # Date alone is not evidence — a 30-day window catches a
                         # large share of bookings. It only corroborates.
+                        #
+                        # The gate is UNCHANGED and deliberately strict: guests
+                        # do quote reference numbers off shared vouchers,
+                        # forwarded emails and screenshots, so a booking id in
+                        # review text needs the name or the venue behind it.
+                        # Where the name genuinely could not be compared we
+                        # still cannot establish ownership, so this still asks
+                        # a human — that is the correct outcome. What changes
+                        # is that the card now says WHICH of the two happened,
+                        # and that the name is checked against every source
+                        # that can supply one before we give up on it.
                         if not (name_conf >= 0.7 or venue_ok):
                             # Weak BID — downgrade to Tier 2. booking stays
                             # unset: an unverified number must not become the
@@ -1205,8 +1274,8 @@ async def process_review(review_id: str, force_candidates: bool = False):
                             _why = ["booking id in review text"]
                             if date_ok:
                                 _why.append("date")
-                            _why.append(f"name {name_conf:.1f}" if pgn
-                                        else "no guest name on booking")
+                            _why.append(f"name {name_conf:.1f}" if name_checked
+                                        else "guest name not comparable")
                             if not venue_ok:
                                 _why.append("no venue match")
                             candidates = [_shape_weak_bid(bq_row, _why)]
@@ -1227,12 +1296,18 @@ async def process_review(review_id: str, force_candidates: bool = False):
                             # the card said the opposite.
                             _exp = (bq_row.get("experienceName") or "").strip()
                             confidence_trail.append({"mark": "warn",
-                                "text": f"<strong>BID {review.reference_number} resolves to a "
-                                        f"booking that does not match this review</strong> — "
-                                        f"BigQuery returned "
+                                "text": (f"<strong>BID {review.reference_number} resolves to a "
+                                         f"booking that does not match this review</strong> — "
+                                         if name_checked else
+                                         f"<strong>BID {review.reference_number} resolves to a "
+                                         f"booking we could not tie to this reviewer</strong> — ")
+                                        + "BigQuery returned "
                                         + (f"'{_exp}'" if _exp else "a booking")
-                                        + f", whose guest name scores "
-                                        f"{name_conf:.1f} against the reviewer"
+                                        + (f", whose guest name scores "
+                                           f"{name_conf:.1f} against the reviewer"
+                                           if name_checked else
+                                           ", whose guest name could not be "
+                                           "compared to the reviewer at all")
                                         + (" and whose experience is not mentioned in "
                                            "the review" if not venue_ok else "")
                                         + (" (the visit date does line up)" if date_ok else "")

@@ -226,5 +226,35 @@
     "name": "api: the card stops passing ticket_facts to the indicator check",
     "find": "                         ticket_facts=getattr(d, \"ticket_facts\", None))",
     "replace": "                         )"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "tier1 gate: the hash guard is dropped and a hash is scored again",
+    "find": "                        if pgn and not _is_hashed_name(pgn) and \\\n                                not _is_internal_booking_name(pgn):",
+    "replace": "                        if pgn:"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "tier1 gate: an uncomparable name is reported as a real score",
+    "find": "                        name_checked = bool(_cmp_name)",
+    "replace": "                        name_checked = True"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "tier1 gate: Zendesk is no longer consulted for the guest name",
+    "find": "                            _cmp_name, _zwhy = await zendesk.guest_name_for_bid(",
+    "replace": "                            _cmp_name, _zwhy = \"\", \"\"  # was: await zendesk.guest_name_for_bid("
+  },
+  {
+    "file": "server/api.py",
+    "name": "set-bid: an id BigQuery does not know is stored anyway",
+    "find": "        if full is None and not why:",
+    "replace": "        if False and full is None and not why:"
+  },
+  {
+    "file": "server/api.py",
+    "name": "set-bid: an overwrite no longer says what it replaced",
+    "find": "                          + (f\"replacing {was}. \" if was and was != bid else \"\")",
+    "replace": "                          + \"\""
   }
 ]

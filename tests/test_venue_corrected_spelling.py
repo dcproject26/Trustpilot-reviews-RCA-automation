@@ -47,14 +47,60 @@ def test_the_queries_ask_for_the_name_at_all():
         "not every catalogue query returns the name")
 
 
-def test_names_are_collected_from_rows():
-    """Driven through the row-handling the real queries feed."""
-    vr.last_resolved_names.clear()
-    for nm in ["Colosseum Guided Tour", "Colosseum Arena Floor"]:
-        if nm not in vr.last_resolved_names:
-            vr.last_resolved_names.append(nm)
+def _resolve(hints):
+    import asyncio
+    return asyncio.run(vr.resolve(hints))
+
+
+def _rows(monkeypatch, rows):
+    """Stub the warehouse so resolve() runs its real row-handling.
+
+    The previous version of the test below appended to `last_resolved_names`
+    itself and then asserted the list contained what it had just put there —
+    a test of list.append. A mutation deleting the resolver's collection loop
+    outright SURVIVED it, which is exactly what a tautological test buys."""
+    monkeypatch.setattr(vr, "_WORKING_TABLE", "proj.ds.dim_experiences")
+    monkeypatch.setattr(vr.bq, "run_query", lambda *a, **k: rows)
+
+
+def test_the_catalogue_spelling_is_collected_by_resolve(monkeypatch):
+    """The whole point: the guest wrote "collosseum" and the row that matched
+    says "Colosseum Guided Tour". That string is what Zendesk needs."""
+    _rows(monkeypatch, [{"experience_id": 21613,
+                         "experience_name": "Colosseum Guided Tour"}])
+    got = _resolve(["collosseum"])
+    assert got == [21613], got
+    assert vr.last_resolved_names == ["Colosseum Guided Tour"], \
+        vr.last_resolved_names
+
+
+def test_several_rows_contribute_and_do_not_repeat(monkeypatch):
+    _rows(monkeypatch, [
+        {"experience_id": 1, "experience_name": "Colosseum Guided Tour"},
+        {"experience_id": 2, "experience_name": "Colosseum Arena Floor"},
+        {"experience_id": 3, "experience_name": "Colosseum Guided Tour"}])
+    _resolve(["collosseum"])
     assert vr.last_resolved_names == ["Colosseum Guided Tour",
-                                      "Colosseum Arena Floor"]
+                                      "Colosseum Arena Floor"], \
+        vr.last_resolved_names
+
+
+def test_a_token_that_matched_the_whole_catalogue_contributes_no_name(monkeypatch):
+    """A token matching 100+ rows is not identifying a venue, and the resolver
+    drops it. Its names must be dropped with it — handing Zendesk a hundred
+    experience names is not a search."""
+    _rows(monkeypatch, [{"experience_id": i, "experience_name": f"Tour {i}"}
+                        for i in range(100)])
+    _resolve(["collosseum"])
+    assert vr.last_resolved_names == [], vr.last_resolved_names
+
+
+def test_a_row_with_no_name_does_not_contribute_an_empty_string(monkeypatch):
+    """An empty string in the list becomes a Zendesk query for nothing."""
+    _rows(monkeypatch, [{"experience_id": 5, "experience_name": ""},
+                        {"experience_id": 6, "experience_name": None}])
+    _resolve(["collosseum"])
+    assert vr.last_resolved_names == [], vr.last_resolved_names
 
 
 def test_a_new_resolve_does_not_inherit_the_previous_reviews_venue():

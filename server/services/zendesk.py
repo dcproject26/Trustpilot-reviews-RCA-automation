@@ -2259,3 +2259,91 @@ async def _shape_via_claude(
             "internal_reason": internal[0].get("internal_reason", "") if is_internal else "",
         })
     return kept
+
+
+# The guest's real name for a booking id, and where it came from.
+#
+# THE RANKING PATH ALREADY DOES THIS AND THE TIER-1 GATE DOES NOT.
+# `pipeline._score`'s `_name_pts` takes max(zendesk_ticket_name, bq_name,
+# ticket_signals_name) and guards the BigQuery hash before scoring it. The
+# Tier-1 gate — the branch that decides whether a booking id the guest quoted
+# in their own review is trusted — scores the reviewer straight against
+# `bq_row["primary_guest_name"]`, which is a PII hash on a large share of rows.
+# Hash, internal desk label, blank and a genuinely different person all score
+# 0.0, so the gate reads "we could not compare" as "they disagree" and sends a
+# correctly-quoted booking id to manual confirmation.
+#
+# This is the missing source. Best-effort: it returns ("", reason) rather than
+# raising, and the reason is written for the trail — "Zendesk had no readable
+# guest name" and "Zendesk was never asked" must not read the same.
+GUEST_NAME_UNAVAILABLE = {
+    "not_live":   "Zendesk is not connected on this server, so the booking's "
+                  "guest name could not be checked there",
+    "no_client":  "the Zendesk client could not be built, so the booking's "
+                  "guest name could not be checked there",
+    "no_tickets": "no Zendesk ticket references this booking id, so there is "
+                  "no ticket-side guest name to compare",
+    "no_name":    "the Zendesk ticket for this booking carries no readable "
+                  "guest name",
+    "failed":     "the Zendesk lookup for this booking's guest name failed",
+}
+
+
+async def guest_name_for_bid(bid) -> tuple[str, str]:
+    """(name, reason). `name` is "" whenever nothing usable was found.
+
+    A hash or an internal desk label on the Zendesk side is rejected exactly
+    as it is on the warehouse side — accepting one here would move the defect
+    one layer out rather than fix it.
+    """
+    from server.names import is_internal_booking_name
+    bid = str(bid or "").strip()
+    if not bid:
+        return "", GUEST_NAME_UNAVAILABLE["no_tickets"]
+    if not is_live("zendesk"):
+        return "", GUEST_NAME_UNAVAILABLE["not_live"]
+    _z = _get_client()
+    if _z is None:
+        return "", GUEST_NAME_UNAVAILABLE["no_client"]
+    try:
+        loop = asyncio.get_running_loop()
+        tickets = await loop.run_in_executor(
+            None, lambda: _search_with_retry(_z, f"type:ticket fieldvalue:{bid}"))
+        if not tickets:
+            tickets = await loop.run_in_executor(
+                None, lambda: _search_with_retry(_z, f'type:ticket "{bid}"'))
+        if not tickets:
+            return "", GUEST_NAME_UNAVAILABLE["no_tickets"]
+
+        def _usable(v):
+            v = str(v or "").strip()
+            if not v or is_internal_booking_name(v):
+                return ""
+            # The same hash test the warehouse side uses. A base64 blob is not
+            # a name whichever system it came out of.
+            from server.services.bigquery import is_hashed_name
+            return "" if is_hashed_name(v) else v
+
+        # The ticket's own guest-name field first — it is about the BOOKING.
+        for t in tickets[:5]:
+            got = _usable(get_custom_field(t, _F_GUEST_NAME))
+            if got:
+                return got, "the Zendesk ticket's guest-name field"
+        # Then the requester, which is whoever owns the account: an assistant,
+        # a parent, a colleague. Weaker, and still far better than a hash.
+        for t in tickets[:5]:
+            rid = getattr(t, "requester_id", None)
+            if not rid:
+                continue
+            try:
+                got = _usable(getattr(
+                    await loop.run_in_executor(None, lambda i=rid: _z.users(id=i)),
+                    "name", ""))
+            except Exception:
+                continue
+            if got:
+                return got, "the Zendesk requester on the ticket for this booking"
+        return "", GUEST_NAME_UNAVAILABLE["no_name"]
+    except Exception as e:
+        log.warning(f"[zendesk] guest_name_for_bid({bid}) failed: {e}")
+        return "", f"{GUEST_NAME_UNAVAILABLE['failed']} ({type(e).__name__})"
