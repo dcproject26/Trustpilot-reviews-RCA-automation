@@ -972,11 +972,28 @@ rewound and took it with it: `/tmp/comb_*.json` and the shard logs are gone,
 no worker was running when the next session opened, and 25-of-252 with the
 rest unknown is not a result. It has not been re-run as a whole.
 
-**The spec is 294 now** — 42 added for the five-heading composer and the reply
+**The spec is 296 now** — 44 added for the five-heading composer and the reply
 language (`wwr_post.py`, `reply_language.py`, the apply-english failure
-contract, the one-composer wiring). Every one of the 42 was verified to match
-its anchor exactly once against the final tree before running; the results of
-that sharded pass are recorded in §11.14's session notes below.
+contract, the one-composer wiring, the `en`-default detection). Every one of
+the 44 was verified to match its anchor exactly once against the final tree
+before launching; five had to be RE-ANCHORED after a refactor moved them, and
+each would have reported SKIP, which is not a pass.
+
+**THE 44-MUTATION PASS ON THIS DIFF WAS STILL RUNNING WHEN THE SESSION ENDED.**
+That is not a result. Three shards in `.snap/mine/`, baselines all green at
+2065 passed, and at hand-off **3 of 44 complete — 3 CAUGHT, 0 survived,
+0 skipped**. The remaining 41 are unknown, not passing.
+
+It is slow because the older 252-mutation pass is running at the same time:
+seven concurrent full suites on four cores, ~10 minutes per mutation. To read
+it when it lands:
+
+    grep -h "CAUGHT\|SURVIVED\|SKIP" .snap/mine/m*.log
+    grep -c "CAUGHT" .snap/mine/m*.log        # should total 44
+
+A SURVIVOR is a test gap: close it with a driven test and re-run that one
+mutation to confirm CAUGHT. A SKIP is an anchor that no longer matches exactly
+once — re-anchor it; a mutation that never applied is evidence of nothing.
 
 To read it when it lands:
 

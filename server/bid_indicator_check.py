@@ -410,14 +410,38 @@ def _guest_signal(author: str | None, booking: dict) -> dict:
         return _sig("guest", "unchecked", author, pgn,
                     f"the names partly agree ({score:.1f}) — too weak to read "
                     f"either way")
+    # The name IS printed here, and safely: _looks_hashed above returns
+    # "unchecked" before this line can be reached, so anything arriving here is
+    # readable. That matters — "Customer Ops Lead" tells the reader this is a
+    # corporate booking, which is the whole reason a name disagreement is not
+    # on its own evidence of a wrong one.
+    #
+    # The hash reached the card because that guard tested HEX only and
+    # BigQuery hashes to base64. Widening the guard is the fix; blanking this
+    # sentence was not, and cost a fact worth having.
     return _sig("guest", "mismatch", author, pgn,
                 f"no part of '{author}' appears in '{pgn}'")
 
 
 def _looks_hashed(s: str) -> bool:
+    """Whether this "name" is a warehouse hash rather than a person's name.
+
+    The first version tested only HEX characters, so it caught a UUID and
+    missed the thing it was written for: BigQuery hashes guest names to
+    base64, and "ka5YFyVDPTb8Izueol+UqKl1JMDgL78s8ZO6ntx/LA0=" contains
+    '+', '/' and '=' — none of which are hex. It went through the guard and
+    onto the card, in a sentence a reader could do nothing with.
+
+    Base64 and hex both, and a bare token of that length with no space in it
+    is not a name anyone is called. A false positive here costs one guest
+    comparison reported as unchecked, which is honest; a false negative puts
+    44 characters of machine output in front of a human.
+    """
     s = (s or "").strip()
-    return " " not in s and len(s) >= 16 and all(
-        c in "0123456789abcdefABCDEF-" for c in s)
+    if " " in s or len(s) < 16:
+        return False
+    return all(c in ("0123456789abcdefghijklmnopqrstuvwxyz"
+                     "ABCDEFGHIJKLMNOPQRSTUVWXYZ+/=-_") for c in s)
 
 
 # ── the check ──────────────────────────────────────────────────────────────

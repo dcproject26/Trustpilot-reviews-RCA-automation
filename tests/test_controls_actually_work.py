@@ -561,6 +561,13 @@ NOT_CONTROLS = {
     # A provenance marker span, not a control: it carries the source in its
     # title so a reader who doubts a point can check it.
     "data-aoi-src",
+    # The collapse key stamped on each section. The CONTROL is the section
+    # label, handled by one delegated listener so it works in every column —
+    # a per-render binding only ever reached the root it was given, which is
+    # how the booking timeline's chevron came to be drawn and dead. This
+    # attribute is the state key that listener reads, not a thing to click.
+    # Driven end to end by tests/test_sections_collapse.py.
+    "data-sec-key",
 }
 
 # Deliberately not driven, each with the reason.

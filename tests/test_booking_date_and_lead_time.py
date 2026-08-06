@@ -132,3 +132,33 @@ def test_a_row_with_no_time_stays_empty(page):
     must not acquire a date from this."""
     assert page.evaluate("() => stampText('')") == ""
     assert page.evaluate("() => stampText(null)") == ""
+
+
+# ── the Booking details row, which had a third date format ─────────────────
+
+@pytest.mark.parametrize("given", [
+    "2026-06-13T21:20:58.000Z",   # what normaliseStamp produces from an epoch
+    "1781731258",                  # the epoch itself
+    "1.781731258E9",               # BigQuery's float, stringified
+])
+def test_the_booking_date_row_reads_like_its_neighbours(page, given):
+    """Visit date and Review date render as YYYY-MM-DD. Booking date printed
+    raw ISO — "2026-06-13T21:20:58.000Z" — so one panel carried three date
+    formats, one of them machine output with a T and a Z in it."""
+    got = page.evaluate("(v) => stampDetail(v)", given)
+    # The ISO markers specifically — "T" alone is wrong, because "IST" has one.
+    # The first version of this assertion failed against output that was
+    # correct, which is its own small lesson about matching on shape.
+    import re as _re
+    assert not _re.search(r"\dT\d", got) and not got.endswith("Z"), got
+    assert got.startswith("2026-06-1"), got
+    assert "IST" in got and ":" in got, (
+        f"{got!r} lost the time — the time is the point of this field, it is "
+        f"what shows a booking made minutes before the slot")
+
+
+def test_absent_and_unreadable_stay_distinguishable(page):
+    assert page.evaluate("() => stampDetail('')") == "—"
+    assert page.evaluate("() => stampDetail(null)") == "—"
+    # Not a date, and not pretended to be one.
+    assert page.evaluate("() => stampDetail('not a date')") == "not a date"

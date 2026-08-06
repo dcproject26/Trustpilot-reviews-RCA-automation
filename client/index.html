@@ -1612,6 +1612,30 @@ function bookingCreatedAt(db) {
 // "DD Mon HH:MM", matching what zendesk._to_ist gives real events, so the two
 // kinds of row read the same. A value that is not an epoch is returned as it
 // was: it is already a formatted time, and reformatting it would be guessing.
+// A booking creation stamp for the DETAILS panel. normaliseStamp turns an
+// epoch into ISO, and the row then printed that ISO verbatim -
+// "2026-06-13T21:20:58.000Z" - beside Visit date and Review date, which are
+// plain YYYY-MM-DD. Three date rows, three formats, one of them machine
+// output with a T and a Z in it.
+//
+// Same date shape as its neighbours, plus the TIME, because the time is the
+// whole point of this field: it is what tells you a booking was made minutes
+// before the slot rather than weeks. IST, matching every other time on the
+// card. A value that is not a date is returned untouched rather than dressed
+// as one.
+function stampDetail(v) {
+  const s = normaliseStamp(v);
+  if (!s) return '—';
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return String(s);
+  const p = new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+    timeZone: 'Asia/Kolkata'}).formatToParts(d)
+    .reduce((a, x) => (a[x.type] = x.value, a), {});
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute} IST`;
+}
+
 function stampText(v) {
   const s = normaliseStamp(v);
   if (!/^\d{4}-\d{2}-\d{2}T/.test(s)) return String(s || '').replace(/ IST$/, '');
@@ -1867,6 +1891,23 @@ document.addEventListener('change', async ev => {
   r.rca.primaryScenario = list[0] || '';
   await regenerateForScenarios(r.id);
 });
+// ONE listener for every collapsible section, in any column, drawn by any
+// render pass. Delegated at document level for the reason above: a per-render
+// binding is only ever as complete as the root it was given, and this file has
+// three separate render functions writing sections.
+document.addEventListener('click', ev => {
+  const label = ev.target.closest && ev.target.closest('.section-label');
+  if (!label) return;
+  // Never swallow a click meant for a control inside the head.
+  if (ev.target.closest('input, select, button, [contenteditable="true"], a')) return;
+  const sec = label.closest('.section');
+  if (!sec) return;
+  const key = sec.dataset.secKey || sec.id;
+  const now = !sec.classList.contains('is-collapsed');
+  sec.classList.toggle('is-collapsed', now);
+  if (key) state.collapsed[key] = now;
+});
+
 document.addEventListener('click', async ev => {
   const btn = ev.target.closest && ev.target.closest(
     '[data-scenario-remove], [data-overlay-remove]');
@@ -3072,7 +3113,7 @@ function renderReviewCol() {
                  || 'no guest name on the booking or on any linked Zendesk ticket')}</span>`;
         })()}</span></div>
         <div class="detail-row"><span class="k">Visit date</span><span class="v">${b.experienceDate || '—'}</span></div>
-        <div class="detail-row"><span class="k">Booking date</span><span class="v">${b.bookingDate || b.creationDate || '—'}</span></div>
+        <div class="detail-row"><span class="k">Booking date</span><span class="v">${stampDetail(b.bookingDate || b.creationDate)}</span></div>
         <div class="detail-row"><span class="k">Review date</span><span class="v">${b.reviewDate || '—'}</span></div>
         <div class="detail-row"><span class="k">Partnered vendor</span><span class="v">${b.isPartnered == null ? '<span class="placeholder">—</span>' : `<span class="pill-sm ${b.isPartnered ? 'pill-green' : 'pill-grey'}">${b.isPartnered ? 'Yes' : 'No'}</span>`}</span></div>
         <div class="detail-row"><span class="k">Escalation email</span><span class="v">${
@@ -6192,7 +6233,13 @@ function renderRcaCol() {
   // Applied after render rather than in each template, so every section gets
   // it and none can be forgotten. Keyed by label text so the open/closed
   // state survives re-renders and review switches.
-  col.querySelectorAll('.section').forEach(sec => {
+  // document, not col. BOTH halves of this were root-limited: the pass
+  // stamps the key AND re-applies the collapsed state after a render, so
+  // scoping it to one column meant a section in another column collapsed
+  // once and sprang open on the next render — the toggle working and
+  // then apparently forgetting, which reads as a different bug entirely.
+  // Idempotent, so running it over the whole document is safe.
+  document.querySelectorAll('.section').forEach(sec => {
     const label = sec.querySelector('.section-label');
     if (!label) return;
     // The early return used to be `|| label.querySelector('.section-chev')`,
@@ -6226,13 +6273,14 @@ function renderRcaCol() {
       label.appendChild(chev);
     }
     if (state.collapsed[key]) sec.classList.add('is-collapsed');
-    label.addEventListener('click', ev => {
-      // Never swallow a click meant for a control inside the head.
-      if (ev.target.closest('input, select, button, [contenteditable="true"], a')) return;
-      const now = !sec.classList.contains('is-collapsed');
-      sec.classList.toggle('is-collapsed', now);
-      state.collapsed[key] = now;
-    });
+    // The key is stamped on the element; the CLICK is handled by one
+    // delegated listener below. Binding here only reached sections inside
+    // this pass's root, and §13 moved the booking timeline into the FACTS
+    // column — so its chevron was drawn by the template, looked identical to
+    // every other one, and did nothing. That is the third time a control in
+    // this file has been dead because the markup and the handler were owned
+    // by different render passes.
+    sec.dataset.secKey = key;
   });
 
   const persistAoi = async (list, el) => {
