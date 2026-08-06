@@ -263,21 +263,45 @@ def test_a_name_that_disagrees_alone_does_not_report_as_nothing_compared():
     compared and came back negative; saying "nothing could be compared" turns a
     negative result into a claim that no check ran.
 
-    'Customer Ops Lead' against a review by 'Ioan' is the real case — a
-    corporate booking name, which is common enough that it must not raise the
-    flag, and specific enough that the sentence has to be true about it.
+    THE EXAMPLE MOVED, THE GUARANTEE DID NOT. This used to be written against
+    'Customer Ops Lead', which is not a guest name at all — it is the label our
+    own systems put on a desk-made booking, so comparing it to a reviewer's
+    name produced a disagreement that means nothing. That case is now its own
+    branch and its own file (test_internal_booking_names.py), and it reports
+    'unchecked' with NOTHING contradicted, which is why this test had to stop
+    using it as its example.
+
+    'Fredrik Andersson' is the case this test is actually about: a real person
+    who is not the reviewer. Common enough that it must not raise the flag —
+    bookings are legitimately made under a partner's or a colleague's name —
+    and specific enough that the sentence has to be true about it.
     """
-    got = check("terrible experience", _b(primary_guest_name="Customer Ops Lead"),
+    got = check("terrible experience", _b(primary_guest_name="Fredrik Andersson"),
                 author="Ioan Popescu", received_at=REF)
     assert got["state"] == "unchecked"
     assert got["contradictions"] == ["guest"]
     assert "nothing in this review could be compared" not in got["why"], got["why"]
-    assert "Ioan" in got["why"] and "Customer Ops Lead" in got["why"]
+    assert "Ioan" in got["why"] and "Fredrik Andersson" in got["why"]
     assert "not on its own evidence of a wrong booking" in got["why"]
 
 
+def test_an_internal_label_and_a_real_disagreement_are_told_apart():
+    """The two must not collapse into each other. A real name that disagrees
+    is a comparison that RAN and came back negative; an internal label is a
+    comparison that could not run, because there is no guest name on the
+    booking to run it against. Reporting the second as the first invents a
+    disagreement with a person who does not exist."""
+    real = check("terrible", _b(primary_guest_name="Fredrik Andersson"),
+                 author="Ioan Popescu", received_at=REF)
+    label = check("terrible", _b(primary_guest_name="Customer Ops Lead"),
+                  author="Ioan Popescu", received_at=REF)
+    assert real["contradictions"] == ["guest"]
+    assert label["contradictions"] == [], label
+    assert real["why"] != label["why"]
+
+
 def test_the_trail_line_carries_that_distinction_too():
-    a = trail_entry(check("terrible", _b(primary_guest_name="Customer Ops Lead"),
+    a = trail_entry(check("terrible", _b(primary_guest_name="Fredrik Andersson"),
                           author="Ioan Popescu", received_at=REF))["text"]
     b = trail_entry(check("terrible", _b(), received_at=REF))["text"]
     assert a != b, ("a name that disagreed and a booking with nothing to "

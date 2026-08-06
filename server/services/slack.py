@@ -335,6 +335,88 @@ def is_search_unavailable(mentions: list[dict] | None) -> bool:
     return bool(mentions) and bool((mentions[0] or {}).get(SEARCH_UNAVAILABLE))
 
 
+# ── why a post did not go, and what to do about it ─────────────────────────
+#
+# `post_to_thread` returned None for every outcome: rate-limited, wrong
+# channel, revoked token, message too long — and for MOCK_MODE, where nothing
+# was wrong at all. The caller turned all of that into one sentence, "Slack
+# rejected the post - check the bot's channel membership and scopes", which
+# named the one cause it happened to be written for and was wrong about the
+# rest. Nobody can act on it: it does not say whether trying again would work.
+#
+# So each code carries two things — a plain sentence, and a VERDICT, which is
+# the only part that changes what the reader does next:
+#
+#   retry   — temporary. The same click will probably work.
+#   fix     — a person must change something (invite the app, add a scope,
+#             shorten the post), and then the same click will work.
+#   manual  — this post is not going through this route. Copy it into the
+#             thread by hand.
+#
+# MOCK_MODE and no-token are deliberately NOT in here. They are not failures,
+# they are the system doing as configured, and giving them a rejection
+# sentence would be the inverse bug — a healthy run reported as broken.
+POST_ERRORS = {
+    "not_in_channel":
+        ("the app is not a member of this channel", "fix",
+         "invite it to the channel, then post again"),
+    "is_archived":
+        ("the channel is archived, so nothing can be posted to it", "manual",
+         "un-archive the channel or copy the post somewhere else"),
+    "channel_not_found":
+        ("Slack does not recognise this channel — it may be private, or "
+         "renamed since the review arrived", "manual",
+         "copy the post into the thread by hand"),
+    "thread_not_found":
+        ("the thread this review came from no longer exists", "manual",
+         "copy the post into the thread by hand"),
+    "msg_too_long":
+        ("the post is longer than Slack accepts", "fix",
+         "shorten it in the editor above, then post again"),
+    "missing_scope":
+        ("the Slack token is missing the scope needed to post", "manual",
+         "add chat:write under OAuth & Permissions and reinstall the app"),
+    "invalid_auth":
+        ("the Slack token was rejected — revoked or rotated", "manual",
+         "reissue the token"),
+    "token_revoked":
+        ("the Slack token has been revoked", "manual", "reissue the token"),
+    "account_inactive":
+        ("the Slack account behind the token is deactivated", "manual",
+         "reissue the token from an active account"),
+    "restricted_action":
+        ("workspace settings do not allow this app to post here", "manual",
+         "copy the post into the thread by hand"),
+    "ratelimited":
+        ("Slack rate-limited the post — this one is temporary", "retry",
+         "wait a moment and post again"),
+}
+
+# What the last post_to_thread did, whether it worked or not. Read by the API
+# so the card can say which of these happened. A dict rather than a raised
+# exception because post_to_thread has non-failure Nones (MOCK_MODE) that must
+# stay distinguishable from a rejection.
+last_post_failure: dict = {"code": "", "why": "", "verdict": "", "next": ""}
+
+
+def post_failure_sentence(code: str) -> dict:
+    """One rejection, described so the reader knows whether to click again.
+
+    An unknown code is NOT flattened into a known one. It keeps its own text
+    and gets the cautious verdict — "we do not know if retrying helps" beats
+    inventing a confident answer about a code this build has never seen.
+    """
+    known = POST_ERRORS.get(code)
+    if known:
+        why, verdict, nxt = known
+    else:
+        why = f"Slack refused the post and gave the reason “{code}”"
+        verdict = "manual"
+        nxt = ("this build has no guidance for that code — copy the post into "
+               "the thread by hand, and send the code to whoever maintains this")
+    return {"code": code, "why": why, "verdict": verdict, "next": nxt}
+
+
 def _api_error_code(e: Exception) -> str:
     """
     The Slack error string ("missing_scope", "not_allowed_token_type", ...).
@@ -490,6 +572,9 @@ async def post_to_thread(channel: str, thread_ts: str, text: str,
     # demo data with an invalid channel and thread_ts; against a real thread
     # it would have posted, from a run whose whole point was that it could
     # not.
+    # Cleared on every attempt. A stale reason from the last failed post read
+    # as a fresh rejection of a post that in fact went through.
+    last_post_failure.update({"code": "", "why": "", "verdict": "", "next": ""})
     if MOCK_MODE:
         log.info(f"[MOCK] not posting to {channel}/{thread_ts}: {text[:120]}…")
         return None
@@ -504,7 +589,12 @@ async def post_to_thread(channel: str, thread_ts: str, text: str,
         )
         return res.get("ts")
     except Exception as e:
-        log.exception(f"Slack post failed: {e}")
+        # WHICH rejection. Without this every cause below shared one sentence,
+        # and the sentence named channel membership — so a rate-limit, which
+        # clears on its own, sent the reader to check the app's channels.
+        code = _api_error_code(e)
+        last_post_failure.update(post_failure_sentence(code))
+        log.exception(f"Slack post failed ({code}): {e}")
         return None
 
 

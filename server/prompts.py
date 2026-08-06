@@ -1714,10 +1714,20 @@ that turned out fine is silence — never a line in the output.
     sequence stays as separate entries — collapsing three failures into one
     hides the root cause. `what` is a 3–8 word label with no full stop
     ("Selenium fulfilment attempt failed"); `detail` is one complete sentence,
-    or null when the label says everything. Never return an empty list: when
-    the systems gave you nothing, build the sequence from the guest's own
-    account — they always narrate one — and end each such `detail` with
-    "(guest's account, unverified)".
+    or null when the label says everything.
+
+    ONLY WHEN A BOOKING IS CONFIRMED. This section is the BOOKING's timeline,
+    and until an associate has picked one there is no booking whose timeline
+    this could be. Narrating the guest's account under that heading put a
+    six-event sequence on a card whose booking was still an open question, and
+    a reader scanning the column had no way to tell it from a real one.
+    <<BOOKING>> is empty or carries no id: RETURN AN EMPTY LIST and say
+    nothing. The card explains the emptiness itself.
+
+    When a booking IS confirmed and the systems still gave you nothing, build
+    the sequence from the guest's own account — they always narrate one — and
+    end each such `detail` with "(guest's account, unverified)". At that point
+    there is a booking for the account to be about.
 
 10b. A GUEST'S ACCOUNT HAS NO CLOCK, SO SAY SO IN `time`. A guest narrates an
     order of events, not timestamps. Returning null for every `time` on such a

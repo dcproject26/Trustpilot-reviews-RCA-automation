@@ -1857,8 +1857,10 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
         # The rows already on this draft, so a row an associate typed
         # survives a regenerate. Read here because the projection below
         # overwrites the column a few lines later.
+        _confirmed = bool((d.booking or {}).get("id") and not d.candidate_state)
         rca_v3, rca_notes = _validate_rca(rca_v3, scenarios,
-                                          keep_actions=(d.actions_taken or None))
+                                          keep_actions=(d.actions_taken or None),
+                                          booking_confirmed=_confirmed)
         for _n in rca_notes:
             log.warning(f"[regenerate-rca] {review_id}: {_n}")
     except Exception as e:
@@ -2484,8 +2486,31 @@ async def post_rca_to_thread(review_id: str, force: bool = False,
         d.slack_thread_override = sent
     ts = await post_to_thread(r.slack_channel, r.slack_ts, text, as_user=True)
     if ts is None and not MOCK_MODE:
-        raise HTTPException(502, "Slack rejected the post - check the bot's "
-                                 "channel membership and scopes.")
+        # NOTHING WAS POSTED, SO NOTHING IS MARKED. The review stays exactly
+        # where it is — rca_posted_at is not set below, and the Sent tab never
+        # learns about this. A Sent row for a post Slack refused would be a
+        # lie, and the one place that lie is unrecoverable is the one place it
+        # matters: the tab people use to decide what still needs doing.
+        #
+        # What the reader gets instead is the reason and whether to click
+        # again. See slack.post_failure_sentence for the three verdicts.
+        from server.services.slack import last_post_failure
+        f = dict(last_post_failure)
+        if not f.get("why"):
+            # post_to_thread returned None without recording a reason. That is
+            # a real gap, and saying so beats naming a cause we did not
+            # establish — the previous message asserted channel membership on
+            # every failure, including ones it could not have been.
+            f = {"code": "", "verdict": "manual",
+                 "why": "the post did not go through and Slack gave no reason",
+                 "next": "copy the post into the thread by hand"}
+        raise HTTPException(502, detail={
+            "message": f"Not posted — {f['why']}. To fix: {f['next']}.",
+            "slack_error": f.get("code") or "",
+            "verdict": f.get("verdict"),
+            "retryable": f.get("verdict") in ("retry", "fix"),
+            "still_here": True,
+        })
     d.rca_posted_at = datetime.utcnow()
     db.commit()
     return {"ok": True, "already_posted": False, "ts": ts,

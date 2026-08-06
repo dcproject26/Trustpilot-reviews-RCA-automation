@@ -1318,12 +1318,29 @@ async def process_review(review_id: str, force_candidates: bool = False):
                         log.warning(f"Venue resolver failed: {e}")
                 if tgids:
                     _ctr["t2_venue_mapped"] += 1
+                    # THE CORRECTED SPELLING GOES TO ZENDESK TOO. Resolution
+                    # turns "collosseum" into the catalogue's `Colosseum`, and
+                    # only BigQuery was getting the benefit — the Zendesk full
+                    # text search kept the guest's misspelling, which appears
+                    # in no ticket anyone wrote. The half of the search that
+                    # most needed the correction never saw it.
+                    _fixed = [n for n in (venue_resolver.last_resolved_names or [])
+                              ][:venue_resolver.MAX_RESOLVED_NAMES]
+                    if _fixed:
+                        indicators["venue_names_resolved"] = _fixed
                     confidence_trail.append({"mark": "pass",
-                        "text": f"<strong>Venues:</strong> {venue_hints} → {len(tgids)} TGIDs"})
+                        "text": f"<strong>Venues:</strong> {venue_hints} → {len(tgids)} TGIDs"
+                                + (f", catalogue spelling: {', '.join(_fixed)} "
+                                   f"— searched in Zendesk alongside what the "
+                                   f"guest wrote" if _fixed else "")})
                 elif venue_hints:
                     _ctr["t2_venue_not_resolved"] += 1
                     confidence_trail.append({"mark": "warn",
-                        "text": f"<strong>Venues extracted</strong> but no TGIDs resolved: {venue_hints}"})
+                        "text": (f"<strong>Venues extracted</strong> but no TGIDs "
+                                 f"resolved: {venue_hints} — "
+                                 f"{venue_resolver.last_failure.get('why') or 'reason not recorded'}"
+                                 + (f" (table: {venue_resolver.last_failure.get('table')})"
+                                    if venue_resolver.last_failure.get('table') else ""))})
 
                 log.info(
                     f"[tier2] venue resolution: mapped_tgids={_ctr['t2_venue_mapped']} | "
@@ -1523,6 +1540,36 @@ async def process_review(review_id: str, force_candidates: bool = False):
                             confidence_trail.append({"mark": "warn",
                                 "text": f"<strong>Zendesk {_n['label']} search failed</strong> "
                                         f"— {_n.get('detail', '')}"})
+                        # The three ways a FOUND ticket still yields no
+                        # candidate. Each was silent, and silence here is
+                        # identical to the search never having run — which is
+                        # why the reported case took three rounds to locate.
+                        elif _n.get("kind") == "no_bid":
+                            _ctr["t2_ticket_no_bid"] += 1
+                            confidence_trail.append({"mark": "warn",
+                                "text": f"<strong>A ticket matched the {_n['label']} "
+                                        f"search but carried no booking id</strong>{_again} "
+                                        f"— not in the booking-id field and no "
+                                        f"7–12 digit number in its subject or body. "
+                                        f"Ticket {_n.get('detail', '?')} was found, "
+                                        f"not skipped."})
+                        elif _n.get("kind") == "text_bid_unconfirmed":
+                            _ctr["t2_text_bid_dropped"] += 1
+                            confidence_trail.append({"mark": "warn",
+                                "text": f"<strong>A booking id was read from ticket "
+                                        f"text but the other indicators did not "
+                                        f"agree</strong>{_again} — dropped rather than "
+                                        f"offered. A number found in prose is only "
+                                        f"a candidate when the name, venue and date "
+                                        f"line up too (ticket "
+                                        f"{_n.get('detail', '?')})."})
+                        elif _n.get("kind") == "ambiguous_bid":
+                            _tid, _, _nums = str(_n.get("detail", "")).partition(":")
+                            confidence_trail.append({"mark": "warn",
+                                "text": f"<strong>A judgement was made:</strong> ticket "
+                                        f"{_tid} has more than one number that could "
+                                        f"be a booking id ({_nums}){_again}. The first "
+                                        f"was used; the others were not."})
 
                     if _short:
                         candidates = []
@@ -1537,6 +1584,14 @@ async def process_review(review_id: str, force_candidates: bool = False):
                                 _sig.get("matched_on") or ["name"])
                             _c["id"] = _sig["booking_id"]
                             _c["matched_on"] = _sig.get("matched_on") or ["name"]
+                            # The Zendesk guest name, kept SEPARATELY from the
+                            # one the warehouse will supply. On a desk-made or
+                            # hashed booking the warehouse name is unusable and
+                            # this is the only readable copy of the strongest
+                            # identifier we have after the booking id — but it
+                            # must not overwrite the booking's own record,
+                            # which is authoritative wherever it is readable.
+                            _c["zendesk_guest_name"] = _sig.get("guest_name", "")
                             candidates.append(_c)
                         candidate_state = True
                         match_tier = 2
@@ -2741,8 +2796,15 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 _prev_row = (db.query(RcaDraft)
                              .filter(RcaDraft.review_id == review_id).first())
                 _prev_actions = (_prev_row.actions_taken if _prev_row else None) or None
+                # A booking is confirmed when one was actually matched and
+                # the picker is not still open. Both halves matter: a candidate
+                # list means the associate has not chosen yet, so the timeline
+                # has no booking to be about.
+                _booking_confirmed = bool(booking and booking.get("id")
+                                          and not candidate_state)
                 rca_v3, rca_notes = _validate_rca(rca_v3, _scenarios_routed,
-                                                  keep_actions=_prev_actions)
+                                                  keep_actions=_prev_actions,
+                                                  booking_confirmed=_booking_confirmed)
                 # A coercion the reader cannot see is a silent edit. The trail
                 # is where this build already puts "we changed what the model
                 # said, and here is why", so each note goes there verbatim.

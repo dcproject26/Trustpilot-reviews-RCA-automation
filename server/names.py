@@ -87,6 +87,43 @@ def is_placeholder(name: str) -> bool:
     return all(re.sub(r"[^\w]", "", t).lower() in _PLACEHOLDER for t in toks)
 
 
+
+# Names that appear on OUR booking records and belong to no guest. A guest
+# never types "Customer Ops Lead" — it is an internal label on a corporate or
+# desk-made booking, and comparing it to a reviewer's name is comparing a
+# reviewer to a job title.
+#
+# The mirror of _PLACEHOLDER, which covers the REVIEW side ("customer",
+# "anonymous"). Two lists because they are two different vocabularies: the
+# review side is what a guest types when they do not want to be named, this
+# side is what our systems write when no guest name was captured.
+#
+# The consequence of missing this is not cosmetic. The guest name is the
+# SECOND strongest identifier after the booking id — it is what separates two
+# bookings at the same venue on the same date — so a comparison against an
+# internal label produces a disagreement that means nothing, on the signal we
+# lean on most.
+_INTERNAL_BOOKING_NAMES = {
+    "customer ops lead", "customer ops", "ops lead", "cx lead", "ce lead",
+    "headout", "headout ops", "internal", "internal booking", "corporate",
+    "corporate booking", "b2b", "b2b booking", "test booking", "test",
+    "partner booking", "agent booking", "desk booking", "not provided",
+    "no name", "unknown guest",
+}
+
+
+def is_internal_booking_name(name: str) -> bool:
+    """Whether a booking's guest name is one of OUR labels rather than a guest.
+
+    Matched on the whole normalised string, not token-by-token: "Lead" and
+    "Ops" are real surnames somewhere, and a guest called Anna Ops must not be
+    read as internal. Only the complete phrase counts.
+    """
+    t = re.sub(r"[^a-z0-9 ]+", " ", str(name or "").lower())
+    t = re.sub(r"\s+", " ", t).strip()
+    return bool(t) and t in _INTERNAL_BOOKING_NAMES
+
+
 def name_tokens(name: str) -> list[str]:
     """Every usable token in a display name, in order.
 

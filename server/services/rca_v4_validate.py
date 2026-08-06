@@ -708,7 +708,25 @@ def _taxonomy(rca, notes):
     return {"l1": CATCH_ALL[0], "l2": CATCH_ALL[1], "l1_raw": l1, "l2_raw": l2}
 
 
-def validate(rca: dict, scenarios_routed=None, keep_actions=None) -> tuple[dict, list]:
+def _booking_logs(raw, booking_confirmed, notes):
+    """The booking timeline, or nothing when there is no booking yet.
+
+    Dropped rows are COUNTED and reported. A section that empties itself
+    silently is indistinguishable from a lookup that found nothing, and the
+    difference here is the whole point: "no booking picked yet" and "this
+    booking has no events" are different sentences for the reader.
+    """
+    rows = _rows(raw, ("time", "what", "detail"))
+    if booking_confirmed or not rows:
+        return rows
+    notes.append(f"booking_logs: {len(rows)} row(s) dropped — no booking is "
+                 f"confirmed yet, so there is no booking for a timeline to be "
+                 f"about; the model narrated the guest's account instead")
+    return []
+
+
+def validate(rca: dict, scenarios_routed=None, keep_actions=None,
+             booking_confirmed: bool = True) -> tuple[dict, list]:
     """Return (coerced rca, notes). Never raises."""
     notes: list[str] = []
     if not isinstance(rca, dict):
@@ -834,7 +852,17 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None) -> tuple[dict,
             "reason":  _clean(sp.get("reason")),
             "records": _rows(sp.get("records"), ("zd_ref", "summary")),
         },
-        "booking_logs":      _rows(rca.get("booking_logs"), ("time", "what", "detail")),
+        # THE BOOKING'S TIMELINE, so there has to be a booking. Rule 10 tells
+        # the model to narrate the guest's own account when the systems gave it
+        # nothing — right once a booking is confirmed, wrong before, because
+        # then the heading is about a booking that is still an open question.
+        # A six-event sequence appeared under it on a card whose match had not
+        # been picked, and nothing distinguished it from a real one.
+        #
+        # Enforced here as well as in the prompt: a rule the model can ignore
+        # is a rule the card cannot rely on, and this one is checkable.
+        "booking_logs":      _booking_logs(rca.get("booking_logs"),
+                                           booking_confirmed, notes),
         # team falls back to OTHER, not null: the UI renders it as a
         # chip-select over the closed list, and a null would either blank the
         # control or add a stray option to it. OTHER is a real member.

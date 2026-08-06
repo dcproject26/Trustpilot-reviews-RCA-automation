@@ -159,6 +159,68 @@ def booking_id_from_ticket(ticket) -> str | None:
     return m.group(0) if m else None
 
 
+# Words that precede a booking id in ticket prose. A number introduced by one
+# of these is a claim about what the number IS; a bare number in a paragraph is
+# a number. Both are used, but the labelled ones win outright when present —
+# that is what keeps a phone number or an amount out of the candidate list.
+_BID_LABEL = re.compile(
+    r"(?:booking|bkg|bid|order|reservation|ref(?:erence)?|conf(?:irmation)?)"
+    # "no." and "no" both occur, so the separator class has to admit a full
+    # stop. Without it "booking no. 33118844" fell through to the bare pass
+    # and a labelled id was scored as an unexplained number.
+    r"\s*(?:id|no|num(?:ber)?|#)?\s*[.:#-]*\s*(\d{7,12})\b", re.I)
+_ANY_NUMBER = re.compile(r"\b\d{7,12}\b")
+
+# More than this many distinct numbers in one ticket is prose, not a record.
+# Admitting them all would turn one ticket into a page of candidates, each
+# indistinguishable from the others.
+_MAX_TEXT_BIDS = 3
+
+
+def bids_from_ticket_text(ticket, exclude: set | None = None) -> tuple[list, str]:
+    """Booking ids written in the ticket's SUBJECT and BODY, not its field.
+
+    THE FALLBACK ONLY. `booking_id_from_ticket` reads the dedicated custom
+    field and that stays authoritative — this runs when the field is empty,
+    which it frequently is, and which used to end the ticket's life: shortlist
+    did `if not bid: continue`, so a ticket found by a name+venue search and
+    carrying the booking id in its first line was dropped without a word. The
+    same file's `find_bids_by_requester_name` has always scraped subject, body
+    and custom fields, so the two paths disagreed about what counts as a
+    booking id, and a ticket the search FOUND was discarded by the shortlist.
+
+    Returns (bids, provenance) where provenance is "labelled" (a booking-ish
+    word introduced the number), "bare" (a number in the text with nothing
+    saying what it is), or "" when there is nothing. The caller needs the
+    distinction because these are worth different amounts and collapsing them
+    would hide that a number was a guess.
+
+    Numbers are NOT verified here. shortlist does no BigQuery by design, so
+    what protects against a phone number becoming a candidate is the caller
+    requiring the ticket's other indicators to agree — see shortlist.
+    """
+    exclude = {str(x) for x in (exclude or set()) if x}
+    subject = str(getattr(ticket, "subject", "") or "")
+    body    = str(getattr(ticket, "description", "") or "")[:4000]
+    hay     = f"{subject}\n{body}"
+
+    def _clean(nums):
+        out = []
+        for n in nums:
+            if n in exclude or n in out:
+                continue
+            out.append(n)
+        return out[:_MAX_TEXT_BIDS]
+
+    labelled = _clean(_BID_LABEL.findall(hay))
+    if labelled:
+        return labelled, "labelled"
+    bare = _clean(_ANY_NUMBER.findall(hay))
+    if bare:
+        return bare, "bare"
+    return [], ""
+
+
 def _zd_get(path: str):
     """
     Raw authenticated GET against the Zendesk REST API.
@@ -1260,6 +1322,24 @@ async def shortlist(indicators: dict, author_first, author_last,
         queries.append((f'type:ticket requester:"{name}"{BOUND} {ORDER}', "name"))
     if name and venue:
         queries.append((f'type:ticket {name} {venue}{BOUND} {ORDER}', "name+venue"))
+    # THE CATALOGUE SPELLING, when the resolver produced one. The guest wrote
+    # "collosseum"; the ticket the agent raised says "Colosseum". Searching
+    # only what the guest typed is searching for a string nobody else wrote —
+    # the correction was already computed for BigQuery and simply never
+    # reached here. Kept as EXTRA queries rather than a replacement, because
+    # the raw spelling is occasionally the one in the ticket (the agent copied
+    # the guest's words) and dropping it would trade one blind spot for
+    # another.
+    for _fixed in (indicators.get("venue_names_resolved") or [])[:3]:
+        _fixed = str(_fixed).strip()
+        if not _fixed or _fixed.lower() == venue.lower():
+            continue          # nothing was corrected; the query already exists
+        if name:
+            queries.append((f'type:ticket {name} "{_fixed}"{BOUND} {ORDER}',
+                            "name+venue(corrected)"))
+        else:
+            queries.append((f'type:ticket "{_fixed}"{BOUND} {ORDER}',
+                            "venue(corrected)"))
     if name and city:
         queries.append((f'type:ticket {name} {city}{BOUND} {ORDER}', "name+city"))
     if name and not venue and not city:
@@ -1337,8 +1417,39 @@ async def shortlist(indicators: dict, author_first, author_last,
                 seen_tickets.add(tid)
                 sig = ticket_signals(t)
                 bid = sig.get("booking_id")
+                # THE FIELD IS OFTEN EMPTY. `if not bid: continue` ended the
+                # ticket's life here — a ticket this very search FOUND, whose
+                # first line carried the booking id, discarded in silence and
+                # indistinguishable from a ticket that was never found. The
+                # other extraction path in this file has always read the text.
+                bid_source = "field"
                 if not bid:
-                    continue
+                    _not_bids = set(seen_tickets) | {tid}
+                    if sig.get("itinerary_id"):
+                        # 8 digits in its own field; scraping mistakes it for a
+                        # booking id every time.
+                        _not_bids.add(str(sig["itinerary_id"]))
+                    _text_bids, _prov = bids_from_ticket_text(t, _not_bids)
+                    if not _text_bids:
+                        # FOUND AND UNUSABLE is not the same as never found,
+                        # and it is the distinction that cost three rounds to
+                        # locate. Counted so the trail can say how many.
+                        if notes is not None:
+                            notes.append({"kind": "no_bid", "label": label,
+                                          "detail": tid})
+                        continue
+                    bid = _text_bids[0]
+                    bid_source = f"text:{_prov}"
+                    sig["booking_id"] = bid
+                    sig["bid_from_text"] = True
+                    sig["bid_text_provenance"] = _prov
+                    if len(_text_bids) > 1 and notes is not None:
+                        # A judgement, announced. The first number is used and
+                        # the others are not, and a reader must not have to
+                        # infer that from a candidate list that shows one.
+                        notes.append({"kind": "ambiguous_bid", "label": label,
+                                      "detail": f"{tid}:{','.join(_text_bids)}"})
+                sig["bid_source"] = bid_source
                 # The same booking, surfaced again by a DIFFERENT query. That
                 # is the strongest thing this function learns and it used to be
                 # thrown away: the name search and the venue search were run
@@ -1412,6 +1523,28 @@ async def shortlist(indicators: dict, author_first, author_last,
                 sig["found_via_all"] = [label]
                 sig["created_at"] = str(getattr(t, "created_at", "") or "")
                 sig["ticket_id"]  = tid
+                # A NUMBER READ OUT OF PROSE MUST EARN ITS PLACE. The custom
+                # field is Zendesk asserting "this is the booking id"; a number
+                # in a sentence is us deciding it looks like one, and nothing
+                # here verifies it — shortlist does no BigQuery by design.
+                #
+                # So the two are held to different standards. A field BID may
+                # sit in the weak list on a name agreement alone, because the
+                # id itself is not in doubt and only the LINK to this review
+                # is. For a text BID both are in doubt at once, and "a guest
+                # called Amanda, and some 8-digit number in the ticket" is not
+                # a candidate — it is two guesses presented as one lead.
+                #
+                # The whole indicator set agreeing is what separates them, and
+                # it is exactly the ticket the search was built to find: the
+                # name AND the venue AND the date line up, and the id is
+                # written in the body because nobody filled the field in.
+                if sig.get("bid_from_text") and not ok:
+                    if notes is not None:
+                        notes.append({"kind": "text_bid_unconfirmed",
+                                      "label": label, "detail": tid})
+                    continue
+
                 if ok:
                     sig["matched_on"] = used
                     # "Satisfies every indicator" is vacuous when the review

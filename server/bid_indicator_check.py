@@ -391,7 +391,7 @@ def _date_signal(review_text: str, booking: dict, reference: date | None) -> dic
 
 
 def _guest_signal(author: str | None, booking: dict) -> dict:
-    from server.names import is_placeholder, parse_author
+    from server.names import is_placeholder, parse_author, is_internal_booking_name
     from server.services.zendesk import _name_score
 
     pgn = str(booking.get("primary_guest_name") or booking.get("guestName") or "").strip()
@@ -399,9 +399,74 @@ def _guest_signal(author: str | None, booking: dict) -> dict:
     if not author or is_placeholder(author):
         return _sig("guest", "unchecked", author or None, pgn or None,
                     "the review has no usable author name")
-    if not pgn or _looks_hashed(pgn):
-        return _sig("guest", "unchecked", author, pgn or None,
-                    "the booking has no readable guest name")
+
+    # WHY THE WAREHOUSE NAME CANNOT BE USED — three different facts, and the
+    # reader needs which one it is, because they call for different responses.
+    if not pgn:
+        unusable = "the booking has no guest name recorded"
+    elif _looks_hashed(pgn):
+        unusable = ("the booking's guest name is a warehouse hash, not a "
+                    "readable name")
+    elif is_internal_booking_name(pgn):
+        # OUR label, not a guest's name. "Customer Ops Lead" is what our
+        # systems write on a corporate or desk-made booking; no guest types
+        # it. Compared as though it were a person it produces a disagreement
+        # that means nothing — on the signal this check leans on most, since
+        # the guest name is the second strongest identifier after the booking
+        # id and is what separates two bookings at the same venue on the same
+        # date.
+        unusable = (f"the booking is recorded under an internal label "
+                    f"('{pgn}'), not a guest name")
+    else:
+        unusable = ""
+
+    if unusable:
+        # ZENDESK IS A SECOND, INDEPENDENT SOURCE FOR THE SAME FACT. The
+        # warehouse name is hashed on a large share of rows and is an ops
+        # label on desk-made ones; in both cases the guest still raised a
+        # ticket, and the ticket carries their real name — in its guest-name
+        # custom field, or as the requester on the account. So the strongest
+        # identifier after the booking id was being abandoned while a usable
+        # copy of it sat one field away.
+        #
+        # Only ever a FALLBACK. The warehouse name wins whenever it is
+        # readable, because it is the booking's own record; this runs solely
+        # where that record has nothing to give.
+        zdn = ""
+        for key in ("zendesk_guest_name", "zendesk_requester_name"):
+            v = str(booking.get(key) or "").strip()
+            # The same three disqualifications apply — Zendesk carries desk
+            # labels and blanks too, and accepting one here would reintroduce
+            # the exact bug on the fallback path.
+            if v and not _looks_hashed(v) and not is_internal_booking_name(v):
+                zdn = v
+                break
+        if not zdn:
+            # "Looked and found nothing" is not "did not look". Without the
+            # second clause a reader cannot tell whether Zendesk was consulted
+            # at all, which is the whole failure this codebase keeps repeating.
+            return _sig("guest", "unchecked", author, pgn or None,
+                        f"{unusable}, and Zendesk had no usable guest name "
+                        f"for this booking either")
+        first, last = parse_author(author)
+        score = _name_score(zdn, first, last)
+        # WHICH SOURCE SETTLED IT, always. A match on a Zendesk name is a
+        # different claim from a match on the booking record, and a reader
+        # who cannot see the difference cannot judge how much to trust it.
+        via = f"{unusable}, so the name on the Zendesk ticket ('{zdn}') was used instead"
+        if score >= 0.7:
+            return _sig("guest", "match", author, zdn, f"{via} — and it agrees ({score:.1f})")
+        if score > 0:
+            return _sig("guest", "unchecked", author, zdn,
+                        f"{via} — it partly agrees ({score:.1f}), too weak to "
+                        f"read either way")
+        # A disagreement on the FALLBACK name is weaker still than one on the
+        # booking record, and that one is already not decisive on its own.
+        # Reported, never as a contradiction.
+        return _sig("guest", "unchecked", author, zdn,
+                    f"{via} — no part of '{author}' appears in it, which on a "
+                    f"fallback name is not evidence of a wrong booking")
+
     first, last = parse_author(author)
     score = _name_score(pgn, first, last)
     if score >= 0.7:

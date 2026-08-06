@@ -568,6 +568,14 @@ NOT_CONTROLS = {
     # attribute is the state key that listener reads, not a thing to click.
     # Driven end to end by tests/test_sections_collapse.py.
     "data-sec-key",
+    # An empty container that showPostError fills when Slack refuses the post.
+    # Nothing to click, and empty is its normal state — an always-present box
+    # would read as a warning that never clears. What it renders is the
+    # server's {message, slack_error, verdict}, and WHICH refusal produces
+    # which sentence is driven in tests/test_slack_post_refused.py; the
+    # guarantee that a refused post leaves the review where it is has its own
+    # test there too.
+    "data-slack-post-err",
 }
 
 # Deliberately not driven, each with the reason.

@@ -13,7 +13,7 @@ _TABLES = [
     "headout-analytics.shivam_reporting.dim_experiences",
 ]
 _FALLBACK_SQL = """
-    SELECT DISTINCT experience_id
+    SELECT DISTINCT experience_id, experience_name
     FROM `headout-analytics.analytics_reporting.fct_bookings`
     WHERE LOWER(experience_name) LIKE CONCAT('%', @hint, '%')
     LIMIT 100
@@ -121,7 +121,7 @@ def venue_tokens(hint: str) -> list[str]:
 def _probe_table(table: str, hint: str) -> list[dict] | None:
     try:
         rows = bq.run_query(
-            f"SELECT DISTINCT experience_id FROM `{table}` "
+            f"SELECT DISTINCT experience_id, experience_name FROM `{table}` "
             f"WHERE LOWER(experience_name) LIKE CONCAT('%', @hint, '%') LIMIT 100",
             params={"hint": hint},
         )
@@ -142,6 +142,65 @@ FUZZY_MIN_LEN = 7          # "colosseum" qualifies; "italy", "paris" do not
 FUZZY_MAX_EDITS = 2
 
 
+# Why the last resolve() came back empty. Read by the pipeline so the card can
+# say WHICH kind of nothing this was; a dict rather than a return value because
+# resolve() already has a meaningful None and the callers read it positionally.
+last_failure: dict = {"why": "", "tokens": [], "table": ""}
+
+# The CATALOGUE SPELLING of whatever the last resolve() matched.
+#
+# The guest writes "premo tickets for collosseum". The spelling-tolerance pass
+# reaches `Colosseum` in the catalogue and returns its TGID — and the corrected
+# spelling, the single most useful thing that pass produced, was thrown away
+# with the rest of the row, because the query selected experience_id alone.
+# BigQuery then got the right venue and Zendesk got "collosseum", which appears
+# in no ticket anybody wrote. The half of the search that needed the correction
+# most never saw it.
+#
+# Bounded: a token can match a hundred rows, and a query naming a hundred
+# experiences is not a query.
+last_resolved_names: list = []
+MAX_RESOLVED_NAMES = 5
+
+# Set when EDIT_DISTANCE itself is unavailable — the exact path survives that,
+# so without recording it the spelling pass is off with nothing to show for it.
+_fuzzy_unavailable: str = ""
+
+
+def explain_failure(probes: list, table, fuzzy_unavailable: str = "") -> str:
+    """Which kind of nothing an empty resolve() was.
+
+    A separate function because the classification is the part worth pinning
+    and it cannot be reached through `resolve()` anywhere BigQuery is
+    unreachable — the error handler clears `_WORKING_TABLE` first, so every
+    branch below collapses into the second one and a test of resolve() would
+    assert nothing while looking thorough. Driven directly instead.
+
+    Order matters. Each branch rules out a reason the NEXT one would otherwise
+    claim: no token means nothing was searched, so nothing about the table is
+    relevant; no table means nothing was searched either way; the fallback
+    table means the spelling pass never ran, which must not be reported as
+    EDIT_DISTANCE having failed.
+    """
+    if not probes:
+        return ("no usable venue token — the hint was a city, a bare place "
+                "name or filler")
+    if not table:
+        return ("no experience table could be reached, so nothing was looked "
+                "up at all")
+    if str(table).startswith("fallback:"):
+        return (f"on the fallback table ({table}), where the "
+                f"spelling-tolerance pass does not run — a MISSPELLED venue "
+                f"cannot resolve here, however close it is")
+    if not any(fuzzy_budget(t) for t in probes):
+        return ("every token is too short for the spelling pass, so only an "
+                "exact match could have worked")
+    if fuzzy_unavailable:
+        return f"the spelling pass could not run: {fuzzy_unavailable}"
+    return ("looked up exactly and with spelling tolerance; the catalogue has "
+            "no such experience")
+
+
 def fuzzy_budget(token: str) -> int:
     """How many edits this token may differ by, or 0 for none at all.
 
@@ -159,7 +218,7 @@ def fuzzy_budget(token: str) -> int:
 
 
 _FUZZY_SQL = """
-    SELECT DISTINCT experience_id
+    SELECT DISTINCT experience_id, experience_name
     FROM `{table}`
     WHERE EXISTS (
       SELECT 1 FROM UNNEST(SPLIT(LOWER(experience_name), ' ')) w
@@ -187,6 +246,8 @@ def _fuzzy_rows(table: str, hint: str) -> list | None:
     except Exception as e:
         # EDIT_DISTANCE is not available on every BigQuery edition. A missing
         # function must not take the exact-match path down with it.
+        global _fuzzy_unavailable
+        _fuzzy_unavailable = str(e)[:120]
         log.info(f"venue_resolver: fuzzy pass unavailable for {hint!r}: {e}")
         return None
 
@@ -202,6 +263,10 @@ async def resolve(venue_hints: list[str] | None) -> list[int] | None:
     from the wrong continent.
     """
     global _WORKING_TABLE
+    # Cleared per call. A catalogue spelling left over from the previous
+    # review would be searched against this one — a wrong venue presented with
+    # the confidence of a resolved one.
+    last_resolved_names.clear()
     if not venue_hints:
         return None
     all_tgids: set[int] = set()
@@ -217,7 +282,7 @@ async def resolve(venue_hints: list[str] | None) -> list[int] | None:
         if _WORKING_TABLE:
             try:
                 rows = bq.run_query(
-                    f"SELECT DISTINCT experience_id FROM `{_WORKING_TABLE}` "
+                    f"SELECT DISTINCT experience_id, experience_name FROM `{_WORKING_TABLE}` "
                     f"WHERE LOWER(experience_name) LIKE CONCAT('%', @hint, '%') LIMIT 100",
                     params={"hint": hint},
                 )
@@ -245,7 +310,7 @@ async def resolve(venue_hints: list[str] | None) -> list[int] | None:
         # A token matching most of the catalogue is not a venue signal. The
         # LIMIT is 100, so 100 rows back means "at least 100" — indistinguishable
         # from a wildcard, and treated as one.
-        _ids = []
+        _ids, _names = [], []
         for r in rows or []:
             eid = r.get("experience_id")
             if eid is not None:
@@ -253,6 +318,9 @@ async def resolve(venue_hints: list[str] | None) -> list[int] | None:
                     _ids.append(int(eid))
                 except (TypeError, ValueError):
                     pass
+            nm = str(r.get("experience_name") or "").strip()
+            if nm:
+                _names.append(nm)
         if len(_ids) >= 100:
             log.info(f"venue_resolver: token {hint!r} matched {len(_ids)}+ "
                      f"experiences — not discriminating, dropped")
@@ -267,11 +335,37 @@ async def resolve(venue_hints: list[str] | None) -> list[int] | None:
                         _ids.append(int(eid))
                     except (TypeError, ValueError):
                         pass
+                nm = str(r.get("experience_name") or "").strip()
+                if nm:
+                    _names.append(nm)
             if _ids:
                 log.info(f"venue_resolver: {hint!r} resolved only by spelling "
-                         f"tolerance (budget {fuzzy_budget(hint)}) → {len(_ids)} tgid(s)")
+                         f"tolerance (budget {fuzzy_budget(hint)}) → {len(_ids)} tgid(s)"
+                         + (f", catalogue spelling {_names[0]!r}" if _names else ""))
             if len(_ids) >= 100:
                 continue
         all_tgids.update(_ids)
+        # Only the names of tokens that actually RESOLVED. Collecting them
+        # before the two `continue`s above would hand Zendesk the name of a
+        # match this function decided not to trust.
+        for nm in _names:
+            if nm not in last_resolved_names:
+                last_resolved_names.append(nm)
 
+    if not all_tgids:
+        # WHY nothing resolved — see explain_failure. "Venues extracted but
+        # no TGIDs resolved" was
+        # one sentence for three different situations, and only the first is a
+        # genuine miss:
+        #   - exact found nothing AND the spelling pass ran and found nothing
+        #   - the spelling pass NEVER RAN, because we are on the fallback
+        #     table, where _fuzzy_rows returns None by design
+        #   - the spelling pass FAILED, because EDIT_DISTANCE is not available
+        #     on this BigQuery edition
+        # The last two are the mechanism being off, not the venue being
+        # absent, and a card that cannot tell them apart costs an afternoon.
+        last_failure["tokens"] = probes
+        last_failure["table"] = _WORKING_TABLE or "none found"
+        last_failure["why"] = explain_failure(probes, _WORKING_TABLE,
+                                              _fuzzy_unavailable)
     return sorted(all_tgids) if all_tgids else None

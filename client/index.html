@@ -934,6 +934,25 @@
   /* A disabled control must look unavailable, not broken. */
   .slack-sent-btn:disabled { opacity: .5; cursor: default; }
 
+  /* Slack refused the post. This used to be the error text crammed into the
+     button label and cut at 70 characters, which lost the half that says what
+     to do — and the review stayed put with nothing on screen explaining why.
+     Full width under the row because it is a paragraph, not a chip.
+     Amber, not red: nothing is broken and nothing was lost, the post simply
+     has not gone yet. Red is for a review that is stuck. */
+  .slack-post-err {
+    margin-top: 10px; padding: 8px 10px; border-radius: 7px;
+    background: var(--amber-bg); color: var(--amber);
+    font-size: 12px; line-height: 1.55;
+  }
+  .slack-post-err b { font-weight: 650; }
+  /* The code Slack returned. Kept, because it is the one string that is any
+     use to whoever fixes the workspace, and dropped for tidiness it would be
+     unrecoverable — but muted, because it means nothing to the associate. */
+  .slack-post-err .code {
+    font-family: var(--mono); font-size: 11px; color: var(--empty);
+  }
+
   /* T2 gate + untraceable one-click reply */
   .rca-gate {
     max-width: 520px; margin: 40px auto 0; text-align: center;
@@ -4773,6 +4792,10 @@ function renderRcaCol() {
                   : 'Post the RCA to the thread first — marking sent before that would post it.'}"
                 >Mark sent →</button>
       </div>
+      <!-- Filled by showPostError when Slack refuses the post. Empty is the
+           normal state and draws nothing — an always-present empty box would
+           read as a warning that never clears. -->
+      <div data-slack-post-err></div>
     </div>
   `;
 
@@ -5910,6 +5933,46 @@ function renderRcaCol() {
   // Post the RCA into the review's own Slack thread. Separate from Send,
   // which also closes the review - the RCA usually goes to the team while
   // the guest reply is still being edited.
+
+  // ── when Slack refuses ────────────────────────────────────────────────
+  //
+  // The review STAYS WHERE IT IS. Nothing was posted, so nothing is marked
+  // sent — a Sent row for a refused post is a lie told in the one tab that
+  // exists to say what still needs doing.
+  //
+  // The server sends {message, slack_error, verdict, retryable}. It used to
+  // send a bare string and the client did `new Error(data.detail)`, so a
+  // structured detail would render as "[object Object]" — the same defect
+  // that put "• Fix: [object Object]" into a real Slack post. Both shapes are
+  // handled: an older server, or a FastAPI validation error, still says
+  // something a person can read.
+  function postError(detail) {
+    const d = (detail && typeof detail === 'object') ? detail : {};
+    const e = new Error(d.message || (typeof detail === 'string' && detail) ||
+                        'The post did not go through, and no reason came back.');
+    e.slackError = d.slack_error || '';
+    e.retryable  = !!d.retryable;
+    return e;
+  }
+
+  function clearPostError(col) {
+    const box = col.querySelector('[data-slack-post-err]');
+    if (box) box.innerHTML = '';
+  }
+
+  function showPostError(col, e) {
+    const box = col.querySelector('[data-slack-post-err]');
+    if (!box) return;
+    const code = e && e.slackError
+      ? ` <span class="code">Slack said: ${esc(e.slackError)}</span>` : '';
+    // "Still in Matched" is the reassurance that matters and is the thing a
+    // reader cannot otherwise verify without switching tabs.
+    box.innerHTML =
+      `<div class="slack-post-err"><b>Not posted.</b> ` +
+      `${esc(String((e && e.message) || e))} ` +
+      `This review has not moved — it is still here.${code}</div>`;
+  }
+
   const slackPostBtn = col.querySelector('[data-slack-post]');
   if (slackPostBtn && r.rcaPostedAt) {
     // Already in the thread. Say so rather than offering a fresh post — the
@@ -5948,7 +6011,8 @@ function renderRcaCol() {
                                 headers: {'Content-Type': 'application/json'},
                                 body: JSON.stringify({text: text.trim() || null})});
       const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(data.detail || 'post failed');
+      if (!resp.ok) throw postError(data.detail);
+      clearPostError(col);
       r.rcaPostedAt = data.posted_at || new Date().toISOString();
       slackPostBtn.textContent = data.already_posted
         ? '✓ Already posted ' + _shortWhen(r.rcaPostedAt)
@@ -5958,8 +6022,11 @@ function renderRcaCol() {
         slackPostBtn.textContent = '✓ Posted ' + _shortWhen(r.rcaPostedAt);
       }, 2500);
     } catch (e) {
-      slackPostBtn.textContent = String(e.message || e).slice(0, 70);
-      setTimeout(() => { slackPostBtn.disabled = false; slackPostBtn.textContent = orig; }, 4000);
+      // The button says only that it did not go. The REASON goes in the
+      // notice, because it is two sentences and a button label is not.
+      showPostError(col, e);
+      slackPostBtn.disabled = false;
+      slackPostBtn.textContent = e && e.retryable ? 'Try posting again' : orig;
     }
   });
 
