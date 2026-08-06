@@ -943,7 +943,14 @@ def test_a_stale_build_says_so_loudly(page):
                                            body=stale))
     try:
         page.reload(wait_until="networkidle")
-        page.wait_for_timeout(1200)
+        # WAIT FOR THE CONDITION, not for a fixed 1200 ms. The page fixture is
+        # module-scoped, so this test hands the page to the next one — and on a
+        # loaded box the /api/version round trip had not landed inside the
+        # sleep, so `test_a_current_build_shows_no_notice` ran against a page
+        # still showing the stale bar and failed. A red that only appears under
+        # load, in a test that is not the one at fault, is the worst kind: it
+        # sends the reader to the wrong file.
+        page.wait_for_selector(".stale-bar", timeout=15000)
         got = page.evaluate("""() => {
           const bar = document.querySelector('.stale-bar');
           if (!bar) return null;
@@ -955,7 +962,12 @@ def test_a_stale_build_says_so_loudly(page):
     finally:
         page.unroute("**/api/version")
         page.reload(wait_until="networkidle")
-        page.wait_for_timeout(900)
+        # Same again on the way out: the NEXT test asserts the bar is gone, so
+        # leaving that to a timer makes its result depend on how busy the
+        # machine is rather than on the build.
+        page.wait_for_function(
+            "() => document.body.dataset.stale === 'no'"
+            " && !document.querySelector('.stale-bar')", timeout=15000)
         page.locator(".review-item").first.click()
         page.wait_for_timeout(1400)
 
