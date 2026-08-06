@@ -949,6 +949,30 @@
   /* The code Slack returned. Kept, because it is the one string that is any
      use to whoever fixes the workspace, and dropped for tidiness it would be
      unrecoverable — but muted, because it means nothing to the associate. */
+  /* The card asking for the guest's language, in the case where the review
+     was translated inbound so it is known NOT to be English but no language
+     code was ever recorded. Sits inside the English panel because that is
+     where the reply is being written. */
+  .reply-lang-ask {
+    display: flex; align-items: center; gap: 8px; margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  .reply-lang-ask label { font-size: 11px; color: var(--muted); }
+  .reply-lang-ask input {
+    font: inherit; font-size: 12px; padding: 5px 8px; border-radius: 6px;
+    border: 1px solid var(--input-bd); background: var(--card);
+    color: var(--text); outline: none; min-width: 140px;
+  }
+  .reply-lang-ask input:focus { border-color: var(--accent); }
+  .reply-lang-ask button {
+    font: inherit; font-size: 12px; font-weight: 600; padding: 6px 14px;
+    border-radius: 7px; border: none; background: var(--accent); color: #fff;
+    cursor: pointer;
+  }
+  .reply-lang-ask button:disabled {
+    opacity: .5; cursor: default; background: var(--empty);
+  }
+
   .slack-post-err .code {
     font-family: var(--mono); font-size: 11px; color: var(--empty);
   }
@@ -5517,11 +5541,38 @@ function renderRcaCol() {
         // in English because nothing established the guest's language is a
         // judgement, and the card announces it rather than drawing one quiet
         // box that looks like a settled answer.
+        // The language could not be NAMED — but the review was translated on
+        // the way in, so it is known NOT to be English. Drawing one box and a
+        // notice was wrong twice over: it left the associate with no English
+        // working copy at all, and the single box it did draw was the one
+        // that goes to the guest, in English, to a guest who did not write in
+        // English.
+        //
+        // So both boxes are drawn here too. The English one is where the
+        // reply is written and edited; the outgoing one is its translation.
+        // What is missing is only the TARGET, so Apply cannot run until
+        // somebody names the language — and the card asks for it inline
+        // rather than sending the reader elsewhere.
         if (lv.state === 'unknown') {
+          const engText = ev.state === 'absent' ? '' : (ev.text || '');
           return head + outBox + `
-      <div class="translation-card" style="border-top:1px dashed var(--warn-bd,#a76)">
-        <div class="translation-label" style="color:var(--warn,#c93)">Language not established</div>
-        <div class="translation-body">${esc(lv.why || '')} There is no English view for this reply because there is nothing to translate it into.</div>
+      <div class="translation-card" data-english-panel style="border-top:1px dashed var(--warn-bd,#a76)">
+        <div class="translation-label" style="color:var(--warn,#c93)">
+          English working copy — NOT sent to the guest
+        </div>
+        <div class="hint" style="font-size:11px;color:var(--dim);margin-bottom:6px">
+          ${esc(lv.why || '')}
+        </div>
+        <textarea class="reply-text" data-english-reply
+                  placeholder="Write the reply in English here, then name the guest's language to have it rewritten above.">${esc(engText)}</textarea>
+        <div class="reply-lang-ask">
+          <label for="reply-lang-name">Guest's language</label>
+          <input id="reply-lang-name" data-reply-lang-name type="text"
+                 placeholder="e.g. Spanish" value="">
+          <button data-apply-english disabled
+                  title="Name the guest's language first — the reply above cannot be rewritten into a language nothing has established.">
+            Apply →</button>
+        </div>
       </div>`;
         }
 
@@ -5867,6 +5918,22 @@ function renderRcaCol() {
   // status line says the English edit was NOT applied, and why.
   const engArea  = col.querySelector('[data-english-reply]');
   const applyEng = col.querySelector('[data-apply-english]');
+  // Only present in the unknown-language case. Apply stays disabled until a
+  // language is named — a button that looks live and 409s on every press is
+  // worse than one that says what it is waiting for.
+  const langAsk  = col.querySelector('[data-reply-lang-name]');
+  if (langAsk && applyEng) {
+    const _sync = () => {
+      const named = !!langAsk.value.trim();
+      applyEng.disabled = !named;
+      applyEng.title = named
+        ? `Rewrite the reply above into ${langAsk.value.trim()}.`
+        : "Name the guest's language first — the reply above cannot be "
+          + "rewritten into a language nothing has established.";
+    };
+    langAsk.addEventListener('input', _sync);
+    _sync();
+  }
   const engStat  = col.querySelector('[data-english-status]');
   const _applyEnglish = async () => {
     if (!engArea || !applyEng) return;
@@ -5886,7 +5953,10 @@ function renderRcaCol() {
     try {
       const resp = await fetch(`/api/reviews/${r.id}/apply-english-reply`, {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({english}),
+        // The language, when the card had to ask for it. Sent only in the
+        // unknown case; elsewhere the review already records it and this is
+        // undefined, which JSON.stringify omits.
+        body: JSON.stringify({english, language: (langAsk && langAsk.value.trim()) || undefined}),
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(data.detail || `${resp.status} — translation failed`);

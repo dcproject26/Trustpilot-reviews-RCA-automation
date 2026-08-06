@@ -2377,6 +2377,11 @@ async def close_review(review_id: str, body: CloseOut | None = None,
 class EnglishReplyBody(BaseModel):
     """The English working text an associate just edited."""
     english: str
+    # The guest's language, when the card had to ask for it. Sent only from
+    # the unknown-language case, where the review is known NOT to be English
+    # (its text was translated inbound) but nothing recorded which language it
+    # was. Naming it here is what unblocks the rewrite.
+    language: str | None = None
 
 
 @router.post("/api/reviews/{review_id}/apply-english-reply")
@@ -2429,10 +2434,27 @@ async def apply_english_reply(review_id: str, body: EnglishReplyBody,
     # possible, and picking English silently is how a guest gets a reply they
     # cannot read. Refuse, and say what would make it work.
     if st["state"] == "unknown":
-        raise HTTPException(
-            409, "The outgoing reply was left unchanged: " + st["why"] + " Set "
-                 "Review.language for this review, or edit the outgoing reply "
-                 "directly in the guest's language.")
+        # THE CARD CAN NOW SUPPLY IT. The review is known not to be English —
+        # its text was translated on the way in — and only the NAME of the
+        # language was missing, which is a thing the associate reading the
+        # review can see at a glance. Recorded on the review, so the next run
+        # and every later render stop asking.
+        named = (body.language or "").strip()
+        if not named:
+            raise HTTPException(
+                409, "The outgoing reply was left unchanged: " + st["why"] +
+                     " Name the guest's language on the card, or edit the "
+                     "outgoing reply directly in the guest's language.")
+        log.info(f"[apply-english] {review_id}: language set to {named!r} by "
+                 f"the associate — it was unrecorded, not English")
+        r.language = named
+        db.commit()
+        st = language_state(r)
+        if st["state"] != "translated":
+            raise HTTPException(
+                409, f"The outgoing reply was left unchanged: {named!r} was "
+                     f"recorded but the review still does not read as "
+                     f"translatable ({st['why']}).")
 
     lang = st["language"]
     from server.services import claude as claude_svc

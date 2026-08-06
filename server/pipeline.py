@@ -850,6 +850,28 @@ async def process_review(review_id: str, force_candidates: bool = False):
                     review.body_original, review.language or "auto", review_id)
                 if result and result.strip() != "ENGLISH_ALREADY":
                     review.body_english = result.strip()
+                    # THE TRANSLATION IS THE PROOF IT WAS NOT ENGLISH, and the
+                    # column still said "en" — parse_review hard-codes it and
+                    # nothing ever corrected it. So the card could not offer
+                    # the guest's-language box at all, and the reply was one
+                    # English textarea for a guest who did not write in
+                    # English. Detected only here, where we already know a
+                    # translation happened; "" means we could not tell, which
+                    # leaves the column alone rather than guessing a language
+                    # the guest may not read.
+                    if (review.language or "").strip().lower() in ("", "en"):
+                        _det = await claude.detect_language(review.body_original)
+                        if _det:
+                            log.info(f"[pipeline] {review_id}: review language "
+                                     f"detected as {_det} (was "
+                                     f"{review.language!r}, which was the "
+                                     f"ingest default rather than a finding)")
+                            review.language = _det
+                        else:
+                            log.info(f"[pipeline] {review_id}: the text was "
+                                     f"translated so it is NOT English, but "
+                                     f"the language could not be named — the "
+                                     f"card will say so rather than guess")
                 db.commit()
             except Exception as e:
                 log.exception(f"Translation failed: {e}")

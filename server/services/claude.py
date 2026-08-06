@@ -303,6 +303,34 @@ async def translate(body: str, lang: str, review_id: str = None) -> str:
     return await _call(prompts.translation_prompt(body, lang), max_tokens=1500)
 
 
+async def detect_language(text: str) -> str:
+    """The language a review was written in, as a short name ("Spanish").
+
+    `slack.parse_review` hard-codes `"language": "en"` on every ingested
+    review and nothing ever updated it, so a review that was demonstrably
+    translated on the way in still read as English. The card could then not
+    offer the guest's-language box at all — it drew one English box and a
+    "language not established" notice — and the reply risked going out in
+    English to a guest who did not write in English.
+
+    Returns "" when it cannot tell, which is NOT English: the caller leaves
+    the column alone and the card keeps saying the language is unestablished.
+    A wrong language here sends a reply in a language the guest does not read,
+    so declining is the safe direction.
+    """
+    if not is_live("anthropic") or not (text or "").strip():
+        return ""
+    out = await _call(
+        "Name the language this text is written in. Reply with the English "
+        "name of the language and nothing else — no punctuation, no "
+        "explanation. If you cannot tell, reply UNKNOWN.\n\n"
+        + str(text)[:1500], max_tokens=12)
+    out = (out or "").strip().strip(".").strip()
+    if not out or out.upper() == "UNKNOWN" or len(out) > 30 or " " in out.strip():
+        return ""
+    return out
+
+
 async def translate_to(text: str, lang: str, review_id: str = None) -> str:
     """English -> the guest's language, for the outgoing reply.
 

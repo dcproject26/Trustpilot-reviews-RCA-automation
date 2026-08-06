@@ -597,6 +597,13 @@ NOT_YET_DRIVEN = {
     "data-slack-sec-all", "data-slack-sec-none", "data-trail-toggle",
     "data-v3sel", "data-wwr-all", "data-wwr-ev-add", "data-wwr-toggle",
     "data-aoi-del",
+    # The guest's-language input, which gates Apply in the unknown-language
+    # case. A real control and a NAMED GAP: it only renders for a review whose
+    # text was translated inbound with no language code recorded, and the
+    # harness fixture has no such review. Listed rather than folded into
+    # DRIVEN, because a census that counts an undriven control as covered is
+    # worth less than no census.
+    "data-reply-lang-name",
 }
 
 
