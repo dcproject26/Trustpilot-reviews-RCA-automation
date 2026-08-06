@@ -328,5 +328,107 @@
     "name": "notes: repeated pings stop collapsing",
     "find": "        if len(group) < min_run or not key:",
     "replace": "        if True:"
+  },
+  {
+    "file": "server/price_check.py",
+    "name": "price: the key the warehouse actually writes drops off the list",
+    "find": "    for k in (\"amountUSD\", \"amount_usd\", \"amount\", \"total\", \"totalAmount\",",
+    "replace": "    for k in (\"amount\", \"total\", \"totalAmount\","
+  },
+  {
+    "file": "server/price_check.py",
+    "name": "price: pax is never read from the case, so nothing can settle",
+    "find": "            if 0 < n < 50:\n                return n, \"pax read from a labelled field in the Zendesk case\"",
+    "replace": "            if False:\n                return n, \"pax read from a labelled field in the Zendesk case\""
+  },
+  {
+    "file": "server/price_check.py",
+    "name": "price: the pax fallback stops running",
+    "find": "    if not pax:\n        pax, pax_why = pax_from_text(ticket_texts)",
+    "replace": "    if False:\n        pax, pax_why = pax_from_text(ticket_texts)"
+  },
+  {
+    "file": "server/price_check.py",
+    "name": "price: an unlabelled number is accepted as pax",
+    "find": "    r\"(?:\\bpax\\b|no\\.?\\s*of\\s*(?:guests?|pax|tickets?)|quantity|qty)\\s*[:\\-]\\s*(\\d{1,2})\"",
+    "replace": "    r\"(\\d{1,2})()\"  # anything"
+  },
+  {
+    "file": "server/price_check.py",
+    "name": "price: card sentence goes back to listing empty fields",
+    "find": "                \"detail\": (\"Could not verify this from the Zendesk case — \"\n                           \"check manually.\")}",
+    "replace": "                \"detail\": (\"; \".join(missing))}"
+  },
+  {
+    "file": "server/price_check.py",
+    "name": "price: the reasons are dropped instead of reaching the trail",
+    "find": "                \"unsettled_because\": missing,",
+    "replace": "                \"unsettled_because\": [],"
+  },
+  {
+    "file": "server/price_check.py",
+    "name": "price: every claim is treated as a money claim",
+    "find": "    if not is_amount_claim(claim):\n        return None",
+    "replace": "    if False:\n        return None"
+  },
+  {
+    "file": "server/price_check.py",
+    "name": "price: an already-Unknown verdict is demoted again",
+    "find": "    if str(accuracy or \"\").strip().lower() in (\"\", \"unknown\"):\n        return None",
+    "replace": "    if False:\n        return None"
+  },
+  {
+    "file": "server/price_check.py",
+    "name": "price: an unsettled money verdict is left standing",
+    "find": "    return (\"Unknown\",",
+    "replace": "    return None and (\"Unknown\","
+  },
+  {
+    "file": "server/price_check.py",
+    "name": "price: the case disagreeing with the model is silently kept",
+    "find": "        if _guest_right != _model_says_guest_right:",
+    "replace": "        if False and _guest_right != _model_says_guest_right:"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "validate: the amount gate is wired into nothing",
+    "find": "    _gate_amount_claims(issues, booking, events, notes)",
+    "replace": "    pass"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "validate: the gate reads an event key Zendesk never writes",
+    "find": "    texts = [str((e or {}).get(\"raw_body\") or (e or {}).get(\"summary\") or \"\")",
+    "replace": "    texts = [str((e or {}).get(\"body\") or \"\")"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "validate: a demoted verdict never reaches the trail",
+    "find": "        i[\"claim_accuracy\"] = new_acc\n        notes.append(note)",
+    "replace": "        i[\"claim_accuracy\"] = new_acc"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "trail: a validator coercion is reported as a successful step",
+    "find": "    return [{\"mark\": \"warn\",",
+    "replace": "    return [{\"mark\": \"pass\","
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "trail: validator notes never become rows",
+    "find": "            for n in (notes or [])]",
+    "replace": "            for n in []]"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "trail: model-authored note reaches the trail unescaped",
+    "find": "             \"text\": f\"<strong>RCA</strong> — {_html.escape(str(n))}\"}",
+    "replace": "             \"text\": f\"<strong>RCA</strong> — {str(n)}\"}"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "trail: validation rows are never added to the trail",
+    "find": "    confidence_trail.extend(validation_trail_rows(notes))",
+    "replace": "    pass"
   }
 ]

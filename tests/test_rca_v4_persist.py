@@ -317,20 +317,44 @@ def test_the_pipeline_does_not_also_run_the_standalone_drafter():
 
 
 def test_a_validation_note_reaches_the_confidence_trail():
-    """A coercion the reader cannot see is a silent edit."""
-    i = PIPE.find("_validate_rca(rca_v3")
-    assert "confidence_trail.append" in PIPE[i:i + 900]
+    """A coercion the reader cannot see is a silent edit.
+
+    Driven, not grepped. This and the test below used to search pipeline
+    source for "confidence_trail.append" within 900 characters of the
+    validate() call — a spelling check that passes against a build where the
+    line is unreachable, and which broke when a comment was added above it.
+    Breaking on layout is the tell: it was never measuring the guarantee.
+    """
+    from server.pipeline import validation_trail_rows
+    rows = validation_trail_rows(["claim_accuracy Inaccurate → Unknown"])
+    assert len(rows) == 1
+    assert "claim_accuracy Inaccurate" in rows[0]["text"]
 
 
 def test_a_coercion_is_marked_warn_not_pass():
     """These sit in the same list as the pipeline's own step results. Marked
     pass, "we changed the model's answer" reads as "a step succeeded" — which
     is how a coerced enum becomes a trusted fact."""
-    i = PIPE.find("_validate_rca(rca_v3")
-    block = PIPE[i:i + 900]
-    j = block.find("confidence_trail.append")
-    assert '"mark": "warn"' in block[j:j + 200], \
-        "a validator coercion is being reported as a successful step"
+    from server.pipeline import validation_trail_rows
+    for row in validation_trail_rows(["a", "b"]):
+        assert row["mark"] == "warn", \
+            "a validator coercion is being reported as a successful step"
+
+
+def test_a_validator_that_changed_nothing_writes_no_trail_rows():
+    """"It ran and found nothing to change" is carried by the trail's other
+    lines. Inventing a row here would say a coercion happened."""
+    from server.pipeline import validation_trail_rows
+    assert validation_trail_rows([]) == []
+    assert validation_trail_rows(None) == []
+
+
+def test_a_note_is_escaped_before_it_reaches_the_trail():
+    """The note contains model-authored text and the trail renders HTML."""
+    from server.pipeline import validation_trail_rows
+    row = validation_trail_rows(["<script>alert(1)</script>"])[0]
+    assert "<script>" not in row["text"], row
+    assert "&lt;script&gt;" in row["text"], row
 
 
 def test_every_path_that_produces_an_rca_validates_it():
@@ -707,3 +731,29 @@ def test_the_trail_survives_the_commit(app_env):
         fresh.close()
     assert "60-word ceiling" in texts, \
         "the trail was written in memory and dropped on commit"
+
+
+def test_the_notes_are_actually_put_on_the_trail_not_just_formattable():
+    """A mutation replacing the call site with `pass` survived: the row
+    builder was driven and the line that USED it was not. Same shape as a
+    validator wired into no path — unit green, product unchanged."""
+    from server.pipeline import record_validation
+    trail = [{"mark": "pass", "text": "an earlier step"}]
+    out = record_validation(["claim_accuracy Inaccurate → Unknown"], trail)
+    assert out is trail, "the caller's trail must be the one written to"
+    assert len(trail) == 2, trail
+    assert trail[1]["mark"] == "warn", trail
+
+
+def test_recording_notes_leaves_an_existing_trail_intact():
+    from server.pipeline import record_validation
+    trail = [{"mark": "pass", "text": "step one"}]
+    record_validation([], trail)
+    assert trail == [{"mark": "pass", "text": "step one"}]
+
+
+def test_every_note_is_logged_so_a_coercion_is_greppable_in_prod():
+    from server.pipeline import record_validation
+    seen = []
+    record_validation(["a", "b"], [], seen.append)
+    assert seen == ["a", "b"], seen

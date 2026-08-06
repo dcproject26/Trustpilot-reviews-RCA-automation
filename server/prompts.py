@@ -1539,15 +1539,22 @@ that turned out fine is silence — never a line in the output.
    how many tickets we recorded — it is whether CHF 461.19 is the price of ONE
    of them or TWO.
    Settling it needs a UNIT price, which the total and the pax count cannot
-   supply between them. Two sources can:
-     the ZENDESK ticket text — booking dumps and confirmation emails routinely
-       state per-person amounts. "net" is what we paid the PARTNER, never what
-       the guest paid; reading one for the other tells a guest they were
-       charged 450 when they paid 606.
-     the EXPERIENCE PAGE — the list price for that variant and date.
-   With no unit price from either, the verdict is "Unknown" and the note says
-   the amount could not be checked. NOT "Inaccurate": a guest wrongly told
-   they were not double-charged is worse than one told we could not tell.
+   supply between them. ONE source has it: the ZENDESK ticket text, where
+   booking dumps and confirmation emails routinely state per-person amounts.
+   "net" is what we paid the PARTNER, never what the guest paid; reading one
+   for the other tells a guest they were charged 450 when they paid 606.
+   THE EXPERIENCE PAGE IS NOT A SOURCE and must not be cited as one. It is
+   keyed on TGID while the price depends on the TID actually booked, so "the
+   price on the page" is the wrong number for any non-default variant — which
+   is the booking someone disputes.
+   With no unit price in the case, the verdict is "Unknown" and the note says
+   the amount could not be verified from the Zendesk case and should be
+   checked manually. NOT "Inaccurate": a guest wrongly told they were not
+   double-charged is worse than one told we could not tell.
+   THIS IS ALSO ENFORCED IN CODE, in `price_check.gate_amount_claim`, which
+   demotes a definite verdict on an unsettled amount claim on the way out and
+   says so on the trail. The rule is here so the draft is right the first
+   time; the gate is there because a stored draft cannot be re-asked.
 
 5. VERIFY EVERY GUEST CLAIM AT ITS SOURCE. Two steps, in order.
    FIRST list every factual claim the guest makes — in the review AND in what

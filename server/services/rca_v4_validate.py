@@ -11,6 +11,11 @@ an entire RCA to one bad enum is worse than rendering it with one grey chip.
 """
 import re
 
+# MODULE LEVEL, and never re-imported inside a function. A function-local
+# import of a module-level name shadows that name for the WHOLE function and
+# raises UnboundLocalError on every earlier use — which is precisely how the
+# Zendesk lookup went dark for two reviews, swallowed by an except.
+from server import price_check
 from server.checklist import (ACTION_TEAMS, FLAG_TEAM_ALIASES, ACTION_TABS,
                               actions_raised, findings_text,
                               actions_from_findings)
@@ -499,6 +504,30 @@ def _overlaps(a, b, ratio=0.6):
     return bool(ta) and len(ta & tb) >= ratio * len(ta)
 
 
+def _gate_amount_claims(issues, booking, events, notes):
+    """Demote a money verdict the Zendesk case does not actually support.
+
+    Reads the ticket bodies off `events` — `raw_body` is the Zendesk comment
+    text, which is where a per-person amount is stated when it is stated at
+    all. Falls back to `summary` so a build that only kept summaries still gets
+    a look rather than silently finding nothing.
+
+    Every change lands in `notes`, so the trail carries it as a warn: this
+    rewrites a verdict the model returned, and a silent rewrite is the thing
+    the trail exists to prevent.
+    """
+    texts = [str((e or {}).get("raw_body") or (e or {}).get("summary") or "")
+             for e in (events or []) if isinstance(e, dict)]
+    for i in issues:
+        got = price_check.gate_amount_claim(
+            i.get("claim"), i.get("claim_accuracy"), booking, texts)
+        if not got:
+            continue
+        new_acc, note = got
+        i["claim_accuracy"] = new_acc
+        notes.append(note)
+
+
 def _demote_findings(issues, flags, notes, routed=None):
     """Move our own process findings out of guest_issues and into flags.
 
@@ -766,7 +795,8 @@ def _booking_logs(raw, booking_confirmed, notes):
 
 
 def validate(rca: dict, scenarios_routed=None, keep_actions=None,
-             booking_confirmed: bool = True, events=None) -> tuple[dict, list]:
+             booking_confirmed: bool = True, events=None,
+             booking=None) -> tuple[dict, list]:
     """Return (coerced rca, notes). Never raises."""
     notes: list[str] = []
     if not isinstance(rca, dict):
@@ -776,6 +806,7 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
     _gi = wwr.get("guest_issues")
     issues = [_issue(i, notes) for i in (_gi if isinstance(_gi, list) else [])
               if isinstance(i, dict)]
+    _gate_amount_claims(issues, booking, events, notes)
 
     scenarios = [s for s in (rca.get("scenarios") if isinstance(rca.get("scenarios"), list) else []) if _clean(s)]
     overlays = [s for s in (rca.get("overlay_scenarios") if isinstance(rca.get("overlay_scenarios"), list) else [])

@@ -338,6 +338,46 @@ def classify_extraction(parsed, raw, failure=None, ai_live=True,
         f"truncated")
 
 
+def record_validation(notes, confidence_trail, log_fn=None) -> list:
+    """Log each validator note and put it on the trail. Returns the trail.
+
+    THE WIRING ITSELF, in a function, because a mutation that replaced the
+    call site with `pass` survived: `validation_trail_rows` was thoroughly
+    driven and the line that USED it was not. That is the same shape as a
+    validator wired into no path — the unit is green and the product is
+    unchanged — and it is the third time in this file a feeder has been the
+    thing left untested.
+    """
+    for n in (notes or []):
+        if log_fn:
+            log_fn(n)
+    confidence_trail.extend(validation_trail_rows(notes))
+    return confidence_trail
+
+
+def validation_trail_rows(notes) -> list:
+    """Each validator note as a confidence-trail row.
+
+    A FUNCTION, because the two guarantees this carries were previously pinned
+    by searching pipeline source for "confidence_trail.append" inside a
+    900-character window of the validate() call. That is a spelling check: it
+    passes against a build where the line it names is unreachable, and it broke
+    on a comment being added above it — which tells you it was measuring
+    layout, not behaviour. Driving this settles both properly.
+
+    MARKED `warn`, NEVER `pass`. These sit in the same list as the pipeline's
+    own step results, and "we changed the model's answer" reported as "a step
+    succeeded" is how a coerced enum becomes a trusted fact.
+
+    An empty note list yields no rows — a validator that found nothing to
+    change is not the same as one that did not run, and the trail's other
+    lines carry the fact that validation happened.
+    """
+    return [{"mark": "warn",
+             "text": f"<strong>RCA</strong> — {_html.escape(str(n))}"}
+            for n in (notes or [])]
+
+
 def extraction_trail_line(state: str, why: str, indicators: dict) -> dict:
     """The one trail line describing what the indicator extraction produced.
 
@@ -3089,16 +3129,15 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 rca_v3, rca_notes = _validate_rca(rca_v3, _scenarios_routed,
                                                   keep_actions=_prev_actions,
                                                   booking_confirmed=_booking_confirmed,
-                                                  events=timeline or [])
+                                                  events=timeline or [],
+                                                  # For the amount-claim gate.
+                                                  booking=booking or {})
                 # A coercion the reader cannot see is a silent edit. The trail
                 # is where this build already puts "we changed what the model
                 # said, and here is why", so each note goes there verbatim.
-                for _n in rca_notes:
-                    log.warning(f"[pipeline] rca validation: {_n}")
-                    confidence_trail.append({
-                        "mark": "warn",
-                        "text": f"<strong>RCA</strong> — {_html.escape(str(_n))}",
-                    })
+                record_validation(
+                    rca_notes, confidence_trail,
+                    lambda n: log.warning(f"[pipeline] rca validation: {n}"))
             except Exception as e:
                 log.exception(f"RCA validation failed, keeping raw output: {e}")
                 confidence_trail.append({"mark": "warn",
