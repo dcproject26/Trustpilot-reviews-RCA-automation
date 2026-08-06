@@ -446,9 +446,15 @@ def test_the_booking_timeline_is_in_the_facts_column(page):
     assert _col(page, "#rca-booking-logs-section") == "facts"
 
 
-def test_the_events_timeline_is_in_the_rca_column(page):
-    """The interpreted guest journey, beside the analysis that cites it."""
-    assert _col(page, "#rca-events-timeline-section") == "rca"
+def test_there_is_exactly_one_timeline_and_it_is_in_the_facts_column(page):
+    """The card carried two lists of one story — booking_logs in the facts
+    column, Zendesk events in the RCA column — each missing what the other
+    had. They merged into the facts column, under the heading that column
+    already carried."""
+    assert _col(page, "#rca-booking-logs-section") == "facts"
+    assert page.evaluate(
+        "() => !document.querySelector('#rca-events-timeline-section')"), \
+        "the RCA column renders a timeline again"
 
 
 def test_the_booking_timeline_keeps_its_rows_and_controls(page):
@@ -749,13 +755,20 @@ def _events(page, events, ticket_ids=None):
     return page.evaluate("""([events, tids]) => {
       const r = REVIEWS.find(x => x.id === state.selected);
       const keepE = r.events, keepT = r.zendeskTicketIds;
+      // The merged section, in the facts column. `booking_logs` is emptied
+      // too: this helper is about the EVENT half, and a model row left in
+      // place would make an "empty" timeline render a row.
+      const keepV = r.rca && r.rca.v3 ? r.rca.v3.booking_logs : undefined;
+      if (r.rca && r.rca.v3) r.rca.v3.booking_logs = [];
       r.events = events; r.zendeskTicketIds = tids || [];
-      renderRcaCol();
-      const s = document.querySelector('#rca-events-timeline-section');
+      renderReviewCol();
+      const s = document.querySelector('#rca-booking-logs-section');
       const out = {text: s.innerText,
-                   rows: s.querySelectorAll('.tl-event').length,
+                   rows: s.querySelectorAll('.tl-row').length,
                    toggle: !!s.querySelector('[data-tl-toggle]')};
-      r.events = keepE; r.zendeskTicketIds = keepT; renderRcaCol();
+      r.events = keepE; r.zendeskTicketIds = keepT;
+      if (r.rca && r.rca.v3) r.rca.v3.booking_logs = keepV;
+      renderReviewCol();
       return out; }""", [events, ticket_ids])
 
 
@@ -781,14 +794,17 @@ def test_the_hidden_events_can_actually_be_revealed(page):
     """A toggle that renders and does nothing is the same bug one layer down."""
     page.evaluate("""(events) => {
       const r = REVIEWS.find(x => x.id === state.selected);
-      r._keepE = r.events; r.events = events; renderRcaCol(); }""", INTERNAL)
-    page.click("#rca-events-timeline-section [data-tl-toggle]")
+      r._keepE = r.events; r.events = events;
+      r._keepV = r.rca.v3.booking_logs; r.rca.v3.booking_logs = [];
+      renderReviewCol(); }""", INTERNAL)
+    page.click("#rca-booking-logs-section [data-tl-toggle]")
     page.wait_for_timeout(250)
     shown = page.evaluate(
-        "() => document.querySelectorAll('#rca-events-timeline-section .tl-event').length")
+        "() => document.querySelectorAll('#rca-booking-logs-section .tl-row').length")
     page.evaluate("""() => {
       const r = REVIEWS.find(x => x.id === state.selected);
-      r.events = r._keepE; state.tlShowInternal = false; renderRcaCol(); }""")
+      r.events = r._keepE; r.rca.v3.booking_logs = r._keepV;
+      state.tlShowInternal = false; renderReviewCol(); }""")
     assert shown == 2, f"the toggle revealed {shown} of 2 internal events"
 
 
@@ -803,7 +819,7 @@ def test_a_genuinely_empty_timeline_points_at_the_trail(page):
     """No tickets, no events. The panel cannot know whether Zendesk was
     searched, so it must not claim it was."""
     got = _events(page, [], [])
-    assert "No Zendesk events were found" in got["text"]
+    assert "No Zendesk events were found" in got["text"], got["text"][:300]
     assert "confidence trail" in got["text"], \
         "an empty timeline still asserts the lookup ran"
 
@@ -865,18 +881,20 @@ def test_the_machinery_toggle_works_on_a_normal_timeline(page):
     page.evaluate("""(events) => {
       const r = REVIEWS.find(x => x.id === state.selected);
       r._keepE = r.events; r.events = events;
-      state.tlShowInternal = false; renderRcaCol(); }""", MIXED)
+      r._keepV = r.rca.v3.booking_logs; r.rca.v3.booking_logs = [];
+      state.tlShowInternal = false; renderReviewCol(); }""", MIXED)
     before = page.evaluate(
-        "() => document.querySelectorAll('#rca-events-timeline-section .tl-event').length")
-    page.click("#rca-events-timeline-section [data-tl-toggle]")
+        "() => document.querySelectorAll('#rca-booking-logs-section .tl-row').length")
+    page.click("#rca-booking-logs-section [data-tl-toggle]")
     page.wait_for_timeout(250)
     after = page.evaluate(
-        "() => document.querySelectorAll('#rca-events-timeline-section .tl-event').length")
+        "() => document.querySelectorAll('#rca-booking-logs-section .tl-row').length")
     note = page.evaluate(
-        "() => document.querySelector('#rca-events-timeline-section [data-tl-toggle]').innerText")
+        "() => document.querySelector('#rca-booking-logs-section [data-tl-toggle]').innerText")
     page.evaluate("""() => {
       const r = REVIEWS.find(x => x.id === state.selected);
-      r.events = r._keepE; state.tlShowInternal = false; renderRcaCol(); }""")
+      r.events = r._keepE; r.rca.v3.booking_logs = r._keepV;
+      state.tlShowInternal = false; renderReviewCol(); }""")
     assert before == 1, f"the filter showed {before} of 1 guest event"
     assert after == 2, f"clicking show revealed {after} of 2 events"
     assert "hide" in note.lower(), f"the toggle does not offer the way back: {note!r}"
@@ -1220,10 +1238,10 @@ def test_the_moved_events_have_a_timeline_to_be_moved_to(page):
     timeline — the same events the frames were built from — so the section
     exists and carries them whether or not this fixture seeded any."""
     got = page.evaluate("""() => {
-      const sec = document.querySelector('#rca-events-timeline-section');
-      return sec ? {rows: sec.querySelectorAll('.tl-event').length,
+      const sec = document.querySelector('#rca-booking-logs-section');
+      return sec ? {rows: sec.querySelectorAll('.tl-row').length,
                     text: sec.innerText} : null; }""")
-    assert got, "there is no events timeline for a moved event to live on"
+    assert got, "there is no timeline for a moved event to live on"
     assert got["rows"] > 0 or "No Zendesk events were found" in got["text"], got
 
 

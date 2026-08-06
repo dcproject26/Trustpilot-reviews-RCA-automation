@@ -2398,7 +2398,11 @@ findable; one you quietly corrected is not.
        "summary": "<WHAT the guest booked - variant / pax / options selected, and
        notably any upsell or add-on NOT selected at checkout. From the booking
        metadata. Do NOT write the full experience name.>", "keep": true}}
-   - LAST - Review posted:
+   - Review posted - NOT necessarily last. Emit it with its own timestamp and
+     let the sort place it. It used to be a mandatory FINAL bookend, which put
+     a review that was published BEFORE a later CE reply after that reply on
+     the card — a false order, and one that matters now the publish date comes
+     from the Trustpilot payload rather than from the moment Slack relayed it.
      {{"idx_range": [], "time": "{review_date_fmt}",
        "thread": "review", "actor": "review",
        "label": "Review posted",
@@ -2477,6 +2481,53 @@ findable; one you quietly corrected is not.
        what differed - the attempt number, the outcome, what changed.
      - Different actions? -> different labels, each from its own body.
    No ticket IDs, no "[ZD-xxxxx]", no "(xN)".
+
+4b. NEVER NAME A VENDOR OR PRINT AN EMAIL ADDRESS. The supply partner's
+   trading name and any address are internal identifiers and they crowd out
+   the fact the row exists to carry. Write "the supply partner" or "the
+   vendor".
+     WRONG: "Booking intimation sent to EMILIAN STACHURA; 2 Adults"
+     RIGHT: "Booking intimation sent to the supply partner; 2 Adults"
+   The vendor REFERENCE (ref HEA-97947961) is not a name and stays: it is what
+   someone uses to find the booking on the partner's side.
+
+4c. SAY IT ONCE. A fact already carried by an earlier row is not repeated in a
+   later one. The cancellation policy is the worst offender — it was on every
+   row of one real timeline — and it is not a timeline event at all: it is a
+   property of the booking and it belongs in Booking details. Do not write it
+   on any row unless the policy CHANGED at that moment, which is an event.
+   The same applies to pax, price and pickup point: state them where they are
+   established, not on every row that mentions the booking.
+
+4d. INTERNAL NOTES - keep the ones that record something that happened to the
+   BOOKING; drop the ones that only say how to handle the TICKET.
+     KEEP  "[RESCHEDULE] Automation has failed for booking 32885089; please
+            handle manually" - the reschedule did not go through. That is the
+            case.
+     KEEP  "NAR, tix are already rescheduled for +45 mins" - a disposition
+            instruction wrapped around a real outcome. Write the OUTCOME:
+            "Reschedule confirmed at +45 minutes", not the instruction.
+     DROP  "Please close this ticket once the guest confirms" - ticket admin.
+            Nothing happened to the booking.
+     DROP  assigning, moving to pending, adding a tag, picking a macro, SLA
+            reminders, signature blocks, empty comments.
+   WHEN YOU CANNOT TELL, KEEP IT. A kept row is visible and can be argued
+   with; a dropped event cannot be recovered.
+
+4e. REPEATED AUTOMATED MESSAGES COLLAPSE INTO ONE ROW WITH A COUNT AND A SPAN.
+   The repetition is the signal; the individual lines are not. Four rows
+   saying one thing push the events that matter off the screen.
+     NO   02 Aug 09:14 system Reschedule cannot be pushed to Pending
+          02 Aug 15:22 system Reschedule cannot be pushed to Pending
+          02 Aug 19:02 system Reschedule cannot be pushed to Pending
+          03 Aug 10:07 system Reschedule cannot be pushed to Pending
+     YES  02 Aug 09:14 system Reschedule blocked, 4 system pings
+                              Blocked pending SP action; 09:14 on 02 Aug to
+                              10:07 on 03 Aug.
+   Same for repeated automation attempts: one row, the count, the window. This
+   is NOT rule 3's collapse — that one is for a single action recorded twice
+   at one moment. This is one message recurring over hours, and the span is
+   the point.
 
 5. SUMMARIES - NOT sentences. 2-3 telegraphic phrases separated by "; ",
    each phrase one fact. Aim for about 100 characters, but FINISH THE

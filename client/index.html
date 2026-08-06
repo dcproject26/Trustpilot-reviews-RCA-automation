@@ -585,6 +585,23 @@
   .tl-body { min-width: 0; }
   .tl-what { font-weight: 600; font-size: 12px; }
   .tl-detail { color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+  /* The merged row: the booking-logs layout, carrying what the events
+     timeline used to show on its own — the channel it arrived on, who acted,
+     and the ticket it sits on. One story, one column. */
+  .tl-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .tl-detail-line {
+    color: var(--muted); font-size: 11.5px; line-height: 1.5; margin-top: 2px;
+    overflow-wrap: anywhere;
+  }
+  /* A Zendesk event is a record, not a draft. It carries no delete control,
+     so the grid's third column is empty for it — the row still has to line up
+     with the editable ones above and below it. */
+  .tl-row-event { grid-template-columns: 88px 1fr auto; }
+  /* Internal notes read quieter than the guest's story without disappearing
+     into it: they are on the card because they change the escalation, so they
+     must stay legible. */
+  .tl-row.tl-internal .tl-what { font-weight: 550; }
+  .tl-row.tl-internal .tl-detail-line { color: var(--muted-2); }
 
   /* what went wrong — numbered collapsible issues */
   .wwr-issue { min-width: 0; border-bottom: 1px solid var(--hairline); }
@@ -2700,124 +2717,202 @@ function _undatedNote(rows, raw) {
        + `sequence — check the confidence trail.`;
 }
 
+// ── ONE CHRONOLOGICAL TIMELINE ────────────────────────────────────────────
+//
+// The card carried two: "Booking timeline" in the facts column, built from the
+// model's booking_logs, and "Events timeline" in the RCA column, built from
+// the real Zendesk events. Two lists of the same story, in two places, each
+// missing what the other had — the events had the actor, the channel and the
+// ticket link; the logs had the readable detail line and could be edited.
+// A reader had to hold both in their head and neither was complete.
+//
+// They merge here, in the FACTS column, under the heading that column already
+// had. Rows are sorted by time and nothing is pinned: the review takes its
+// place by its own timestamp rather than being forced last, which matters now
+// that the publish date is read from the payload instead of being the moment
+// Slack relayed it.
+//
+// Events are read-only — they are what Zendesk recorded. booking_logs rows
+// stay editable, because they are the model's account and a person may need
+// to correct it. That difference is visible: only the editable rows carry the
+// delete control.
+const _TL_MONTHS = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,
+                    jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+
+// A comparable number for a timeline row, or null when it has no time at all.
+//
+// The two halves of this list carry times in different shapes. Real events
+// have `time_sort`, an ISO string the pipeline attaches. booking_logs rows
+// have whatever the model wrote, which is normally "21 Jul 15:28" — no year,
+// and nothing a lexical sort can do anything with. Comparing the two as
+// strings put an August log row above a July event, because "~" sorts before
+// digits and a bare day-month sorts nowhere sensible.
+//
+// The missing year is taken from the review, which is the only year in scope:
+// these are all events on one booking, weeks apart at most.
+function _tlSortValue(row, fallbackYear) {
+  const iso = String(row.time_sort || '').trim();
+  if (iso) {
+    const n = Date.parse(iso.length <= 10 ? iso + 'T00:00:00' : iso);
+    if (!isNaN(n)) return n;
+  }
+  const t = String(row.time || '').trim();
+  if (!t) return null;
+  // "2026-08-02 10:00" and "2026-08-02T10:00" — already carries its year.
+  let n = Date.parse(t.replace(' ', 'T'));
+  if (!isNaN(n)) return n;
+  // "21 Jul 15:28" / "21 Jul" — day, month name, optional clock, no year.
+  const m = t.match(/^(\d{1,2})\s+([A-Za-z]{3})[a-z]*(?:\s+(\d{1,2}):(\d{2}))?/);
+  if (m && _TL_MONTHS[m[2].toLowerCase()] !== undefined) {
+    return Date.UTC(fallbackYear, _TL_MONTHS[m[2].toLowerCase()],
+                    +m[1], +(m[3] || 0), +(m[4] || 0));
+  }
+  return null;
+}
+
+function mergedTimelineRows(r, v3d) {
+  const evs = (r.events || []).map(e => ({
+    kind: 'event',
+    time: e.time || '', time_sort: e.time_sort || '',
+    thread: e.thread || '', actor: e.actor || '', label: (e.label || '').trim(),
+    detail: e.summary || '', ticket_id: e.ticket_id || '',
+    is_internal: !!e.is_internal, internal_reason: e.internal_reason || '',
+  }));
+  const logs = (v3d.booking_logs || []).map((l, i) => (typeof l === 'string'
+    ? {kind: 'log', idx: i, time: '', label: l.replace(/^\s*\d+[.)]\s*/, ''), detail: ''}
+    : {kind: 'log', idx: i, time: _tlTime(l.time), label: l.what || '',
+       detail: l.detail || ''}));
+  // The year the undated log rows belong to. Taken from the review's own date
+  // where there is one, else from the first event that carries a year.
+  const _y = (() => {
+    const d = Date.parse(String(r.receivedAt || '').trim());
+    if (!isNaN(d)) return new Date(d).getUTCFullYear();
+    for (const e of evs) {
+      const n = Date.parse(String(e.time_sort || ''));
+      if (!isNaN(n)) return new Date(n).getUTCFullYear();
+    }
+    return new Date().getUTCFullYear();
+  })();
+  const all = [...evs, ...logs].map(x => ({...x, _sv: _tlSortValue(x, _y)}));
+  // A row with NO time sinks to the end rather than floating to the top: an
+  // undated row at the top reads as the first thing that happened, which is a
+  // claim nobody made. Ties keep the order they arrived in, so an event and
+  // a log row at the same minute stay put rather than swapping on re-render.
+  return all
+    .map((x, i) => [x, i])
+    .sort((A, B) => {
+      const a = A[0]._sv, b = B[0]._sv;
+      if (a === null && b === null) return A[1] - B[1];
+      if (a === null) return 1;
+      if (b === null) return -1;
+      return a - b || A[1] - B[1];
+    })
+    .map(([x]) => x);
+}
+
 function bookingTimelineHtml(r, v3d) {
-  const logRows = (v3d.booking_logs || []).map(l => (typeof l === 'string'
-    ? {time: '', what: l.replace(/^\s*\d+[.)]\s*/, ''), detail: ''}
-    : {time: _tlTime(l.time), what: l.what || '', detail: l.detail || ''}));
+  const rows = mergedTimelineRows(r, v3d);
+  const logRows = rows.filter(x => x.kind === 'log');
+  const internal = rows.filter(x => x.is_internal);
+  const shown = state.tlShowInternal ? rows : rows.filter(x => !x.is_internal);
+  const _zdBase = (r.zendeskSubdomain || 'headout');
+
   // The section renders even with nothing in it. It used to collapse to ''
   // on an empty list, which took the "+ Add event" button with it - so the
   // one case where a human most needs to write the timeline by hand was the
   // one case with no way to do it, and the RCA simply had no such heading.
-  const logsEmptyWhy = (r.booking && r.booking.bid)
-    ? 'The model returned no events for this booking. Re-run the RCA, or add them by hand below.'
+  // WHY IT IS EMPTY, and never a claim the lookup ran. This wording came off
+  // the events timeline before the merge — the panel cannot know whether
+  // Zendesk was searched, so it points at the trail, which does know. Losing
+  // it in the move would have traded a section that said which kind of empty
+  // this is for one that just looked blank.
+  const emptyWhy = (r.booking && r.booking.bid)
+    ? 'No Zendesk events were found for this booking, and no events were '
+      + 'written for it. Whether the lookup ran is in the confidence trail '
+      + 'above. Re-run the RCA, or add the events by hand below.'
     : (r.candidateState
         ? 'No booking is confirmed yet, so there is no system timeline to draw from. Confirm a candidate above and re-run the RCA, or add the events by hand below.'
         : 'No booking was matched, so there is no system timeline to draw from. Add the events by hand below.');
-  const logsHtml = `
+
+  const row = (x) => {
+    // A Zendesk event: read-only, with everything that says WHERE it came
+    // from — the channel it arrived on, who acted, and the ticket it is on.
+    if (x.kind === 'event') return `
+      <div class="tl-row tl-row-event${x.is_internal ? ' tl-internal' : ''}">
+        <span class="tl-time">${esc(stampText(x.time)) || '—'}</span>
+        <div class="tl-body">
+          <div class="tl-head">
+            ${x.thread ? `<span class="tl-thread ${esc(x.thread)}">${esc(x.thread)}</span>` : ''}
+            <span class="tl-what">${esc(x.label)}</span>
+            ${x.is_internal
+              ? `<span class="tl-flag" title="Internal note">${esc(x.internal_reason || 'internal')}</span>` : ''}
+            ${x.ticket_id
+              ? `<a class="tl-tid" href="https://${esc(_zdBase)}.zendesk.com/agent/tickets/${esc(x.ticket_id)}" target="_blank" rel="noopener">ZD-${esc(x.ticket_id)}</a>` : ''}
+          </div>
+          ${x.detail ? `<div class="tl-detail-line">${esc(x.detail)}</div>` : ''}
+        </div>
+      </div>`;
+    // A booking_logs row: the model's own account, and editable, because a
+    // person may need to correct it. Only these carry the delete control —
+    // that is what tells the two kinds apart without a legend.
+    return `
+      <div class="tl-row">
+        <span class="tl-time editable-text${x.time ? '' : ' is-placeholder'}"
+              contenteditable="true" spellcheck="false"
+              ${x.time ? '' : 'data-ph="—"'}
+              data-log-idx="${x.idx}" data-log-field="time">${esc(x.time) || '—'}</span>
+        <div class="tl-body">
+          <div class="tl-head">
+            <span class="tl-what editable-text" contenteditable="true" spellcheck="false"
+                  data-log-idx="${x.idx}" data-log-field="what">${esc(x.label)}</span>
+          </div>
+          <div class="tl-detail-line"><span class="editable-text" contenteditable="true"
+                spellcheck="false" data-log-idx="${x.idx}"
+                data-log-field="detail">${esc(x.detail) || 'no detail'}</span></div>
+        </div>
+        <button class="row-del" data-log-del="${x.idx}" title="Remove event">×</button>
+      </div>`;
+  };
+
+  return `
   <div class="section" id="rca-booking-logs-section">
     <div class="section-label"><span>Booking timeline</span>
       <span class="hint">times in IST</span>
-      ${logRows.length ? `<span class="sec-count">${logRows.length} event${logRows.length === 1 ? '' : 's'}</span>` : ''}
+      ${shown.length ? `<span class="sec-count">${shown.length} event${shown.length === 1 ? '' : 's'}</span>` : ''}
     <span class="section-chev">▾</span></div>
-    ${logRows.length ? '' : `<div class="rca-empty">${logsEmptyWhy}</div>`}
-    ${logRows.map((l, i) => `
-      <div class="tl-row">
-        <span class="tl-time editable-text${l.time ? '' : ' is-placeholder'}"
-              contenteditable="true" spellcheck="false"
-              ${l.time ? '' : 'data-ph="—"'}
-              data-log-idx="${i}" data-log-field="time">${esc(l.time) || '—'}</span>
-        <div class="tl-body">
-          <span class="tl-what editable-text" contenteditable="true" spellcheck="false"
-                data-log-idx="${i}" data-log-field="what">${esc(l.what)}</span><span class="tl-detail"> — <span
-                class="editable-text" contenteditable="true" spellcheck="false"
-                data-log-idx="${i}" data-log-field="detail">${esc(l.detail) || 'no detail'}</span></span>
-        </div>
-        <button class="row-del" data-log-del="${i}" title="Remove event">×</button>
-      </div>`).join('')}
+    ${shown.length ? '' : `<div class="rca-empty">${
+        // EMPTY MEANS FOUR DIFFERENT THINGS AND THE READER ACTS ON EACH ONE
+        // DIFFERENTLY. This branch used to print one sentence for all of
+        // them, which said "No Zendesk events were found" over a booking
+        // whose every event was internal and merely filtered out — false,
+        // and it took the toggle with it, because the toggle is appended to
+        // the row string this branch never renders.
+        rows.length
+          ? `Every event on this booking is internal machinery, so the filter `
+            + `has emptied the list. Nothing is missing — use the toggle below `
+            + `to see ${rows.length} internal note${rows.length === 1 ? '' : 's'}.`
+          : ((r.zendeskTicketIds || []).length
+              // Tickets matched and carried nothing. "No events were found"
+              // sends the reader nowhere; a ticket number is something they
+              // can open.
+              ? `${(r.zendeskTicketIds || []).length} tickets matched this `
+                + `booking and none of them carried a readable event. Open them `
+                + `on Zendesk, or add the events by hand below.`
+              : emptyWhy)}</div>`}
+    ${shown.map(row).join('')}
+    ${/* Rendered outside the row list on purpose. It used to be appended to
+          the rows string, so an all-internal timeline — the one case where a
+          reader most needs it — rendered no rows and therefore no toggle. */
+      internal.length ? `<div class="tl-hidden-note" data-tl-toggle>${
+        state.tlShowInternal
+          ? `showing ${internal.length} internal note${internal.length === 1 ? '' : 's'} · hide`
+          : `${internal.length} internal note${internal.length === 1 ? '' : 's'} hidden · show`}</div>` : ''}
     ${(() => { const n = _undatedNote(logRows, v3d.booking_logs);
        return n ? `<div class="tl-undated-note">${esc(n)}</div>` : ''; })()}
     <button class="row-add" data-log-add>+ Add event</button>
   </div>`;
-  return logsHtml;
 }
 
-// §13 the events timeline moves to the RCA column, taking the slot the
-// booking timeline held (after TL;DR, before What went wrong). It is the
-// interpreted guest journey - channel pills, actors, ZD links, hidden
-// machinery, narrative summary - so it sits beside the analysis that cites it.
-// No treatment change; only position.
-function eventsTimelineHtml(r) {
-  function _normTlEvent(e) {
-    // Bookends carry actor creation/review and thread booking/review. They
-    // frame the timeline and belong to no conversation, so no channel pill.
-    const isBookend = e.actor === 'creation' || e.actor === 'review';
-    const isElided  = /comments elided/.test(e.label || '');
-    return { ...e, _isBookend: isBookend, _isElided: isElided,
-             time: e.time || '', label: (e.label || '').trim() };
-  }
-
-  const _allEvents = (r.events || []).map(_normTlEvent);
-  const _internal  = _allEvents.filter(e => e.is_internal);
-  const _shown     = state.tlShowInternal ? _allEvents
-                                          : _allEvents.filter(e => !e.is_internal);
-
-  const _zdBase = (r.zendeskSubdomain || 'headout');
-  // stampText, not e.time: a stored draft can hold a raw epoch in its time
-  // field ("1.785791592E9"), and rendering that verbatim put a machine number
-  // where the reader expects a clock. Also fixed at the prompt, so new drafts
-  // never carry one - this is what makes an EXISTING draft readable without a
-  // re-run.
-  //
-  // The comment lives HERE and not inside the template below, because it
-  // mentions a field name in backticks and a backtick inside a template
-  // literal ends the string. That is exactly how it broke the first time.
-  const events = _shown.map(e => `
-    <div class="tl-event${e.is_internal ? ' tl-internal' : ''}">
-      <div class="tl-time" title="${e.time_sort || ''}">${stampText(e.time)}</div>
-      <div class="tl-content">
-        <div class="tl-header">
-          ${(!e._isBookend && !e._isElided && e.thread)
-              ? `<span class="tl-thread ${e.thread}">${e.thread}</span>` : ''}
-          <div class="tl-actor ${e.actor}">${e.label}</div>
-          ${e.is_internal
-              ? `<span class="tl-flag" title="Headout machinery, not part of the guest&#39;s story">${e.internal_reason || 'internal'}</span>`
-              : ''}
-          ${e.ticket_id
-              ? `<a class="tl-tid" href="https://${_zdBase}.zendesk.com/agent/tickets/${e.ticket_id}" target="_blank" rel="noopener" title="open ZD-${e.ticket_id}">ZD-${e.ticket_id}</a>`
-              : ''}
-        </div>
-        <div class="tl-summary">${e.summary || ''}</div>
-      </div>
-    </div>
-  `).join('')
-  + (_internal.length && !state.tlShowInternal
-      ? `<div class="tl-hidden-note" data-tl-toggle>${_internal.length} internal event${_internal.length === 1 ? '' : 's'} hidden · show</div>`
-      : _internal.length
-        ? `<div class="tl-hidden-note" data-tl-toggle>showing ${_internal.length} internal event${_internal.length === 1 ? '' : 's'} · hide</div>`
-        : '');
-
-  return `
-    <div class="section" id="rca-events-timeline-section">
-      <div class="section-label"><span>Events timeline</span>
-        <span class="hint">times in IST</span>
-        ${_shown.length ? `<span class="sec-count">${_shown.length} event${_shown.length === 1 ? '' : 's'}</span>` : ''}
-      <span class="section-chev">▾</span></div>
-      ${_shown.length
-        ? `<div class="tl-events">${events}</div>
-           ${r.timelineSummary ? `<div class="timeline-summary">${esc(r.timelineSummary)}</div>` : ''}`
-        : _allEvents.length
-          // Every event on this booking is Headout machinery, so the filter
-          // emptied the list. Saying "no events were found" here is false, and
-          // it also swallowed the toggle that reveals them — the note is
-          // appended to `events`, which this branch never renders.
-          ? `<div class="rca-empty">All ${_allEvents.length} Zendesk event${_allEvents.length === 1 ? ' is' : 's are'} internal Headout machinery and hidden by the filter — none of them are part of the guest's story.</div>
-             <div class="tl-hidden-note" data-tl-toggle>show ${_allEvents.length} internal event${_allEvents.length === 1 ? '' : 's'}</div>`
-          : `<div class="rca-empty">No Zendesk events were found for this booking. ${
-               (r.zendeskTicketIds || []).length
-                 ? `${r.zendeskTicketIds.length} ticket${r.zendeskTicketIds.length === 1 ? '' : 's'} matched but carried no timeline events.`
-                 : `Check the confidence trail for whether Zendesk was searched.`}</div>`}
-    </div>`;
-}
 
 function renderReviewCol() {
   const r = REVIEWS.find(x => x.id === state.selected);
@@ -4067,7 +4162,12 @@ document.addEventListener('click', ev => {
   const t = ev.target.closest && ev.target.closest('[data-tl-toggle]');
   if (!t) return;
   state.tlShowInternal = !state.tlShowInternal;
-  if (state.selected) renderRcaCol();
+  // renderReviewCol, not renderRcaCol. The timeline merged into the FACTS
+  // column, and a toggle that re-renders the column the section is no longer
+  // in flips the state and changes nothing on screen — a live-looking control
+  // that does nothing, which is the exact failure §13 caused the first time
+  // this section moved.
+  if (state.selected) renderReviewCol();
 });
 
 // ── Classification (L1 / L2) ────────────────────────────────────────────────
@@ -5266,7 +5366,12 @@ function renderRcaCol() {
     </div>`;
 
     _flagsHtml = flagsHtml;
-    return eventsTimelineHtml(r) + wwrHtml;
+    // The events timeline no longer renders here. It merged into "Booking
+    // timeline" in the facts column, which is where the booking's own story
+    // already lived — two lists of one story, in two columns, each missing
+    // what the other had. Nothing is lost: the actor, the channel pill and
+    // the ZD link all moved with it.
+    return wwrHtml;
   })() : '';
 
   // ── v3 sections (legacy shape) ─────────────────────────────────────────

@@ -25,8 +25,13 @@ from tests.test_rca_ui_rendered import page, CHROME          # noqa: E402,F401
 # Issue-specific answers is not here because the section is gone (§3), not
 # because its collapse was flaky. A selector left in this list after its
 # section stopped rendering fails on a null and reads as a broken control.
-SECTIONS = ["#rca-events-timeline-section", "#rca-flags-section",
-            "#rca-wwr5-section"]
+#
+# #rca-events-timeline-section went the same way: it merged into "Booking
+# timeline" in the facts column, so the RCA column no longer has a timeline.
+# Its collapse is still covered — #rca-booking-logs-section IS the merged
+# section, and test_every_section_in_the_rca_column_is_collapsible sweeps
+# whatever renders rather than a fixed list.
+SECTIONS = ["#rca-flags-section", "#rca-wwr5-section"]
 
 
 def _collapsed(page, sel):
