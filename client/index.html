@@ -2024,7 +2024,17 @@ async function loadDraftOverlays() {
         : (draft.area_of_improving || r.rca.areaOfImproving || '');
 
       r.rca.resolution = draft.resolution || r.rca.resolution || '';
+      // THE OUTGOING REPLY, in the guest's language. This is the one store:
+      // Copy, Send and the Slack post all read `rca.reply` and nothing else.
+      // The English box below is a projection of it and is never sent.
       r.rca.reply      = draft.final_response || draft.suggested_response || r.rca.reply || '';
+      // The English working view and how far it can be trusted, both decided
+      // server-side. `englishView.state` is one of same | current | stale |
+      // absent — `stale` means the outgoing reply was edited directly after
+      // this English was made, and the box has to say so rather than show a
+      // superseded translation as if it were the reply about to go out.
+      r.rca.englishView     = draft.english_view    || null;
+      r.rca.responseLanguage = draft.response_language || null;
       r.rca.primaryScenario  = draft.primary_scenario || r.rca.primaryScenario || '';
       r.rca.overlayScenarios = draft.overlay_scenarios || [];
       // Where the primary came from and how it stands against routing NOW.
@@ -2056,6 +2066,12 @@ async function loadDraftOverlays() {
 
       r.rca.checklistAnswers     = draft.checklist_answers      || [];
       r.rca.slackThreadOverride  = draft.slack_thread_override  || '';
+      // The what-went-wrong section, composed by the SERVER. This page used to
+      // build it here in JS from the same rca_v3, which made two composers for
+      // one block of text and let the client print "Fix: [object Object]" into
+      // a real post while the server's version was correct. There is one
+      // composer now and this is its output; nothing on this page rebuilds it.
+      r.rca.wwrSlackText         = draft.wwr_slack_text || '';
       r.rca.supportInteraction   = (draft.support_interaction_frames || []).map(mapSupportFrame);
       // Facts and interpretation arrive separately and are merged at render:
       // the frames are Zendesk-derived rows, the notes are the model's account
@@ -2221,7 +2237,15 @@ async function loadDraftOverlays() {
           r.booking.guestNameNote = '';
         } else {
           r.booking.primaryGuestName = '';
-          r.booking.guestNameNote = db.guest_name_note
+          // `draft`, not `db`. guest_name_note is a TOP-LEVEL field of the
+          // draft payload; `db` is draft.booking, which has never carried it.
+          // So the read was always undefined and every one of the three
+          // reasons the server works out — the warehouse holds a hash, the
+          // linked ticket carries no requester, no ticket was matched at all —
+          // collapsed into the one generic fallback below. Two of those are
+          // worth opening Zendesk for and one is not, and the card could not
+          // tell them apart.
+          r.booking.guestNameNote = draft.guest_name_note
             || 'no guest name on the booking or on any linked Zendesk ticket';
         }
       }
@@ -2332,7 +2356,6 @@ const state = {
   slackPicker: {},
   // Section open/closed state, keyed by section label text.
   collapsed: {},
-  replyTranslation: {},   // review id -> guest-language reply
   wwrOpen: {},      // per-issue open state in What went wrong
   ixOpen: {},       // per-contact open state in Guest <-> support
   // Machinery is hidden by default - it was ~8 of 14 events on a real
@@ -4145,6 +4168,16 @@ function renderRcaCol() {
 
   // v3 new-shape data + shared helpers (used by interactions and v3 sections)
   const v3d = rca.v3 || {};
+  // READ THE STORE THE BOX WRITES. The stated-issue box saves into
+  // rca.v3.stated_issue; rendering r.statedIssue — a snapshot taken at load —
+  // meant the very next renderRcaCol() put the old sentence back over the one
+  // just typed. Saved to the server, reverted on screen, which is
+  // indistinguishable from a save that never happened. Presence, not
+  // truthiness, so a deliberately cleared box stays cleared instead of the
+  // load-time value reappearing.
+  const _statedIssue = String(
+    ('stated_issue' in v3d && v3d.stated_issue != null)
+      ? v3d.stated_issue : (r.statedIssue || ''));
   const _zdB = (r.zendeskSubdomain || 'headout');
   const zdLink = ref => {
     const id = String(ref || '').replace(/^ZD-?/i, '').trim();
@@ -4465,76 +4498,17 @@ function renderRcaCol() {
     if (scenAll.length) cls2 += (cls2 ? nl : '') + 'Scenarios: ' + scenAll.join(', ');
     cls = cls2;
 
-    const wwrParts = [];
-    const _w = (rca.v3 || {}).what_went_wrong;
-    if (_w) {
-      const sub2 = v => asPoints(v).map(x => '   - ' + x).join(nl);
-      const gi = (_w.guest_issues || []);
-      // §2 / step 6: one block per guest issue, carrying only the lines it
-      // actually has. The old layout stacked five numbered headings across ALL
-      // issues, so two complaints with different root causes were flattened
-      // into one list and the reader could not tell which belonged to which.
-      gi.forEach((g, n) => {
-        // Owner rides the FIX now. Read off the old top-level key this line
-        // printed the verdict with no team beside it — the one thing
-        // leadership scans the post for.
-        const fx = (g.fix && typeof g.fix === 'object') ? g.fix : null;
-        const meta = [g.claim_accuracy, (fx && fx.owner) || g.owner].filter(Boolean);
-        const block = ['*' + (n + 1) + '. ' + (g.issue || '(untitled)') + '*'
-                       + (meta.length ? '  ·  ' + meta.join('  ·  ') : '')];
-        if (g.claim) block.push('• Guest: “' + g.claim + '”');
-        if (g.claim_accuracy_note) block.push('• Why that verdict: ' + g.claim_accuracy_note);
-        [['root_cause', 'Root cause'], ['operational_failure', 'Operational failure'],
-         ['sop_gap', 'SOP / process gap'], ['pattern', 'Pattern']]
-          .forEach(([k, label]) => { if (g[k]) block.push('• ' + label + ': ' + g[k]); });
-        // `fix` is an object. Left in the list above it stringified to
-        // "[object Object]" and went out on the post — the action, the owner
-        // and the gap all replaced by seven characters of nothing.
-        if (fx && fx.action) {
-          block.push('• Fix: ' + fx.action + (fx.owner ? ' (owner: ' + fx.owner + ')' : ''));
-          if (fx.because)  block.push('   - closes: ' + fx.because);
-        } else if (typeof g.fix === 'string' && g.fix) {
-          block.push('• Fix: ' + g.fix);          // pre-object drafts
-        }
-        (g.evidence || []).forEach(e => {
-          if (typeof e === 'string') { block.push('   - ' + e); return; }
-          if (!e || !e.text) return;
-          block.push('   - ' + (e.source ? '[' + e.source + '] ' : '') + e.text
-                     + (e.ref ? ' (' + e.ref + ')' : ''));
-        });
-        wwrParts.push(block.join(nl));
-      });
-      // A pre-v4 draft keeps its analysis at document level. Rendering both
-      // means an old RCA reposted from here still says something.
-      const wh = _w.what_happened || {};
-      const legacy = (wh.root_causes || []).map(c =>
-        '• [' + (c.classification || '?') + '] ' + (c.issue ? c.issue + ': ' : '') + (c.cause || ''));
-      if (asPoints(wh.operational_failure).length)
-        legacy.push('• Operational failure' + nl + sub2(wh.operational_failure));
-      if (asPoints(wh.sop_gap).length) legacy.push('• SOP gap' + nl + sub2(wh.sop_gap));
-      if (wh.pattern) legacy.push('• Pattern: ' + wh.pattern);
-      const sx = _w.sp_escalation || {};
-      if (sx.escalated) legacy.push('• Escalated to SP: ' + sx.escalated);
-      if (asPoints(sx.detail).length) legacy.push(sub2(sx.detail));
-      const fx = _w.fixes || {};
-      if ((fx.teams || []).length)
-        legacy.push('• Teams: ' + fx.teams.join(', ') + (fx.owner ? ' · owner: ' + fx.owner : ''));
-      for (const a of asPoints(fx.actions)) legacy.push('• ' + a);
-      if (legacy.length) wwrParts.push(legacy.join(nl));
-    }
-    for (const sc of (_w ? [] : (rca.wwrScenarios || []))) {
-      const tag = sc.is_primary ? 'PRIMARY' : 'overlay';
-      wwrParts.push('[' + tag + '] ' + (sc.scenario_name || '') + nl +
-        '• Accurate? ' + (sc.accuracy || '—') + ' — ' + (sc.accuracy_explanation || '') + nl +
-        '• Why: ' + (sc.why || '') + nl +
-        '• Fix: ' + (sc.fix || ''));
-    }
-    if (!wwrParts.length) {
-      for (const st of (rca.wwrChain || [])) {
-        wwrParts.push(st.step + '. ' + (st.what || '') + ' — ' + (st.why || ''));
-      }
-    }
-    const wwrText = wwrParts.join(nl + nl) || '—';
+    // The what-went-wrong section is composed by the SERVER and rendered
+    // here verbatim. This function used to build it from rca.v3 in JavaScript
+    // while server/services/wwr_post.py built it again in Python: two
+    // composers for one block of text, which is exactly how the client once
+    // stringified the fix object and put "Fix: [object Object]" on a real
+    // post while the server's copy of the same section was correct.
+    //
+    // wwrSlackText is refreshed from the PATCH response on every inline edit,
+    // so the preview follows an edit without this page needing to know the
+    // five-heading format at all.
+    const wwrText = rca.wwrSlackText || '';
     const fmtFrames = (frames, label) => {
       if (!frames || !frames.length) return label + ': —';
       const lines = [label + ':'];
@@ -5203,8 +5177,15 @@ function renderRcaCol() {
     <div class="section">
       <div class="section-label"><span>Guest's stated issue</span><span class="section-chev">▾</span></div>
       <div class="stated-issue">
-        <div class="stated-issue-text editable-text" contenteditable="true" spellcheck="false">${r.statedIssue || ''}</div>
-        ${(r.statedIssue || '').trim() ? '' : `<div class="rca-empty">${
+        <!-- data-v3p, or this box is a dead control. It rendered editable,
+             took the text, flashed nothing and saved nothing: the generic
+             path saver binds on [data-v3p] and this was the one editable in
+             the column without it, so the edit survived until the next
+             render and then reverted. Same failure as "+ Add" and the section
+             chevrons — a bound control and an unbound one look identical. -->
+        <div class="stated-issue-text editable-text" contenteditable="true" spellcheck="false"
+             data-v3p="stated_issue">${esc(_statedIssue)}</div>
+        ${_statedIssue.trim() ? '' : `<div class="rca-empty">${
           // "Nothing was extracted" is a claim about the review, and it was
           // made for a call that threw just as readily as for a review with
           // nothing in it. When the RCA below is full, the claim is provably
@@ -5422,46 +5403,92 @@ function renderRcaCol() {
     </div>
 
     <div class="reply-block" id="rca-reply-section">
+      ${(() => {
+        // WHICH BOX GOES TO THE GUEST is the thing this block has to make
+        // unmistakable. `rca.reply` is the outgoing text and the ONLY text
+        // anything sends, copies or posts; the English box below it, when
+        // there is one, is a working view whose edits are applied by
+        // translating them back into this field.
+        const lv   = rca.responseLanguage || {state: 'unknown', language: '', why: ''};
+        const ev   = rca.englishView || {state: 'absent', text: '', why: ''};
+        const lang = lv.language || r.lang || '';
+        const isEn = lv.state === 'english';
+        // An English review draws ONE box. No translate control, no English
+        // panel, and nothing that implies a translation happened — because
+        // none did, and a card that hints at one invites a reader to go
+        // looking for the "real" reply.
+        const outLabel = isEn
+          ? 'Response to guest — this is what goes out'
+          : (lang ? `Response to guest · ${esc(lang)} — THIS is what goes to the guest`
+                  : 'Response to guest — this is what goes out');
+        const outChars = (rca.reply || '').length;
+
+        const head = `
       <div class="reply-head">
-        <span class="section-label" style="margin:0">Response to guest</span>
+        <span class="section-label" style="margin:0">${outLabel}</span>
         <span class="hint" style="font-size:11px;color:var(--dim)">goes out via Trustpilot on Send ↑</span>
         <div class="reply-head-actions">
           <button data-reply-edit>✎ Edit</button>
           <button data-reply-copy>⧉ Copy</button>
-          ${(r.lang || '').toUpperCase() !== 'EN'
-            ? `<button data-reply-translate title="Translate the edited English reply into ${esc(r.lang)} — the language the guest wrote in">🌐 ${esc(r.lang)}</button>` : ''}
         </div>
-      </div>
-      <!-- No "Template: X" line. There is no separate drafting call any more:
-           the reply comes from the RCA, written against this case's evidence,
-           with the approved replies passed in as VOICE only. Naming one of
-           them here would claim the reply was built from it. An old draft
-           still carries a template_name in its column; rendering it would put
-           that stale claim on a reply it had nothing to do with. -->
-      <!-- A blank reply is a DECISION now, not a gap. Prompt rule 20: with no
-           approved macro for this issue, the model returns null rather than
-           writing one — because an invented reply is indistinguishable from an
-           approved one on this card (same register, same length, same shape)
-           and Send puts it on a public review. The placeholder has to say that,
-           or an empty box reads as a step that failed. -->
-      <textarea class="reply-text" placeholder="${(rca.reply || '').trim()
+      </div>`;
+
+        // The outgoing box. Marked so Copy/Send can find it by a name that
+        // says what it is rather than by position.
+        const outBox = `
+      <textarea class="reply-text" data-outgoing-reply placeholder="${(rca.reply || '').trim()
         ? 'AI-drafted response — edit as needed'
         : 'No approved macro matches this issue, so nothing was drafted — curate the response yourself.'
         }">${esc(rca.reply)}</textarea>
       <div class="reply-meta">
         <span>${(rca.reply || '').trim()
-          ? `Editable — review before sending${(r.lang || '').toUpperCase() !== 'EN'
-              ? ' · goes out in ' + esc(r.lang) : ''}`
+          ? `Editable — review before sending${!isEn && lang ? ' · goes out in ' + esc(lang) : ''}`
           : `<span class="rca-empty" style="font-style:normal">Write it yourself — no approved macro covers this issue, and a reply nobody approved must not be generated to fill the box. See the confidence trail for what was searched.</span>`}</span>
-        <span>${(rca.reply || '').length} chars</span>
-      </div>
-      ${state.replyTranslation[r.id] ? `
-      <div class="translation-card" style="border-top:1px dashed var(--accent-bd)">
-        <div class="translation-label" style="color:var(--accent)">${esc(r.lang)} — what the guest receives</div>
-        <div class="translation-body" id="reply-translated">${esc(state.replyTranslation[r.id])}</div>
-        <button class="btn" style="margin-top:8px;font-size:11px;padding:3px 10px"
-                data-copy-translated>⧉ Copy ${esc(r.lang)} reply</button>
-      </div>` : ''}
+        <span>${outChars} chars</span>
+      </div>`;
+
+        if (isEn) return head + outBox;
+
+        // No language recorded is NOT English. Say which it is; a reply left
+        // in English because nothing established the guest's language is a
+        // judgement, and the card announces it rather than drawing one quiet
+        // box that looks like a settled answer.
+        if (lv.state === 'unknown') {
+          return head + outBox + `
+      <div class="translation-card" style="border-top:1px dashed var(--warn-bd,#a76)">
+        <div class="translation-label" style="color:var(--warn,#c93)">Language not established</div>
+        <div class="translation-body">${esc(lv.why || '')} There is no English view for this reply because there is nothing to translate it into.</div>
+      </div>`;
+        }
+
+        // Two boxes. The English one is the projection.
+        const stale = ev.state === 'stale';
+        const engText = ev.state === 'absent' ? '' : (ev.text || '');
+        return head + outBox + `
+      <div class="translation-card" data-english-panel style="border-top:1px dashed var(--accent-bd)">
+        <div class="translation-label" style="color:var(--accent)">
+          English working copy — NOT sent to the guest
+        </div>
+        <div class="hint" style="font-size:11px;color:var(--dim);margin-bottom:6px">
+          Edit here and press “Apply to ${esc(lang)}”: the ${esc(lang)} reply above is rewritten by translating this text. Nothing is applied until you press it.
+        </div>
+        ${stale ? `<div class="rca-empty" data-english-stale style="font-style:normal;color:var(--warn,#c93)">
+          This English is BEHIND the ${esc(lang)} reply — ${esc(ev.why || '')}
+        </div>` : ''}
+        ${ev.state === 'absent' ? `<div class="rca-empty" style="font-style:normal">
+          No English view has been made yet. Paste or write the English here and apply it, or edit the ${esc(lang)} reply above directly.
+        </div>` : ''}
+        <textarea class="reply-text" data-english-reply
+          placeholder="English working copy — edits are applied by translating into ${esc(lang)}">${esc(engText)}</textarea>
+        <div class="reply-meta">
+          <span data-english-status>${stale
+            ? `Behind the ${esc(lang)} reply`
+            : (ev.state === 'current' ? `Matches the ${esc(lang)} reply above` : '')}</span>
+          <button class="btn" style="font-size:11px;padding:3px 10px"
+                  data-apply-english>Apply to ${esc(lang)}</button>
+        </div>
+      </div>`;
+      })()}
     </div>
 
     ${slackPost}
@@ -5744,37 +5771,96 @@ function renderRcaCol() {
     });
   });
 
-  // ── Response card: Edit focuses the textarea, Copy flips for 1.5s ──────
-  const replyArea = col.querySelector('.reply-text');
+  // ── Response card ─────────────────────────────────────────────────────
+  // ONE STORE. `data-outgoing-reply` is the reply that goes to the guest, in
+  // the guest's language, and it is what Edit, Copy and Send all act on. The
+  // English box is `data-english-reply` and is never read by any of them.
+  const replyArea = col.querySelector('[data-outgoing-reply]');
   const replyEdit = col.querySelector('[data-reply-edit]');
   if (replyEdit && replyArea) replyEdit.addEventListener('click', () => {
     replyArea.focus();
     replyArea.setSelectionRange(replyArea.value.length, replyArea.value.length);
   });
-  // Edit in English, translate on the way out. Translating the EDITED text
-  // (not the original draft) is the point: whatever the reviewer changed is
-  // what the guest receives.
-  const replyTr = col.querySelector('[data-reply-translate]');
-  if (replyTr && replyArea) replyTr.addEventListener('click', async () => {
-    const orig = replyTr.textContent;
-    replyTr.disabled = true; replyTr.textContent = 'translating…';
+
+  // Editing the outgoing reply directly persists it as the human answer, and
+  // leaves the English projection BEHIND — which the server works out from the
+  // digest and the card then says out loud. Nothing here quietly re-translates:
+  // a direct edit is the associate's own words and must survive.
+  if (replyArea) replyArea.addEventListener('blur', async () => {
+    const val = replyArea.value;
+    if (val.trim() === (rca.reply || '').trim()) return;
+    rca.reply = val;
+    const ok = await saveDraft(r.id, {final_response: val}, replyArea);
+    if (ok) renderRcaCol();     // re-read english_view: it may now be stale
+  });
+
+  // Apply an English edit by TRANSLATING it into the outgoing reply.
+  //
+  // On blur or on this button, never per keystroke. While the call is in
+  // flight the two boxes disagree — the English shows the edit and the
+  // outgoing reply does not — and the card says so rather than letting the
+  // pair look settled. On failure the outgoing reply is untouched and the
+  // status line says the English edit was NOT applied, and why.
+  const engArea  = col.querySelector('[data-english-reply]');
+  const applyEng = col.querySelector('[data-apply-english]');
+  const engStat  = col.querySelector('[data-english-status]');
+  const _applyEnglish = async () => {
+    if (!engArea || !applyEng) return;
+    const english = engArea.value.trim();
+    if (!english) {
+      if (engStat) engStat.textContent = 'Nothing to apply — the English box is empty.';
+      return;
+    }
+    const orig = applyEng.textContent;
+    applyEng.disabled = true;
+    applyEng.textContent = 'translating…';
+    if (engStat) {
+      engStat.textContent = 'IN FLIGHT — the boxes disagree: this English is not '
+                          + 'in the outgoing reply yet.';
+      engStat.style.color = 'var(--warn,#c93)';
+    }
     try {
-      // Save the current English first, so the server translates what is
-      // on screen rather than the last thing that happened to persist.
-      await saveDraft(r.id, {final_response: replyArea.value});
-      const resp = await fetch(`/api/reviews/${r.id}/translate-reply`, {method: 'POST'});
+      const resp = await fetch(`/api/reviews/${r.id}/apply-english-reply`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({english}),
+      });
       const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(data.detail || 'translation failed');
-      state.replyTranslation[r.id] = data.text || '';
+      if (!resp.ok) throw new Error(data.detail || `${resp.status} — translation failed`);
+      // The server is what decided the outgoing text; take it back rather
+      // than assuming what it wrote.
+      rca.reply = data.outgoing || rca.reply;
+      rca.englishView = {state: data.english_state || 'current',
+                         text: data.english || english,
+                         outgoing: rca.reply, why: data.note || ''};
       renderRcaCol();
     } catch (e) {
-      replyTr.textContent = String(e.message || e).slice(0, 40);
-      setTimeout(() => { replyTr.disabled = false; replyTr.textContent = orig; }, 3000);
+      // The outgoing reply was NOT changed. Say that, not just "failed" —
+      // an edit that looks saved and is not is the thing this guards.
+      applyEng.disabled = false;
+      applyEng.textContent = orig;
+      if (engStat) {
+        engStat.textContent = 'NOT APPLIED — the outgoing reply is unchanged. '
+                            + String(e.message || e).slice(0, 160);
+        engStat.style.color = 'var(--warn,#c93)';
+      }
     }
-  });
+  };
+  if (applyEng) applyEng.addEventListener('click', _applyEnglish);
+  // Blur applies too, but only when the text actually changed — otherwise
+  // clicking away from an untouched box would spend a translation call.
+  if (engArea) {
+    engArea._engBefore = engArea.value;
+    engArea.addEventListener('blur', () => {
+      if (engArea.value.trim() === (engArea._engBefore || '').trim()) return;
+      engArea._engBefore = engArea.value;
+      _applyEnglish();
+    });
+  }
 
   const replyCopy = col.querySelector('[data-reply-copy]');
   if (replyCopy && replyArea) replyCopy.addEventListener('click', async () => {
+    // The OUTGOING reply, always. Copying the English box is how an English
+    // reply ends up pasted onto a review written in another language.
     try { await navigator.clipboard.writeText(replyArea.value); } catch (_) {}
     replyCopy.textContent = '✓ Copied';
     setTimeout(() => { replyCopy.textContent = '⧉ Copy'; }, 1500);
@@ -5834,13 +5920,6 @@ function renderRcaCol() {
       slackPostBtn.textContent = String(e.message || e).slice(0, 70);
       setTimeout(() => { slackPostBtn.disabled = false; slackPostBtn.textContent = orig; }, 4000);
     }
-  });
-
-  const copyTr = col.querySelector('[data-copy-translated]');
-  if (copyTr) copyTr.addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(state.replyTranslation[r.id] || ''); } catch (_) {}
-    const o = copyTr.textContent; copyTr.textContent = '✓ Copied';
-    setTimeout(() => { copyTr.textContent = o; }, 1500);
   });
 
   const rcaOnly = col.querySelector('[data-rca-only-regen]');
@@ -5941,6 +6020,17 @@ function renderRcaCol() {
         method: 'PATCH', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({rca_v3: rca.v3}),
       });
+      // Take the recomposed what-went-wrong back off the save response. The
+      // server is the only thing that knows the five-heading format, so an
+      // edit to a root cause has to come back FROM it or the Slack preview
+      // would keep showing the text composed before the edit — stale in a way
+      // nothing on screen would admit to.
+      if (resp.ok) {
+        const data = await resp.json().catch(() => null);
+        if (data && data.draft && typeof data.draft.wwr_slack_text === 'string') {
+          rca.wwrSlackText = data.draft.wwr_slack_text;
+        }
+      }
       flashSaved(el, resp.ok);
     } catch (_) { flashSaved(el, false); }   // keep the local edit; next change retries
   };
@@ -6280,7 +6370,10 @@ function renderRcaCol() {
   const copyResponseBtn = col.querySelector('.copy-response-btn');
   if (copyResponseBtn) {
     copyResponseBtn.addEventListener('click', () => {
-      const replyText = col.querySelector('.reply-text');
+      // The OUTGOING box by name, not `.reply-text` by position. The English
+      // working copy carries the same class, so a positional lookup is one
+      // DOM reorder away from copying the text that must never be sent.
+      const replyText = col.querySelector('[data-outgoing-reply]');
       const text = replyText ? replyText.value : (rca.reply || '');
       if (!text) return;
       navigator.clipboard.writeText(text).then(() => {

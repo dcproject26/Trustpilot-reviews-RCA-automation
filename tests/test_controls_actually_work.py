@@ -543,6 +543,15 @@ DRIVEN = {
     "data-window",             # test_insights_window_picker
     "data-resize",             # test_column_resize
     "data-mark-sent",          # this file, test_mark_sent_moves_the_review…
+    # The guest response. `data-outgoing-reply` is the box that goes to the
+    # guest and the one Copy and Send read; the English panel beside it is a
+    # projection. All driven in this file.
+    "data-outgoing-reply",     # …::test_the_outgoing_reply_box_is_the_one_copy_reads
+    "data-english-reply",      # …::test_the_apply_control_says_the_edit_was_not_applied…
+    "data-apply-english",      # …::test_the_apply_control_says_the_edit_was_not_applied…
+    "data-english-panel",      # …::test_an_english_review_draws_one_box_and_no_translation
+    "data-english-stale",      # …::test_a_stale_english_copy_says_so_on_screen
+    "data-english-status",     # …::test_the_boxes_say_they_disagree_while_a_translation…
 }
 
 # Not controls: status targets, stamps and identifiers the handlers read.
@@ -832,3 +841,242 @@ def test_mark_sent_shares_the_post_buttons_box(page):
     assert got["post"]["r"] == got["sent"]["r"], "different corner radii"
     assert got["post"]["p"] == got["sent"]["p"], "different padding"
     assert got["post"]["f"] == got["sent"]["f"], "different font sizes"
+
+
+# ── the stated-issue box ────────────────────────────────────────────────────
+
+def test_the_stated_issue_box_saves_what_is_typed_into_it(page):
+    """It was the one editable in the RCA column with no data-v3p.
+
+    The generic path saver binds on `[data-v3p]`, so this box rendered
+    editable, accepted the text, flashed nothing and wrote nothing — the same
+    invisible failure as an unbound "+ Add" or a decorative chevron. Driven
+    with a stubbed PATCH so the assertion is on what the page SENT, not on
+    what a server happened to accept.
+    """
+    got = page.evaluate("""async () => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const el = document.querySelector('.stated-issue-text');
+      if (!el) return {err: 'the stated-issue box does not render'};
+      const keep = JSON.parse(JSON.stringify(r.rca.v3.stated_issue ?? null));
+      let body = null;
+      window.__realFetch = window.__realFetch || window.fetch;
+      window.fetch = async (url, opts) => {
+        if (String(url).includes('/draft-v2')) {
+          body = JSON.parse(opts.body);
+          return new Response(JSON.stringify({ok: true, draft: {}}), {status: 200});
+        }
+        return window.__realFetch(url, opts);
+      };
+      el.focus();
+      el.textContent = 'TYPED BY A PERSON';
+      el.dispatchEvent(new Event('input', {bubbles: true}));
+      el.dispatchEvent(new Event('blur', {bubbles: true}));
+      el.blur();
+      await new Promise(x => setTimeout(x, 600));
+      window.fetch = window.__realFetch;
+      const sent = body && body.rca_v3 ? body.rca_v3.stated_issue : undefined;
+      r.rca.v3.stated_issue = keep; renderRcaCol();
+      return {sent, patched: !!body}; }""")
+    assert not got.get("err"), got["err"]
+    assert got["patched"], "typing in the stated-issue box sent nothing to the server"
+    assert got["sent"] == "TYPED BY A PERSON", \
+        f"the box saved {got['sent']!r} — it is not wired to rca_v3.stated_issue"
+
+
+def test_the_stated_issue_survives_the_next_render(page):
+    """A save the next render undoes is a save nobody keeps.
+
+    The box writes rca.v3.stated_issue; the section used to render
+    r.statedIssue, a snapshot taken when the review was loaded. So the typed
+    sentence went to the server and was replaced on screen by the old one at
+    the very next renderRcaCol() — saved and reverted, which looks exactly
+    like never having saved.
+    """
+    got = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keep = r.rca.v3.stated_issue ?? null;
+      r.rca.v3.stated_issue = 'EDITED IN THE BLOB';
+      renderRcaCol();
+      const shown = (document.querySelector('.stated-issue-text') || {}).textContent;
+      r.rca.v3.stated_issue = keep; renderRcaCol();
+      return shown; }""")
+    assert got == "EDITED IN THE BLOB", \
+        (f"the section rendered {got!r} — it reads a different store from the "
+         f"one the edit box writes")
+
+
+def test_an_emptied_stated_issue_stays_empty(page):
+    """Presence, not truthiness. Clearing the box must not let the load-time
+    value reappear — that is the delete-undoes-itself bug one field over."""
+    got = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keep = r.rca.v3.stated_issue ?? null;
+      const keepR = r.statedIssue;
+      r.statedIssue = 'THE VALUE FROM THE COLUMN';
+      r.rca.v3.stated_issue = '';
+      renderRcaCol();
+      const shown = (document.querySelector('.stated-issue-text') || {}).textContent;
+      const empty = !!document.querySelector('.stated-issue .rca-empty');
+      r.rca.v3.stated_issue = keep; r.statedIssue = keepR; renderRcaCol();
+      return {shown, empty}; }""")
+    assert got["shown"] == "", \
+        f"a cleared stated issue rendered {got['shown']!r} from the other store"
+    assert got["empty"], "a cleared stated issue shows no empty state at all"
+
+
+# ── The guest response: which box goes out, and in which language ───────────
+
+def test_the_outgoing_reply_box_is_the_one_copy_reads(page):
+    """`data-outgoing-reply` is the reply that goes to the guest. Copy must
+    read THAT box and not the English working copy, which carries the same
+    CSS class — a positional `.reply-text` lookup is one DOM reorder away from
+    copying the text that must never be sent."""
+    got = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keepLang = r.lang, keepRl = r.rca.responseLanguage;
+      const keepEv = r.rca.englishView, keepReply = r.rca.reply;
+      r.lang = 'IT';
+      r.rca.responseLanguage = {state: 'translated', language: 'IT', why: ''};
+      r.rca.reply = 'TESTO ITALIANO';
+      r.rca.englishView = {state: 'current', text: 'ENGLISH COPY', why: ''};
+      renderRcaCol();
+      const out = document.querySelector('[data-outgoing-reply]');
+      const eng = document.querySelector('[data-english-reply]');
+      const res = {out: out ? out.value : null, eng: eng ? eng.value : null,
+                   sameClass: !!(out && eng && out.className === eng.className)};
+      r.lang = keepLang; r.rca.responseLanguage = keepRl;
+      r.rca.englishView = keepEv; r.rca.reply = keepReply; renderRcaCol();
+      return res; }""")
+    assert got["out"] == "TESTO ITALIANO", (
+        "the outgoing box does not hold the guest-language reply — it rendered "
+        f"{got['out']!r}")
+    assert got["eng"] == "ENGLISH COPY", "the English working copy did not render"
+    assert got["sameClass"], (
+        "the two boxes no longer share a class, so this test is no longer "
+        "checking that they are told apart by NAME rather than by position")
+
+
+def test_an_english_review_draws_one_box_and_no_translation(page):
+    """An English review must not imply a translation happened — no English
+    panel, no apply control, nothing hinting the visible reply is a copy of
+    some other 'real' one."""
+    got = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keepLang = r.lang, keepRl = r.rca.responseLanguage;
+      const keepEv = r.rca.englishView;
+      r.lang = 'EN';
+      r.rca.responseLanguage = {state: 'english', language: 'EN', why: ''};
+      r.rca.englishView = {state: 'same', text: r.rca.reply, why: ''};
+      renderRcaCol();
+      const res = {
+        out:   !!document.querySelector('[data-outgoing-reply]'),
+        eng:   !!document.querySelector('[data-english-reply]'),
+        apply: !!document.querySelector('[data-apply-english]'),
+        panel: !!document.querySelector('[data-english-panel]'),
+      };
+      r.lang = keepLang; r.rca.responseLanguage = keepRl;
+      r.rca.englishView = keepEv; renderRcaCol();
+      return res; }""")
+    assert got["out"], "an English review renders no response box at all"
+    assert not got["eng"], "an English review drew a second, English box"
+    assert not got["apply"], "an English review offers a translate control"
+    assert not got["panel"], "an English review drew the translation panel"
+
+
+def test_a_stale_english_copy_says_so_on_screen(page):
+    """The outgoing reply was edited directly, so the English beside it is
+    from before that edit. Showing it without saying so presents a superseded
+    translation as the reply about to go out."""
+    got = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keepLang = r.lang, keepRl = r.rca.responseLanguage;
+      const keepEv = r.rca.englishView;
+      r.lang = 'IT';
+      r.rca.responseLanguage = {state: 'translated', language: 'IT', why: ''};
+      r.rca.englishView = {state: 'stale', text: 'OLD ENGLISH',
+                           why: 'the outgoing response was edited directly'};
+      renderRcaCol();
+      const el = document.querySelector('[data-english-stale]');
+      const res = {shown: !!el, text: el ? el.textContent : ''};
+      r.lang = keepLang; r.rca.responseLanguage = keepRl;
+      r.rca.englishView = keepEv; renderRcaCol();
+      return res; }""")
+    assert got["shown"], (
+        "a stale English copy renders with nothing saying it is behind the "
+        "outgoing reply")
+    assert "BEHIND" in got["text"] or "behind" in got["text"], got["text"]
+
+
+def test_the_apply_control_says_the_edit_was_not_applied_when_it_fails(page):
+    """THE contract. A failed translation must leave the outgoing reply
+    untouched AND say the English edit was not applied — an edit that appears
+    to save and did not is what this codebase punishes hardest."""
+    got = page.evaluate("""async () => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keepLang = r.lang, keepRl = r.rca.responseLanguage;
+      const keepEv = r.rca.englishView, keepReply = r.rca.reply;
+      r.lang = 'IT';
+      r.rca.responseLanguage = {state: 'translated', language: 'IT', why: ''};
+      r.rca.reply = 'TESTO ORIGINALE';
+      r.rca.englishView = {state: 'current', text: 'original english', why: ''};
+      renderRcaCol();
+      if (!window.__realFetch) window.__realFetch = window.fetch.bind(window);
+      window.fetch = async (u, o) => {
+        if (String(u).indexOf('apply-english-reply') !== -1)
+          return new Response(JSON.stringify({detail: 'translation returned nothing'}),
+                              {status: 502, headers: {'Content-Type': 'application/json'}});
+        return window.__realFetch(u, o);
+      };
+      const box = document.querySelector('[data-english-reply]');
+      box.value = 'a completely new english edit';
+      document.querySelector('[data-apply-english]').click();
+      await new Promise(x => setTimeout(x, 800));
+      const status = (document.querySelector('[data-english-status]') || {}).textContent || '';
+      const outNow = (document.querySelector('[data-outgoing-reply]') || {}).value;
+      window.fetch = window.__realFetch;
+      r.lang = keepLang; r.rca.responseLanguage = keepRl;
+      r.rca.englishView = keepEv; r.rca.reply = keepReply; renderRcaCol();
+      return {status, outNow}; }""")
+    assert "NOT APPLIED" in got["status"], (
+        f"a failed translation reported {got['status']!r} — it does not say the "
+        f"English edit was not applied")
+    assert "translation returned nothing" in got["status"], (
+        f"the failure does not say WHY: {got['status']!r}")
+    assert got["outNow"] == "TESTO ORIGINALE", (
+        f"the outgoing reply changed to {got['outNow']!r} after a FAILED "
+        f"translation — the one thing that must never happen")
+
+
+def test_the_boxes_say_they_disagree_while_a_translation_is_in_flight(page):
+    """While the call is out, the English shows an edit the outgoing reply
+    does not carry. That disagreement is stated rather than left to look
+    settled."""
+    got = page.evaluate("""async () => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keepLang = r.lang, keepRl = r.rca.responseLanguage;
+      const keepEv = r.rca.englishView;
+      r.lang = 'IT';
+      r.rca.responseLanguage = {state: 'translated', language: 'IT', why: ''};
+      r.rca.englishView = {state: 'current', text: 'original english', why: ''};
+      renderRcaCol();
+      if (!window.__realFetch) window.__realFetch = window.fetch.bind(window);
+      window.fetch = async (u, o) => {
+        if (String(u).indexOf('apply-english-reply') !== -1) {
+          await new Promise(x => setTimeout(x, 1500));   // still in flight
+          return new Response('{}', {status: 500});
+        }
+        return window.__realFetch(u, o);
+      };
+      document.querySelector('[data-english-reply]').value = 'new english';
+      document.querySelector('[data-apply-english]').click();
+      await new Promise(x => setTimeout(x, 300));        // mid-flight
+      const status = (document.querySelector('[data-english-status]') || {}).textContent || '';
+      window.fetch = window.__realFetch;
+      await new Promise(x => setTimeout(x, 1500));
+      r.lang = keepLang; r.rca.responseLanguage = keepRl;
+      r.rca.englishView = keepEv; renderRcaCol();
+      return status; }""")
+    assert "IN FLIGHT" in got or "disagree" in got, (
+        f"mid-translation the card said {got!r} — the two boxes disagree and "
+        f"nothing on screen admits it")

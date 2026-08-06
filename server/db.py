@@ -186,8 +186,32 @@ class RcaDraft(Base):
     # ── Legacy fields still used by the v1 flow ──
     rca_fields         = Column(JSON, default=dict)
     signals            = Column(JSON, default=list)
+    # ── The guest response ──
+    # ONE STORE for what goes out, and it is in the GUEST'S language.
+    #
+    # `suggested_response` is the machine draft and `final_response` the human
+    # edit of it; the outgoing text is `final_response or suggested_response`,
+    # which is the rule every caller already followed. Both are in the
+    # review's language, because that is the only text that is ever sent,
+    # copied or posted.
+    #
+    # It used to be the other way round: these held ENGLISH, and the guest's
+    # language existed only as `state.replyTranslation` in the browser — memory
+    # that did not survive a reload and that nothing on the send path read. The
+    # reply that actually went out was therefore the English one, on a review
+    # written in Italian.
     suggested_response = Column(Text, nullable=True)
     final_response     = Column(Text, nullable=True)
+    # The English working view. A PROJECTION of the outgoing text, never the
+    # thing that is sent — editing it runs a translation whose result becomes
+    # the outgoing text above. Held rather than re-derived so the box survives
+    # a reload without paying for a translation call on every card open.
+    response_english   = Column(Text, nullable=True)
+    # Which outgoing text this English is the projection OF — a digest, so the
+    # reply is not stored a second time. When the outgoing text is edited
+    # directly this stops matching, and the English box says it is behind
+    # rather than presenting a stale translation as the current one.
+    response_english_of = Column(String, nullable=True)
 
     generated_at   = Column(DateTime, nullable=True)
     rca_posted_at  = Column(DateTime, nullable=True)  # RCA posted to the Slack thread
@@ -321,6 +345,12 @@ def _WANTED_DRAFT_COLUMNS(is_pg: bool) -> dict:
         "dss":                    "JSONB" if is_pg else "JSON",
         "guest_issues":           "JSONB" if is_pg else "JSON",
         "rca_prompt_version":     "VARCHAR",
+        # The English working view of the guest response, and the digest of the
+        # outgoing text it projects. The outgoing text itself stays in
+        # final_response/suggested_response — there is no column here for it,
+        # because a second column holding the same fact is the defect.
+        "response_english":       "TEXT",
+        "response_english_of":    "VARCHAR",
     }
 
 

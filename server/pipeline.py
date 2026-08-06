@@ -22,6 +22,11 @@ Steps:
   15. Metrics
 """
 import asyncio, logging, re, unicodedata
+# Module scope, not inside the validation try. It used to be imported two lines
+# after a statement that always raised, so `_html` was never bound — and the
+# contact-note join below, which is a DIFFERENT try, then died on the NameError
+# and reported itself "skipped". One dead statement took out two disclosures.
+import html as _html
 from datetime import datetime, timedelta
 
 from sqlalchemy.orm.attributes import flag_modified
@@ -741,6 +746,63 @@ def classification_entry(l1: str, l2: str, err: Exception | None,
             "lookup. Set the classification by hand, or re-run this review."}
 
 
+def dss_entry(dss_rec, err: Exception | None, live: bool,
+              l1: str = "", l2: str = "") -> dict | None:
+    """The trail line for the DSS lookup. None only when a row was matched.
+
+    THE CARD SAYS "No DSS row was matched for this classification." That
+    sentence is a claim about the playbook, and it was printed for four
+    different situations, three of which it is false for:
+
+      * the DSS sheet is not configured on this server, so nothing was opened;
+      * the sheet was opened and came back with no rows at all — a broken
+        share, a permissions change, an empty export;
+      * the lookup raised;
+      * the tabs were searched and genuinely nothing fits.
+
+    Only the last is "no row matched". The other three are the playbook being
+    unavailable, and the resolution below is then being checked against
+    nothing while the card implies it was checked against everything. Every
+    other lookup in this pipeline has an entry of this shape — the timeline,
+    the tone reference, the classification, the stated issue. The DSS had
+    none: it was the one step that could fail in total silence.
+    """
+    rec = dss_rec if isinstance(dss_rec, dict) else {}
+    if err is not None:
+        return {"mark": "warn", "text":
+                f"<strong>The DSS lookup failed</strong> — "
+                f"{_human_error(err).strip().rstrip('.')}. The playbook was not "
+                f"read, so nothing below has been checked against it. This is "
+                f"not 'no row matched'."}
+    if not live:
+        return {"mark": "warn", "text":
+                "<strong>DSS is not connected on this server</strong> — the "
+                "playbook sheet was never opened, so no row could be matched. "
+                "The resolution below has been checked against nothing."}
+    if rec.get("out_of_scope"):
+        # The sheet's own scope, correctly reported. A finding, not a fault.
+        return {"mark": "pass", "text":
+                "<strong>DSS has no tab for this issue</strong> — "
+                + str(rec.get("type_reason") or
+                      f"the sheet does not cover {l2 or 'this L2'}") +
+                ". The playbook was read and does not speak to this case."}
+    if not rec:
+        return {"mark": "warn", "text":
+                "<strong>The DSS sheet returned no rows at all</strong> — the "
+                "lookup ran and the playbook came back empty, which is a "
+                "problem with the sheet rather than with this review. Nothing "
+                "below has been checked against it."}
+    if not rec.get("action"):
+        return {"mark": "warn", "text":
+                "<strong>DSS searched, no row matched</strong> — the tabs were "
+                "read"
+                + (f" for {l1} / {l2}" if (l1 and l2) else
+                   " with no classification to key on") +
+                " and nothing fits this case. The playbook is available; it "
+                "simply does not cover this."}
+    return None
+
+
 def _why(warnings: list) -> str:
     """The classifier's own account of what went wrong, or a note that it gave
     none. It records a precise reason for every failure — an L1 outside the
@@ -914,12 +976,21 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 # offer, so confirming it erased the evidence an associate would
                 # need to challenge the match later. The confirmation is one more
                 # line on that history, not a replacement for it.
+                # The shortlist, the extracted signals and the attempts are
+                # carried WHETHER OR NOT there is a prior trail. Gated on the
+                # trail they were thrown away for a reason that has nothing to
+                # do with them: a draft can hold candidates and no trail — an
+                # older build, or a run that stored the shortlist and died
+                # before writing the trail, a case classify() explicitly
+                # anticipates. The shortlist is the only record of what the
+                # associate chose between, and losing it is what makes a
+                # confirmation impossible to revisit.
+                extracted_sigs     = dict(_prior.extracted_signals or {})
+                candidates         = list(_prior.candidates_list or [])
+                narrowing_attempts = list(_prior.narrowing_attempts or [])
                 _prior_trail = list(_prior.confidence_trail or [])
                 if _prior_trail:
                     confidence_trail   = _prior_trail
-                    extracted_sigs     = dict(_prior.extracted_signals or {})
-                    candidates         = list(_prior.candidates_list or [])
-                    narrowing_attempts = list(_prior.narrowing_attempts or [])
                     confidence_trail.append({"mark": "pass",
                         "text": f"<strong>Associate confirmed</strong> BID {confirmed_bid} — "
                                 "the steps above are from the run that found it"})
@@ -939,6 +1010,61 @@ async def process_review(review_id: str, force_candidates: bool = False):
                     "text": f"<strong>Confirmed BID {confirmed_bid}</strong> not found in "
                             "BigQuery — re-running match"})
                 confirmed_bid = None
+        elif confirmed_bid:
+            # THE WAREHOUSE COULD NOT BE ASKED, AND THE CONFIRMATION IS STILL A
+            # FACT. This branch did not exist. `select-candidate` stores the
+            # booking and then re-runs the pipeline to fetch Zendesk, insights
+            # and the RCA for it — and with BigQuery down the run fell straight
+            # past the confirmation into the "no real booking search was
+            # attempted" branch, whose save writes booking=None,
+            # candidates_list=[], candidate_state=False, match_tier=None. The
+            # associate's decision AND the shortlist they picked from were both
+            # destroyed by the re-run their own click started, and the card came
+            # back reading "Untraceable" — identical to a review nobody had ever
+            # looked at.
+            #
+            # Step 5a already states this principle for a booking id the GUEST
+            # typed: "everything above can come up empty for reasons that have
+            # nothing to do with the review", so an unaskable warehouse must not
+            # turn a known id into "unidentifiable". A person picking a booking
+            # off a shortlist is a stronger fact than a number in review prose,
+            # and it was the one the floor did not cover.
+            #
+            # Unverified, and said so — nothing has confirmed this booking on
+            # THIS run. What it must not do is disappear.
+            booking = dict(_prior.booking or {}) if _prior else {}
+            booking["id"] = str(confirmed_bid)
+            booking["_unverified"] = True
+            booking["_unverified_reason"] = "BigQuery is not live on this server"
+            booking["_match"] = {"tier": 2, "confidence": "confirmed",
+                                 "method": "Associate confirmed candidate — "
+                                           "not re-checked, BigQuery unavailable"}
+            match_tier = 2
+            narrowing_path = "associate_confirmed_unverified"
+            # The run that produced the shortlist is the only explanation of why
+            # this BID was on offer. Same reasoning as the verified branch above.
+            # Carried unconditionally, not only when a prior TRAIL exists. The
+            # shortlist is how an associate re-opens a decision they now doubt,
+            # and a draft can hold one with an empty trail (an older build, or
+            # a run that stored candidates and died before writing the trail) —
+            # in which case an `if trail:` gate throws the shortlist away for a
+            # reason that has nothing to do with it.
+            extracted_sigs = dict((_prior.extracted_signals or {}) if _prior else {})
+            candidates = list((_prior.candidates_list or []) if _prior else [])
+            narrowing_attempts = list(
+                (_prior.narrowing_attempts or []) if _prior else [])
+            _prior_trail = list((_prior.confidence_trail or []) if _prior else [])
+            if _prior_trail:
+                confidence_trail = _prior_trail
+            confidence_trail.append({"mark": "warn",
+                "text": f"<strong>Associate confirmed BID {confirmed_bid}</strong>, and "
+                        f"BigQuery is not live on this server — so it was NOT "
+                        f"re-checked on this run. The confirmation stands because a "
+                        f"person made it; nothing here has verified that the booking "
+                        f"exists, and the booking panel below may be missing whatever "
+                        f"only the warehouse knows."})
+            log.warning(f"[pipeline] {review_id}: keeping associate-confirmed BID "
+                        f"{confirmed_bid} unverified — BigQuery not live")
 
         if confirmed_bid and booking:
             pass   # confirmed booking in hand; skip the whole match cascade
@@ -2480,11 +2606,21 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 log.exception(f"Insights failed: {e}")
 
         # ── 11d. DSS (after classification — scores on L1/L2/review_text) ────
+        _dss_err = None
         try:
             dss_rec = await dss.get_recommendation(
                 booking or {}, review_id, l1=l1, l2=l2, review_text=review_text or "")
         except Exception as e:
+            _dss_err = e
             log.exception(f"DSS failed: {e}")
+        # The one lookup in this pipeline with no trail line of its own. The
+        # card prints "No DSS row was matched for this classification." for a
+        # sheet that is not configured, a sheet that came back empty and a
+        # lookup that raised, all of which are the playbook being unavailable
+        # rather than silent on this case. See dss_entry.
+        _dss_entry = dss_entry(dss_rec, _dss_err, is_live("dss"), l1, l2)
+        if _dss_entry:
+            confidence_trail.append(_dss_entry)
 
         _progress(review_id, 6, "generating RCA")
         # ── 12. Full structured RCA ───────────────────────────────────────────
@@ -2593,13 +2729,23 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 from server.services.rca_v4_validate import validate as _validate_rca
                 # Same on a re-run from the pipeline: hand-typed rows are
                 # carried forward, guideline rows are left to the AND.
-                _prev_actions = getattr(draft, 'actions_taken', None) or None
+                #
+                # READ FROM THE DATABASE, not from `draft`. `draft` is the save
+                # step's local and is not bound until step 14, thirty lines
+                # BELOW this one — so naming it here raised UnboundLocalError on
+                # every single run, the except swallowed it, and validate() was
+                # called by nothing. Exactly the failure CLAUDE.md opens with:
+                # every test green, raw model output reaching the screen. The
+                # row is already on disk (step 5b persists the match), so the
+                # query is the honest way to reach the previous Actions Taken.
+                _prev_row = (db.query(RcaDraft)
+                             .filter(RcaDraft.review_id == review_id).first())
+                _prev_actions = (_prev_row.actions_taken if _prev_row else None) or None
                 rca_v3, rca_notes = _validate_rca(rca_v3, _scenarios_routed,
                                                   keep_actions=_prev_actions)
                 # A coercion the reader cannot see is a silent edit. The trail
                 # is where this build already puts "we changed what the model
                 # said, and here is why", so each note goes there verbatim.
-                import html as _html
                 for _n in rca_notes:
                     log.warning(f"[pipeline] rca validation: {_n}")
                     confidence_trail.append({
@@ -2608,6 +2754,11 @@ async def process_review(review_id: str, force_candidates: bool = False):
                     })
             except Exception as e:
                 log.exception(f"RCA validation failed, keeping raw output: {e}")
+                confidence_trail.append({"mark": "warn",
+                    "text": "<strong>RCA validation did not run</strong> — it "
+                            f"raised {type(e).__name__}. Nothing below was "
+                            "coerced or checked; this is raw model output, not "
+                            "a clean bill of health."})
 
             # The model's contact notes join to the Zendesk frames by zd_ref.
             # A join that matches nothing looks exactly like a model that
@@ -2622,6 +2773,11 @@ async def process_review(review_id: str, force_candidates: bool = False):
                         "text": f"<strong>RCA</strong> — {_html.escape(_n)}"})
             except Exception as e:
                 log.warning(f"[pipeline] contact-note join check skipped: {e}")
+                confidence_trail.append({"mark": "warn",
+                    "text": "<strong>Contact-note join did not run</strong> — it "
+                            f"raised {type(e).__name__}. No note was checked "
+                            "against a Zendesk frame; an unmatched reference "
+                            "would not have been reported."})
 
         # ── 13. Response draft ────────────────────────────────────────────────
         # There is no separate drafting call any more. v4 returns `resolution`
@@ -2662,12 +2818,64 @@ async def process_review(review_id: str, force_candidates: bool = False):
             log.info(f"[pipeline] {review_id}: untraceable — using the approved "
                      f"“{_verbatim.get('situation')}” macro verbatim")
 
+        # ── 13b. The reply goes out in the REVIEW'S language ──────────────────
+        # The model writes in English. The guest wrote in their own language
+        # and that is what the reply is sent in, always — so the translation
+        # happens HERE, on the way into the draft, and the English becomes the
+        # working view rather than the thing that gets sent.
+        #
+        # Previously this ran only when someone pressed a button on the card,
+        # and its result lived in a browser variable that Send never read: the
+        # reply that actually went out was the English one.
+        #
+        # The rule itself lives in services/reply_language.py because the
+        # "↻ RCA only" endpoint writes this same field and has to apply it too.
+        from server.services.reply_language import translate_outgoing
+        (_reply_out, _reply_english,
+         _reply_eng_of, _reply_trail) = await translate_outgoing(
+             response_draft, review, review_id)
+        if _reply_trail:
+            confidence_trail.append(_reply_trail)
+        if _reply_eng_of and isinstance(rca_v3, dict):
+            # `_draft_dict` reads the reply from rca_v3 by PRESENCE and only
+            # falls back to the column, so writing the translation to the
+            # column alone would leave the card — and Send — showing the
+            # English the model wrote.
+            rca_v3["suggested_response"] = _reply_out
+
         _progress(review_id, 8, "saving")
         # ── 14. Save ──────────────────────────────────────────────────────────
         draft = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
         if not draft:
             draft = RcaDraft(id=f"draft_{review_id}", review_id=review_id)
             db.add(draft)
+
+        # A RE-RUN OVER A HAND-EDITED RCA DESTROYS THE EDITS. It always has —
+        # `draft.rca_v3 = _v3` a few lines below replaces the blob whole — and
+        # it did it in silence, which is bad enough. What made it worse is that
+        # `rca_v3_edited_at` was LEFT SET afterwards. Nothing had been edited
+        # since, and the marker is what `_bulk_targets` and `tools/rerun_all.py`
+        # read to decide "human work would be lost here, skip it": the review
+        # was then protected for ever, from every bulk run, on the strength of
+        # an edit that had already been thrown away. A marker outliving the
+        # thing it marks is worse than no marker — it is a claim the data
+        # contradicts.
+        #
+        # Bulk paths never reach here (they exclude edited drafts up front), so
+        # this is the card's Re-run, a candidate confirmation, and a re-ingest —
+        # all of them deliberate, single-review actions. The answer is not to
+        # refuse them; it is to say what was overwritten and stop claiming the
+        # edit survives.
+        _replaced_hand_edits = bool(rca_v3) and bool(
+            getattr(draft, "rca_v3_edited_at", None))
+        if _replaced_hand_edits:
+            log.warning(f"[pipeline] {review_id}: re-run replaced an RCA that "
+                        f"was edited by hand at {draft.rca_v3_edited_at}")
+            confidence_trail.append({"mark": "warn",
+                "text": "<strong>This re-run replaced a hand-edited RCA</strong> — "
+                        "the RCA below was edited on the card and has been "
+                        "overwritten by this run. The edits are gone; nothing "
+                        "here is a person's wording any more."})
 
         _match = (booking or {}).get("_match", {})
         booking_to_save = {k: v for k, v in (booking or {}).items() if k != "_match"}
@@ -2747,6 +2955,11 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # version too - claiming v4 over v3 content is worse than no stamp.
         if _v3:
             draft.rca_prompt_version  = prompts.RCA_PROMPT_VERSION
+            # The blob this marker described no longer exists — see the note at
+            # the top of the save. Cleared only when a new RCA actually
+            # replaced it: a run whose generation failed keeps the previous
+            # blob, and the previous blob's edits are still there to protect.
+            draft.rca_v3_edited_at    = None
         # v4 does not emit wwr_chain or prevention — the chain moved onto each
         # guest issue. Keep whatever a v3-era run left rather than blanking it,
         # so a rollback to v3 finds its data intact.
@@ -2783,7 +2996,15 @@ async def process_review(review_id: str, force_candidates: bool = False):
             setattr(draft, _col, _val)
 
         draft.ticket_facts                = ticket_facts or None
-        draft.suggested_response          = response_draft
+        # The OUTGOING reply, in the guest's language. One store: this and
+        # final_response are the only fields anything sends, copies or posts
+        # from. `response_english` beside it is the working view and is never
+        # sent — it is empty whenever the outgoing text is not a translation
+        # of it, so the card can never show an English box that claims to
+        # correspond to a reply it does not.
+        draft.suggested_response          = _reply_out
+        draft.response_english            = _reply_english or None
+        draft.response_english_of         = _reply_eng_of
         draft.generated_at                = datetime.utcnow()
         # A review already SENT stays sent. A re-run regenerates the AI half,
         # which is a fine thing to do to an old review - but resetting the

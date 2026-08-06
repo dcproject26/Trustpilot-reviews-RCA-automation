@@ -31,6 +31,7 @@ COLUMN_VALUES = {
     "dss":               {"guideline": "from the column"},
     "area_of_improving": [{"point": "from the column", "from": "flag",
                            "source": "x"}],
+    "stated_issue":      "from the column",
 }
 
 
@@ -214,3 +215,41 @@ def test_the_resolver_is_driveable_on_its_own():
     assert folded == ["takedown"], (
         f"the account is wrong: {folded!r} — flags came from rca_v3 and only "
         f"takedown was folded")
+
+
+# ── stated_issue: the same two-store shape, one field over ──────────────────
+#
+# It is not in _V4_SECTIONS because it is a scalar with its own pipeline
+# writer (the standalone stated-issue step writes the COLUMN; the RCA writes
+# rca_v3.stated_issue). That made it look like a different problem. It is not:
+# `↻ RCA only` writes rca_v3 and never the column, so reading the column
+# showed the PREVIOUS run's sentence after every RCA re-run, and a draft whose
+# standalone step had failed rendered "Nothing was extracted — see the
+# confidence trail for whether the step ran" over an RCA that had plainly
+# stated the issue. That empty state is a claim about the review, and it was
+# false.
+
+
+def test_the_rca_s_stated_issue_beats_the_columns():
+    d = RcaDraft(id="d1", review_id="tp_1",
+                 stated_issue="what the standalone step wrote last run",
+                 rca_v3={"stated_issue": "what the RCA says now"})
+    assert _draft_dict(d)["stated_issue"] == "what the RCA says now"
+
+
+def test_the_column_still_answers_for_a_draft_with_no_rca():
+    """A draft written before v4 has the column and nothing else. Preferring
+    rca_v3 must not blank it."""
+    d = RcaDraft(id="d1", review_id="tp_1",
+                 stated_issue="the only copy there is", rca_v3={})
+    assert _draft_dict(d)["stated_issue"] == "the only copy there is"
+
+
+def test_a_deliberately_cleared_stated_issue_is_not_undone_by_the_column():
+    """Someone clears the box; the edit lands in rca_v3 as "". Falling back on
+    falsiness would let the column win and the clear would undo itself on the
+    next load — the delete-undoes-itself bug this file exists for."""
+    d = RcaDraft(id="d1", review_id="tp_1",
+                 stated_issue="the pipeline's sentence",
+                 rca_v3={"stated_issue": ""})
+    assert _draft_dict(d)["stated_issue"] == ""

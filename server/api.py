@@ -361,6 +361,52 @@ def _indicator_match(d: RcaDraft) -> dict:
                 "why": "the check did not run"}
 
 
+def _wwr_slack_text(d, v3) -> str:
+    """The Slack post's what-went-wrong section, for the dashboard to render.
+
+    Wrapped so a composer failure cannot take the whole draft read with it:
+    the card is how someone finds out anything at all about a review, and
+    losing it to one malformed what_went_wrong node is worse than showing the
+    section with an error in it. The error names the section, so it cannot be
+    mistaken for an RCA that had nothing to say.
+    """
+    try:
+        from server.services.wwr_post import compose, compose_legacy
+        text = compose((v3 or {}).get("what_went_wrong"))
+        if text:
+            return text
+        # No v4 node. A draft written before that shape still has its analysis
+        # in the scenario blocks, and rendering nothing for it would make an
+        # old RCA look like a broken composer rather than an old RCA.
+        return compose_legacy(getattr(d, "wwr_scenarios", None),
+                              getattr(d, "wwr_chain", None))
+    except Exception as e:
+        log.exception("[wwr] compose failed")
+        return f"What went wrong could not be composed: {e}"
+
+
+def _english_view(d) -> dict:
+    """The English box's state, computed server-side so the card cannot reach
+    a different answer from the send path about which text is current."""
+    try:
+        from server.services.reply_language import english_view
+        return english_view(getattr(d, "review", None), d)
+    except Exception as e:
+        log.exception("[reply-language] english_view failed")
+        return {"state": "unknown", "text": "", "outgoing": "",
+                "why": f"the English view could not be resolved: {e}"}
+
+
+def _response_language(d) -> dict:
+    try:
+        from server.services.reply_language import language_state
+        return language_state(getattr(d, "review", None))
+    except Exception as e:
+        log.exception("[reply-language] language_state failed")
+        return {"state": "unknown", "language": "",
+                "why": f"the review language could not be resolved: {e}"}
+
+
 def _draft_dict(d: RcaDraft) -> dict:
     _tf = d.ticket_facts or {}
     _bk = d.booking or {}
@@ -427,7 +473,22 @@ def _draft_dict(d: RcaDraft) -> dict:
         "timeline_raw":       d.timeline_raw or [],
         "dss_connected_at":   d.dss_connected_at.isoformat() if d.dss_connected_at else None,
 
-        "stated_issue":                d.stated_issue,
+        # TWO STORES, ONE FACT — the same shape as takedown, and it bit the
+        # same way. The pipeline's standalone stated-issue step writes the
+        # COLUMN; the RCA writes `rca_v3.stated_issue`; and `↻ RCA only`
+        # (regenerate-rca) writes only the second. Reading the column meant the
+        # card showed the previous run's sentence after every RCA re-run, and a
+        # draft whose standalone step had failed rendered "Nothing was
+        # extracted — see the confidence trail for whether the step ran" over
+        # an RCA that plainly HAD stated the issue. That empty state is a claim
+        # about the review, and it was false.
+        #
+        # Same presence rule as every other v4 field: rca_v3 wins when it has
+        # an answer (including a deliberately emptied one), the column is the
+        # fallback for a draft written before v4. It is also what makes the
+        # card's edit box round-trip — the box writes rca_v3.stated_issue.
+        "stated_issue":                _v4(d, "stated_issue", "stated_issue",
+                                           None, v3=_v3_resolved),
         "l1":                          d.l1,
         "l2":                          d.l2,
         "sub_theme":                   d.sub_theme,
@@ -535,6 +596,16 @@ def _draft_dict(d: RcaDraft) -> dict:
         "ticket_facts":        d.ticket_facts or {},
         "slack_thread_override": d.slack_thread_override or "",
         "slack_mentions":        d.slack_mentions or [],
+        # The what-went-wrong section of the Slack post, composed HERE and
+        # rendered verbatim by the dashboard. The dashboard used to build this
+        # section itself, in JavaScript, from the same rca_v3 — two composers
+        # for one block of text, which is how "Fix: [object Object]" reached a
+        # real post from the client while the server's version was fine.
+        #
+        # Served on every draft read AND on the PATCH response, so an inline
+        # edit re-renders the preview from the server's composer rather than
+        # from a second implementation that has to be kept in step by hand.
+        "wwr_slack_text":     _wwr_slack_text(d, _v3_resolved),
 
         "template_name":      d.template_name or "",
         # Presence-based, like every other v4 field — and for the same reason,
@@ -547,6 +618,18 @@ def _draft_dict(d: RcaDraft) -> dict:
         "suggested_response": _v4(d, "suggested_response",
                                   "suggested_response", "", _v3_resolved),
         "final_response":     d.final_response or "",
+        # The English working view, and how far it can be trusted. The card
+        # needs `english_state` more than it needs the text: `stale` means the
+        # outgoing reply was edited directly afterwards, and showing this
+        # English without saying so would present a superseded translation as
+        # the reply that is about to go out.
+        "response_english":   d.response_english or "",
+        "english_view":       _english_view(d),
+        # Which of english / translated / unknown this review is, and why. The
+        # card draws ONE box for an English review and must not imply a
+        # translation happened; `unknown` is NOT English — it is a review whose
+        # inbound translation never recorded a language.
+        "response_language":  _response_language(d),
         # Which prompt body wrote this row. It is what makes "did the new rule
         # run?" answerable, and a copied draft without it reads as the legacy
         # v3 shape — a migration that silently ages every row it moves.
@@ -1147,6 +1230,13 @@ _V4_SECTIONS = {
     # them is missing here, because spotting this one by eye took a browser
     # clicking every control on the card.
     "area_of_improving": ("area_of_improving",),
+    # Same shape, same reason. `stated_issue` became an rca_v3-first READ (so
+    # the card's edit box round-trips) while the PATCH still wrote only the
+    # column — which is the area_of_improving bug exactly: a 200, a green
+    # tick, and a value the reader never consults again. The card itself edits
+    # through `data-v3p`, so this closes the hole for any OTHER caller that
+    # patches the field by name and would otherwise get a silent no-op.
+    "stated_issue":      ("stated_issue",),
 }
 
 
@@ -1816,8 +1906,23 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
     # re-run, and the card showed an unapproved reply one Send from a public
     # review page. Same bug the pipeline had, in the endpoint people actually
     # press.
+    # None when the model returned no reply key at all, which is a different
+    # thing from a reply that failed to translate — the trail gets a line only
+    # when there was actually a reply to put in a language.
+    _lang_note = None
     if "suggested_response" in rca_v3:
-        d.suggested_response = rca_v3["suggested_response"] or ""
+        # THE REPLY GOES OUT IN THE REVIEW'S LANGUAGE, here too. This endpoint
+        # is a second write path for the same field, and leaving it alone would
+        # mean "↻ RCA only" quietly replaced a translated reply with the
+        # English the model just wrote — the outgoing text reverting to a
+        # language the guest may not read, with nothing on the card saying so.
+        from server.services.reply_language import translate_outgoing
+        _out, _proj, _of, _lang_note = await translate_outgoing(
+            rca_v3["suggested_response"] or "", r, review_id)
+        rca_v3["suggested_response"] = _out
+        d.suggested_response  = _out
+        d.response_english    = _proj or None
+        d.response_english_of = _of
 
     # THE TRAIL. This endpoint wrote none, so a draft regenerated here kept the
     # trail from whenever it was last matched — and every disclosure the
@@ -1833,6 +1938,11 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
     import html as _html
     _kept = [t for t in (d.confidence_trail or [])
              if not str((t or {}).get("text", "")).startswith("<strong>RCA</strong>")
+             # The reply was just rewritten and re-translated, so the previous
+             # run's language line is about a reply that no longer exists.
+             # Kept, it would report the OLD outcome beside the new text — a
+             # stale "translated to IT" over a reply that fell back to English.
+             and not str((t or {}).get("text", "")).startswith("<strong>Reply language")
              and not str((t or {}).get("text", "")).startswith("<strong>Reply voice")
              and not str((t or {}).get("text", "")).startswith("<strong>No approved macro")
              and not str((t or {}).get("text", "")).startswith("<strong>The reply is an approved macro")
@@ -1840,6 +1950,11 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
     for _n in (rca_notes or []):
         _kept.append({"mark": "warn",
                       "text": f"<strong>RCA</strong> — {_html.escape(str(_n))}"})
+    # Which language this endpoint left the reply in, and why. Without it a
+    # regenerate that fell back to English looks exactly like one that
+    # translated cleanly.
+    if _lang_note:
+        _kept.append(_lang_note)
     try:
         from server.pipeline import tone_entry
         from server.services.canned import (last_failure_reason, last_source,
@@ -2230,32 +2345,91 @@ async def close_review(review_id: str, body: CloseOut | None = None,
             "posted": False, "had_draft": d is not None}
 
 
-@router.post("/api/reviews/{review_id}/translate-reply")
-async def translate_reply(review_id: str, db: Session = Depends(get_session)):
-    """
-    Turn the edited English reply into the guest's own language.
+class EnglishReplyBody(BaseModel):
+    """The English working text an associate just edited."""
+    english: str
 
-    The draft is written and edited in English so the whole team can review
-    it, but the guest wrote in their language and the reply goes back in it.
-    Translating at the END means the edit is what gets translated, not a
-    draft that was rewritten afterwards.
+
+@router.post("/api/reviews/{review_id}/apply-english-reply")
+async def apply_english_reply(review_id: str, body: EnglishReplyBody,
+                              db: Session = Depends(get_session)):
     """
+    Apply an edit made in the English box to the reply that goes to the guest.
+
+    The outgoing reply is stored in the GUEST'S language and is the one store
+    for what gets sent. The English box is a projection of it, so an edit
+    there is not a save — it is a request to rewrite the outgoing reply
+    through a translation.
+
+    THE FAILURE CONTRACT, which is the whole point of this endpoint:
+    if the translation fails, the outgoing reply is left EXACTLY as it was and
+    the caller is told the English edit was not applied and why. A half-apply —
+    English stored, outgoing untouched — would leave the card showing an edit
+    that will never reach the guest, which is the failure this codebase
+    punishes hardest. Nothing is written on any failure path here.
+    """
+    from server.services.reply_language import (is_english, outgoing,
+                                                set_english_projection,
+                                                language_state)
     r = db.query(Review).filter(Review.id == review_id).first()
     d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
     if not r or not d:
         raise HTTPException(404, "Not found")
-    english = (d.final_response or d.suggested_response or "").strip()
+
+    english = (body.english or "").strip()
     if not english:
-        raise HTTPException(400, "There is no reply to translate yet.")
-    lang = (r.language or "").strip()
-    if not lang or lang.upper() == "EN":
-        return {"ok": True, "language": "EN", "text": english,
-                "note": "Review is in English - nothing to translate."}
+        raise HTTPException(400, "There is no English text to apply.")
+
+    before = outgoing(d)
+    st = language_state(r)
+
+    # An English review has ONE box: the English text IS the outgoing reply,
+    # no translation happens and nothing may imply one did.
+    if is_english(r):
+        d.final_response = english
+        d.response_english = None
+        d.response_english_of = None
+        db.commit()
+        return {"ok": True, "translated": False, "language": st["language"],
+                "outgoing": english, "english": english,
+                "english_state": "same",
+                "note": "The review is in English, so this text is the reply "
+                        "itself — nothing was translated."}
+
+    # No language recorded. Translating to a language we do not know is not
+    # possible, and picking English silently is how a guest gets a reply they
+    # cannot read. Refuse, and say what would make it work.
+    if st["state"] == "unknown":
+        raise HTTPException(
+            409, "The outgoing reply was left unchanged: " + st["why"] + " Set "
+                 "Review.language for this review, or edit the outgoing reply "
+                 "directly in the guest's language.")
+
+    lang = st["language"]
     from server.services import claude as claude_svc
-    out = await claude_svc.translate_to(english, lang, review_id)
-    if not out:
-        raise HTTPException(502, "Translation returned nothing - try again.")
-    return {"ok": True, "language": lang, "text": out}
+    try:
+        translated = await claude_svc.translate_to(english, lang, review_id)
+    except Exception as e:
+        log.exception("[apply-english] translation call failed")
+        raise HTTPException(
+            502, f"The English edit was NOT applied and the outgoing {lang} "
+                 f"reply is unchanged: the translation call failed ({e}). "
+                 f"Try again, or edit the {lang} reply directly.")
+    translated = (translated or "").strip()
+    if not translated:
+        raise HTTPException(
+            502, f"The English edit was NOT applied and the outgoing {lang} "
+                 f"reply is unchanged: the translation returned nothing. Try "
+                 f"again, or edit the {lang} reply directly.")
+
+    set_english_projection(d, english, translated)
+    db.commit()
+    log.info(f"[apply-english] {review_id}: outgoing reply rewritten in {lang}")
+    return {"ok": True, "translated": True, "language": lang,
+            "outgoing": translated, "english": english,
+            "english_state": "current",
+            "replaced": before,
+            "note": f"The {lang} reply below is what goes to the guest."}
 
 
 class SlackPostBody(BaseModel):

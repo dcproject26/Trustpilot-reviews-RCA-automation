@@ -116,3 +116,42 @@ def test_an_edited_rca_body_is_still_protected():
     from datetime import datetime
     d = _Draft(rca_v3_edited_at=datetime.utcnow())
     assert "rca edited" in rerun_all._has_human_work(_Review(), d)
+
+
+# ── the report has to name every bucket, including the failure one ──────────
+
+def test_the_summary_prints_the_bucket_that_means_the_rebuild_failed(capsys):
+    """This tool DELETES every draft row and rebuilds it. A review whose
+    rebuild did not finish has no draft row, which is `processing` — and
+    `processing` was the one bucket the summary did not print, while `(total)`
+    counted it. Seven destroyed drafts read as a healthy line with arithmetic
+    that did not add up, and the reader had to spot the difference."""
+    from collections import Counter
+    rerun_all._show("after", Counter({"identified": 3, "candidates": 1,
+                                      "untraceable": 2, "sent": 1,
+                                      "processing": 7}))
+    line = capsys.readouterr().out
+    assert "processing 7" in line, \
+        f"the failure bucket is missing from the summary: {line.strip()!r}"
+
+
+def test_every_bucket_the_rule_can_produce_is_named(capsys):
+    """Not a fixed list — the one in the code went stale the moment a bucket
+    was added. Driven off the rule's own vocabulary."""
+    from collections import Counter
+    from server.tiers import BUCKETS
+    rerun_all._show("after", Counter({b: 1 for b in BUCKETS}))
+    line = capsys.readouterr().out
+    missing = [b for b in BUCKETS if f"{b} 1" not in line]
+    assert not missing, f"{missing} never reach the summary: {line.strip()!r}"
+
+
+def test_a_bucket_the_summary_does_not_know_is_printed_not_dropped(capsys):
+    """An unfamiliar name is a finding. Silently omitting it is how the
+    original list went stale without anything failing."""
+    from collections import Counter
+    rerun_all._show("after", Counter({"identified": 1, "some_new_bucket": 2}))
+    line = capsys.readouterr().out
+    assert "some_new_bucket 2" in line, \
+        f"an unknown bucket vanished from the summary: {line.strip()!r}"
+    assert "(total 3)" in line

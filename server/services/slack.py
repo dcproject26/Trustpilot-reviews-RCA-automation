@@ -775,97 +775,21 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
     if scen_all:
         cls_line += f"{nl}*Scenarios:* " + ", ".join(scen_all)
 
-    w = v3.get("what_went_wrong") or {}
-    if w:
-        def sub_lines(v):
-            return nl.join(f"   - {x}" for x in _points(v))
-        gi = w.get("guest_issues") or []
-        parts = []
-        # v4: one block per distinct complaint, each carrying its own analysis.
-        # The old layout stacked five numbered headings across ALL issues, so
-        # two complaints with different root causes were flattened into one
-        # list and the reader could not tell which cause belonged to which.
-        for n, g in enumerate(gi, 1):
-            head = f"*{n}. {g.get('issue', '(untitled)')}*"
-            # Owner rides the FIX now, not the issue. Reading the old key
-            # here left every issue title bare — the verdict with no team
-            # beside it, which is the one thing leadership scans for.
-            _fx = g.get("fix") if isinstance(g.get("fix"), dict) else None
-            meta = [x for x in (g.get("claim_accuracy"),
-                                (_fx or {}).get("owner") or g.get("owner")) if x]
-            if meta:
-                head += "  \u00b7  " + "  \u00b7  ".join(meta)
-            block = [head]
-            if g.get("claim"):
-                block.append(f"\u2022 Guest: \u201c{g['claim']}\u201d")
-            if g.get("claim_accuracy_note"):
-                block.append(f"\u2022 Why that verdict: {g['claim_accuracy_note']}")
-            # An Unverifiable verdict with no reason is indistinguishable from
-            # a claim nobody looked at, which is the distinction the verdict
-            # exists to draw. Said out loud rather than left to the reader.
-            elif g.get("claim_accuracy") == "Unverifiable":
-                block.append("\u2022 Why that verdict: checked; no record we hold "
-                             "can settle this claim")
-            # Only the lines this issue actually has. A dash for every absent
-            # field turns a focused block into a form with blanks in it.
-            for key, label in (("root_cause", "Root cause"),
-                               ("operational_failure", "Operational failure"),
-                               ("sop_gap", "SOP gap"),
-                               ("pattern", "Pattern")):
-                if g.get(key):
-                    block.append(f"\u2022 {label}: {g[key]}")
-            # The fix is an object now: the action, who does it, and the gap it
-            # closes. Printing only the action would drop the two halves that
-            # make it checkable — a reader cannot tell an invented fix from a
-            # derived one without the gap it is the negative of.
-            if isinstance(_fx, dict) and _fx.get("action"):
-                line = f"\u2022 Fix: {_fx['action']}"
-                if _fx.get("owner"):
-                    line += f" (owner: {_fx['owner']})"
-                block.append(line)
-                if _fx.get("because"):
-                    block.append(f"   - closes: {_fx['because']}")
-            elif isinstance(g.get("fix"), str) and g["fix"]:
-                block.append(f"\u2022 Fix: {g['fix']}")     # pre-object drafts
-            for e in (g.get("evidence") or []):
-                if isinstance(e, str):
-                    block.append(f"   - {e}")
-                    continue
-                if not isinstance(e, dict) or not e.get("text"):
-                    continue
-                src = f"[{e['source']}] " if e.get("source") else ""
-                ref = f" ({e['ref']})" if e.get("ref") else ""
-                block.append(f"   - {src}{e['text']}{ref}")
-            parts.append(nl.join(block))
-
-        # Pre-v4 drafts keep their analysis at document level. Rendering both
-        # means an old RCA reposted from the dashboard still says something,
-        # rather than showing a heading with nothing under it.
-        wh = w.get("what_happened") or {}
-        legacy = [f"\u2022 [{c.get('classification', '?')}] "
-                  f"{(c.get('issue') + ': ') if c.get('issue') else ''}{c.get('cause', '')}"
-                  for c in (wh.get("root_causes") or [])]
-        if _points(wh.get("operational_failure")):
-            legacy.append("\u2022 Operational failure" + nl + sub_lines(wh.get("operational_failure")))
-        if _points(wh.get("sop_gap")):
-            legacy.append("\u2022 SOP gap" + nl + sub_lines(wh.get("sop_gap")))
-        if wh.get("pattern"):
-            legacy.append(f"\u2022 Pattern: {wh['pattern']}")
-        sx = w.get("sp_escalation") or {}
-        if sx.get("escalated"):
-            legacy.append(f"\u2022 Escalated to SP: {sx['escalated']}")
-        if _points(sx.get("detail")):
-            legacy.append(sub_lines(sx.get("detail")))
-        fx = w.get("fixes") or {}
-        if fx.get("teams"):
-            legacy.append("\u2022 Teams: " + ", ".join(fx["teams"]) +
-                          (f" \u00b7 owner: {fx['owner']}" if fx.get("owner") else ""))
-        legacy += [f"\u2022 {a}" for a in _points(fx.get("actions"))]
-        if legacy:
-            parts.append(nl.join(legacy))
-
-        if parts:
-            sections.append(("What went wrong", (nl + nl).join(parts)))
+    # ONE composer. The dashboard renders this exact string (served as
+    # `wwr_slack_text` on the draft) rather than building the section again in
+    # JavaScript. Two renderers for one section is how "Fix: [object
+    # Object]" reached a real post from the client half while this half was
+    # correct — a defect the server could not test because the server was not
+    # the thing that was wrong.
+    #
+    # The five headings are mandated and always appear; everything the card
+    # shows alongside them — evidence rows, the guest quote, `pattern`,
+    # `backs_claim`, the owner chip, the accuracy note — is deliberately not
+    # here. See services/wwr_post.py.
+    from server.services.wwr_post import compose as _compose_wwr
+    _wwr = _compose_wwr(v3.get("what_went_wrong"))
+    if _wwr:
+        sections.append(("What went wrong", _wwr))
 
     logs = v3.get("booking_logs") or []
     if logs:

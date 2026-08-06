@@ -121,10 +121,29 @@ def _buckets(db) -> Counter:
 
 
 def _show(label: str, counts: Counter):
+    """One line per run, over EVERY bucket the rule can produce.
+
+    The four names were hard-coded and `processing` was not among them. This
+    tool DELETES every draft row and rebuilds it, and `processing` is exactly
+    the bucket a review lands in when the rebuild did not finish — no draft
+    row, nothing searched. So the one outcome that means "this run failed and
+    left reviews worse than it found them" was the one outcome the report did
+    not print, while `(total N)` quietly counted it. Seven destroyed drafts
+    read as `identified 3 · candidates 1 · untraceable 2 · sent 1 (total 14)`
+    and the reader had to notice the arithmetic.
+
+    Driven off server.tiers.BUCKETS so a bucket added later cannot go missing
+    the same way, and any bucket outside that list is printed rather than
+    dropped — an unknown name is a finding, not something to hide.
+    """
+    from server.tiers import BUCKETS
+    order = [b for b in ("identified", "candidates", "untraceable",
+                         "processing", "sent") if b in BUCKETS]
+    order += [b for b in BUCKETS if b not in order]
+    order += [k for k in sorted(counts) if k not in order]
     total = sum(counts.values())
     print(f"  {label:<10} " + " · ".join(
-        f"{k} {counts.get(k, 0)}" for k in
-        ("identified", "candidates", "untraceable", "sent")) + f"  (total {total})")
+        f"{k} {counts.get(k, 0)}" for k in order) + f"  (total {total})")
 
 
 async def _run(ids, concurrency: int):

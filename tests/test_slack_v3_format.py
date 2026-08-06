@@ -88,11 +88,28 @@ def test_the_removed_sections_are_not_posted():
     assert "*SOP compliance*" not in out
 
 
-def test_pointer_lists_never_print_as_comma_runs():
+def test_pointer_lists_never_print_as_python_reprs():
+    """The document-level pointer fields are LISTS, and some entries are
+    `{point: ...}` dicts. Joining the raw value puts a Python repr into a
+    Slack post — the same class of defect as the stringified fix object.
+
+    Evidence rows are no longer in the post at all (the five-heading mandate),
+    so the fields this checks are the ones that still reach it: the
+    operational failure and SOP gap folded in from `what_happened`.
+    """
     out = format_rca_slack(REVIEW, _draft())
-    assert "[experience-page] No window is stated., " not in out
-    assert "   - [experience-page] No window is stated." in out
-    assert "   - The vendor is not partnered." in out
+    assert "The chat went unanswered for nine minutes." in out
+    assert "No checkout warning exists for same-day Selenium bookings." in out
+    assert "{'point'" not in out
+    assert "['" not in out
+
+
+def test_evidence_rows_are_not_in_the_post_at_all():
+    """They stay on the dashboard. Checked here as well as in the v4 block
+    tests because this is the LEGACY draft path, which had its own renderer."""
+    out = format_rca_slack(REVIEW, _draft())
+    assert "[experience-page] No window is stated." not in out
+    assert "[zendesk] The email promised two hours." not in out
 
 
 def test_a_pre_v4_draft_keeps_its_document_level_analysis():
@@ -158,47 +175,82 @@ def _v4draft(**over):
     return _draft(rca_v3={**V4, **over.pop("rca_v3", {})}, **over)
 
 
-def test_each_guest_issue_gets_its_own_block():
-    """The old layout stacked five headings across ALL issues, so two
-    complaints with different root causes were flattened into one list and the
-    reader could not tell which cause belonged to which."""
+def test_each_guest_issue_repeats_the_whole_five_heading_structure():
+    """The user mandated five headings; several complaints REPEAT them rather
+    than listing under 1a. Listing under 1a is the flattening this project
+    already fixed once — two complaints with different root causes went into
+    one list and the reader could not tell which cause belonged to which."""
+    from server.services.wwr_post import headings
     out = format_rca_slack(REVIEW, _v4draft())
-    assert "*1. Voucher never delivered*" in out
-    assert "*2. Nobody answered the chat*" in out
-    i, j = out.find("*1. Voucher"), out.find("*2. Nobody")
+    for h in headings():
+        assert out.count(h) == 2, f"{h} should appear once per guest issue"
+
+
+def test_each_issues_root_cause_stays_inside_its_own_block():
+    out = format_rca_slack(REVIEW, _v4draft())
+    i, j = out.find("Voucher never delivered"), out.find("Nobody answered the chat")
+    assert i != -1 and j != -1 and i < j
     assert "The fulfilment run failed silently." in out[i:j], \
         "issue 1's root cause is not inside issue 1's block"
     assert "First reply landed 40 minutes in." in out[j:], \
         "issue 2's root cause is not inside issue 2's block"
 
 
-def test_the_verdict_and_owner_ride_the_issue_title():
+def test_the_blocks_are_labelled_so_they_can_be_told_apart():
     out = format_rca_slack(REVIEW, _v4draft())
-    assert "*1. Voucher never delivered*  ·  Accurate  ·  RO" in out
+    assert "*Guest issue 1 of 2*" in out
+    assert "*Guest issue 2 of 2*" in out
 
 
-def test_only_the_lines_an_issue_actually_has_are_printed():
-    """A dash for every absent field turns a focused block into a form with
-    blanks in it. Issue 2 has a fix and no sop_gap; issue 1 the reverse."""
+def test_the_verdict_prints_in_the_users_vocabulary():
+    """Yes / Partially True / No — not the model's four-value enum. The card
+    still shows `claim_accuracy` verbatim; the POST speaks the user's words."""
     out = format_rca_slack(REVIEW, _v4draft())
-    i, j = out.find("*1. Voucher"), out.find("*2. Nobody")
-    assert "SOP gap:" in out[i:j] and "Fix:" not in out[i:j]
-    assert "Fix:" in out[j:] and "SOP gap:" not in out[j:]
+    assert "2. Is the guest's claim accurate? Yes" in out
+    assert "2. Is the guest's claim accurate? Partially True" in out
+    assert "Partly accurate" not in out
 
 
-def test_evidence_keeps_its_source_and_reference():
+def test_the_owner_chip_no_longer_rides_the_issue_title():
+    """Per-issue owner chips came OUT of the post. The owner is named under
+    heading 5, which is where the mandate puts the team to tag."""
     out = format_rca_slack(REVIEW, _v4draft())
-    assert "   - [bms] Three failed retries, no page. (ZD-4491)" in out
+    assert "*1. Voucher never delivered*  \u00b7  Accurate  \u00b7  RO" not in out
 
 
-def test_the_guest_quote_survives():
+def test_only_the_subpoints_an_issue_actually_has_are_printed():
+    """Sub-points a/b/c are INDICATIVE. Issue 1 has an SOP gap and issue 2
+    does not, and a dash for every absent field turns a focused block into a
+    form with blanks in it."""
     out = format_rca_slack(REVIEW, _v4draft())
-    assert "“I waited two hours and nothing came.”" in out
+    i, j = out.find("Voucher never delivered"), out.find("Nobody answered the chat")
+    assert "SOP/process gap:" in out[i:j]
+    assert "SOP/process gap:" not in out[j:]
+
+
+def test_evidence_rows_come_out_of_the_post():
+    """Evidence stays on the dashboard. The post carries the five headings and
+    nothing else."""
+    out = format_rca_slack(REVIEW, _v4draft())
+    assert "Three failed retries, no page." not in out
+    assert "ZD-4491" not in out
+
+
+def test_the_guest_quote_comes_out_of_the_post():
+    out = format_rca_slack(REVIEW, _v4draft())
+    assert "\u201cI waited two hours and nothing came.\u201d" not in out
+    assert "I messaged twice and got nothing." not in out
+
+
+def test_the_accuracy_note_comes_out_of_the_post():
+    out = format_rca_slack(REVIEW, _v4draft())
+    assert "The fulfilment log confirms it." not in out
 
 
 def test_an_issue_with_no_evidence_does_not_break_the_block():
     out = format_rca_slack(REVIEW, _v4draft())
-    assert "*2. Nobody answered the chat*" in out
+    assert "Nobody answered the chat" in out
+    assert "First reply landed 40 minutes in." in out
 
 
 # ── the reply is never in the post ──────────────────────────────────────────

@@ -1,1514 +1,1778 @@
 [
- {
-  "file": "server/prompts.py",
-  "name": "6b loses the data-gap guard",
-  "find": "   THE SAME EVIDENCE RULES APPLY as rule 6.",
-  "replace": "   Evidence."
- },
- {
-  "file": "server/prompts.py",
-  "name": "the deviation list stops being exhaustive",
-  "find": "Anything outside those three is not a deviation\n      \u2014 it is a different outcome from the one you would have chosen.",
-  "replace": "Use judgement for anything else."
- },
- {
-  "file": "server/prompts.py",
-  "name": "the social media fork is left unresolved",
-  "find": "so\n        the social-media variant always applies. Do not treat it as unresolved.",
-  "replace": "so consider it."
- },
- {
-  "file": "server/prompts.py",
-  "name": "the booking thread is allowed into support notes",
-  "find": "      * the BOOKING THREAD \u2014 Zendesk classifies it as a task, not a conversation.",
-  "replace": "      * Booking threads."
- },
- {
-  "file": "server/prompts.py",
-  "name": "internally raised tickets are allowed in",
-  "find": "      * INTERNALLY RAISED TICKETS \u2014 a DSS follow-up, a bot ping, an ops-to-ops ticket.",
-  "replace": "      * Internal tickets."
- },
- {
-  "file": "server/prompts.py",
-  "name": "the no-contact sentence changes",
-  "find": "\"No direct interaction found between the customer and the support team.\"",
-  "replace": "\"No contact found.\""
- },
- {
-  "file": "server/services/bigquery_patch.py",
-  "name": "the booking timestamp is truncated again",
-  "find": "  b.created_at            AS date_of_booking,",
-  "replace": "  DATE(b.created_at)      AS date_of_booking,"
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "the channel vocabulary stops being closed",
-  "find": "enums={\"channel\": (CONTACT_CHANNELS, None)})",
-  "replace": ")"
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "an invented channel falls back to a token instead of nothing",
-  "find": "enums={\"channel\": (CONTACT_CHANNELS, None)})",
-  "replace": "enums={\"channel\": (CONTACT_CHANNELS, \"chat\")})"
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "the nothing-found guard stops firing",
-  "find": "if not re.search(r\"\\bno (guest )?contact\\b|never (reached|contacted)\",\n                             (r.get(\"summary\") or \"\"), re.I)",
-  "replace": "if True"
- },
- {
-  "file": "client/index.html",
-  "name": "an unmatched contact goes back to a dash for its time",
-  "find": "      const oTime = String(note.time || '').trim();",
-  "replace": "      const oTime = '';"
- },
- {
-  "file": "client/index.html",
-  "name": "an unmatched contact loses its channel pill",
-  "find": "      const oCh = String(note.channel || '').trim();",
-  "replace": "      const oCh = '';"
- },
- {
-  "file": "client/index.html",
-  "name": "the model's time overrides the ticket's",
-  "find": "    const tm = (first.time || '').trim() || String((row.note || {}).time || '').trim();",
-  "replace": "    const tm = String((row.note || {}).time || '').trim() || (first.time || '').trim();"
- },
- {
-  "file": "client/index.html",
-  "name": "the model's channel overrides the ticket's",
-  "find": "    const ch = (first.thread || '').trim() || String((row.note || {}).channel || '').trim();",
-  "replace": "    const ch = String((row.note || {}).channel || '').trim() || (first.thread || '').trim();"
- },
- {
-  "file": "server/prompts.py",
-  "name": "the model is no longer told the frame wins",
-  "find": "the dashboard shows the FRAME's values, not yours",
-  "replace": "use your judgement"
- },
- {
-  "file": "client/index.html",
-  "name": "the verdict handler wipes the rest of the object again",
-  "find": "    const td = {...(rca.v3.takedown || {}), verdict: tdRec.value};",
-  "replace": "    const td = {verdict: tdRec.value};"
- },
- {
-  "file": "client/index.html",
-  "name": "a stale ground survives the verdict changing",
-  "find": "    if (td.verdict !== 'Yes') delete td.reason;",
-  "replace": "    ;"
- },
- {
-  "file": "server/api.py",
-  "name": "the dashboard is served no takedown grounds",
-  "find": "        \"takedown_reasons\": TAKEDOWN_REASONS,",
-  "replace": "        \"takedown_reasons\": [],"
- },
- {
-  "file": "server/services/insights.py",
-  "name": "the reviews query stops returning booking ids",
-  "find": "    _rev_ids = \"ARRAY_AGG(DISTINCT CAST(r.booking_id AS STRING) LIMIT 20) AS ids\"",
-  "replace": "    _rev_ids = \"NULL AS ids\""
- },
- {
-  "file": "server/services/insights.py",
-  "name": "the support query stops returning booking ids",
-  "find": "    _sup_ids = \"ARRAY_AGG(DISTINCT sq.booking_id LIMIT 20) AS ids\"",
-  "replace": "    _sup_ids = \"NULL AS ids\""
- },
- {
-  "file": "server/services/insights.py",
-  "name": "the recurrence id list loses its bound",
-  "find": "    _sup_ids = \"ARRAY_AGG(DISTINCT sq.booking_id LIMIT 20) AS ids\"",
-  "replace": "    _sup_ids = \"ARRAY_AGG(DISTINCT sq.booking_id) AS ids\""
- },
- {
-  "file": "server/services/insights.py",
-  "name": "the zero path drops the recurrence block",
-  "find": "        \"recurrence\": {\n            \"tidvid\": {\"reviews\": 0, \"reviews_total\": 0, \"review_ids\": [],",
-  "replace": "        \"_recurrence_removed\": {\n            \"tidvid\": {\"reviews\": 0, \"reviews_total\": 0, \"review_ids\": [],"
- },
- {
-  "file": "server/services/insights.py",
-  "name": "TID+VID completion is scoped to the vendor only",
-  "find": "sql_h3 = f\"{_ff_select}WHERE b.tour_id = @tid AND b.vendor_id = @vid AND {_win}{_ff_excl}\"",
-  "replace": "sql_h3 = f\"{_ff_select}WHERE b.vendor_id = @vid AND {_win}{_ff_excl}\""
- },
- {
-  "file": "server/services/insights.py",
-  "name": "the result names fall out of step with the queries",
-  "find": "        \"same_day_total\",\n        \"completion_tidvid\",",
-  "replace": "        \"same_day_total\","
- },
- {
-  "file": "client/index.html",
-  "name": "the recurrence tiles stop showing booking ids",
-  "find": "                           'reviews', 'reviews_total') + _ids(r.review_ids),",
-  "replace": "                           'reviews', 'reviews_total'),"
- },
- {
-  "file": "client/index.html",
-  "name": "the flag button goes back to the tile that is gone",
-  "find": "            ${_ffAttnTv || _ffAttn",
-  "replace": "            ${_ffAttn"
- },
- {
-  "file": "client/index.html",
-  "name": "the completion tile goes back to TGID",
-  "find": "            ${_tile('Completion \u00b7 TID \u00b7 VID',\n                    _rate(li.tidvid_completion_rate,",
-  "replace": "            ${_tile('Completion \u00b7 TGID',\n                    _rate(li.tidvid_completion_rate,"
- },
- {
-  "file": "server/services/insights.py",
-  "name": "recurrence widens to the whole TGID again",
-  "find": "    _rev_scope_tidvid = \"b.tour_id = @tid AND f.vendor_id = @vid\"",
-  "replace": "    _rev_scope_tidvid = \"b.experience_id = @tgid\""
- },
- {
-  "file": "client/index.html",
-  "name": "the unit stops following the type",
-  "find": "        const unit = (type === 'HOC' || type === 'Discount code') ? '%'\n                   : type === 'Refund to card' ? 'USD' : '';",
-  "replace": "        const unit = 'USD';"
- },
- {
-  "file": "client/index.html",
-  "name": "None grows an amount field",
-  "find": "            ${type === 'None' ? '' : `",
-  "replace": "            ${false ? '' : `"
- },
- {
-  "file": "client/index.html",
-  "name": "an emptied amount is coerced to zero",
-  "find": "    res.amount = v === '' ? null : v;",
-  "replace": "    res.amount = v === '' ? 0 : v;"
- },
- {
-  "file": "client/index.html",
-  "name": "switching to None leaves a stale amount behind",
-  "find": "    if (resType.value === 'None') res.amount = null;",
-  "replace": "    ;"
- },
- {
-  "file": "client/index.html",
-  "name": "an unknown amount stops saying so",
-  "find": "              ${amt.trim() ? '' : '<span class=\"res-amount-unknown\">amount unknown</span>'}",
-  "replace": ""
- },
- {
-  "file": "client/index.html",
-  "name": "a string-shaped resolution stops being read",
-  "find": "  if (raw && typeof raw === 'object') return raw;\n  return {text: typeof raw === 'string' ? raw : '',",
-  "replace": "  if (raw && typeof raw === 'object') return raw;\n  return {text: '',"
- },
- {
-  "file": "client/index.html",
-  "name": "writing through a string primitive silently does nothing again",
-  "find": "        else if (typeof obj[key] === 'string' && !nextIsIdx) obj[key] = {text: obj[key]};",
-  "replace": "        ;"
- },
- {
-  "file": "server/checklist.py",
-  "name": "an unroutable action is assigned anyway",
-  "find": "            owner = _owner_for_action(item)\n            if not owner:\n                continue",
-  "replace": "            owner = _owner_for_action(item) or \"ce\""
- },
- {
-  "file": "server/booking_match_check.py",
-  "name": "unchecked is reported as a match",
-  "find": "        return {\"state\": \"unchecked\", \"review_family\": None, \"booking_family\": bf,",
-  "replace": "        return {\"state\": \"match\", \"review_family\": None, \"booking_family\": bf,"
- },
- {
-  "file": "server/booking_match_check.py",
-  "name": "a booking with no experience name is reported as checked",
-  "find": "    if not exp:\n        return {\"state\": \"unchecked\",",
-  "replace": "    if not exp:\n        return {\"state\": \"match\","
- },
- {
-  "file": "server/booking_match_check.py",
-  "name": "generic ticket words become a product family",
-  "find": "    (\"museum\",       (r\"\\bmuseum\\b\", r\"\\bgallery\\b\", r\"\\bexhibition\\b\")),",
-  "replace": "    (\"museum\",       (r\"\\bmuseum\\b\", r\"\\bgallery\\b\", r\"\\bexhibition\\b\")),\n    (\"ticket\",       (r\"\\bticket\\b\", r\"\\bentry\\b\", r\"\\badmission\\b\")),"
- },
- {
-  "file": "server/api.py",
-  "name": "a broken content check takes the whole card down",
-  "find": "        return bmc.check(text, d.booking)\n    except Exception as e:              # never break the card over a hint",
-  "replace": "        return bmc.check(text, d.booking)\n    except ZeroDivisionError as e:      # never break the card over a hint"
- },
- {
-  "file": "client/index.html",
-  "name": "the mismatch line fires on unchecked too",
-  "find": "          if (!cm || cm.state !== 'mismatch') return '';",
-  "replace": "          if (!cm) return '';"
- },
- {
-  "file": "client/index.html",
-  "name": "trail text is injected raw again",
-  "find": "  return esc(String(text == null ? '' : text))",
-  "replace": "  return String(text == null ? '' : text)"
- },
- {
-  "file": "client/index.html",
-  "name": "the strong tag stops being restored",
-  "find": "    .replace(/&lt;strong&gt;/g, '<strong>')",
-  "replace": "    .replace(/&lt;strong&gt;/g, '&lt;strong&gt;')"
- },
- {
-  "file": "client/index.html",
-  "name": "warnings are collapsed along with the passes",
-  "find": "  const notable = all.filter(s => s.mark !== 'pass');",
-  "replace": "  const notable = [];"
- },
- {
-  "file": "client/index.html",
-  "name": "the full trail can no longer be opened",
-  "find": "    + `<button class=\"trail-toggle\" data-trail-toggle=\"${prefix}\">show all ${all.length} steps</button>`;",
-  "replace": "    + '';"
- },
- {
-  "file": "client/index.html",
-  "name": "an empty trail draws a zero",
-  "find": "  if (!all.length) return '';",
-  "replace": "  if (false) return '';"
- },
- {
-  "file": "server/services/dss.py",
-  "name": "the new view is appended instead of replacing",
-  "find": "        candidates = _new + _kept",
-  "replace": "        candidates = candidates + _new"
- },
- {
-  "file": "server/services/dss.py",
-  "name": "the new view goes behind the live sheet",
-  "find": "        candidates = _new + _kept",
-  "replace": "        candidates = _kept + _new"
- },
- {
-  "file": "server/services/dss.py",
-  "name": "the selector key collapses everything to one scenario",
-  "find": "    return re.sub(r\"[^a-z0-9]+\", \" \", (text or \"\").lower()).strip()",
-  "replace": "    return \"scenario\""
- },
- {
-  "file": "server/services/dss.py",
-  "name": "the selector key stops normalising case",
-  "find": "    return re.sub(r\"[^a-z0-9]+\", \" \", (text or \"\").lower()).strip()",
-  "replace": "    return re.sub(r\"[^a-zA-Z0-9]+\", \" \", (text or \"\")).strip()"
- },
- {
-  "file": "server/services/dss.py",
-  "name": "an empty selector supersedes every live row",
-  "find": "        _superseded.discard(\"\")",
-  "replace": "        pass"
- },
- {
-  "file": "server/services/dss.py",
-  "name": "a broken export takes the whole lookup down",
-  "find": "    except Exception as e:\n        log.warning(f\"[dss] unified export could not be read ({e}) - live sheet only\")\n        return {}",
-  "replace": "    except ZeroDivisionError as e:\n        log.warning(f\"[dss] unified export could not be read ({e}) - live sheet only\")\n        return {}"
- },
- {
-  "file": "server/services/dss.py",
-  "name": "a missing export is reported as a parse failure",
-  "find": "    except FileNotFoundError:\n        log.info(\"[dss] no unified export checked in - live sheet only\")\n        return {}",
-  "replace": "    except FileNotFoundError:\n        raise"
- },
- {
-  "file": "tools/import_dss.py",
-  "name": "the superseded copy is imported too",
-  "find": "        if m and m.group(1) in names:",
-  "replace": "        if False:"
- },
- {
-  "file": "tools/import_dss.py",
-  "name": "a skipped file is skipped silently",
-  "find": "    for s in skipped:\n        print(f\"  SKIPPED  {s}\")",
-  "replace": "    pass"
- },
- {
-  "file": "tools/import_dss.py",
-  "name": "an empty import reports success",
-  "find": "        print(f\"no .html exports in {a.src}\", file=sys.stderr)\n        return 1",
-  "replace": "        return 0"
- },
- {
-  "file": "client/index.html",
-  "name": "the takedown verdict chip stops recolouring",
-  "find": "            <select class=\"chip-select td-${cur.toLowerCase()}\" data-takedown-rec>",
-  "replace": "            <select class=\"chip-select\" data-takedown-rec>"
- },
- {
-  "file": "client/index.html",
-  "name": "the reason control renders only on a Yes again",
-  "find": "        const chosen = td.reason || '';\n        return `<div class=\"res-block\">",
-  "replace": "        const chosen = td.reason || '';\n        if (cur !== 'Yes') return '';\n        return `<div class=\"res-block\">"
- },
- {
-  "file": "client/index.html",
-  "name": "the trail toggle looks live and does nothing",
-  "find": "  state.trailOpen[k] = !state.trailOpen[k];\n  renderReviewCol();",
-  "replace": "  state.trailOpen[k] = !state.trailOpen[k];"
- },
- {
-  "file": "client/index.html",
-  "name": "a collapsed trail with nothing passing still says 0 passed",
-  "find": "  const head = passed",
-  "replace": "  const head = true"
- },
- {
-  "file": "server/api.py",
-  "name": "the content check never reaches the dashboard",
-  "find": "        \"content_match\":               _content_match(d),",
-  "replace": "        \"content_match\":               None,"
- },
- {
-  "file": "server/api.py",
-  "name": "a review written in another language is never checked",
-  "find": "        text = (getattr(r, \"body_english\", None)\n                or getattr(r, \"body_original\", None) or \"\") if r else \"\"\n        return bmc.check(text, d.booking)",
-  "replace": "        text = (getattr(r, \"body_english\", None)\n                or \"\") if r else \"\"\n        return bmc.check(text, d.booking)"
- },
- {
-  "file": "server/booking_match_check.py",
-  "name": "an unrecognised experience name is flagged as a mismatch",
-  "find": "    if bf is None:",
-  "replace": "    if False:"
- },
- {
-  "file": "server/api.py",
-  "name": "an unreadable commit is reported as current again",
-  "find": "    _build_known = \"unknown\" not in (sha, on_disk)",
-  "replace": "    _build_known = True"
- },
- {
-  "file": "client/index.html",
-  "name": "a missing stale field reads as current",
-  "find": "  if (!v || v.stale === null || v.stale === undefined) return 'unknown';",
-  "replace": "  if (!v) return 'unknown';"
- },
- {
-  "file": "client/index.html",
-  "name": "the creation date is read under one name only",
-  "find": "  return normaliseStamp((db && (db.date_of_booking || db.creationDate\n                               || db.bookedOn)) || '');",
-  "replace": "  return normaliseStamp((db && db.date_of_booking) || '');"
- },
- {
-  "file": "client/index.html",
-  "name": "the unknown build draws no banner",
-  "find": "    if (st !== 'current') {",
-  "replace": "    if (st === 'stale') {"
- },
- {
-  "file": "server/api.py",
-  "name": "the running fingerprint is read from disk again",
-  "find": "    fingerprint = _BUILD_FINGERPRINT",
-  "replace": "    fingerprint = _source_fingerprint()"
- },
- {
-  "file": "server/api.py",
-  "name": "the weaker comparison stops saying it is weaker",
-  "find": "        _stale, _stale_by = fp_on_disk != fingerprint, \"fingerprint\"",
-  "replace": "        _stale, _stale_by = fp_on_disk != fingerprint, \"commit\""
- },
- {
-  "file": "server/api.py",
-  "name": "a failed fingerprint compares equal to another failure",
-  "find": "    except Exception:\n        return \"unknown\"\n\n\n_BUILD_SHA",
-  "replace": "    except Exception:\n        return \"\"\n\n\n_BUILD_SHA"
- },
- {
-  "file": "server/api.py",
-  "name": "the fingerprint fallback is skipped so a deployment learns nothing",
-  "find": "    elif _fp_known:",
-  "replace": "    elif False:"
- },
- {
-  "file": "server/api.py",
-  "name": "the fingerprint answer stops naming its blind spot",
-  "find": "f\"now ({fp_on_disk}). A commit touching only tests or docs would \"",
-  "replace": "f\"now ({fp_on_disk}). \""
- },
- {
-  "file": "server/api.py",
-  "name": "the dead end names no next step",
-  "find": "f\"current. Restart the server and check the logs at startup.\")",
-  "replace": "f\"current.\")"
- },
- {
-  "file": "tools/rerun_all.py",
-  "name": "a machine-prefilled resolution protects the draft again",
-  "find": "            if f == \"resolution\" and val == _machine_resolution(draft):",
-  "replace": "            if f == \"resolution\" and False:"
- },
- {
-  "file": "tools/rerun_all.py",
-  "name": "every resolution is treated as a prefill",
-  "find": "    return str(rec.get(\"compensation\") or \"\").strip()",
-  "replace": "    return str(rec.get(\"compensation\") or \"\")"
- },
- {
-  "file": "tools/rerun_all.py",
-  "name": "the prefill rebuild is not announced",
-  "find": "        if prefilled:",
-  "replace": "        if False:"
- },
- {
-  "file": "tools/purge_reviews.py",
-  "name": "the purge deletes parents before children",
-  "find": "        n_m = db.query(ReviewMetric).delete(synchronize_session=False)\n        n_d = db.query(RcaDraft).delete(synchronize_session=False)\n        n_r = db.query(Review).delete(synchronize_session=False)",
-  "replace": "        n_r = db.query(Review).delete(synchronize_session=False)\n        n_m = db.query(ReviewMetric).delete(synchronize_session=False)\n        n_d = db.query(RcaDraft).delete(synchronize_session=False)"
- },
- {
-  "file": "tools/purge_reviews.py",
-  "name": "a partial purge reports success",
-  "find": "        if left:",
-  "replace": "        if False:"
- },
- {
-  "file": "server/tiers.py",
-  "name": "a run that stopped moving stays 'running'",
-  "find": "    return (\"stalled\" if since >= STALL_AFTER_S else \"running\"), since",
-  "replace": "    return \"running\", since"
- },
- {
-  "file": "server/tiers.py",
-  "name": "a review queued for ever never goes stalled",
-  "find": "        return (\"stalled\" if since >= QUEUE_STALL_AFTER_S else \"queued\"), since",
-  "replace": "        return \"queued\", since"
- },
- {
-  "file": "server/tiers.py",
-  "name": "the heartbeat is ignored and every run reads as fresh",
-  "find": "    last = entry.get(\"updated_at\") or entry.get(\"started_at\") or now",
-  "replace": "    last = now"
- },
- {
-  "file": "server/tiers.py",
-  "name": "an older entry with no heartbeat is trusted instead of dated",
-  "find": "    last = entry.get(\"updated_at\") or entry.get(\"started_at\") or now\n    since = max(0, int(now - last))",
-  "replace": "    last = entry.get(\"updated_at\") or now\n    since = max(0, int(now - last))"
- },
- {
-  "file": "server/tiers.py",
-  "name": "queued is reported to the card as running",
-  "find": "        return \"queued\", (\n            f\"Queued for a run and not started yet",
-  "replace": "        return \"running\", (\n            f\"Queued for a run and not started yet"
- },
- {
-  "file": "server/tiers.py",
-  "name": "the stall judgement is applied without announcing it",
-  "find": "            f\"{_mins(since)}, and we treat {STALL_AFTER_S // 60} minutes \"\n            f\"without progress as a dead run \u2014 that is a judgement from \"\n            f\"elapsed time, not something the run reported. No draft row was \"",
-  "replace": "            f\"{_mins(since)}. No draft row was \""
- },
- {
-  "file": "server/tiers.py",
-  "name": "a stalled run stops saying where it stopped",
-  "find": "            f\"Stopped at step {p.get('step', '?')} of {p.get('total', '?')} \u2014 \"\n            f\"{p.get('stage', 'working')}. It has not moved for \"",
-  "replace": "            f\"Stopped. It has not moved for \""
- },
- {
-  "file": "server/tiers.py",
-  "name": "a queued review stops saying what it is behind",
-  "find": "        where = (f\"{pos} of {size} in a {p.get('queue_reason') or 'batch'} batch\"\n                 if pos and size else \"in a batch\")",
-  "replace": "        where = \"in a batch\""
- },
- {
-  "file": "server/pipeline.py",
-  "name": "the heartbeat never moves after the first stage",
-  "find": "              \"elapsed_s\": int(now - e[\"started_at\"]), \"updated_at\": now,\n              \"queued\": False})",
-  "replace": "              \"elapsed_s\": int(now - e[\"started_at\"]),\n              \"updated_at\": e.get(\"updated_at\", now), \"queued\": False})"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "a run that starts keeps the queue's clock and is born dead",
-  "find": "    if e is None or e.get(\"queued\"):\n        e = {\"started_at\": now, \"queued_at\": (e or {}).get(\"started_at\")}",
-  "replace": "    if e is None:\n        e = {\"started_at\": now, \"queued_at\": None}"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "nothing records that a review was queued",
-  "find": "    for i, rid in enumerate(ids, 1):\n        mark_queued(rid, i, len(ids), reason)",
-  "replace": "    pass"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "a queued entry carries no position",
-  "find": "        \"queued\": True, \"queue_position\": position, \"queue_size\": of,",
-  "replace": "        \"queued\": True, \"queue_position\": None, \"queue_size\": None,"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "one failing run drops every review behind it again",
-  "find": "        except Exception as e:\n            # One bad review must never stop the queue. This is the guarantee\n            # Starlette's own loop does not give.",
-  "replace": "        except asyncio.CancelledError as e:\n            # mutation: the isolation Starlette's own loop does not give"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "a wedged run is no longer bounded",
-  "find": "            await asyncio.wait_for(\n                process_review(rid, force_candidates=force_candidates),\n                RUN_TIMEOUT_S)",
-  "replace": "            await process_review(rid, force_candidates=force_candidates)"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "re-run loses the request for the candidate picker",
-  "find": "                process_review(rid, force_candidates=force_candidates),",
-  "replace": "                process_review(rid, force_candidates=False),"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "a timed-out run leaves no evidence on the draft",
-  "find": "            try:\n                if not record_run_failure(rid, exc):",
-  "replace": "            try:\n                if False:"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "'nothing to record it on' is reported as recorded",
-  "find": "        _d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()\n        if not _d:\n            return False",
-  "replace": "        _d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()\n        if not _d:\n            return True"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "the recorder formats its own trail line",
-  "find": "        _entry = failure_entry(exc)",
-  "replace": "        _entry = {\"mark\": \"fail\", \"title\": \"Run failed\", \"text\": str(exc)}"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "the watchdog's sentence is truncated like a stack trace",
-  "find": "    if isinstance(exc, RunTimeout):\n        return text",
-  "replace": "    if False:\n        return text"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "a dead runner leaves its reviews marked queued for ever",
-  "find": "        for rid in (review_ids or []):\n            PIPELINE_PROGRESS.pop(rid, None)",
-  "replace": "        pass"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "a run that died before its own finally stays queued",
-  "find": "        finally:\n            # process_review pops its own entry, but a run that died before\n            # reaching it would leave the review reading as queued for ever.\n            PIPELINE_PROGRESS.pop(rid, None)",
-  "replace": "        finally:\n            pass"
- },
- {
-  "file": "server/api.py",
-  "name": "the progress endpoint calls a dead run running again",
-  "find": "    return {\"running\": state in (\"running\", \"queued\"), \"state\": state,",
-  "replace": "    return {\"running\": True, \"state\": state,"
- },
- {
-  "file": "server/api.py",
-  "name": "the bulk re-run is unbounded again",
-  "find": "                await asyncio.wait_for(_pipeline(rid), RUN_TIMEOUT_S)",
-  "replace": "                await _pipeline(rid)"
- },
- {
-  "file": "server/api.py",
-  "name": "the slack ingest queues nothing at all",
-  "find": "        background_tasks.add_task(run_batch_sync, list(ingested), \"slack-refresh\")",
-  "replace": "        pass"
- },
- {
-  "file": "server/services/claude.py",
-  "name": "the model call goes back to the SDK's 30-minute worst case",
-  "find": "_client_kwargs = {\"timeout\": CALL_TIMEOUT_S, \"max_retries\": CALL_MAX_RETRIES}",
-  "replace": "_client_kwargs = {}"
- },
- {
-  "file": "server/services/claude.py",
-  "name": "the model call blocks the event loop again",
-  "find": "        return await asyncio.to_thread(_messages_create, prompt, max_tokens)\n\n\ndef _strip_json_comments",
-  "replace": "        return _messages_create(prompt, max_tokens)\n\n\ndef _strip_json_comments"
- },
- {
-  "file": "client/index.html",
-  "name": "a dead run reads as a running one on the card",
-  "find": "    if (row.processing_state === 'stalled') return 'The run stopped before it searched';",
-  "replace": "    if (row.processing_state === 'stalled') return 'Still running \u2014 nothing has been searched yet';"
- },
- {
-  "file": "client/index.html",
-  "name": "a queued review reads as one being worked on",
-  "find": "    if (row.processing_state === 'queued')  return 'Queued \u2014 the run has not started yet';",
-  "replace": "    if (row.processing_state === 'queued')  return 'Still running \u2014 nothing has been searched yet';"
- },
- {
-  "file": "client/index.html",
-  "name": "the queued chip is painted as a stuck one",
-  "find": "                              : r.processingState === 'queued'\n                              ? ['Queued', ''] : ['Processing', ''])",
-  "replace": "                              : ['Processing', ''])"
- },
- {
-  "file": "server/checklist.py",
-  "name": "a pax-type problem stops being the catalog's",
-  "find": "\"inclusions\", \"pax type\", \"pax-type\", \"child ticket\",",
-  "replace": "\"inclusions\", \"child ticket\","
- },
- {
-  "file": "server/checklist.py",
-  "name": "the AND becomes an OR \u2014 guidelines alone fill the tabs",
-  "find": "        if t not in flagged:\n            tabs[t] = []\n            continue",
-  "replace": "        if False:\n            tabs[t] = []\n            continue"
- },
- {
-  "file": "server/checklist.py",
-  "name": "a withheld row is withheld silently",
-  "find": "    elif n_withheld:\n        notes.append(",
-  "replace": "    elif n_withheld and False:\n        notes.append("
- },
- {
-  "file": "server/checklist.py",
-  "name": "nothing-flagged stops being distinguishable from nothing-prescribed",
-  "find": "        notes.append(f\"actions taken: {n_withheld} guideline action(s) withheld \"\n                     f\"\u2014 nothing was flagged, so nothing is raised\")",
-  "replace": "        notes.append(\"actions taken: the routed scenario(s) have no guideline \"\n                     \"action to raise \u2014 only checks\")"
- },
- {
-  "file": "server/checklist.py",
-  "name": "an unreadable flag team becomes somebody's problem anyway",
-  "find": "    return code if code in ACTION_TEAMS else \"\"",
-  "replace": "    return code"
- },
- {
-  "file": "server/checklist.py",
-  "name": "a CE flag stops reaching the team that owns it now",
-  "find": "    \"ce\": \"co\", \"ro\": \"co\", \"customer\": \"co\", \"cs\": \"co\",",
-  "replace": "    \"customer\": \"co\", \"cs\": \"co\","
- },
- {
-  "file": "server/checklist.py",
-  "name": "a clean run reports on itself anyway",
-  "find": "    if not scenario_names:\n        notes.append(\"actions taken: no scenario routed",
-  "replace": "    if True:\n        notes.append(\"actions taken: no scenario routed"
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "actions taken never reaches the column",
-  "find": "    \"actions_taken\":          (\"actions_taken\",),\n",
-  "replace": ""
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "the computed actions never reach the RCA",
-  "find": "        \"actions_taken\":     _actions,\n",
-  "replace": ""
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "the withheld notes never reach the trail",
-  "find": "    notes.extend(_ar[\"notes\"])",
-  "replace": "    _ar[\"notes\"]"
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "an old flag vocabulary is left to fail the enum",
-  "find": "    _flags = _rows(_alias_flag_teams(rca.get(\"flags\"), notes),",
-  "replace": "    _flags = _rows(rca.get(\"flags\"),"
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "the team translation happens without saying so",
-  "find": "            if alias:\n                notes.append(f\"flag team {f.get('team')!r} \u2192 {alias.upper()} \"",
-  "replace": "            if alias:\n                _ = (f\"flag team {f.get('team')!r} \u2192 {alias.upper()} \""
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "an invented improvement point renders",
-  "find": "        if not any(_overlaps(source, t, 0.5) or _overlaps(t, source, 0.5)\n                   for t in have.get(kind, [])):",
-  "replace": "        if False:"
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "a point with no source at all renders",
-  "find": "        if not kind or not source:\n            unsourced += 1\n            continue",
-  "replace": "        if not kind or not source:\n            out.append({\"point\": point, \"from\": kind, \"source\": source})\n            continue"
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "a point checks against any finding rather than the one it claims",
-  "find": "                   for t in have.get(kind, [])):",
-  "replace": "                   for t in sum(have.values(), [])):"
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "the dropped points are dropped silently",
-  "find": "    if unsourced:\n        notes.append(",
-  "replace": "    if unsourced and False:\n        notes.append("
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "an unsourced point is reported as an invented one",
-  "find": "        notes.append(f\"area of improvement: {unsourced} point(s) named no \"\n                     f\"operational failure, SOP gap or flag they came from \u2014 \"\n                     f\"dropped, not rendered unsourced\")",
-  "replace": "        notes.append(f\"area of improvement: {unsourced} point(s) named a source \"\n                     f\"that matches no operational failure, SOP gap or flag on \"\n                     f\"this card \u2014 dropped as invented\")"
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "the pre-provenance string shape is kept as a point",
-  "find": "            if _clean(r):\n                unsourced += 1\n            continue",
-  "replace": "            if _clean(r):\n                out.append({\"point\": _clean(r), \"from\": None, \"source\": None})\n            continue"
- },
- {
-  "file": "server/services/zendesk.py",
-  "name": "machinery on the email thread counts as a conversation",
-  "find": "    return thread not in NON_CONTACT_THREADS and not frame.get(\"is_internal\")",
-  "replace": "    return thread not in NON_CONTACT_THREADS"
- },
- {
-  "file": "server/services/zendesk.py",
-  "name": "the API posts count as contacts again",
-  "find": "NON_CONTACT_THREADS = (\"booking\", \"review\", \"api\", \"sp\")",
-  "replace": "NON_CONTACT_THREADS = (\"booking\", \"review\", \"sp\")"
- },
- {
-  "file": "server/services/zendesk.py",
-  "name": "the moved events are moved silently",
-  "find": "    return (f\"{n} system event{'' if n == 1 else 's'} moved to the timeline\")",
-  "replace": "    return \"\""
- },
- {
-  "file": "server/services/zendesk.py",
-  "name": "the split drops what it filtered instead of returning it",
-  "find": "    return ([f for f in frames if is_conversation(f)],\n            [f for f in frames if not is_conversation(f)])",
-  "replace": "    return ([f for f in frames if is_conversation(f)], [])"
- },
- {
-  "file": "server/services/slack.py",
-  "name": "the Slack post counts machinery as contacts again",
-  "find": "    for n, (key, group) in enumerate(_contacts(_convo), 1):",
-  "replace": "    for n, (key, group) in enumerate(_contacts(draft.support_interaction_frames), 1):"
- },
- {
-  "file": "server/services/slack.py",
-  "name": "a filtered Slack section reads as a guest who never wrote in",
-  "find": "                     else (\"No conversation with the guest on this booking \u2014 \"\n                           f\"{_moved_note}, so nobody spoke to them\"",
-  "replace": "                     else (\"No guest contact found on this booking\"\n                           f\"{''}\""
- },
- {
-  "file": "server/services/slack.py",
-  "name": "an improvement point posts as a Python dict",
-  "find": "            t = str((x.get(\"point\") or x.get(\"text\") or \"\") if isinstance(x, dict)\n                    else (x or \"\")).strip()",
-  "replace": "            t = str(x or \"\").strip()"
- },
- {
-  "file": "client/index.html",
-  "name": "a tab goes missing from the chip row",
-  "find": "  ['finance',   'Finance team'],\n",
-  "replace": ""
- },
- {
-  "file": "client/index.html",
-  "name": "an old draft's rows stop being folded onto the nine",
-  "find": "const ACTION_TEAM_LEGACY = {customer: 'co', ce: 'co', ro: 'co',",
-  "replace": "const ACTION_TEAM_LEGACY = {"
- },
- {
-  "file": "client/index.html",
-  "name": "an empty tab stops saying which kind of empty it is",
-  "find": "                return _flaggedTeams.has(state.actionTab)\n                  ? `${label} is flagged on this card, but the DSS guidelines prescribe no step to raise with them for the routed scenario.`\n                  : `Nothing is flagged against ${label}, so nothing was raised with them. A row appears only where the guidelines say it must be raised AND a flag names the team.`;",
-  "replace": "                return 'No actions raised';"
- },
- {
-  "file": "client/index.html",
-  "name": "a CE flag lands on the first option in the list",
-  "find": "      const key = actionTeamKey(raw);\n      return key ? key.toUpperCase() : 'OTHER';",
-  "replace": "      return raw.toUpperCase();"
- },
- {
-  "file": "client/index.html",
-  "name": "the contact list counts machinery again",
-  "find": "  const _convoFrames  = _allFrames.filter(isConversation);",
-  "replace": "  const _convoFrames  = _allFrames;"
- },
- {
-  "file": "client/index.html",
-  "name": "the moved events are moved silently on the card",
-  "find": "        _movedFrames.length ? ` \u00b7 ${_movedFrames.length} system event${_movedFrames.length === 1 ? '' : 's'} moved to the timeline` : ''",
-  "replace": "        false ? '' : ''"
- },
- {
-  "file": "client/index.html",
-  "name": "a filtered contact list reads as a guest who never wrote in",
-  "find": "        <div class=\"interactions-empty\">${_movedFrames.length",
-  "replace": "        <div class=\"interactions-empty\">${false"
- },
- {
-  "file": "client/index.html",
-  "name": "the provenance marker stops rendering",
-  "find": "              ${a.source\n                ? `<span class=\"aoi-src\" data-aoi-src=\"${i}\"",
-  "replace": "              ${false\n                ? `<span class=\"aoi-src\" data-aoi-src=\"${i}\""
- },
- {
-  "file": "client/index.html",
-  "name": "a hand-added point is dressed as a derived one",
-  "find": "                : `<span class=\"aoi-src none\" data-aoi-src=\"${i}\" title=\"added by hand \u2014 not derived from a finding on this card\">by hand</span>`}",
-  "replace": "                : `<span class=\"aoi-src\" data-aoi-src=\"${i}\" title=\"from the operational failure\">op failure</span>`}"
- },
- {
-  "file": "client/index.html",
-  "name": "an improvement point loses its source on the first edit",
-  "find": "        if (rows[i]) rows[i] = {...rows[i], point: x.textContent.trim()};",
-  "replace": "        if (rows[i]) rows[i] = {point: x.textContent.trim()};"
- },
- {
-  "file": "client/index.html",
-  "name": "the answers section comes back",
-  "find": "  const isaBlock = '';",
-  "replace": "  const isaBlock = `<div class=\"section\" id=\"rca-issue-answers-section\">\n      <div class=\"section-label\">Issue-specific answers<span class=\"section-chev\">\u25be</span></div></div>`;"
- },
- {
-  "file": "server/checklist.py",
-  "name": "a guest's own mistake is routed to a team anyway",
-  "find": "    (\"guest\",     [\"guest error\", \"customer error\", \"double booking\",",
-  "replace": "    (\"guest\",     [\"___never___\","
- },
- {
-  "file": "server/checklist.py",
-  "name": "guest error stops leading, so any rule mentioning the guest swallows it",
-  "find": "_OWNER_RULES = [\n    # The guest's own mistake",
-  "replace": "_OWNER_RULES = [\n    (\"sp\", [\"guest\"]),\n    # The guest's own mistake"
- },
- {
-  "file": "server/checklist.py",
-  "name": "a missing pax type routes to Product instead of Content",
-  "find": "\"inclusions\", \"pax type\", \"pax-type\", \"child ticket\",",
-  "replace": "\"inclusions\", \"child ticket\","
- },
- {
-  "file": "server/checklist.py",
-  "name": "money that has to move stops reaching Finance",
-  "find": "    (\"finance\",   [\" fin \", \"fin on priority\", \" arn \", \"arn number\",",
-  "replace": "    (\"finance\",   [\"___never___\","
- },
- {
-  "file": "server/checklist.py",
-  "name": "Content stops being read before Product",
-  "find": "    (\"product\",   [\"booking flow\", \"app issue\", \"app issues\", \"in-app\",",
-  "replace": "    (\"product\",   [\"content\", \"catalog\", \"booking flow\", \"app issue\", \"app issues\", \"in-app\","
- },
- {
-  "file": "server/bid_indicator_check.py",
-  "name": "the guest name alone becomes decisive",
-  "find": "DECISIVE = (\"venue\", \"city\", \"date\")",
-  "replace": "DECISIVE = (\"venue\", \"city\", \"date\", \"guest\")"
- },
- {
-  "file": "server/bid_indicator_check.py",
-  "name": "a review naming two venues is no longer ambiguous",
-  "find": "    if len(rl) > 1:\n        return _sig(\"venue\", \"unchecked\", \", \".join(rl), \", \".join(bl),\n                    \"the review names more than one venue\")",
-  "replace": "    pass"
- },
- {
-  "file": "server/bid_indicator_check.py",
-  "name": "a review naming two cities is no longer ambiguous",
-  "find": "    if len(rc) > 1:\n        return _sig(\"city\", \"unchecked\", \", \".join(rl), \", \".join(bl),\n                    \"the review names more than one city\")",
-  "replace": "    pass"
- },
- {
-  "file": "server/bid_indicator_check.py",
-  "name": "may and march become months again",
-  "find": "_AMBIGUOUS_MONTHS = {\"may\", \"march\", \"mar\", \"august\", \"aug\"}",
-  "replace": "_AMBIGUOUS_MONTHS = set()"
- },
- {
-  "file": "server/bid_indicator_check.py",
-  "name": "the date tolerance collapses",
-  "find": "DATE_TOLERANCE_DAYS = 45",
-  "replace": "DATE_TOLERANCE_DAYS = 0"
- },
- {
-  "file": "server/bid_indicator_check.py",
-  "name": "a bare month is resolved without a reference date",
-  "find": "        if reference is None:\n            continue",
-  "replace": "        if reference is None:\n            reference = date(2026, 8, 1)"
- },
- {
-  "file": "server/bid_indicator_check.py",
-  "name": "an unchecked result reports as a pass",
-  "find": "    return {\"mark\": \"warn\",\n            \"text\": \"<strong>Indicators could not be checked</strong> against \"",
-  "replace": "    return {\"mark\": \"pass\",\n            \"text\": \"<strong>Indicators could not be checked</strong> against \""
- },
- {
-  "file": "server/bid_indicator_check.py",
-  "name": "a mismatch stops saying the match still stands",
-  "find": "\"exists; this may be someone else's reference number. \"\n                        \"Not unmatched \u2014 confirm before relying on it.\"",
-  "replace": "\"exists.\""
- },
- {
-  "file": "server/api.py",
-  "name": "the indicator check loses the untranslated body",
-  "find": "        text = (getattr(r, \"body_english\", None)\n                or getattr(r, \"body_original\", None) or \"\") if r else \"\"\n        return bic.check(text, d.booking,",
-  "replace": "        text = (getattr(r, \"body_english\", None) or \"\") if r else \"\"\n        return bic.check(text, d.booking,"
- },
- {
-  "file": "server/api.py",
-  "name": "the indicator check never sees the author",
-  "find": "                         author=getattr(r, \"author\", None) if r else None,",
-  "replace": "                         author=None,"
- },
- {
-  "file": "server/api.py",
-  "name": "the indicator check never sees the review date",
-  "find": "                         received_at=getattr(r, \"received_at\", None) if r else None)",
-  "replace": "                         received_at=None)"
- },
- {
-  "file": "server/api.py",
-  "name": "indicator_match never reaches the payload",
-  "find": "        \"indicator_match\":             _indicator_match(d),",
-  "replace": "        \"indicator_match\":             None,"
- },
- {
-  "file": "server/api.py",
-  "name": "an empty what_went_wrong wrapper counts as an RCA",
-  "find": "        if isinstance(wwr, dict):\n            if wwr.get(\"guest_issues\"):\n                return True",
-  "replace": "        if isinstance(wwr, dict):\n            if wwr is not None:\n                return True"
- },
- {
-  "file": "server/api.py",
-  "name": "everything counts as an RCA to post",
-  "find": "def has_rca_to_post(d) -> bool:",
-  "replace": "def has_rca_to_post(d) -> bool:\n    return True"
- },
- {
-  "file": "server/api.py",
-  "name": "send posts an RCA that does not exist",
-  "find": "    elif not has_rca_to_post(d):",
-  "replace": "    elif False:"
- },
- {
-  "file": "server/api.py",
-  "name": "closing out stops recording why",
-  "find": "    r.close_reason = reason",
-  "replace": "    r.close_reason = None"
- },
- {
-  "file": "server/api.py",
-  "name": "closing out no longer reaches the trail",
-  "find": "        d.confidence_trail = trail\n        flag_modified(d, \"confidence_trail\")\n\n    m = db.query(ReviewMetric)",
-  "replace": "\n    m = db.query(ReviewMetric)"
- },
- {
-  "file": "server/api.py",
-  "name": "close 404s without a draft, as send does",
-  "find": "    d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()\n\n    from server.tiers import classify",
-  "replace": "    d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()\n    if not d:\n        raise HTTPException(404, \"Draft not found\")\n\n    from server.tiers import classify"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "the booking row is no longer completed",
-  "find": "    merged = {**full, **{k: v for k, v in booking.items() if v not in (None, \"\")}}",
-  "replace": "    merged = dict(booking)"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "the completion merge overrules the match path",
-  "find": "    merged = {**full, **{k: v for k, v in booking.items() if v not in (None, \"\")}}",
-  "replace": "    merged = {**booking, **full}"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "a failed completion says nothing",
-  "find": "    if not full:\n        # Says the true thing.",
-  "replace": "    if not full:\n        return booking, None\n    if False:\n        # Says the true thing."
- },
- {
-  "file": "server/pipeline.py",
-  "name": "a raised completion is reported as not found",
-  "find": "                                 f\"{type(e).__name__}. The fields below came from the \"\n                                 f\"matching query only; a dash there means we did not \"\n                                 f\"fetch it, not that the booking has no value.\"}",
-  "replace": "                                 f\"lookup returned nothing. Those fields are blank \"\n                                 f\"because they were not retrieved, not because the \"\n                                 f\"booking has none.\"}"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "the surname clause prints None again",
-  "find": "                    _parsed = f\"first='{author_first or '\u2014'}'\"\n                    if author_last:",
-  "replace": "                    _parsed = f\"first='{author_first}' last='{author_last}'\"\n                    if False:"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "an empty extraction is ticked as a pass",
-  "find": "                        \"mark\": \"pass\" if _found else \"warn\",",
-  "replace": "                        \"mark\": \"pass\","
- },
- {
-  "file": "server/pipeline.py",
-  "name": "the indicator check is never run in the pipeline",
-  "find": "                confidence_trail.append(_bic.trail_entry(_im))",
-  "replace": "                pass"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "the weak BID line goes back to saying nothing was found",
-  "find": "                                \"text\": f\"<strong>BID {review.reference_number} resolves to a \"",
-  "replace": "                                \"text\": f\"<strong>Weak BID</strong> \u2014 number found in text, but a \""
- },
- {
-  "file": "client/index.html",
-  "name": "the reply-macro step returns to the match trail",
-  "find": "|\\b(repl(?:y|ies)|macros?)\\b/i;",
-  "replace": "/i;"
- },
- {
-  "file": "client/index.html",
-  "name": "the refresh stops recomputing the bucket",
-  "find": "    const fresh = await fetchInbox();\n    await loadDraftOverlays();",
-  "replace": "    const fresh = true;\n    await loadDraftOverlays();"
- },
- {
-  "file": "client/index.html",
-  "name": "a refresh that could not reach the server reports success",
-  "find": "    REVIEWS.push(...merged);\n    return true;",
-  "replace": "    REVIEWS.push(...merged);"
- },
- {
-  "file": "client/index.html",
-  "name": "the confirm poll finishes on the first tick again",
-  "find": "              if (d && d.generated_at && d.generated_at !== before) {\n                clearInterval(poll);\n                await reloadFromServer();\n                return;\n              }",
-  "replace": "              if (d && !d.candidate_state) {\n                clearInterval(poll);\n                await reloadFromServer();\n                return;\n              }"
- },
- {
-  "file": "client/index.html",
-  "name": "the indicator warning draws on every state",
-  "find": "          if (!im || im.state !== 'mismatch') return '';",
-  "replace": "          if (!im) return '';"
- },
- {
-  "file": "client/index.html",
-  "name": "close out fires on the first click",
-  "find": "  if (btn.dataset.armed !== '1') {",
-  "replace": "  if (false) {"
- },
- {
-  "file": "client/index.html",
-  "name": "the processing bucket loses its gate and its route to Sent",
-  "find": "  if (r.type === 'processing') {\n    col.innerHTML = `",
-  "replace": "  if (false) {\n    col.innerHTML = `"
- },
- {
-  "file": "server/prompts.py",
-  "name": "the refund-denial rule leaves the priority block",
-  "find": "A REMEDY REFUSED IS NOT ITS OWN ISSUE.",
-  "replace": "A remedy refused is worth a thought."
- },
- {
-  "file": "server/prompts.py",
-  "name": "the refund-denial boundary leaves the L2 where the model stops",
-  "find": "  BOUNDARY \u2014 STOP BEFORE USING \"Refund denied\".",
-  "replace": "  NOTE: refunds are denied for reasons."
- },
- {
-  "file": "server/prompts.py",
-  "name": "the Zoomarine worked example is dropped",
-  "find": "WORKED EXAMPLE (Zoomarine):",
-  "replace": "For instance:"
- },
- {
-  "file": "server/db.py",
-  "name": "the reviews table stops self-healing",
-  "find": "    _ensure_table_columns(\"reviews\", _WANTED_REVIEW_COLUMNS(is_pg), log)",
-  "replace": "    pass"
- },
- {
-  "file": "server/bid_indicator_check.py",
-  "name": "a signal that disagreed reports as nothing compared",
-  "find": "    elif contradictions:",
-  "replace": "    elif False:"
- },
- {
-  "file": "server/bid_indicator_check.py",
-  "name": "the non-decisive disagreement stops naming what disagreed",
-  "find": "               + \"; \".join(s[\"why\"] for s in signals\n                           if s[\"name\"] in contradictions)",
-  "replace": "               + \"\""
- },
- {
-  "file": "server/pipeline.py",
-  "name": "the session moves back outside its own try",
-  "find": "    db = None\n    try:\n        db = SessionLocal()",
-  "replace": "    db = SessionLocal()\n    try:\n        pass"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "the finally closes a session that was never opened",
-  "find": "        if db is not None:\n            db.close()",
-  "replace": "        db.close()"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "a run that never got a session does not say so",
-  "find": "            log.error(f\"[pipeline] {review_id}: the failure was opening the \"\n                      f\"database session itself, so this run never had one. \"\n                      f\"Trying a fresh session to record it.\")",
-  "replace": "            pass"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "nowhere to record the failure stops being reported",
-  "find": "                log.error(f\"[pipeline] {review_id}: died with no draft row to \"\n                          f\"record it on \u2014 the run failed before the early \"\n                          f\"persist, so the review carries no trace of it\")",
-  "replace": "                pass"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "a database unreachable for the recording too goes silent",
-  "find": "            log.exception(\n                f\"[pipeline] {review_id}: could not record the failure \u2014 the \"\n                f\"database was unreachable for the recording too, so the only \"\n                f\"trace of this run is this log line\")",
-  "replace": "            pass"
- },
- {
-  "file": "server/api.py",
-  "name": "the client gets the unresolved rca_v3 blob again",
-  "find": "        \"rca_v3\":                      _v3_resolved,",
-  "replace": "        \"rca_v3\":                      d.rca_v3 or {},"
- },
- {
-  "file": "server/api.py",
-  "name": "the fold turns on truthiness rather than presence",
-  "find": "        if reached and isinstance(node, dict) and path[-1] in node:\n            continue                     # rca_v3 has an answer; it wins",
-  "replace": "        if reached and isinstance(node, dict) and node.get(path[-1]):\n            continue                     # rca_v3 has an answer; it wins"
- },
- {
-  "file": "server/api.py",
-  "name": "what was folded in from the column is not reported",
-  "find": "        node[path[-1]] = copy.deepcopy(col)\n        folded.append(column)",
-  "replace": "        node[path[-1]] = copy.deepcopy(col)"
- },
- {
-  "file": "server/api.py",
-  "name": "reading a draft mutates the stored rca_v3",
-  "find": "    v3 = copy.deepcopy(src)",
-  "replace": "    v3 = src"
- },
- {
-  "file": "server/api.py",
-  "name": "a nested section never builds its parent",
-  "find": "        node = v3\n        for part in path[:-1]:\n            if not isinstance(node.get(part), dict):\n                node[part] = {}\n            node = node[part]",
-  "replace": "        node = v3\n        for part in path[:-1]:\n            if part not in node:\n                continue\n            node = node[part]"
- },
- {
-  "file": "server/api.py",
-  "name": "building the parent clobbers its siblings",
-  "find": "            if not isinstance(node.get(part), dict):\n                node[part] = {}",
-  "replace": "            node[part] = {}"
- },
- {
-  "file": "server/api.py",
-  "name": "the top-level field stops reading the blob the client gets",
-  "find": "        \"takedown\":         _v4(d, \"takedown\", \"takedown\", {}, _v3_resolved),",
-  "replace": "        \"takedown\":         _v4(d, \"takedown\", \"takedown\", {}),"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "the booking merge lets the warehouse rename the booking",
-  "find": "    merged = {**full, **{k: v for k, v in booking.items() if v not in (None, \"\")}}",
-  "replace": "    merged = {**booking, **full}"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "a lookup that returned nothing reads like one that raised",
-  "find": "                                 f\"nothing. Those fields are blank because they were \"\n                                 f\"not retrieved, not because the booking has none.\"}",
-  "replace": "                                 f\"nothing.\"}"
- },
- {
-  "file": "client/index.html",
-  "name": "the fulfilment type row stops reading its field",
-  "find": "<span class=\"k\">Fulfilment type</span><span class=\"v\">${b.fulfilmentType || '\u2014'}</span>",
-  "replace": "<span class=\"k\">Fulfilment type</span><span class=\"v\">${'\u2014'}</span>"
- },
- {
-  "file": "client/index.html",
-  "name": "the lead time row stops reading its field",
-  "find": "<span class=\"k\">Lead time</span><span class=\"v\">${b.leadTime || '\u2014'}</span>",
-  "replace": "<span class=\"k\">Lead time</span><span class=\"v\">${'\u2014'}</span>"
- },
- {
-  "file": "client/index.html",
-  "name": "partnered vendor loses its tri-state and reads absent as No",
-  "find": "        r.booking.isPartnered      = db.isPartnered ?? db.is_partnered ?? null;",
-  "replace": "        r.booking.isPartnered      = db.isPartnered || db.is_partnered || false;"
- },
- {
-  "file": "client/index.html",
-  "name": "the indicator warning draws on every state, not only a mismatch",
-  "find": "          if (!im || im.state !== 'mismatch') return '';",
-  "replace": "          if (!im) return '';"
- },
- {
-  "file": "client/index.html",
-  "name": "the indicator warning names the signals that AGREED too",
-  "find": "          const rows = (im.signals || []).filter(s => s.state === 'mismatch');",
-  "replace": "          const rows = (im.signals || []);"
- },
- {
-  "file": "client/index.html",
-  "name": "a PII hash is accepted as a guest name again",
-  "find": "            && (rawGuest.length <= 20 || /\\s/.test(rawGuest))) {",
-  "replace": "            ) {"
- },
- {
-  "file": "client/index.html",
-  "name": "the booking timestamp is no longer normalised for a reader",
-  "find": "  return normaliseStamp((db && (db.date_of_booking || db.creationDate\n                               || db.bookedOn)) || '');",
-  "replace": "  return String((db && (db.date_of_booking || db.creationDate\n                               || db.bookedOn)) || '');"
- },
- {
-  "file": "client/index.html",
-  "name": "a different booking keeps the previous booking's fields",
-  "find": "        if (_newBid && r.booking.bid && String(r.booking.bid) !== String(_newBid))\n          r.booking = {};",
-  "replace": "        if (false)\n          r.booking = {};"
- },
- {
-  "file": "client/index.html",
-  "name": "the booking is cleared on every refresh, not only a change of id",
-  "find": "        const _newBid = db.id || '';\n        if (_newBid && r.booking.bid && String(r.booking.bid) !== String(_newBid))",
-  "replace": "        const _newBid = db.id || '';\n        if (true)"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "the ungated actions_taken is assigned at save again",
-  "find": "        # Actions Taken is NOT assigned here. It used to be \u2014 an UNGATED list",
-  "replace": "        draft.actions_taken = {\"sp\":[],\"customer\":[]}\n        # Actions Taken is NOT assigned here. It used to be \u2014 an UNGATED list"
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "dss is a valid evidence source again",
-  "find": "EVIDENCE_SOURCES = tuple(s for s in SOURCES if s != \"dss\")",
-  "replace": "EVIDENCE_SOURCES = SOURCES"
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "a demoted dss evidence row is dropped instead of kept",
-  "find": "        if str(e.get(\"source\") or \"\").strip().lower() == \"dss\":\n            demoted += 1",
-  "replace": "        if str(e.get(\"source\") or \"\").strip().lower() == \"dss\":\n            demoted += 1\n            continue"
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "the dss evidence demotion goes unreported",
-  "find": "    if demoted:\n        notes.append(",
-  "replace": "    if False:\n        notes.append("
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "a legacy [dss] prefix keeps its source",
-  "find": "                if src not in EVIDENCE_SOURCES:\n                    src = None\n                    demoted += 1",
-  "replace": "                pass"
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "a gap written as DSS coverage is not reported",
-  "find": "    _flag_dss_wording(out, notes)\n    return out",
-  "replace": "    return out"
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "the dss wording check fires on every gap",
-  "find": "        if value and _DSS_WORDED.search(str(value)):",
-  "replace": "        if value:"
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "the evidence rows stop being handed the notes list",
-  "find": "        \"evidence\":             _evidence_rows(raw.get(\"evidence\"), notes),",
-  "replace": "        \"evidence\":             _evidence_rows(raw.get(\"evidence\")),"
- },
- {
-  "file": "server/prompts.py",
-  "name": "rule 2f stops telling the model to write the process failure",
-  "find": "   WRITE THE PROCESS FAILURE, NOT THE SHEET'S COVERAGE.",
-  "replace": "   WRITE WHATEVER.  NOT THE SHEET'S COVERAGE."
- },
- {
-  "file": "server/api.py",
-  "name": "the scenario list stops being deduplicated",
-  "find": "        if not s or s in seen:\n            continue\n        seen.add(s)\n        out.append(s)",
-  "replace": "        if not s:\n            continue\n        seen.add(s)\n        out.append(s)"
- },
- {
-  "file": "server/api.py",
-  "name": "the primary is served as its own overlay again",
-  "find": "    return out, (out[0] if out else None), out[1:]",
-  "replace": "    return out, (out[0] if out else None), out"
- },
- {
-  "file": "server/api.py",
-  "name": "a scenario patch stops settling the three columns",
-  "find": "        d.scenarios, d.primary_scenario, d.overlay_scenarios = \\\n            settle_scenarios(patch.scenarios)",
-  "replace": "        d.primary_scenario = (patch.scenarios or [None])[0]\n        d.overlay_scenarios = list(patch.scenarios or [])[1:]"
- },
- {
-  "file": "server/api.py",
-  "name": "regenerate-rca writes the union back unsettled",
-  "find": "    scenarios, _p, _o = settle_scenarios(\n        [s for s in (body.scenarios or []) if s in SCENARIO_CHECKS])",
-  "replace": "    scenarios = [s for s in (body.scenarios or []) if s in SCENARIO_CHECKS]\n    _p, _o = (scenarios[0] if scenarios else None), scenarios[1:]"
- },
- {
-  "file": "server/api.py",
-  "name": "an edited DSS stops reaching the prompt",
-  "find": "            dss_rec=_dss_for_prompt(d),",
-  "replace": "            dss_rec=d.dss_rec or {},"
- },
- {
-  "file": "server/api.py",
-  "name": "an unedited DSS projection shadows the lookup",
-  "find": "    if isinstance(v3dss, dict) and v3dss.get(\"by_hand\") and v3dss.get(\"prescribes\"):",
-  "replace": "    if isinstance(v3dss, dict) and v3dss.get(\"prescribes\"):"
- },
- {
-  "file": "server/checklist.py",
-  "name": "the relevance condition stops running",
-  "find": "    _rel_ran = findings is not None",
-  "replace": "    _rel_ran = False"
- },
- {
-  "file": "server/checklist.py",
-  "name": "a card with no findings has every tab emptied",
-  "find": "        if not _find_toks:",
-  "replace": "        if False:"
- },
- {
-  "file": "server/checklist.py",
-  "name": "the withheld-as-irrelevant rows are not named",
-  "find": "    elif n_irrelevant:\n        notes.append(",
-  "replace": "    elif False:\n        notes.append("
- },
- {
-  "file": "server/checklist.py",
-  "name": "a relevance filter that never ran reports as clean",
-  "find": "    if not _rel_ran:\n        notes.append(\"actions taken: relevance to this case was NOT checked \u2014 \"",
-  "replace": "    if False:\n        notes.append(\"actions taken: relevance to this case was NOT checked \u2014 \""
- },
- {
-  "file": "server/checklist.py",
-  "name": "a row can no longer be carried by its own flag",
-  "find": "        for f in flags:\n            if team_of_flag(f) != team:\n                continue",
-  "replace": "        for f in []:\n            if team_of_flag(f) != team:\n                continue"
- },
- {
-  "file": "client/index.html",
-  "name": "the scenario rows render the whole list twice",
-  "find": "${chipRow('Primary', (rc.scenarios || []).slice(0, 1), 'data-scenario-add', SCENARIO_OPTIONS, 'data-scenario-remove')}",
-  "replace": "${chipRow('Primary', rc.scenarios || [], 'data-scenario-add', SCENARIO_OPTIONS, 'data-scenario-remove')}"
- },
- {
-  "file": "client/index.html",
-  "name": "the overlay delete loses its index offset",
-  "find": "  const off = attr === 'data-overlay-remove' ? 1 : 0;",
-  "replace": "  const off = 0;"
- },
- {
-  "file": "client/index.html",
-  "name": "the regen request stops deduplicating the union",
-  "find": "  const scenarios = [...new Set([...(rca.scenarios || []),\n                                 ...(rca.overlayScenarios || [])].filter(Boolean))];",
-  "replace": "  const scenarios = [...(rca.scenarios || []),\n                     ...(rca.overlayScenarios || [])].filter(Boolean);"
- },
- {
-  "file": "client/index.html",
-  "name": "a hand-corrected DSS row loses its marker",
-  "find": "}${dss.by_hand ? `<span class=\"dss-hand\" title=\"Corrected by hand \u2014 this is not the row the lookup matched\">by hand</span>` : ''}</div>`",
-  "replace": "}</div>`"
- },
- {
-  "file": "client/index.html",
-  "name": "the edit mark is never written",
-  "find": "      if (el.dataset.v3pMark) {",
-  "replace": "      if (false) {"
- },
- {
-  "file": "client/index.html",
-  "name": "an unmatched DSS row becomes unwritable again",
-  "find": "            state.dssEdit\n              // EDITABLE EVEN WHEN NOTHING MATCHED.",
-  "replace": "            state.dssEdit && dss.prescribes\n              // EDITABLE EVEN WHEN NOTHING MATCHED."
- },
- {
-  "file": "client/index.html",
-  "name": "the block's controls lose their shared height",
-  "find": "    height: 24px; box-sizing: border-box; line-height: 1;",
-  "replace": "    line-height: 1;"
- },
- {
-  "file": "client/index.html",
-  "name": "the send button stops looking clickable",
-  "find": "    font-weight: 600; border: none; cursor: pointer;\n    background: var(--accent); color: #fff;",
-  "replace": "    font-weight: 600; border: none;\n    background: var(--accent); color: #fff;"
- },
- {
-  "file": "server/services/rca_v4_validate.py",
-  "name": "validate stops passing the findings",
-  "find": "    _actions, _ar = actions_raised(scenarios_routed, _flags, keep=keep_actions,\n                                   findings=_findings)",
-  "replace": "    _actions, _ar = actions_raised(scenarios_routed, _flags, keep=keep_actions)"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "a guest name alone promotes to tier 1 again",
-  "find": "    if corroboration <= 0:\n        return False, (\"the only agreement is the guest name; nothing about the \"",
-  "replace": "    if False:\n        return False, (\"the only agreement is the guest name; nothing about the \""
- },
- {
-  "file": "server/pipeline.py",
-  "name": "the tier-1 confidence threshold is dropped",
-  "find": "    if conf < threshold:\n        return False, (f\"indicator confidence {conf:.1f} is below the {threshold:.1f} \"",
-  "replace": "    if False:\n        return False, (f\"indicator confidence {conf:.1f} is below the {threshold:.1f} \""
- },
- {
-  "file": "server/pipeline.py",
-  "name": "the date-only shortlist is offered again",
-  "find": "        if candidate_state and candidates and candidates_are_noise(candidates):",
-  "replace": "        if False:"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "a venue agreement no longer saves the shortlist",
-  "find": "        if c.get(\"venue_signal\"):\n            return False",
-  "replace": "        if False:\n            return False"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "a scoreless candidate is withheld as noise",
-  "find": "        if not any(k in c for k in (\"score_venue\", \"score_name\", \"score_ticket\")):\n            return False",
-  "replace": "        if False:\n            return False"
- },
- {
-  "file": "server/pipeline.py",
-  "name": "the city is passed to the venue resolver again",
-  "find": "                venue_hints = [h for h in (\n                    indicators.get(\"experience_or_venue\"),) if h and str(h).strip()]",
-  "replace": "                venue_hints = [h for h in (\n                    indicators.get(\"experience_or_venue\"),\n                    indicators.get(\"city_or_country\")) if h and str(h).strip()]"
- },
- {
-  "file": "server/services/venue_resolver.py",
-  "name": "a bare city name is probed as a venue again",
-  "find": "    singles = [w for w in words if len(w) >= 5 and w not in _PLACES]",
-  "replace": "    singles = [w for w in words if len(w) >= 5]"
- },
- {
-  "file": "server/services/venue_resolver.py",
-  "name": "short words get a spelling budget",
-  "find": "    if n < FUZZY_MIN_LEN:\n        return 0",
-  "replace": "    if False:\n        return 0"
- },
- {
-  "file": "server/services/venue_resolver.py",
-  "name": "the spelling budget is unbounded",
-  "find": "    return max(1, min(FUZZY_MAX_EDITS, n // 4))",
-  "replace": "    return 5"
- },
- {
-  "file": "server/services/venue_resolver.py",
-  "name": "a token matching the whole catalogue is kept",
-  "find": "        if len(_ids) >= 100:\n            log.info(f\"venue_resolver: token {hint!r} matched {len(_ids)}+ \"",
-  "replace": "        if False:\n            log.info(f\"venue_resolver: token {hint!r} matched {len(_ids)}+ \""
- },
- {
-  "file": "server/api.py",
-  "name": "the sent route is taken from the caller",
-  "find": "    _already_posted = bool(d.rca_posted_at)",
-  "replace": "    _already_posted = False"
- },
- {
-  "file": "server/api.py",
-  "name": "a send with no RCA is filed as a reply",
-  "find": "                    else \"no_rca\" if not has_rca_to_post(d)",
-  "replace": "                    else \"reply\" if not has_rca_to_post(d)"
- },
- {
-  "file": "client/index.html",
-  "name": "mark sent is live before the RCA is posted",
-  "find": "                ${r.rcaPostedAt ? '' : 'disabled'}",
-  "replace": "                ${''}"
- }
+  {
+    "file": "server/prompts.py",
+    "name": "6b loses the data-gap guard",
+    "find": "   THE SAME EVIDENCE RULES APPLY as rule 6.",
+    "replace": "   Evidence."
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the deviation list stops being exhaustive",
+    "find": "Anything outside those three is not a deviation\n      — it is a different outcome from the one you would have chosen.",
+    "replace": "Use judgement for anything else."
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the social media fork is left unresolved",
+    "find": "so\n        the social-media variant always applies. Do not treat it as unresolved.",
+    "replace": "so consider it."
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the booking thread is allowed into support notes",
+    "find": "      * the BOOKING THREAD — Zendesk classifies it as a task, not a conversation.",
+    "replace": "      * Booking threads."
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "internally raised tickets are allowed in",
+    "find": "      * INTERNALLY RAISED TICKETS — a DSS follow-up, a bot ping, an ops-to-ops ticket.",
+    "replace": "      * Internal tickets."
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the no-contact sentence changes",
+    "find": "\"No direct interaction found between the customer and the support team.\"",
+    "replace": "\"No contact found.\""
+  },
+  {
+    "file": "server/services/bigquery_patch.py",
+    "name": "the booking timestamp is truncated again",
+    "find": "  b.created_at            AS date_of_booking,",
+    "replace": "  DATE(b.created_at)      AS date_of_booking,"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the channel vocabulary stops being closed",
+    "find": "enums={\"channel\": (CONTACT_CHANNELS, None)})",
+    "replace": ")"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "an invented channel falls back to a token instead of nothing",
+    "find": "enums={\"channel\": (CONTACT_CHANNELS, None)})",
+    "replace": "enums={\"channel\": (CONTACT_CHANNELS, \"chat\")})"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the nothing-found guard stops firing",
+    "find": "if not re.search(r\"\\bno (guest )?contact\\b|never (reached|contacted)\",\n                             (r.get(\"summary\") or \"\"), re.I)",
+    "replace": "if True"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an unmatched contact goes back to a dash for its time",
+    "find": "      const oTime = String(note.time || '').trim();",
+    "replace": "      const oTime = '';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an unmatched contact loses its channel pill",
+    "find": "      const oCh = String(note.channel || '').trim();",
+    "replace": "      const oCh = '';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the model's time overrides the ticket's",
+    "find": "    const tm = (first.time || '').trim() || String((row.note || {}).time || '').trim();",
+    "replace": "    const tm = String((row.note || {}).time || '').trim() || (first.time || '').trim();"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the model's channel overrides the ticket's",
+    "find": "    const ch = (first.thread || '').trim() || String((row.note || {}).channel || '').trim();",
+    "replace": "    const ch = String((row.note || {}).channel || '').trim() || (first.thread || '').trim();"
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the model is no longer told the frame wins",
+    "find": "the dashboard shows the FRAME's values, not yours",
+    "replace": "use your judgement"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the verdict handler wipes the rest of the object again",
+    "find": "    const td = {...(rca.v3.takedown || {}), verdict: tdRec.value};",
+    "replace": "    const td = {verdict: tdRec.value};"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a stale ground survives the verdict changing",
+    "find": "    if (td.verdict !== 'Yes') delete td.reason;",
+    "replace": "    ;"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the dashboard is served no takedown grounds",
+    "find": "        \"takedown_reasons\": TAKEDOWN_REASONS,",
+    "replace": "        \"takedown_reasons\": [],"
+  },
+  {
+    "file": "server/services/insights.py",
+    "name": "the reviews query stops returning booking ids",
+    "find": "    _rev_ids = \"ARRAY_AGG(DISTINCT CAST(r.booking_id AS STRING) LIMIT 20) AS ids\"",
+    "replace": "    _rev_ids = \"NULL AS ids\""
+  },
+  {
+    "file": "server/services/insights.py",
+    "name": "the support query stops returning booking ids",
+    "find": "    _sup_ids = \"ARRAY_AGG(DISTINCT sq.booking_id LIMIT 20) AS ids\"",
+    "replace": "    _sup_ids = \"NULL AS ids\""
+  },
+  {
+    "file": "server/services/insights.py",
+    "name": "the recurrence id list loses its bound",
+    "find": "    _sup_ids = \"ARRAY_AGG(DISTINCT sq.booking_id LIMIT 20) AS ids\"",
+    "replace": "    _sup_ids = \"ARRAY_AGG(DISTINCT sq.booking_id) AS ids\""
+  },
+  {
+    "file": "server/services/insights.py",
+    "name": "the zero path drops the recurrence block",
+    "find": "        \"recurrence\": {\n            \"tidvid\": {\"reviews\": 0, \"reviews_total\": 0, \"review_ids\": [],",
+    "replace": "        \"_recurrence_removed\": {\n            \"tidvid\": {\"reviews\": 0, \"reviews_total\": 0, \"review_ids\": [],"
+  },
+  {
+    "file": "server/services/insights.py",
+    "name": "TID+VID completion is scoped to the vendor only",
+    "find": "sql_h3 = f\"{_ff_select}WHERE b.tour_id = @tid AND b.vendor_id = @vid AND {_win}{_ff_excl}\"",
+    "replace": "sql_h3 = f\"{_ff_select}WHERE b.vendor_id = @vid AND {_win}{_ff_excl}\""
+  },
+  {
+    "file": "server/services/insights.py",
+    "name": "the result names fall out of step with the queries",
+    "find": "        \"same_day_total\",\n        \"completion_tidvid\",",
+    "replace": "        \"same_day_total\","
+  },
+  {
+    "file": "client/index.html",
+    "name": "the recurrence tiles stop showing booking ids",
+    "find": "                           'reviews', 'reviews_total') + _ids(r.review_ids),",
+    "replace": "                           'reviews', 'reviews_total'),"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the flag button goes back to the tile that is gone",
+    "find": "            ${_ffAttnTv || _ffAttn",
+    "replace": "            ${_ffAttn"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the completion tile goes back to TGID",
+    "find": "            ${_tile('Completion · TID · VID',\n                    _rate(li.tidvid_completion_rate,",
+    "replace": "            ${_tile('Completion · TGID',\n                    _rate(li.tidvid_completion_rate,"
+  },
+  {
+    "file": "server/services/insights.py",
+    "name": "recurrence widens to the whole TGID again",
+    "find": "    _rev_scope_tidvid = \"b.tour_id = @tid AND f.vendor_id = @vid\"",
+    "replace": "    _rev_scope_tidvid = \"b.experience_id = @tgid\""
+  },
+  {
+    "file": "client/index.html",
+    "name": "the unit stops following the type",
+    "find": "        const unit = (type === 'HOC' || type === 'Discount code') ? '%'\n                   : type === 'Refund to card' ? 'USD' : '';",
+    "replace": "        const unit = 'USD';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "None grows an amount field",
+    "find": "            ${type === 'None' ? '' : `",
+    "replace": "            ${false ? '' : `"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an emptied amount is coerced to zero",
+    "find": "    res.amount = v === '' ? null : v;",
+    "replace": "    res.amount = v === '' ? 0 : v;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "switching to None leaves a stale amount behind",
+    "find": "    if (resType.value === 'None') res.amount = null;",
+    "replace": "    ;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an unknown amount stops saying so",
+    "find": "              ${amt.trim() ? '' : '<span class=\"res-amount-unknown\">amount unknown</span>'}",
+    "replace": ""
+  },
+  {
+    "file": "client/index.html",
+    "name": "a string-shaped resolution stops being read",
+    "find": "  if (raw && typeof raw === 'object') return raw;\n  return {text: typeof raw === 'string' ? raw : '',",
+    "replace": "  if (raw && typeof raw === 'object') return raw;\n  return {text: '',"
+  },
+  {
+    "file": "client/index.html",
+    "name": "writing through a string primitive silently does nothing again",
+    "find": "        else if (typeof obj[key] === 'string' && !nextIsIdx) obj[key] = {text: obj[key]};",
+    "replace": "        ;"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "an unroutable action is assigned anyway",
+    "find": "            owner = _owner_for_action(item)\n            if not owner:\n                continue",
+    "replace": "            owner = _owner_for_action(item) or \"ce\""
+  },
+  {
+    "file": "server/booking_match_check.py",
+    "name": "unchecked is reported as a match",
+    "find": "        return {\"state\": \"unchecked\", \"review_family\": None, \"booking_family\": bf,",
+    "replace": "        return {\"state\": \"match\", \"review_family\": None, \"booking_family\": bf,"
+  },
+  {
+    "file": "server/booking_match_check.py",
+    "name": "a booking with no experience name is reported as checked",
+    "find": "    if not exp:\n        return {\"state\": \"unchecked\",",
+    "replace": "    if not exp:\n        return {\"state\": \"match\","
+  },
+  {
+    "file": "server/booking_match_check.py",
+    "name": "generic ticket words become a product family",
+    "find": "    (\"museum\",       (r\"\\bmuseum\\b\", r\"\\bgallery\\b\", r\"\\bexhibition\\b\")),",
+    "replace": "    (\"museum\",       (r\"\\bmuseum\\b\", r\"\\bgallery\\b\", r\"\\bexhibition\\b\")),\n    (\"ticket\",       (r\"\\bticket\\b\", r\"\\bentry\\b\", r\"\\badmission\\b\")),"
+  },
+  {
+    "file": "server/api.py",
+    "name": "a broken content check takes the whole card down",
+    "find": "        return bmc.check(text, d.booking)\n    except Exception as e:              # never break the card over a hint",
+    "replace": "        return bmc.check(text, d.booking)\n    except ZeroDivisionError as e:      # never break the card over a hint"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the mismatch line fires on unchecked too",
+    "find": "          if (!cm || cm.state !== 'mismatch') return '';",
+    "replace": "          if (!cm) return '';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "trail text is injected raw again",
+    "find": "  return esc(String(text == null ? '' : text))",
+    "replace": "  return String(text == null ? '' : text)"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the strong tag stops being restored",
+    "find": "    .replace(/&lt;strong&gt;/g, '<strong>')",
+    "replace": "    .replace(/&lt;strong&gt;/g, '&lt;strong&gt;')"
+  },
+  {
+    "file": "client/index.html",
+    "name": "warnings are collapsed along with the passes",
+    "find": "  const notable = all.filter(s => s.mark !== 'pass');",
+    "replace": "  const notable = [];"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the full trail can no longer be opened",
+    "find": "    + `<button class=\"trail-toggle\" data-trail-toggle=\"${prefix}\">show all ${all.length} steps</button>`;",
+    "replace": "    + '';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an empty trail draws a zero",
+    "find": "  if (!all.length) return '';",
+    "replace": "  if (false) return '';"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "the new view is appended instead of replacing",
+    "find": "        candidates = _new + _kept",
+    "replace": "        candidates = candidates + _new"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "the new view goes behind the live sheet",
+    "find": "        candidates = _new + _kept",
+    "replace": "        candidates = _kept + _new"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "the selector key collapses everything to one scenario",
+    "find": "    return re.sub(r\"[^a-z0-9]+\", \" \", (text or \"\").lower()).strip()",
+    "replace": "    return \"scenario\""
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "the selector key stops normalising case",
+    "find": "    return re.sub(r\"[^a-z0-9]+\", \" \", (text or \"\").lower()).strip()",
+    "replace": "    return re.sub(r\"[^a-zA-Z0-9]+\", \" \", (text or \"\")).strip()"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "an empty selector supersedes every live row",
+    "find": "        _superseded.discard(\"\")",
+    "replace": "        pass"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "a broken export takes the whole lookup down",
+    "find": "    except Exception as e:\n        log.warning(f\"[dss] unified export could not be read ({e}) - live sheet only\")\n        return {}",
+    "replace": "    except ZeroDivisionError as e:\n        log.warning(f\"[dss] unified export could not be read ({e}) - live sheet only\")\n        return {}"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "a missing export is reported as a parse failure",
+    "find": "    except FileNotFoundError:\n        log.info(\"[dss] no unified export checked in - live sheet only\")\n        return {}",
+    "replace": "    except FileNotFoundError:\n        raise"
+  },
+  {
+    "file": "tools/import_dss.py",
+    "name": "the superseded copy is imported too",
+    "find": "        if m and m.group(1) in names:",
+    "replace": "        if False:"
+  },
+  {
+    "file": "tools/import_dss.py",
+    "name": "a skipped file is skipped silently",
+    "find": "    for s in skipped:\n        print(f\"  SKIPPED  {s}\")",
+    "replace": "    pass"
+  },
+  {
+    "file": "tools/import_dss.py",
+    "name": "an empty import reports success",
+    "find": "        print(f\"no .html exports in {a.src}\", file=sys.stderr)\n        return 1",
+    "replace": "        return 0"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the takedown verdict chip stops recolouring",
+    "find": "            <select class=\"chip-select td-${cur.toLowerCase()}\" data-takedown-rec>",
+    "replace": "            <select class=\"chip-select\" data-takedown-rec>"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the reason control renders only on a Yes again",
+    "find": "        const chosen = td.reason || '';\n        return `<div class=\"res-block\">",
+    "replace": "        const chosen = td.reason || '';\n        if (cur !== 'Yes') return '';\n        return `<div class=\"res-block\">"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the trail toggle looks live and does nothing",
+    "find": "  state.trailOpen[k] = !state.trailOpen[k];\n  renderReviewCol();",
+    "replace": "  state.trailOpen[k] = !state.trailOpen[k];"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a collapsed trail with nothing passing still says 0 passed",
+    "find": "  const head = passed",
+    "replace": "  const head = true"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the content check never reaches the dashboard",
+    "find": "        \"content_match\":               _content_match(d),",
+    "replace": "        \"content_match\":               None,"
+  },
+  {
+    "file": "server/api.py",
+    "name": "a review written in another language is never checked",
+    "find": "        text = (getattr(r, \"body_english\", None)\n                or getattr(r, \"body_original\", None) or \"\") if r else \"\"\n        return bmc.check(text, d.booking)",
+    "replace": "        text = (getattr(r, \"body_english\", None)\n                or \"\") if r else \"\"\n        return bmc.check(text, d.booking)"
+  },
+  {
+    "file": "server/booking_match_check.py",
+    "name": "an unrecognised experience name is flagged as a mismatch",
+    "find": "    if bf is None:",
+    "replace": "    if False:"
+  },
+  {
+    "file": "server/api.py",
+    "name": "an unreadable commit is reported as current again",
+    "find": "    _build_known = \"unknown\" not in (sha, on_disk)",
+    "replace": "    _build_known = True"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a missing stale field reads as current",
+    "find": "  if (!v || v.stale === null || v.stale === undefined) return 'unknown';",
+    "replace": "  if (!v) return 'unknown';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the creation date is read under one name only",
+    "find": "  return normaliseStamp((db && (db.date_of_booking || db.creationDate\n                               || db.bookedOn)) || '');",
+    "replace": "  return normaliseStamp((db && db.date_of_booking) || '');"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the unknown build draws no banner",
+    "find": "    if (st !== 'current') {",
+    "replace": "    if (st === 'stale') {"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the running fingerprint is read from disk again",
+    "find": "    fingerprint = _BUILD_FINGERPRINT",
+    "replace": "    fingerprint = _source_fingerprint()"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the weaker comparison stops saying it is weaker",
+    "find": "        _stale, _stale_by = fp_on_disk != fingerprint, \"fingerprint\"",
+    "replace": "        _stale, _stale_by = fp_on_disk != fingerprint, \"commit\""
+  },
+  {
+    "file": "server/api.py",
+    "name": "a failed fingerprint compares equal to another failure",
+    "find": "    except Exception:\n        return \"unknown\"\n\n\n_BUILD_SHA",
+    "replace": "    except Exception:\n        return \"\"\n\n\n_BUILD_SHA"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the fingerprint fallback is skipped so a deployment learns nothing",
+    "find": "    elif _fp_known:",
+    "replace": "    elif False:"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the fingerprint answer stops naming its blind spot",
+    "find": "f\"now ({fp_on_disk}). A commit touching only tests or docs would \"",
+    "replace": "f\"now ({fp_on_disk}). \""
+  },
+  {
+    "file": "server/api.py",
+    "name": "the dead end names no next step",
+    "find": "f\"current. Restart the server and check the logs at startup.\")",
+    "replace": "f\"current.\")"
+  },
+  {
+    "file": "tools/rerun_all.py",
+    "name": "a machine-prefilled resolution protects the draft again",
+    "find": "            if f == \"resolution\" and val == _machine_resolution(draft):",
+    "replace": "            if f == \"resolution\" and False:"
+  },
+  {
+    "file": "tools/rerun_all.py",
+    "name": "every resolution is treated as a prefill",
+    "find": "    return str(rec.get(\"compensation\") or \"\").strip()",
+    "replace": "    return str(rec.get(\"compensation\") or \"\")"
+  },
+  {
+    "file": "tools/rerun_all.py",
+    "name": "the prefill rebuild is not announced",
+    "find": "        if prefilled:",
+    "replace": "        if False:"
+  },
+  {
+    "file": "tools/purge_reviews.py",
+    "name": "the purge deletes parents before children",
+    "find": "        n_m = db.query(ReviewMetric).delete(synchronize_session=False)\n        n_d = db.query(RcaDraft).delete(synchronize_session=False)\n        n_r = db.query(Review).delete(synchronize_session=False)",
+    "replace": "        n_r = db.query(Review).delete(synchronize_session=False)\n        n_m = db.query(ReviewMetric).delete(synchronize_session=False)\n        n_d = db.query(RcaDraft).delete(synchronize_session=False)"
+  },
+  {
+    "file": "tools/purge_reviews.py",
+    "name": "a partial purge reports success",
+    "find": "        if left:",
+    "replace": "        if False:"
+  },
+  {
+    "file": "server/tiers.py",
+    "name": "a run that stopped moving stays 'running'",
+    "find": "    return (\"stalled\" if since >= STALL_AFTER_S else \"running\"), since",
+    "replace": "    return \"running\", since"
+  },
+  {
+    "file": "server/tiers.py",
+    "name": "a review queued for ever never goes stalled",
+    "find": "        return (\"stalled\" if since >= QUEUE_STALL_AFTER_S else \"queued\"), since",
+    "replace": "        return \"queued\", since"
+  },
+  {
+    "file": "server/tiers.py",
+    "name": "the heartbeat is ignored and every run reads as fresh",
+    "find": "    last = entry.get(\"updated_at\") or entry.get(\"started_at\") or now",
+    "replace": "    last = now"
+  },
+  {
+    "file": "server/tiers.py",
+    "name": "an older entry with no heartbeat is trusted instead of dated",
+    "find": "    last = entry.get(\"updated_at\") or entry.get(\"started_at\") or now\n    since = max(0, int(now - last))",
+    "replace": "    last = entry.get(\"updated_at\") or now\n    since = max(0, int(now - last))"
+  },
+  {
+    "file": "server/tiers.py",
+    "name": "queued is reported to the card as running",
+    "find": "        return \"queued\", (\n            f\"Queued for a run and not started yet",
+    "replace": "        return \"running\", (\n            f\"Queued for a run and not started yet"
+  },
+  {
+    "file": "server/tiers.py",
+    "name": "the stall judgement is applied without announcing it",
+    "find": "            f\"{_mins(since)}, and we treat {STALL_AFTER_S // 60} minutes \"\n            f\"without progress as a dead run — that is a judgement from \"\n            f\"elapsed time, not something the run reported. No draft row was \"",
+    "replace": "            f\"{_mins(since)}. No draft row was \""
+  },
+  {
+    "file": "server/tiers.py",
+    "name": "a stalled run stops saying where it stopped",
+    "find": "            f\"Stopped at step {p.get('step', '?')} of {p.get('total', '?')} — \"\n            f\"{p.get('stage', 'working')}. It has not moved for \"",
+    "replace": "            f\"Stopped. It has not moved for \""
+  },
+  {
+    "file": "server/tiers.py",
+    "name": "a queued review stops saying what it is behind",
+    "find": "        where = (f\"{pos} of {size} in a {p.get('queue_reason') or 'batch'} batch\"\n                 if pos and size else \"in a batch\")",
+    "replace": "        where = \"in a batch\""
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the heartbeat never moves after the first stage",
+    "find": "              \"elapsed_s\": int(now - e[\"started_at\"]), \"updated_at\": now,\n              \"queued\": False})",
+    "replace": "              \"elapsed_s\": int(now - e[\"started_at\"]),\n              \"updated_at\": e.get(\"updated_at\", now), \"queued\": False})"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a run that starts keeps the queue's clock and is born dead",
+    "find": "    if e is None or e.get(\"queued\"):\n        e = {\"started_at\": now, \"queued_at\": (e or {}).get(\"started_at\")}",
+    "replace": "    if e is None:\n        e = {\"started_at\": now, \"queued_at\": None}"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "nothing records that a review was queued",
+    "find": "    for i, rid in enumerate(ids, 1):\n        mark_queued(rid, i, len(ids), reason)",
+    "replace": "    pass"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a queued entry carries no position",
+    "find": "        \"queued\": True, \"queue_position\": position, \"queue_size\": of,",
+    "replace": "        \"queued\": True, \"queue_position\": None, \"queue_size\": None,"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "one failing run drops every review behind it again",
+    "find": "        except Exception as e:\n            # One bad review must never stop the queue. This is the guarantee\n            # Starlette's own loop does not give.",
+    "replace": "        except asyncio.CancelledError as e:\n            # mutation: the isolation Starlette's own loop does not give"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a wedged run is no longer bounded",
+    "find": "            await asyncio.wait_for(\n                process_review(rid, force_candidates=force_candidates),\n                RUN_TIMEOUT_S)",
+    "replace": "            await process_review(rid, force_candidates=force_candidates)"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "re-run loses the request for the candidate picker",
+    "find": "                process_review(rid, force_candidates=force_candidates),",
+    "replace": "                process_review(rid, force_candidates=False),"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a timed-out run leaves no evidence on the draft",
+    "find": "            try:\n                if not record_run_failure(rid, exc):",
+    "replace": "            try:\n                if False:"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "'nothing to record it on' is reported as recorded",
+    "find": "        _d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()\n        if not _d:\n            return False",
+    "replace": "        _d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()\n        if not _d:\n            return True"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the recorder formats its own trail line",
+    "find": "        _entry = failure_entry(exc)",
+    "replace": "        _entry = {\"mark\": \"fail\", \"title\": \"Run failed\", \"text\": str(exc)}"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the watchdog's sentence is truncated like a stack trace",
+    "find": "    if isinstance(exc, RunTimeout):\n        return text",
+    "replace": "    if False:\n        return text"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a dead runner leaves its reviews marked queued for ever",
+    "find": "        for rid in (review_ids or []):\n            PIPELINE_PROGRESS.pop(rid, None)",
+    "replace": "        pass"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a run that died before its own finally stays queued",
+    "find": "        finally:\n            # process_review pops its own entry, but a run that died before\n            # reaching it would leave the review reading as queued for ever.\n            PIPELINE_PROGRESS.pop(rid, None)",
+    "replace": "        finally:\n            pass"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the progress endpoint calls a dead run running again",
+    "find": "    return {\"running\": state in (\"running\", \"queued\"), \"state\": state,",
+    "replace": "    return {\"running\": True, \"state\": state,"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the bulk re-run is unbounded again",
+    "find": "                await asyncio.wait_for(_pipeline(rid), RUN_TIMEOUT_S)",
+    "replace": "                await _pipeline(rid)"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the slack ingest queues nothing at all",
+    "find": "        background_tasks.add_task(run_batch_sync, list(ingested), \"slack-refresh\")",
+    "replace": "        pass"
+  },
+  {
+    "file": "server/services/claude.py",
+    "name": "the model call goes back to the SDK's 30-minute worst case",
+    "find": "_client_kwargs = {\"timeout\": CALL_TIMEOUT_S, \"max_retries\": CALL_MAX_RETRIES}",
+    "replace": "_client_kwargs = {}"
+  },
+  {
+    "file": "server/services/claude.py",
+    "name": "the model call blocks the event loop again",
+    "find": "        return await asyncio.to_thread(_messages_create, prompt, max_tokens)\n\n\ndef _strip_json_comments",
+    "replace": "        return _messages_create(prompt, max_tokens)\n\n\ndef _strip_json_comments"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a dead run reads as a running one on the card",
+    "find": "    if (row.processing_state === 'stalled') return 'The run stopped before it searched';",
+    "replace": "    if (row.processing_state === 'stalled') return 'Still running — nothing has been searched yet';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a queued review reads as one being worked on",
+    "find": "    if (row.processing_state === 'queued')  return 'Queued — the run has not started yet';",
+    "replace": "    if (row.processing_state === 'queued')  return 'Still running — nothing has been searched yet';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the queued chip is painted as a stuck one",
+    "find": "                              : r.processingState === 'queued'\n                              ? ['Queued', ''] : ['Processing', ''])",
+    "replace": "                              : ['Processing', ''])"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "a pax-type problem stops being the catalog's",
+    "find": "\"inclusions\", \"pax type\", \"pax-type\", \"child ticket\",",
+    "replace": "\"inclusions\", \"child ticket\","
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "the AND becomes an OR — guidelines alone fill the tabs",
+    "find": "        if t not in flagged:\n            tabs[t] = []\n            continue",
+    "replace": "        if False:\n            tabs[t] = []\n            continue"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "a withheld row is withheld silently",
+    "find": "    elif n_withheld:\n        notes.append(",
+    "replace": "    elif n_withheld and False:\n        notes.append("
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "nothing-flagged stops being distinguishable from nothing-prescribed",
+    "find": "        notes.append(f\"actions taken: {n_withheld} guideline action(s) withheld \"\n                     f\"— nothing was flagged, so nothing is raised\")",
+    "replace": "        notes.append(\"actions taken: the routed scenario(s) have no guideline \"\n                     \"action to raise — only checks\")"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "an unreadable flag team becomes somebody's problem anyway",
+    "find": "    return code if code in ACTION_TEAMS else \"\"",
+    "replace": "    return code"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "a CE flag stops reaching the team that owns it now",
+    "find": "    \"ce\": \"co\", \"ro\": \"co\", \"customer\": \"co\", \"cs\": \"co\",",
+    "replace": "    \"customer\": \"co\", \"cs\": \"co\","
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "a clean run reports on itself anyway",
+    "find": "    if not scenario_names:\n        notes.append(\"actions taken: no scenario routed",
+    "replace": "    if True:\n        notes.append(\"actions taken: no scenario routed"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "actions taken never reaches the column",
+    "find": "    \"actions_taken\":          (\"actions_taken\",),\n",
+    "replace": ""
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the computed actions never reach the RCA",
+    "find": "        \"actions_taken\":     _actions,\n",
+    "replace": ""
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the withheld notes never reach the trail",
+    "find": "    notes.extend(_ar[\"notes\"])",
+    "replace": "    _ar[\"notes\"]"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "an old flag vocabulary is left to fail the enum",
+    "find": "    _flags = _rows(_alias_flag_teams(rca.get(\"flags\"), notes),",
+    "replace": "    _flags = _rows(rca.get(\"flags\"),"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the team translation happens without saying so",
+    "find": "            if alias:\n                notes.append(f\"flag team {f.get('team')!r} → {alias.upper()} \"",
+    "replace": "            if alias:\n                _ = (f\"flag team {f.get('team')!r} → {alias.upper()} \""
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "an invented improvement point renders",
+    "find": "        if not any(_overlaps(source, t, 0.5) or _overlaps(t, source, 0.5)\n                   for t in have.get(kind, [])):",
+    "replace": "        if False:"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "a point with no source at all renders",
+    "find": "        if not kind or not source:\n            unsourced += 1\n            continue",
+    "replace": "        if not kind or not source:\n            out.append({\"point\": point, \"from\": kind, \"source\": source})\n            continue"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "a point checks against any finding rather than the one it claims",
+    "find": "                   for t in have.get(kind, [])):",
+    "replace": "                   for t in sum(have.values(), [])):"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the dropped points are dropped silently",
+    "find": "    if unsourced:\n        notes.append(",
+    "replace": "    if unsourced and False:\n        notes.append("
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "an unsourced point is reported as an invented one",
+    "find": "        notes.append(f\"area of improvement: {unsourced} point(s) named no \"\n                     f\"operational failure, SOP gap or flag they came from — \"\n                     f\"dropped, not rendered unsourced\")",
+    "replace": "        notes.append(f\"area of improvement: {unsourced} point(s) named a source \"\n                     f\"that matches no operational failure, SOP gap or flag on \"\n                     f\"this card — dropped as invented\")"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the pre-provenance string shape is kept as a point",
+    "find": "            if _clean(r):\n                unsourced += 1\n            continue",
+    "replace": "            if _clean(r):\n                out.append({\"point\": _clean(r), \"from\": None, \"source\": None})\n            continue"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "machinery on the email thread counts as a conversation",
+    "find": "    return thread not in NON_CONTACT_THREADS and not frame.get(\"is_internal\")",
+    "replace": "    return thread not in NON_CONTACT_THREADS"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "the API posts count as contacts again",
+    "find": "NON_CONTACT_THREADS = (\"booking\", \"review\", \"api\", \"sp\")",
+    "replace": "NON_CONTACT_THREADS = (\"booking\", \"review\", \"sp\")"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "the moved events are moved silently",
+    "find": "    return (f\"{n} system event{'' if n == 1 else 's'} moved to the timeline\")",
+    "replace": "    return \"\""
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "the split drops what it filtered instead of returning it",
+    "find": "    return ([f for f in frames if is_conversation(f)],\n            [f for f in frames if not is_conversation(f)])",
+    "replace": "    return ([f for f in frames if is_conversation(f)], [])"
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "the Slack post counts machinery as contacts again",
+    "find": "    for n, (key, group) in enumerate(_contacts(_convo), 1):",
+    "replace": "    for n, (key, group) in enumerate(_contacts(draft.support_interaction_frames), 1):"
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "a filtered Slack section reads as a guest who never wrote in",
+    "find": "                     else (\"No conversation with the guest on this booking — \"\n                           f\"{_moved_note}, so nobody spoke to them\"",
+    "replace": "                     else (\"No guest contact found on this booking\"\n                           f\"{''}\""
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "an improvement point posts as a Python dict",
+    "find": "            t = str((x.get(\"point\") or x.get(\"text\") or \"\") if isinstance(x, dict)\n                    else (x or \"\")).strip()",
+    "replace": "            t = str(x or \"\").strip()"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a tab goes missing from the chip row",
+    "find": "  ['finance',   'Finance team'],\n",
+    "replace": ""
+  },
+  {
+    "file": "client/index.html",
+    "name": "an old draft's rows stop being folded onto the nine",
+    "find": "const ACTION_TEAM_LEGACY = {customer: 'co', ce: 'co', ro: 'co',",
+    "replace": "const ACTION_TEAM_LEGACY = {"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an empty tab stops saying which kind of empty it is",
+    "find": "                return _flaggedTeams.has(state.actionTab)\n                  ? `${label} is flagged on this card, but the DSS guidelines prescribe no step to raise with them for the routed scenario.`\n                  : `Nothing is flagged against ${label}, so nothing was raised with them. A row appears only where the guidelines say it must be raised AND a flag names the team.`;",
+    "replace": "                return 'No actions raised';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a CE flag lands on the first option in the list",
+    "find": "      const key = actionTeamKey(raw);\n      return key ? key.toUpperCase() : 'OTHER';",
+    "replace": "      return raw.toUpperCase();"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the contact list counts machinery again",
+    "find": "  const _convoFrames  = _allFrames.filter(isConversation);",
+    "replace": "  const _convoFrames  = _allFrames;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the moved events are moved silently on the card",
+    "find": "        _movedFrames.length ? ` · ${_movedFrames.length} system event${_movedFrames.length === 1 ? '' : 's'} moved to the timeline` : ''",
+    "replace": "        false ? '' : ''"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a filtered contact list reads as a guest who never wrote in",
+    "find": "        <div class=\"interactions-empty\">${_movedFrames.length",
+    "replace": "        <div class=\"interactions-empty\">${false"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the provenance marker stops rendering",
+    "find": "              ${a.source\n                ? `<span class=\"aoi-src\" data-aoi-src=\"${i}\"",
+    "replace": "              ${false\n                ? `<span class=\"aoi-src\" data-aoi-src=\"${i}\""
+  },
+  {
+    "file": "client/index.html",
+    "name": "a hand-added point is dressed as a derived one",
+    "find": "                : `<span class=\"aoi-src none\" data-aoi-src=\"${i}\" title=\"added by hand — not derived from a finding on this card\">by hand</span>`}",
+    "replace": "                : `<span class=\"aoi-src\" data-aoi-src=\"${i}\" title=\"from the operational failure\">op failure</span>`}"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an improvement point loses its source on the first edit",
+    "find": "        if (rows[i]) rows[i] = {...rows[i], point: x.textContent.trim()};",
+    "replace": "        if (rows[i]) rows[i] = {point: x.textContent.trim()};"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the answers section comes back",
+    "find": "  const isaBlock = '';",
+    "replace": "  const isaBlock = `<div class=\"section\" id=\"rca-issue-answers-section\">\n      <div class=\"section-label\">Issue-specific answers<span class=\"section-chev\">▾</span></div></div>`;"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "a guest's own mistake is routed to a team anyway",
+    "find": "    (\"guest\",     [\"guest error\", \"customer error\", \"double booking\",",
+    "replace": "    (\"guest\",     [\"___never___\","
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "guest error stops leading, so any rule mentioning the guest swallows it",
+    "find": "_OWNER_RULES = [\n    # The guest's own mistake",
+    "replace": "_OWNER_RULES = [\n    (\"sp\", [\"guest\"]),\n    # The guest's own mistake"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "a missing pax type routes to Product instead of Content",
+    "find": "\"inclusions\", \"pax type\", \"pax-type\", \"child ticket\",",
+    "replace": "\"inclusions\", \"child ticket\","
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "money that has to move stops reaching Finance",
+    "find": "    (\"finance\",   [\" fin \", \"fin on priority\", \" arn \", \"arn number\",",
+    "replace": "    (\"finance\",   [\"___never___\","
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "Content stops being read before Product",
+    "find": "    (\"product\",   [\"booking flow\", \"app issue\", \"app issues\", \"in-app\",",
+    "replace": "    (\"product\",   [\"content\", \"catalog\", \"booking flow\", \"app issue\", \"app issues\", \"in-app\","
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "the guest name alone becomes decisive",
+    "find": "DECISIVE = (\"venue\", \"city\", \"date\")",
+    "replace": "DECISIVE = (\"venue\", \"city\", \"date\", \"guest\")"
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "a review naming two venues is no longer ambiguous",
+    "find": "    if len(rl) > 1:\n        return _sig(\"venue\", \"unchecked\", \", \".join(rl), \", \".join(bl),\n                    \"the review names more than one venue\")",
+    "replace": "    pass"
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "a review naming two cities is no longer ambiguous",
+    "find": "    if len(rc) > 1:\n        return _sig(\"city\", \"unchecked\", \", \".join(rl), \", \".join(bl),\n                    \"the review names more than one city\")",
+    "replace": "    pass"
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "may and march become months again",
+    "find": "_AMBIGUOUS_MONTHS = {\"may\", \"march\", \"mar\", \"august\", \"aug\"}",
+    "replace": "_AMBIGUOUS_MONTHS = set()"
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "the date tolerance collapses",
+    "find": "DATE_TOLERANCE_DAYS = 45",
+    "replace": "DATE_TOLERANCE_DAYS = 0"
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "a bare month is resolved without a reference date",
+    "find": "        if reference is None:\n            continue",
+    "replace": "        if reference is None:\n            reference = date(2026, 8, 1)"
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "an unchecked result reports as a pass",
+    "find": "    return {\"mark\": \"warn\",\n            \"text\": \"<strong>Indicators could not be checked</strong> against \"",
+    "replace": "    return {\"mark\": \"pass\",\n            \"text\": \"<strong>Indicators could not be checked</strong> against \""
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "a mismatch stops saying the match still stands",
+    "find": "\"exists; this may be someone else's reference number. \"\n                        \"Not unmatched — confirm before relying on it.\"",
+    "replace": "\"exists.\""
+  },
+  {
+    "file": "server/api.py",
+    "name": "the indicator check loses the untranslated body",
+    "find": "        text = (getattr(r, \"body_english\", None)\n                or getattr(r, \"body_original\", None) or \"\") if r else \"\"\n        return bic.check(text, d.booking,",
+    "replace": "        text = (getattr(r, \"body_english\", None) or \"\") if r else \"\"\n        return bic.check(text, d.booking,"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the indicator check never sees the author",
+    "find": "                         author=getattr(r, \"author\", None) if r else None,",
+    "replace": "                         author=None,"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the indicator check never sees the review date",
+    "find": "                         received_at=getattr(r, \"received_at\", None) if r else None)",
+    "replace": "                         received_at=None)"
+  },
+  {
+    "file": "server/api.py",
+    "name": "indicator_match never reaches the payload",
+    "find": "        \"indicator_match\":             _indicator_match(d),",
+    "replace": "        \"indicator_match\":             None,"
+  },
+  {
+    "file": "server/api.py",
+    "name": "an empty what_went_wrong wrapper counts as an RCA",
+    "find": "        if isinstance(wwr, dict):\n            if wwr.get(\"guest_issues\"):\n                return True",
+    "replace": "        if isinstance(wwr, dict):\n            if wwr is not None:\n                return True"
+  },
+  {
+    "file": "server/api.py",
+    "name": "everything counts as an RCA to post",
+    "find": "def has_rca_to_post(d) -> bool:",
+    "replace": "def has_rca_to_post(d) -> bool:\n    return True"
+  },
+  {
+    "file": "server/api.py",
+    "name": "send posts an RCA that does not exist",
+    "find": "    elif not has_rca_to_post(d):",
+    "replace": "    elif False:"
+  },
+  {
+    "file": "server/api.py",
+    "name": "closing out stops recording why",
+    "find": "    r.close_reason = reason",
+    "replace": "    r.close_reason = None"
+  },
+  {
+    "file": "server/api.py",
+    "name": "closing out no longer reaches the trail",
+    "find": "        d.confidence_trail = trail\n        flag_modified(d, \"confidence_trail\")\n\n    m = db.query(ReviewMetric)",
+    "replace": "\n    m = db.query(ReviewMetric)"
+  },
+  {
+    "file": "server/api.py",
+    "name": "close 404s without a draft, as send does",
+    "find": "    d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()\n\n    from server.tiers import classify",
+    "replace": "    d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()\n    if not d:\n        raise HTTPException(404, \"Draft not found\")\n\n    from server.tiers import classify"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the booking row is no longer completed",
+    "find": "    merged = {**full, **{k: v for k, v in booking.items() if v not in (None, \"\")}}",
+    "replace": "    merged = dict(booking)"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the completion merge overrules the match path",
+    "find": "    merged = {**full, **{k: v for k, v in booking.items() if v not in (None, \"\")}}",
+    "replace": "    merged = {**booking, **full}"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a failed completion says nothing",
+    "find": "    if not full:\n        # Says the true thing.",
+    "replace": "    if not full:\n        return booking, None\n    if False:\n        # Says the true thing."
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a raised completion is reported as not found",
+    "find": "                                 f\"{type(e).__name__}. The fields below came from the \"\n                                 f\"matching query only; a dash there means we did not \"\n                                 f\"fetch it, not that the booking has no value.\"}",
+    "replace": "                                 f\"lookup returned nothing. Those fields are blank \"\n                                 f\"because they were not retrieved, not because the \"\n                                 f\"booking has none.\"}"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the surname clause prints None again",
+    "find": "                    _parsed = f\"first='{author_first or '—'}'\"\n                    if author_last:",
+    "replace": "                    _parsed = f\"first='{author_first}' last='{author_last}'\"\n                    if False:"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "an empty extraction is ticked as a pass",
+    "find": "                        \"mark\": \"pass\" if _found else \"warn\",",
+    "replace": "                        \"mark\": \"pass\","
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the indicator check is never run in the pipeline",
+    "find": "                confidence_trail.append(_bic.trail_entry(_im))",
+    "replace": "                pass"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the weak BID line goes back to saying nothing was found",
+    "find": "                                \"text\": f\"<strong>BID {review.reference_number} resolves to a \"",
+    "replace": "                                \"text\": f\"<strong>Weak BID</strong> — number found in text, but a \""
+  },
+  {
+    "file": "client/index.html",
+    "name": "the reply-macro step returns to the match trail",
+    "find": "|\\b(repl(?:y|ies)|macros?)\\b/i;",
+    "replace": "/i;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the refresh stops recomputing the bucket",
+    "find": "    const fresh = await fetchInbox();\n    await loadDraftOverlays();",
+    "replace": "    const fresh = true;\n    await loadDraftOverlays();"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a refresh that could not reach the server reports success",
+    "find": "    REVIEWS.push(...merged);\n    return true;",
+    "replace": "    REVIEWS.push(...merged);"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the confirm poll finishes on the first tick again",
+    "find": "              if (d && d.generated_at && d.generated_at !== before) {\n                clearInterval(poll);\n                await reloadFromServer();\n                return;\n              }",
+    "replace": "              if (d && !d.candidate_state) {\n                clearInterval(poll);\n                await reloadFromServer();\n                return;\n              }"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the indicator warning draws on every state",
+    "find": "          if (!im || im.state !== 'mismatch') return '';",
+    "replace": "          if (!im) return '';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "close out fires on the first click",
+    "find": "  if (btn.dataset.armed !== '1') {",
+    "replace": "  if (false) {"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the processing bucket loses its gate and its route to Sent",
+    "find": "  if (r.type === 'processing') {\n    col.innerHTML = `",
+    "replace": "  if (false) {\n    col.innerHTML = `"
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the refund-denial rule leaves the priority block",
+    "find": "A REMEDY REFUSED IS NOT ITS OWN ISSUE.",
+    "replace": "A remedy refused is worth a thought."
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the refund-denial boundary leaves the L2 where the model stops",
+    "find": "  BOUNDARY — STOP BEFORE USING \"Refund denied\".",
+    "replace": "  NOTE: refunds are denied for reasons."
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the Zoomarine worked example is dropped",
+    "find": "WORKED EXAMPLE (Zoomarine):",
+    "replace": "For instance:"
+  },
+  {
+    "file": "server/db.py",
+    "name": "the reviews table stops self-healing",
+    "find": "    _ensure_table_columns(\"reviews\", _WANTED_REVIEW_COLUMNS(is_pg), log)",
+    "replace": "    pass"
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "a signal that disagreed reports as nothing compared",
+    "find": "    elif contradictions:",
+    "replace": "    elif False:"
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "the non-decisive disagreement stops naming what disagreed",
+    "find": "               + \"; \".join(s[\"why\"] for s in signals\n                           if s[\"name\"] in contradictions)",
+    "replace": "               + \"\""
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the session moves back outside its own try",
+    "find": "    db = None\n    try:\n        db = SessionLocal()",
+    "replace": "    db = SessionLocal()\n    try:\n        pass"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the finally closes a session that was never opened",
+    "find": "        if db is not None:\n            db.close()",
+    "replace": "        db.close()"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a run that never got a session does not say so",
+    "find": "            log.error(f\"[pipeline] {review_id}: the failure was opening the \"\n                      f\"database session itself, so this run never had one. \"\n                      f\"Trying a fresh session to record it.\")",
+    "replace": "            pass"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "nowhere to record the failure stops being reported",
+    "find": "                log.error(f\"[pipeline] {review_id}: died with no draft row to \"\n                          f\"record it on — the run failed before the early \"\n                          f\"persist, so the review carries no trace of it\")",
+    "replace": "                pass"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a database unreachable for the recording too goes silent",
+    "find": "            log.exception(\n                f\"[pipeline] {review_id}: could not record the failure — the \"\n                f\"database was unreachable for the recording too, so the only \"\n                f\"trace of this run is this log line\")",
+    "replace": "            pass"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the client gets the unresolved rca_v3 blob again",
+    "find": "        \"rca_v3\":                      _v3_resolved,",
+    "replace": "        \"rca_v3\":                      d.rca_v3 or {},"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the fold turns on truthiness rather than presence",
+    "find": "        if reached and isinstance(node, dict) and path[-1] in node:\n            continue                     # rca_v3 has an answer; it wins",
+    "replace": "        if reached and isinstance(node, dict) and node.get(path[-1]):\n            continue                     # rca_v3 has an answer; it wins"
+  },
+  {
+    "file": "server/api.py",
+    "name": "what was folded in from the column is not reported",
+    "find": "        node[path[-1]] = copy.deepcopy(col)\n        folded.append(column)",
+    "replace": "        node[path[-1]] = copy.deepcopy(col)"
+  },
+  {
+    "file": "server/api.py",
+    "name": "reading a draft mutates the stored rca_v3",
+    "find": "    v3 = copy.deepcopy(src)",
+    "replace": "    v3 = src"
+  },
+  {
+    "file": "server/api.py",
+    "name": "a nested section never builds its parent",
+    "find": "        node = v3\n        for part in path[:-1]:\n            if not isinstance(node.get(part), dict):\n                node[part] = {}\n            node = node[part]",
+    "replace": "        node = v3\n        for part in path[:-1]:\n            if part not in node:\n                continue\n            node = node[part]"
+  },
+  {
+    "file": "server/api.py",
+    "name": "building the parent clobbers its siblings",
+    "find": "            if not isinstance(node.get(part), dict):\n                node[part] = {}",
+    "replace": "            node[part] = {}"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the top-level field stops reading the blob the client gets",
+    "find": "        \"takedown\":         _v4(d, \"takedown\", \"takedown\", {}, _v3_resolved),",
+    "replace": "        \"takedown\":         _v4(d, \"takedown\", \"takedown\", {}),"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the booking merge lets the warehouse rename the booking",
+    "find": "    merged = {**full, **{k: v for k, v in booking.items() if v not in (None, \"\")}}",
+    "replace": "    merged = {**booking, **full}"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a lookup that returned nothing reads like one that raised",
+    "find": "                                 f\"nothing. Those fields are blank because they were \"\n                                 f\"not retrieved, not because the booking has none.\"}",
+    "replace": "                                 f\"nothing.\"}"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the fulfilment type row stops reading its field",
+    "find": "<span class=\"k\">Fulfilment type</span><span class=\"v\">${b.fulfilmentType || '—'}</span>",
+    "replace": "<span class=\"k\">Fulfilment type</span><span class=\"v\">${'—'}</span>"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the lead time row stops reading its field",
+    "find": "<span class=\"k\">Lead time</span><span class=\"v\">${b.leadTime || '—'}</span>",
+    "replace": "<span class=\"k\">Lead time</span><span class=\"v\">${'—'}</span>"
+  },
+  {
+    "file": "client/index.html",
+    "name": "partnered vendor loses its tri-state and reads absent as No",
+    "find": "        r.booking.isPartnered      = db.isPartnered ?? db.is_partnered ?? null;",
+    "replace": "        r.booking.isPartnered      = db.isPartnered || db.is_partnered || false;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the indicator warning draws on every state, not only a mismatch",
+    "find": "          if (!im || im.state !== 'mismatch') return '';",
+    "replace": "          if (!im) return '';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the indicator warning names the signals that AGREED too",
+    "find": "          const rows = (im.signals || []).filter(s => s.state === 'mismatch');",
+    "replace": "          const rows = (im.signals || []);"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a PII hash is accepted as a guest name again",
+    "find": "            && (rawGuest.length <= 20 || /\\s/.test(rawGuest))) {",
+    "replace": "            ) {"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the booking timestamp is no longer normalised for a reader",
+    "find": "  return normaliseStamp((db && (db.date_of_booking || db.creationDate\n                               || db.bookedOn)) || '');",
+    "replace": "  return String((db && (db.date_of_booking || db.creationDate\n                               || db.bookedOn)) || '');"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a different booking keeps the previous booking's fields",
+    "find": "        if (_newBid && r.booking.bid && String(r.booking.bid) !== String(_newBid))\n          r.booking = {};",
+    "replace": "        if (false)\n          r.booking = {};"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the booking is cleared on every refresh, not only a change of id",
+    "find": "        const _newBid = db.id || '';\n        if (_newBid && r.booking.bid && String(r.booking.bid) !== String(_newBid))",
+    "replace": "        const _newBid = db.id || '';\n        if (true)"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the ungated actions_taken is assigned at save again",
+    "find": "        # Actions Taken is NOT assigned here. It used to be — an UNGATED list",
+    "replace": "        draft.actions_taken = {\"sp\":[],\"customer\":[]}\n        # Actions Taken is NOT assigned here. It used to be — an UNGATED list"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "dss is a valid evidence source again",
+    "find": "EVIDENCE_SOURCES = tuple(s for s in SOURCES if s != \"dss\")",
+    "replace": "EVIDENCE_SOURCES = SOURCES"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "a demoted dss evidence row is dropped instead of kept",
+    "find": "        if str(e.get(\"source\") or \"\").strip().lower() == \"dss\":\n            demoted += 1",
+    "replace": "        if str(e.get(\"source\") or \"\").strip().lower() == \"dss\":\n            demoted += 1\n            continue"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the dss evidence demotion goes unreported",
+    "find": "    if demoted:\n        notes.append(",
+    "replace": "    if False:\n        notes.append("
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "a legacy [dss] prefix keeps its source",
+    "find": "                if src not in EVIDENCE_SOURCES:\n                    src = None\n                    demoted += 1",
+    "replace": "                pass"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "a gap written as DSS coverage is not reported",
+    "find": "    _flag_dss_wording(out, notes)\n    return out",
+    "replace": "    return out"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the dss wording check fires on every gap",
+    "find": "        if value and _DSS_WORDED.search(str(value)):",
+    "replace": "        if value:"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the evidence rows stop being handed the notes list",
+    "find": "        \"evidence\":             _evidence_rows(raw.get(\"evidence\"), notes),",
+    "replace": "        \"evidence\":             _evidence_rows(raw.get(\"evidence\")),"
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "rule 2f stops telling the model to write the process failure",
+    "find": "   WRITE THE PROCESS FAILURE, NOT THE SHEET'S COVERAGE.",
+    "replace": "   WRITE WHATEVER.  NOT THE SHEET'S COVERAGE."
+  },
+  {
+    "file": "server/api.py",
+    "name": "the scenario list stops being deduplicated",
+    "find": "        if not s or s in seen:\n            continue\n        seen.add(s)\n        out.append(s)",
+    "replace": "        if not s:\n            continue\n        seen.add(s)\n        out.append(s)"
+  },
+  {
+    "file": "server/api.py",
+    "name": "the primary is served as its own overlay again",
+    "find": "    return out, (out[0] if out else None), out[1:]",
+    "replace": "    return out, (out[0] if out else None), out"
+  },
+  {
+    "file": "server/api.py",
+    "name": "a scenario patch stops settling the three columns",
+    "find": "        d.scenarios, d.primary_scenario, d.overlay_scenarios = \\\n            settle_scenarios(patch.scenarios)",
+    "replace": "        d.primary_scenario = (patch.scenarios or [None])[0]\n        d.overlay_scenarios = list(patch.scenarios or [])[1:]"
+  },
+  {
+    "file": "server/api.py",
+    "name": "regenerate-rca writes the union back unsettled",
+    "find": "    scenarios, _p, _o = settle_scenarios(\n        [s for s in (body.scenarios or []) if s in SCENARIO_CHECKS])",
+    "replace": "    scenarios = [s for s in (body.scenarios or []) if s in SCENARIO_CHECKS]\n    _p, _o = (scenarios[0] if scenarios else None), scenarios[1:]"
+  },
+  {
+    "file": "server/api.py",
+    "name": "an edited DSS stops reaching the prompt",
+    "find": "            dss_rec=_dss_for_prompt(d),",
+    "replace": "            dss_rec=d.dss_rec or {},"
+  },
+  {
+    "file": "server/api.py",
+    "name": "an unedited DSS projection shadows the lookup",
+    "find": "    if isinstance(v3dss, dict) and v3dss.get(\"by_hand\") and v3dss.get(\"prescribes\"):",
+    "replace": "    if isinstance(v3dss, dict) and v3dss.get(\"prescribes\"):"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "the relevance condition stops running",
+    "find": "    _rel_ran = findings is not None",
+    "replace": "    _rel_ran = False"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "a card with no findings has every tab emptied",
+    "find": "        if not _find_toks:",
+    "replace": "        if False:"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "the withheld-as-irrelevant rows are not named",
+    "find": "    elif n_irrelevant:\n        notes.append(",
+    "replace": "    elif False:\n        notes.append("
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "a relevance filter that never ran reports as clean",
+    "find": "    if not _rel_ran:\n        notes.append(\"actions taken: relevance to this case was NOT checked — \"",
+    "replace": "    if False:\n        notes.append(\"actions taken: relevance to this case was NOT checked — \""
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "a row can no longer be carried by its own flag",
+    "find": "        for f in flags:\n            if team_of_flag(f) != team:\n                continue",
+    "replace": "        for f in []:\n            if team_of_flag(f) != team:\n                continue"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the scenario rows render the whole list twice",
+    "find": "${chipRow('Primary', (rc.scenarios || []).slice(0, 1), 'data-scenario-add', SCENARIO_OPTIONS, 'data-scenario-remove')}",
+    "replace": "${chipRow('Primary', rc.scenarios || [], 'data-scenario-add', SCENARIO_OPTIONS, 'data-scenario-remove')}"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the overlay delete loses its index offset",
+    "find": "  const off = attr === 'data-overlay-remove' ? 1 : 0;",
+    "replace": "  const off = 0;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the regen request stops deduplicating the union",
+    "find": "  const scenarios = [...new Set([...(rca.scenarios || []),\n                                 ...(rca.overlayScenarios || [])].filter(Boolean))];",
+    "replace": "  const scenarios = [...(rca.scenarios || []),\n                     ...(rca.overlayScenarios || [])].filter(Boolean);"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a hand-corrected DSS row loses its marker",
+    "find": "}${dss.by_hand ? `<span class=\"dss-hand\" title=\"Corrected by hand — this is not the row the lookup matched\">by hand</span>` : ''}</div>`",
+    "replace": "}</div>`"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the edit mark is never written",
+    "find": "      if (el.dataset.v3pMark) {",
+    "replace": "      if (false) {"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an unmatched DSS row becomes unwritable again",
+    "find": "            state.dssEdit\n              // EDITABLE EVEN WHEN NOTHING MATCHED.",
+    "replace": "            state.dssEdit && dss.prescribes\n              // EDITABLE EVEN WHEN NOTHING MATCHED."
+  },
+  {
+    "file": "client/index.html",
+    "name": "the block's controls lose their shared height",
+    "find": "    height: 24px; box-sizing: border-box; line-height: 1;",
+    "replace": "    line-height: 1;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the send button stops looking clickable",
+    "find": "    font-weight: 600; border: none; cursor: pointer;\n    background: var(--accent); color: #fff;",
+    "replace": "    font-weight: 600; border: none;\n    background: var(--accent); color: #fff;"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "validate stops passing the findings",
+    "find": "    _actions, _ar = actions_raised(scenarios_routed, _flags, keep=keep_actions,\n                                   findings=_findings)",
+    "replace": "    _actions, _ar = actions_raised(scenarios_routed, _flags, keep=keep_actions)"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a guest name alone promotes to tier 1 again",
+    "find": "    if corroboration <= 0:\n        return False, (\"the only agreement is the guest name; nothing about the \"",
+    "replace": "    if False:\n        return False, (\"the only agreement is the guest name; nothing about the \""
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the tier-1 confidence threshold is dropped",
+    "find": "    if conf < threshold:\n        return False, (f\"indicator confidence {conf:.1f} is below the {threshold:.1f} \"",
+    "replace": "    if False:\n        return False, (f\"indicator confidence {conf:.1f} is below the {threshold:.1f} \""
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the date-only shortlist is offered again",
+    "find": "        if candidate_state and candidates and candidates_are_noise(candidates):",
+    "replace": "        if False:"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a venue agreement no longer saves the shortlist",
+    "find": "        if c.get(\"venue_signal\"):\n            return False",
+    "replace": "        if False:\n            return False"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a scoreless candidate is withheld as noise",
+    "find": "        if not any(k in c for k in (\"score_venue\", \"score_name\", \"score_ticket\")):\n            return False",
+    "replace": "        if False:\n            return False"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the city is passed to the venue resolver again",
+    "find": "                venue_hints = [h for h in (\n                    indicators.get(\"experience_or_venue\"),) if h and str(h).strip()]",
+    "replace": "                venue_hints = [h for h in (\n                    indicators.get(\"experience_or_venue\"),\n                    indicators.get(\"city_or_country\")) if h and str(h).strip()]"
+  },
+  {
+    "file": "server/services/venue_resolver.py",
+    "name": "a bare city name is probed as a venue again",
+    "find": "    singles = [w for w in words if len(w) >= 5 and w not in _PLACES]",
+    "replace": "    singles = [w for w in words if len(w) >= 5]"
+  },
+  {
+    "file": "server/services/venue_resolver.py",
+    "name": "short words get a spelling budget",
+    "find": "    if n < FUZZY_MIN_LEN:\n        return 0",
+    "replace": "    if False:\n        return 0"
+  },
+  {
+    "file": "server/services/venue_resolver.py",
+    "name": "the spelling budget is unbounded",
+    "find": "    return max(1, min(FUZZY_MAX_EDITS, n // 4))",
+    "replace": "    return 5"
+  },
+  {
+    "file": "server/services/venue_resolver.py",
+    "name": "a token matching the whole catalogue is kept",
+    "find": "        if len(_ids) >= 100:\n            log.info(f\"venue_resolver: token {hint!r} matched {len(_ids)}+ \"",
+    "replace": "        if False:\n            log.info(f\"venue_resolver: token {hint!r} matched {len(_ids)}+ \""
+  },
+  {
+    "file": "server/api.py",
+    "name": "the sent route is taken from the caller",
+    "find": "    _already_posted = bool(d.rca_posted_at)",
+    "replace": "    _already_posted = False"
+  },
+  {
+    "file": "server/api.py",
+    "name": "a send with no RCA is filed as a reply",
+    "find": "                    else \"no_rca\" if not has_rca_to_post(d)",
+    "replace": "                    else \"reply\" if not has_rca_to_post(d)"
+  },
+  {
+    "file": "client/index.html",
+    "name": "mark sent is live before the RCA is posted",
+    "find": "                ${r.rcaPostedAt ? '' : 'disabled'}",
+    "replace": "                ${''}"
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "WWR: Unknown is coerced to No",
+    "find": "    if raw == \"Unknown\":\n        return UNKNOWN_CHECKED if note else UNKNOWN_NO_REASON",
+    "replace": "    if raw == \"Unknown\":\n        return \"No\""
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "WWR: the two kinds of Unknown are merged",
+    "find": "        return UNKNOWN_CHECKED if note else UNKNOWN_NO_REASON",
+    "replace": "        return UNKNOWN_CHECKED"
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "WWR: a missing verdict reads as Unknown",
+    "find": "    if not raw:\n        return UNKNOWN_NO_VERDICT",
+    "replace": "    if not raw:\n        return UNKNOWN_CHECKED"
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "WWR: a verdict outside the enum is silently mapped to No",
+    "find": "    return f\"Not established (verdict recorded as “{raw}”, which is outside Yes / Partially True / No)\"",
+    "replace": "    return \"No\""
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "WWR: Partly accurate maps to the wrong word",
+    "find": "    \"Partly accurate\": \"Partially True\",",
+    "replace": "    \"Partly accurate\": \"Yes\","
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "WWR: headings stop coming from the checklist structure",
+    "find": "    return [line.split(\" — \", 1)[0].strip() for line in WHAT_WENT_WRONG_STRUCTURE]",
+    "replace": "    return [\"1. Guest issue\", \"2. Accurate?\", \"3. What happened?\",\n            \"4. SP\", \"5. Fixes\"]"
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "WWR: an empty heading 3 prints bare",
+    "find": "        lines.append(_sub(\"a\", \"No root cause recorded — nothing was written \"\n                               \"under this heading\"))",
+    "replace": "        pass"
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "WWR: heading 4 drops the missing-verdict sentence",
+    "find": "        out.append(_sub(\"a\", \"Did CE escalate to SP? Not recorded — the RCA \"\n                             \"gave no escalation verdict\"))",
+    "replace": "        pass"
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "WWR: a bare No escalation stops asking about DND",
+    "find": "        out.append(_sub(\"b\", \"No reason recorded — whether the SP is on DND \"\n                             \"was not stated\"))",
+    "replace": "        pass"
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "WWR: an owner-less fix stops saying no team was tagged",
+    "find": "            lines.append(_sub(\"a\", \"No team tagged — the fix names no owner\"))",
+    "replace": "            lines.append(_sub(\"a\", \"—\"))"
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "WWR: a missing fix prints nothing under heading 5",
+    "find": "        lines.append(_sub(\"a\", \"No fix recorded for this issue, and no team tagged\"))",
+    "replace": "        pass"
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "WWR: several issues flatten under one structure",
+    "find": "    blocks = []\n    for n, g in enumerate(issues, 1):\n        blocks.append(f\"*Guest issue {n} of {len(issues)}*\\n\"\n                      + _issue_block(g, sx, doc_fixes, heads, doc_happened))\n    return \"\\n\\n\".join(blocks)",
+    "replace": "    return _issue_block(issues[0], sx, doc_fixes, heads, doc_happened)"
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "WWR: the guest quote goes back into the post",
+    "find": "    summary = str(g.get(\"issue\") or \"\").strip()",
+    "replace": "    summary = (str(g.get(\"issue\") or \"\").strip()\n               + \" \" + str(g.get(\"claim\") or \"\")).strip()"
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "WWR: evidence rows go back into the post",
+    "find": "    # 4. Supply Partner escalation\n    lines.append(heads[3])",
+    "replace": "    for _e in (g.get(\"evidence\") or []):\n        lines.append(\"   - \" + str((_e or {}).get(\"text\", _e)))\n    # 4. Supply Partner escalation\n    lines.append(heads[3])"
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "WWR: the fix object is stringified again",
+    "find": "        lines.append(_sub(\"b\", str(fx[\"action\"]).strip()))\n        return lines",
+    "replace": "        lines.append(_sub(\"b\", str(fx)))\n        return lines"
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "WWR: an empty node composes five headings instead of nothing",
+    "find": "    if not _has_content(w):\n        return \"\"",
+    "replace": "    pass"
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "WWR: _has_content calls a folded-in empty node populated",
+    "find": "    if [g for g in (w.get(\"guest_issues\") or []) if isinstance(g, dict)]:\n        return True",
+    "replace": "    if \"guest_issues\" in w:\n        return True"
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "WWR: a pre-v4 document-level analysis is dropped",
+    "find": "        \"operational_failure\": _join_points(wh.get(\"operational_failure\")),\n        \"sop_gap\": _join_points(wh.get(\"sop_gap\")),",
+    "replace": "        \"operational_failure\": \"\",\n        \"sop_gap\": \"\","
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "WWR: legacy point dicts print as reprs",
+    "find": "            t = str((x.get(\"point\") or x.get(\"text\") or \"\") if isinstance(x, dict)\n                    else (x or \"\")).strip()",
+    "replace": "            t = str(x).strip()"
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "WWR: a legacy scenario draft composes to nothing",
+    "find": "    issues = []\n    for sc in (wwr_scenarios or []):",
+    "replace": "    issues = []\n    for sc in []:"
+  },
+  {
+    "file": "server/api.py",
+    "name": "WWR: the draft stops serving the composed text",
+    "find": "        \"wwr_slack_text\":     _wwr_slack_text(d, _v3_resolved),",
+    "replace": "        \"wwr_slack_text\":     \"\","
+  },
+  {
+    "file": "server/api.py",
+    "name": "WWR: the legacy fallback never runs",
+    "find": "        return compose_legacy(getattr(d, \"wwr_scenarios\", None),\n                              getattr(d, \"wwr_chain\", None))",
+    "replace": "        return \"\""
+  },
+  {
+    "file": "server/api.py",
+    "name": "WWR: a composer failure is reported as an empty section",
+    "find": "        return f\"What went wrong could not be composed: {e}\"",
+    "replace": "        return \"\""
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "WWR: the post drops the section entirely",
+    "find": "    _wwr = _compose_wwr(v3.get(\"what_went_wrong\"))\n    if _wwr:\n        sections.append((\"What went wrong\", _wwr))",
+    "replace": "    pass"
+  },
+  {
+    "file": "server/services/reply_language.py",
+    "name": "reply: outgoing reads the English projection",
+    "find": "    return ((getattr(draft, \"final_response\", \"\") or \"\")\n            or (getattr(draft, \"suggested_response\", \"\") or \"\")).strip()",
+    "replace": "    return ((getattr(draft, \"response_english\", \"\") or \"\")\n            or (getattr(draft, \"final_response\", \"\") or \"\")).strip()"
+  },
+  {
+    "file": "server/services/reply_language.py",
+    "name": "reply: a missing language counts as English",
+    "find": "    return language_state(review)[\"state\"] == \"english\"",
+    "replace": "    return (getattr(review, \"language\", \"\") or \"EN\").strip().upper() == \"EN\""
+  },
+  {
+    "file": "server/services/reply_language.py",
+    "name": "reply: an unknown language is reported as english",
+    "find": "        return {\"state\": \"unknown\", \"language\": \"\",\n                \"why\": \"no language was recorded on this review, so this reply \"",
+    "replace": "        return {\"state\": \"english\", \"language\": \"\",\n                \"why\": \"no language was recorded on this review, so this reply \""
+  },
+  {
+    "file": "server/services/reply_language.py",
+    "name": "reply: a stale English projection reports as current",
+    "find": "    return {\"state\": \"stale\", \"text\": eng, \"outgoing\": out,",
+    "replace": "    return {\"state\": \"current\", \"text\": eng, \"outgoing\": out,"
+  },
+  {
+    "file": "server/services/reply_language.py",
+    "name": "reply: an absent projection reports as stale",
+    "find": "        return {\"state\": \"absent\", \"text\": \"\", \"outgoing\": out,",
+    "replace": "        return {\"state\": \"stale\", \"text\": \"\", \"outgoing\": out,"
+  },
+  {
+    "file": "server/services/reply_language.py",
+    "name": "reply: the projection digest is never compared",
+    "find": "    if of and of == digest(out):",
+    "replace": "    if of or True:"
+  },
+  {
+    "file": "server/services/reply_language.py",
+    "name": "reply: set_english_projection writes no digest",
+    "find": "    draft.response_english_of = digest(translated)",
+    "replace": "    draft.response_english_of = None"
+  },
+  {
+    "file": "server/services/reply_language.py",
+    "name": "reply: a failed translation still stores an English projection",
+    "find": "    return english, \"\", None, {\n        \"mark\": \"warn\",\n        \"text\": f\"<strong>Reply language</strong> — the review is in {lang} but the \"",
+    "replace": "    return english, english, digest(english), {\n        \"mark\": \"warn\",\n        \"text\": f\"<strong>Reply language</strong> — the review is in {lang} but the \""
+  },
+  {
+    "file": "server/services/reply_language.py",
+    "name": "reply: a failed translation reports as a pass",
+    "find": "    return english, \"\", None, {\n        \"mark\": \"warn\",",
+    "replace": "    return english, \"\", None, {\n        \"mark\": \"pass\","
+  },
+  {
+    "file": "server/services/reply_language.py",
+    "name": "reply: a missing language warns nothing",
+    "find": "    if st[\"state\"] == \"unknown\":\n        return english, \"\", None, {\n            \"mark\": \"warn\",",
+    "replace": "    if st[\"state\"] == \"unknown\":\n        return english, \"\", None, {\n            \"mark\": \"pass\","
+  },
+  {
+    "file": "server/services/reply_language.py",
+    "name": "reply: an English review is translated anyway",
+    "find": "    if st[\"state\"] == \"english\":\n        return english, \"\", None, {",
+    "replace": "    if st[\"state\"] == \"never\":\n        return english, \"\", None, {"
+  },
+  {
+    "file": "server/services/reply_language.py",
+    "name": "reply: a blank reply raises a language warning",
+    "find": "    if not english:\n        # No reply at all. Not a language failure, and saying one happened\n        # would put a warning on a card whose reply was deliberately blank.\n        return \"\", \"\", None, None",
+    "replace": "    if not english:\n        return \"\", \"\", None, {\"mark\": \"warn\", \"text\": \"<strong>Reply language</strong> — blank\"}"
+  },
+  {
+    "file": "server/api.py",
+    "name": "apply-english: a failed translation still writes the outgoing reply",
+    "find": "    set_english_projection(d, english, translated)\n    db.commit()",
+    "replace": "    set_english_projection(d, english, translated or english)\n    db.commit()"
+  },
+  {
+    "file": "server/api.py",
+    "name": "apply-english: an empty translation is accepted as the reply",
+    "find": "    translated = (translated or \"\").strip()\n    if not translated:",
+    "replace": "    translated = (translated or \"\").strip()\n    if False:"
+  },
+  {
+    "file": "server/api.py",
+    "name": "apply-english: a raising translation is swallowed",
+    "find": "    except Exception as e:\n        log.exception(\"[apply-english] translation call failed\")",
+    "replace": "    except Exception as e:\n        translated = english\n        log.exception(\"[apply-english] translation call failed\")"
+  },
+  {
+    "file": "server/api.py",
+    "name": "apply-english: a review with no language defaults to English",
+    "find": "    if st[\"state\"] == \"unknown\":\n        raise HTTPException(\n            409, \"The outgoing reply was left unchanged: \"",
+    "replace": "    if False:\n        raise HTTPException(\n            409, \"The outgoing reply was left unchanged: \""
+  },
+  {
+    "file": "server/api.py",
+    "name": "apply-english: an English review stores a phantom projection",
+    "find": "        d.final_response = english\n        d.response_english = None\n        d.response_english_of = None",
+    "replace": "        d.final_response = english\n        d.response_english = english\n        d.response_english_of = None"
+  },
+  {
+    "file": "server/api.py",
+    "name": "apply-english: the failure stops naming what would work",
+    "find": "                 f\"reply is unchanged: the translation call failed ({e}). \"\n                 f\"Try again, or edit the {lang} reply directly.\")",
+    "replace": "                 f\"reply is unchanged: the translation call failed ({e}).\")"
+  },
+  {
+    "file": "server/services/reply_language.py",
+    "name": "reply: the en-default is trusted over the translated body",
+    "find": "        if translated_in:\n            return {\"state\": \"unknown\", \"language\": \"\",",
+    "replace": "        if False:\n            return {\"state\": \"unknown\", \"language\": \"\","
+  },
+  {
+    "file": "server/services/reply_language.py",
+    "name": "reply: a genuinely English review is dragged into unknown",
+    "find": "    return bool(orig and eng and orig != eng)",
+    "replace": "    return bool(eng)"
+  }
 ]

@@ -775,30 +775,191 @@ cannot be SHOWN to be noise. The withholding is counted and stated.
 warehouse, so the budget policy is tested and the query is not. It is guarded
 and degrades to exact matching.
 
-### 11.14 Specified and NOT built — the honest list
+### 11.14 The five-heading Slack post, and the reply's language — BOTH BUILT
 
-These were specified by the user late in the session and the session ended
-before they were built. They are recorded here as SPECIFICATIONS, not as
-half-applied code: nothing in the tree implements any of them, so there is no
-partial state to unpick.
+Both items §11.14 previously listed as specified-and-not-built are built. The
+two open questions it recorded are decided below; each is a decision, not a
+guess the next reader has to re-derive.
 
-1. **The Slack post's what-went-wrong must follow a five-heading structure.**
-   `checklist.WHAT_WENT_WRONG_STRUCTURE` already holds the five headings and
-   its wording matches what the user wrote; it is the source of truth to build
-   from. Headings 1–5 mandatory, sub-points indicative. Evidence rows, the
-   verbatim guest quote, `pattern`, `backs_claim`, per-issue owner chips and
-   the accuracy note come OUT of the post and stay on the card.
-   **The hard part is that there are TWO composers** — `services/slack.py` and
-   the client's own preview — which is how "• Fix: [object Object]" once
-   reached a real post. Making the client render the server's text would kill
-   that whole defect class; it needs the section picker's chosen keys passed
-   to the server composer. Open questions the user must not have guessed at:
-   what "Unknown" prints under a heading asking for Yes/Partially True/No, and
-   whether several guest issues repeat the whole structure or list under 1a.
-2. **The guest response must go out in the review's language**, with an English
-   working view whose edits propagate back through a translation call. One
-   store (the outgoing response), the English box a projection; failure must
-   leave them un-diverged and say so.
+#### The what-went-wrong section: one composer, five headings
+
+`server/services/wwr_post.py` is the ONLY thing that composes this section.
+`services/slack.py` calls it for the post; `_draft_dict` serves the same
+string as `wwr_slack_text`, and the dashboard renders that verbatim.
+
+**THE TWO-COMPOSER PROBLEM IS RESOLVED BY DELETION, NOT BY AGREEMENT.** The
+client no longer builds the section at all — `_genSlackText` reads
+`rca.wwrSlackText` and nothing else, and `persistV3` takes the recomposed text
+back off the PATCH response so an inline edit re-renders from the server. Two
+implementations kept in step by a test would still have been two
+implementations; there is now one, and the agreement is a property of the code.
+
+Guarded from both ends:
+
+- `test_wwr_one_composer.py` drives `format_rca_slack()` and `_draft_dict()`
+  and asserts the served string is IN the posted string.
+- `tests/slack_post_format.test.js` extracts the real `_genSlackText` from
+  client/index.html and runs it under node, asserting the server text arrives
+  verbatim and that none of the fields the old client composer read reach the
+  post. `test_client_slack_post_js.py` runs it as part of the suite AND
+  proves it can fail, by rewriting the client's render line in a COPY of the
+  tree and requiring a non-zero exit.
+- `test_rca_ui_rendered.py` checks the same thing in a real browser.
+
+**That JS harness had rotted, and the rot is worth recording.** It sat in
+`tests/`, asserted the five mandated headings, and had done so for months
+against a client that never produced them — because nothing ran it, and it
+crashed on a `const`-in-`eval` scoping error before reaching its first
+assertion. A harness nobody executes looks exactly like one that passes. It is
+wired into pytest now specifically so that cannot recur.
+
+**Open question 1 — what heading 2 prints for `Unknown`.** DECIDED: never one
+of the three. The validator's enum is four values (`CLAIM_ACCURACY`), the
+user's vocabulary is three, and `Unknown` maps to neither. Printing "No" would
+be a coercion that puts a verdict on a guest's claim nobody reached — "No" is
+a finding, not an absence. It prints as `Not established (...)`, and the two
+kinds of Unknown are told apart by whether `claim_accuracy_note` exists:
+
+- note present → `Not established (checked; the record cannot settle it)`
+- note absent  → `Not established (no reason was recorded for this verdict)`
+- no verdict at all → `Not established (the RCA recorded no verdict for this claim)`
+- outside the enum → the value is NAMED, never mapped
+
+The note's PROSE stays off the post (the user removed it); only which of the
+two cases this is reaches the reader.
+
+**Open question 2 — several guest issues.** DECIDED: each issue REPEATS the
+whole five-heading structure. Listing them under 1a was the alternative and it
+is the flattening this project already fixed once — two complaints with
+different root causes went into one list and the reader could not tell which
+cause belonged to which. Blocks are labelled `*Guest issue n of N*`; a single
+issue is not labelled `1 of 1`. Heading 4 is case-level and so repeats under
+each block, deliberately: a block that skipped a mandatory heading because
+another block already answered it would not follow the mandated format.
+
+**Empty mandatory headings say WHICH kind of empty.** Sub-points a/b/c are
+indicative and an absent one is simply omitted; a heading with NOTHING under
+it says so in words ("No root cause recorded — nothing was written under this
+heading", "Did CE escalate to SP? Not recorded", "No fix recorded for this
+issue, and no team tagged"). A bare `No` under heading 4 says the DND question
+went unanswered, because the user asked for that case by name.
+
+**Out of the post, still on the card:** evidence rows, the verbatim guest
+quote, `pattern`, `backs_claim`, the per-issue owner chip and the accuracy
+note. `test_wwr_one_composer.py::test_the_dashboard_still_has_the_dropped_fields`
+pins that this is a change to ONE renderer and not a data loss.
+
+**Legacy drafts go through the same composer.** A pre-v4 draft keeps its
+analysis under `what_happened` or in `wwr_scenarios`/`wwr_chain`;
+`compose_legacy()` and `_happened_from_document()` fold both into the five
+headings. Serving "" for them would make an old RCA look like a broken
+composer. A draft whose issues name the complaint but keep the analysis at
+document level gets it under heading 3 with a line saying it is case-level —
+found by the existing `test_slack_v3_format.py` fixture, which is exactly that
+shape.
+
+#### The guest response goes out in the review's language
+
+**ONE STORE, and it is the guest's language.** `final_response or
+suggested_response` is the outgoing reply. `services/reply_language.py`
+`outgoing()` is the only reader of record, and Copy, Send and the post all go
+through it or through `[data-outgoing-reply]`, which is the box it renders.
+
+It used to be the other way round: those columns held ENGLISH, the guest's
+language existed only as `state.replyTranslation` in the browser — memory that
+did not survive a reload and that nothing on the send path read — and the reply
+that actually went out was the English one. That store is deleted.
+
+**The English box is a projection.** `response_english` holds it and
+`response_english_of` holds a DIGEST of the outgoing text it projects, so the
+reply is not stored twice. When the outgoing box is edited directly the digest
+stops matching and `english_view()` returns `stale`, which the card says out
+loud rather than presenting a superseded translation as the current reply.
+Four states, each distinguishable: `same` (English review, one box),
+`current`, `stale`, `absent`.
+
+**The failure contract.** `POST /api/reviews/{id}/apply-english-reply`
+translates the English into the outgoing reply. On ANY failure it writes
+NOTHING — not the English either, because the half-apply is what leaves a card
+showing an edit that will never reach the guest — and the error says the edit
+was not applied, why, and what would work ("edit the IT reply directly"). The
+client shows `NOT APPLIED — the outgoing reply is unchanged` plus the reason,
+and while the call is in flight it says `IN FLIGHT — the boxes disagree`.
+Applied on blur or on the button, never per keystroke, and blur only when the
+text actually changed.
+
+**An English review draws ONE box.** No English panel, no apply control,
+nothing implying a translation happened. **A review with NO language is not
+English** — `language_state()` returns `unknown`, the endpoint refuses with a
+409 that names what would work, and the pipeline warns on the trail rather
+than letting an unlabelled English reply pass as the guest's language.
+
+**A PREMISE IN THE SPEC WAS FALSE, AND IT MATTERS.** The task said
+`Review.language` "already exists and is populated by the inbound
+translation". It is not. `slack.parse_review()` hard-codes `"language": "en"`
+on every ingested review, and step 1 of the pipeline writes `body_english` and
+never touches the column. So `language == "en"` is a DEFAULT on most rows, not
+a finding — and keying the feature on it alone would have made it dead code
+for every Slack-ingested review while looking completely healthy: one box, no
+warning, English going out on an Italian review.
+
+Fixed WITHOUT adding a second detection path, which the task forbids and which
+would have been the wrong answer anyway. The spec names three fields —
+`Review.language`, `body_english`, `body_original` — and the other two already
+carry the evidence: step 1 writes `body_english` only when the model returned
+something other than `ENGLISH_ALREADY`, so `body_english` differing materially
+from `body_original` is positive proof the review was not English. When the
+column says `en` and the bodies say otherwise, `language_state()` returns
+`unknown` with a why that says exactly that, and the card refuses rather than
+sending English. `is_english()` defers to `language_state()` so the card and
+the send path cannot each decide it their own way.
+
+**The real fix is upstream and is NOT done:** nothing records the language the
+inbound translation detected. Until `parse_review` or step 1 writes it,
+non-English reviews land in `unknown` and the associate is told to set the
+language or write the reply directly. That is honest, and it is not the
+feature working.
+
+**Both write paths apply the rule.** `translate_outgoing()` lives in
+`reply_language.py` because the pipeline AND `regenerate-rca` ("↻ RCA only")
+both write the reply; a rule applied in one is a reply that reverts to English
+every time someone presses the other button. `regenerate-rca` also drops the
+previous run's `Reply language` trail line, which would otherwise report the
+old outcome over new text. The translation is written into
+`rca_v3["suggested_response"]` as well as the column, because `_draft_dict`
+reads it from the blob by presence.
+
+**`final_response` protection is unchanged.** It still holds human edits, it
+is still in `rerun_all.HUMAN_FIELDS`, and the pipeline still writes only
+`suggested_response`. Applying an English edit writes `final_response`, which
+is correct: it IS human work.
+
+#### Not done / known
+
+- **The pipeline now makes a translation call on every non-English review.**
+  That is what "always" requires. It is guarded and degrades to English with a
+  `warn` on the trail.
+- `tools/rerun_all.py::_has_human_work` does not count `response_english` as
+  human work. It does not need to — the projection only ever exists alongside
+  a `final_response` that already marks the row.
+- **A test fixture that reloaded `server.api` poisoned twenty-nine tests in
+  another file.** `importlib.reload(server.api)` leaves module-level bindings
+  to an engine whose temp file is deleted at teardown, and
+  `test_one_store_per_v4_section.py` failed only when
+  `test_apply_english_reply.py` ran first — green alone, red in the suite. The
+  reload was never needed: the session handed to the endpoint is what decides
+  which engine the queries reach. If a new test needs the throwaway DB, take
+  `live_db` and pass its session; do not reload `server.api`.
+- **This session shared the working tree with another agent**, which is why
+  `client/index.html`, `server/api.py` and several test files carry changes
+  this session did not make (the `_statedIssue` read/write unification, the
+  guest-name note). Three failures that surfaced during this work were
+  downstream of that change, not of the composer or the reply language:
+  `test_the_placeholder_sweep_can_actually_fail` and the two empty-stated-issue
+  tests all injected into `r.statedIssue` while the box had started rendering
+  from `rca.v3.stated_issue`. They now set BOTH stores. `stated_issue` was
+  also added to `_V4_SECTIONS` — it had become an rca_v3-first READ with a
+  column-only PATCH, which is the `area_of_improving` bug exactly.
 
 ### 11.15 The mutation pass
 
@@ -806,9 +967,16 @@ partial state to unpick.
 against the final tree before launching, and every shard's baseline is green at
 1935 tests.
 
-**AT THE END OF THIS SESSION THE PASS WAS STILL RUNNING: 25 of 252 complete,
-0 survivors, 0 skips.** That is not a result and must not be read as one. The
-run needs roughly three more hours on this box.
+**THAT 252-MUTATION PASS NEVER FINISHED AND HAS NO RESULT.** The container
+rewound and took it with it: `/tmp/comb_*.json` and the shard logs are gone,
+no worker was running when the next session opened, and 25-of-252 with the
+rest unknown is not a result. It has not been re-run as a whole.
+
+**The spec is 294 now** — 42 added for the five-heading composer and the reply
+language (`wwr_post.py`, `reply_language.py`, the apply-english failure
+contract, the one-composer wiring). Every one of the 42 was verified to match
+its anchor exactly once against the final tree before running; the results of
+that sharded pass are recorded in §11.14's session notes below.
 
 To read it when it lands:
 

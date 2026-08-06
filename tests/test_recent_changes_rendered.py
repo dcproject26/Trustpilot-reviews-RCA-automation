@@ -579,13 +579,18 @@ def test_the_placeholder_sweep_can_actually_fail(page):
     """
     caught = page.evaluate("""() => {
       const r = REVIEWS.find(x => x.id === state.selected);
-      const keep = r.statedIssue;
+      // BOTH stores. The box renders rca.v3.stated_issue when that key is
+      // present and falls back to this snapshot, so injecting the leak into
+      // the snapshot alone never reaches the DOM — and this guard would then
+      // report "cannot fail" for the one reason it exists to rule out.
+      const keep = r.statedIssue, keepV = r.rca.v3.stated_issue;
       r.statedIssue = 'The last contact was None';      // what a leak looks like
+      r.rca.v3.stated_issue = 'The last contact was None';
       renderRcaCol();
       const c = document.querySelector('#rca-col').cloneNode(true);
       c.querySelectorAll('select').forEach(s => s.remove());
       const hit = /(?<![\\w])None(?![\\w])/.test(c.innerText);
-      r.statedIssue = keep; renderRcaCol();
+      r.statedIssue = keep; r.rca.v3.stated_issue = keepV; renderRcaCol();
       return hit; }""")
     assert caught, (
         "a Python None rendered into the stated issue was NOT detected — the "
@@ -594,7 +599,25 @@ def test_the_placeholder_sweep_can_actually_fail(page):
 
 def test_a_booking_with_a_hash_for_a_name_says_so_instead(page):
     """The sweep above only proves this fixture is clean. This proves the card
-    HANDLES a hash, which is what the warehouse actually returns."""
+    HANDLES a hash, which is what the warehouse actually returns.
+
+    WHICH reason is rendered is the SERVER's answer, not this page's — see
+    `guest_name_note` in `_draft_dict` and its cases in
+    test_missing_classification_is_said.py. That was not always true: the card
+    read the note off `draft.booking`, where it has never lived, so the read
+    was `undefined` and every card fell through to one hard-coded sentence.
+    This test asserted that sentence, which is why it could not tell the
+    working build from the broken one.
+
+    `_render_booking` swaps the booking on the wire and leaves the rest of the
+    payload alone, so the note here is the one the server computed for the
+    fixture. What this test owns is the rest: the hash is not printed, the row
+    falls through to the absent state, and the row carries the server's
+    sentence rather than a client-side stand-in.
+    """
+    served = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      return r.booking.guestNameNote; }""")
     rows = _render_booking(page, dict(
         PARTIAL_ROW, primary_guest_name="FjpJxbSfpb65bnyQwErTyUiOpAsDfGhJ"))
     guest = rows.get("Primary guest", "")
@@ -603,8 +626,10 @@ def test_a_booking_with_a_hash_for_a_name_says_so_instead(page):
         f"the PII hash is printed as the guest's name: {guest!r}")
     assert guest.startswith("—"), (
         f"a hashed name did not fall through to the absent state: {guest!r}")
-    assert "no guest name" in guest, (
-        f"it says nothing about why the name is missing: {guest!r}")
+    assert served, "the server sent no reason for the missing name at all"
+    assert served in guest, (
+        f"the row shows {guest!r}, which is not the server's reason "
+        f"({served!r}) — the note is being read off the wrong object again")
 
 
 def test_a_raw_epoch_booking_date_is_rendered_as_a_date(page):

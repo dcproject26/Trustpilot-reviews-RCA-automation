@@ -482,43 +482,75 @@ def _post(page):
         return t ? t.value : ''; }""")
 
 
-def test_the_post_has_one_block_per_guest_issue(page):
+def test_the_post_carries_the_five_mandated_headings(page):
+    """The what-went-wrong section follows the user's five-heading format, and
+    the DASHBOARD shows the server's text — this is the browser end of the
+    one-composer guarantee. The section is composed once, in
+    server/services/wwr_post.py, and rendered here verbatim."""
     txt = _post(page)
     i = txt.find("*What went wrong*")
-    assert "*1. Delivery window not disclosed*" in txt, txt[i:i + 400]
-    # The team beside the verdict is the line leadership scans. Spelled in
-    # the nine-team vocabulary now — "Content" was one of a fourth copy of
-    # the team list that named two teams with no tab on the card.
-    assert "·  Accurate" in txt and "·  CONTENT" in txt, txt[i:i + 400]
+    assert i != -1, "the post has no what-went-wrong section at all"
+    for h in ("1. Guest issue", "2. Is the guest's claim accurate?",
+              "3. What actually happened?", "4. Supply Partner escalation",
+              "5. Fixes"):
+        assert h in txt, f"missing mandated heading {h!r}\n{txt[i:i + 600]}"
 
 
-def test_a_block_carries_only_the_lines_that_issue_has(page):
-    """A dash for every absent field turns a focused block into a form with
-    blanks in it."""
+def test_the_verdict_prints_in_the_users_vocabulary(page):
+    """Yes / Partially True / No. The model's four-value enum stays on the
+    card; the post speaks the words the user asked for."""
     txt = _post(page)
-    block = txt.split("*1. Delivery window not disclosed*")[1].split("\n\n")[0]
-    assert "Root cause:" in block
-    assert "SOP / process gap:" not in block, "an absent line was printed anyway"
+    i = txt.find("*What went wrong*")
+    assert "2. Is the guest's claim accurate? Yes" in txt, txt[i:i + 600]
+    assert "Partly accurate" not in txt, txt[i:i + 600]
 
 
-def test_evidence_keeps_its_source_and_reference_in_the_post(page):
-    assert "- [exp-page] No timeline on the page. (https://www.headout.com/tour/22238)" in _post(page)
+def test_only_the_subpoints_that_issue_has_are_printed(page):
+    """Sub-points a/b/c are INDICATIVE. A dash for every absent field turns a
+    focused block into a form with blanks in it."""
+    txt = _post(page)
+    i = txt.find("3. What actually happened?")
+    block = txt[i:txt.find("4. Supply Partner escalation", i)]
+    assert "Root cause:" in block, block
+    assert "SOP/process gap:" not in block, "an absent sub-point was printed anyway"
+
+
+def test_the_owner_is_tagged_under_heading_five(page):
+    """Heading 5 is "tag the relevant team(s)". The owner CHIP came out of the
+    post; the team is named where the mandate puts it."""
+    txt = _post(page)
+    i = txt.find("5. Fixes")
+    block = txt[i:i + 300]
+    assert "@CONTENT" in block, block
+    assert "Add the two-hour delivery window to the page" in block, block
+
+
+def test_the_owner_chip_no_longer_rides_the_issue_title(page):
+    txt = _post(page)
+    assert "\u00b7  Accurate" not in txt
+    assert "*1. Delivery window not disclosed*" not in txt
+
+
+def test_evidence_and_the_guest_quote_come_out_of_the_post(page):
+    """They stay on the CARD. The post carries the five headings and nothing
+    else — checked in a real browser because the dashboard is the half that
+    used to compose this section itself."""
+    txt = _post(page)
+    assert "[exp-page] No timeline on the page." not in txt
+    assert "https://www.headout.com/tour/22238" not in txt
 
 
 def test_the_fix_object_is_written_out_rather_than_stringified(page):
-    """`fix` is an object now. Left in the generic label loop beside root_cause
-    and pattern it stringified to "[object Object]" and went out on the post —
-    the action, the owner, the gap it closes and the count that sized it all
-    replaced by seven characters of nothing. It reached a real post and
-    surfaced only when an unrelated fixture moved, so it is worth pinning from
-    both ends: the parts are present, and the stringification is absent.
-    """
+    """`fix` is an object. The client's old composer left it in a generic
+    label loop where it stringified to "[object Object]" and went out on a
+    real post — the action, the owner and the gap it closes all replaced by
+    seven characters of nothing, while the server's copy of the same section
+    was correct. That is what one composer removes; this pins it from the end
+    where it actually broke."""
     txt = _post(page)
-    assert "[object Object]" not in txt, \
-        txt[txt.find("*What went wrong*"):][:600]
-    assert "• Fix: Add the two-hour delivery window to the page (owner: CONTENT)" \
-        in txt, txt[txt.find("*What went wrong*"):][:600]
-    assert "- closes: The experience page states no delivery window" in txt
+    i = txt.find("*What went wrong*")
+    assert "[object Object]" not in txt, txt[i:i + 600]
+    assert "Add the two-hour delivery window to the page" in txt, txt[i:i + 600]
 
 
 def test_an_issue_carries_one_fix_line(page):
@@ -526,8 +558,23 @@ def test_an_issue_carries_one_fix_line(page):
     the object path and a fallback path both firing, so the post says the fix
     twice and the reader cannot tell which one the pipeline believes."""
     txt = _post(page)
-    block = txt.split("*1. Delivery window not disclosed*")[1].split("\n\n")[0]
-    assert block.count("• Fix:") == 1, block
+    i = txt.find("5. Fixes")
+    block = txt[i:txt.find("____", i)]
+    assert block.count("Add the two-hour delivery window to the page") == 1, block
+
+
+def test_the_dashboard_post_is_byte_identical_to_the_servers_section(page):
+    """The one-composer guarantee, driven in the browser: whatever the server
+    put in `wwr_slack_text` is what the preview shows. If the client ever
+    rebuilds the section, this diverges."""
+    got = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const post = (document.querySelector('[data-slack-edit]') || {}).value || '';
+      return {server: r.rca.wwrSlackText || '', inPost: post}; }""")
+    assert got["server"], "the draft carried no server-composed section at all"
+    assert got["server"] in got["inPost"], (
+        "the preview is not showing the server's text verbatim\n"
+        f"--- server ---\n{got['server']}\n--- post ---\n{got['inPost']}")
 
 
 def test_the_guest_reply_is_never_in_the_post(page):
@@ -766,11 +813,17 @@ def test_an_empty_stated_issue_beside_a_full_rca_does_not_blame_the_review(page)
     same screen, drawn from the same text, it is provably false."""
     got = page.evaluate("""() => {
       const r = REVIEWS.find(x => x.id === state.selected);
-      const keep = r.statedIssue; r.statedIssue = ''; renderRcaCol();
+      // BOTH stores. The box renders from rca.v3.stated_issue when that key
+      // is present and falls back to the load-time snapshot, so emptying only
+      // the snapshot leaves the blob's value on screen and this would assert
+      // against a box that is not empty at all.
+      const keep = r.statedIssue, keepV = r.rca.v3.stated_issue;
+      r.statedIssue = ''; r.rca.v3.stated_issue = ''; renderRcaCol();
       const e = document.querySelector('.stated-issue .rca-empty');
       const out = {text: e ? e.innerText : null,
                    issues: ((r.rca.v3.what_went_wrong||{}).guest_issues||[]).length};
-      r.statedIssue = keep; renderRcaCol(); return out; }""")
+      r.statedIssue = keep; r.rca.v3.stated_issue = keepV;
+      renderRcaCol(); return out; }""")
     assert got["issues"] >= 1, "the fixture has no issues, so this proves nothing"
     assert got["text"], "the empty stated issue rendered no explanation at all"
     assert "Nothing was extracted" not in got["text"], got["text"]
@@ -785,11 +838,15 @@ def test_an_empty_stated_issue_with_an_empty_rca_still_points_somewhere(page):
     got = page.evaluate("""() => {
       const r = REVIEWS.find(x => x.id === state.selected);
       const kS = r.statedIssue, kW = r.rca.v3.what_went_wrong;
-      r.statedIssue = ''; r.rca.v3.what_went_wrong = {guest_issues: []};
+      const kV = r.rca.v3.stated_issue;
+      // Both stores — see the sibling test above.
+      r.statedIssue = ''; r.rca.v3.stated_issue = '';
+      r.rca.v3.what_went_wrong = {guest_issues: []};
       renderRcaCol();
       const e = document.querySelector('.stated-issue .rca-empty');
       const out = e ? e.innerText : null;
-      r.statedIssue = kS; r.rca.v3.what_went_wrong = kW; renderRcaCol();
+      r.statedIssue = kS; r.rca.v3.what_went_wrong = kW;
+      r.rca.v3.stated_issue = kV; renderRcaCol();
       return out; }""")
     assert got and "confidence trail" in got, got
 
@@ -1268,3 +1325,42 @@ def test_editing_a_pointer_keeps_the_finding_it_came_from(page):
     assert saved[0]["from"] == "operational_failure", (
         f"the edit stripped the derivation: {saved[0]}")
     assert saved[0]["source"] == "The page states no delivery window", saved[0]
+
+
+# ── the guest-name note reaches the card it was written for ─────────────────
+
+def test_the_reason_there_is_no_guest_name_is_the_servers_reason(page):
+    """Three different situations, three different next actions.
+
+    `_draft_dict` works out WHICH source came up empty — the warehouse holds a
+    PII hash (open the ticket), the linked ticket carries no requester name
+    (open the ticket), or no ticket was ever matched to this booking (there is
+    nothing to open). It ships that as a top-level `guest_name_note`.
+
+    The client read it off `draft.booking`, which has never carried it, so the
+    read was `undefined` on every card and all three collapsed into one generic
+    fallback. The server's whole distinction reached nobody, and the sentence
+    the reader got was true of a case it might not be.
+
+    This fixture's booking has no guest name and two linked tickets, so the
+    server's answer is specific and the fallback is not.
+    """
+    got = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      return {note: r.booking.guestNameNote,
+              inDom: document.body.innerText.includes(
+                'no requester name on the linked Zendesk ticket')}; }""")
+    assert got["note"] == "no requester name on the linked Zendesk ticket", \
+        (f"the card shows {got['note']!r} — that is the generic fallback, not "
+         f"the reason the server worked out")
+    assert got["inDom"], "the reason is on the model but never rendered"
+
+
+def test_the_generic_fallback_is_not_what_a_specific_answer_renders_as(page):
+    """The fallback still has to exist for a payload with no note at all — but
+    it must not be what a card with a real answer shows."""
+    got = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      return r.booking.guestNameNote; }""")
+    assert got != "no guest name on the booking or on any linked Zendesk ticket", \
+        "a specific server-side reason is rendering as the catch-all"
