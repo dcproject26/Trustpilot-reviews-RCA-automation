@@ -72,6 +72,38 @@ def _complete(lookup):
     return complete_booking_row(dict(PARTIAL_ROW), lookup)
 
 
+@pytest.fixture(autouse=True)
+def _fresh_card(page):
+    """Every test starts from the server's own answer, not from residue.
+
+    `page` is module-scoped, so one browser serves the whole file, and
+    `_render_booking` below deliberately WIPES `r.booking` and substitutes a
+    booking of its own over the wire. That substitution has no
+    `guestNameNote`, `guestName` or any other field the server computes
+    alongside the booking — so after one call those fields are simply gone,
+    for every later test.
+
+    It cost a flake:
+    `test_a_booking_with_a_hash_for_a_name_says_so_instead` reads the server's
+    note BEFORE substituting a booking of its own, and passed alone and in a
+    full run, and failed under a -k subset where a substituting test happened
+    to run first. That is the worst kind of red — it looks like the code and
+    it is the harness, and it teaches people to re-run rather than read.
+
+    Reloading here rather than at the end of `_render_booking`: a test that
+    inspects the page after calling it must still see what it put there.
+    """
+    page.evaluate("""async () => {
+      // The helper swaps window.fetch and restores it, but a test that fails
+      // mid-way leaves the stub installed. Put the real one back first, or
+      // this reload reads the stub's answer and restores nothing.
+      if (window.__realFetch) window.fetch = window.__realFetch;
+      await loadDraftOverlays();
+      renderReviewCol();
+    }""")
+    yield
+
+
 def _render_booking(page, booking):
     """Put `booking` on the wire and let the REAL client mapping consume it.
 

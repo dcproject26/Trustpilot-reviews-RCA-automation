@@ -17,7 +17,7 @@ and adds the demo-parity endpoints:
   GET    /api/reviews/{id}/similar          — fetch similar complaints on demand
   GET    /api/taxonomy                      — return L1/L2/checks catalogue (dashboard uses this)
 """
-import asyncio, copy, logging, os, subprocess, time
+import asyncio, copy, logging, os, re, subprocess, time
 from datetime import datetime
 
 log = logging.getLogger(__name__)

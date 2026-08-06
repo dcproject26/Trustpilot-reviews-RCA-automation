@@ -1534,6 +1534,14 @@ async function fetchInbox() {
           processingState:  row.processing_state || '',
           processingReason: row.processing_reason || '',
           matchTitle:     _matchTitle(row, t, c),
+          // WHETHER THE REVIEW ITSELF CARRIED A BOOKING ID. _bidFromReview
+          // reads these two, and it is called both on the RAW api row (in
+          // _matchTitle, just above) and on this view-model (the header
+          // chip). Without them here the helper silently answered false for
+          // every review, and the chip said "no BID in text" on cards whose
+          // id is named in the trail two panels down.
+          bid_source:       row.bid_source || '',
+          reference_number: row.reference_number || '',
         };
       }
       // New API-only review (manual / Slack): minimal template
@@ -1563,6 +1571,11 @@ async function fetchInbox() {
         // responses — wait, versus re-run and read the log.
         processingState:  row.processing_state || '',
         processingReason: row.processing_reason || '',
+        // Same two fields as the branch above, for the same reason: one
+        // review must not answer "did it carry a booking id?" differently
+        // depending on which branch built it.
+        bid_source:       row.bid_source || '',
+        reference_number: row.reference_number || '',
         experience:     row.experience || '',
         channel:        'orm',
         original:       row.snippet || '',
