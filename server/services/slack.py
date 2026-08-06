@@ -73,6 +73,99 @@ def is_trustpilot_message(event: dict) -> bool:
     return False
 
 
+# "Reviewed on 2 August 2026", "Posted: 02/08/2026", "2 Aug 2026" — the shapes
+# Trustpilot's Slack integration puts in an attachment footer or a dated field.
+_MONTHS = {m: i for i, m in enumerate(
+    ["jan", "feb", "mar", "apr", "may", "jun",
+     "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+_DATE_TEXT_RE = re.compile(
+    r"\b(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})\b|"          # 2 August 2026
+    r"\b([A-Za-z]{3,9})\s+(\d{1,2}),?\s+(\d{4})\b|"        # August 2, 2026
+    r"\b(\d{4})-(\d{2})-(\d{2})\b")                        # 2026-08-02
+
+# Field titles Trustpilot uses for the publish date. Matched on the TITLE, not
+# on any date-looking string anywhere in the payload — a visit date, a booking
+# date and a refund date all look identical to a regex, and picking the wrong
+# one silently is worse than not picking one.
+_DATE_TITLES = ("review date", "reviewed on", "date of experience",
+                "posted", "posted on", "published", "published on", "date")
+
+
+def review_published_at(event: dict):
+    """When the guest actually POSTED the review, and where that came from.
+
+    Returns (datetime | None, source) where source is one of
+    "attachment_ts" / "field:<title>" / "footer" / "" — the empty string
+    meaning the payload carries no publish date at all.
+
+    WHY THIS EXISTS. The stamp on the card was the Slack message timestamp:
+    when the review reached the channel. That is minutes after publication on
+    a good day and hours after it on a bad one, and it was rendered as
+    "Review date" and as "Review posted" on the timeline with nothing saying
+    it was neither. A reader comparing the review against a ticket raised the
+    same morning is reading a lead time that is wrong by however long the
+    integration took.
+
+    The sources are ordered by how directly they assert the fact:
+      1. `attachment.ts` — Slack's own attachment timestamp. An integration
+         that sets it is stating when the thing happened, not when it sent
+         the message.
+      2. a dated FIELD whose title says so.
+      3. a date in the footer, which is where Trustpilot writes it in prose.
+
+    Nothing here guesses. A date-shaped string in an untitled field is not
+    used: a visit date, a booking date and a refund date are all
+    indistinguishable to a regex, and quietly choosing one is exactly the
+    class of failure that makes a wrong answer look like a right one.
+    """
+    from datetime import datetime, timezone
+
+    def _from_epoch(v):
+        try:
+            f = float(str(v).strip())
+        except (TypeError, ValueError):
+            return None
+        if 1e9 < f < 4e9:
+            return datetime.fromtimestamp(f, timezone.utc).replace(tzinfo=None)
+        return None
+
+    def _from_text(s):
+        m = _DATE_TEXT_RE.search(str(s or ""))
+        if not m:
+            return None
+        g = m.groups()
+        try:
+            if g[0]:                                   # 2 August 2026
+                mo = _MONTHS.get(g[1][:3].lower())
+                return datetime(int(g[2]), mo, int(g[0])) if mo else None
+            if g[3]:                                   # August 2, 2026
+                mo = _MONTHS.get(g[3][:3].lower())
+                return datetime(int(g[5]), mo, int(g[4])) if mo else None
+            return datetime(int(g[6]), int(g[7]), int(g[8]))
+        except (TypeError, ValueError):
+            return None
+
+    for att in event.get("attachments", []) or []:
+        got = _from_epoch(att.get("ts"))
+        if got:
+            return got, "attachment_ts"
+
+    for att in event.get("attachments", []) or []:
+        for f in att.get("fields", []) or []:
+            title = str(f.get("title") or "").strip()
+            if title.lower().rstrip(":") in _DATE_TITLES:
+                got = _from_text(f.get("value")) or _from_epoch(f.get("value"))
+                if got:
+                    return got, f"field:{title}"
+
+    for att in event.get("attachments", []) or []:
+        got = _from_text(att.get("footer"))
+        if got:
+            return got, "footer"
+
+    return None, ""
+
+
 def parse_review(event: dict) -> dict:
     text = event.get("text", "")
     blocks = event.get("blocks", [])
@@ -223,6 +316,7 @@ def parse_review(event: dict) -> dict:
         if entry.split(": ", 1)[-1].lower() not in (body or "").lower():
             body = f"{body}\n{entry}".strip() if body else entry
 
+    _pub_at, _pub_src = review_published_at(event)
     return {
         "slack_ts":         event["ts"],
         "slack_channel":    event["channel"],
@@ -231,6 +325,12 @@ def parse_review(event: dict) -> dict:
         "author":           author or "Unknown",
         "body_original":    body,
         "reference_number": booking_id,
+        # WHEN THE GUEST POSTED IT, and where we got that from. Empty source
+        # means the payload carried no publish date — which the ingest must
+        # then SAY, rather than stamping the Slack arrival time and labelling
+        # it "Review date".
+        "published_at":        _pub_at,
+        "published_at_source": _pub_src,
         "raw_payload":      event,
     }
 

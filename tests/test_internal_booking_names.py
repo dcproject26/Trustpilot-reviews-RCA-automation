@@ -36,11 +36,36 @@ def test_an_internal_label_is_recognised(name):
     "Anna Ops",            # "Ops" is a real surname; only the whole phrase counts
     "Elizabeth Gist", "Mariana Campos", "Ioan Popescu",
     "Lead Fernandes", "Customer Cariello",
+    # THESE ARE THE ONES THAT MATTER, and they were missing until a mutation
+    # ran. Every name above merely fails to EQUAL a label, so they all pass
+    # just as happily against a substring rule — the mutation that swaps
+    # `t in LABELS` for `any(k in t for k in LABELS)` survived the whole file.
+    # A substring rule eats every surname containing a label as a fragment,
+    # and "test" is a fragment of a great many real names.
+    "Ernesto Testa", "Modesto Ruiz", "Testa Rossi", "Kristen Tester",
 ])
 def test_a_real_name_is_never_taken_for_a_label(name):
     """A false positive here silences the strongest signal after the BID —
     strictly worse than the bug being fixed."""
     assert is_internal_booking_name(name) is False, name
+
+
+def test_a_label_is_matched_as_a_WHOLE_PHRASE_not_as_a_fragment():
+    """The rule itself, stated once so it cannot be weakened quietly.
+
+    'test' and 'internal' are entries in the set AND fragments of ordinary
+    words. Matching on containment would flag "Modesto", "Testa", "Ernesto"
+    and anything else that happens to carry one — silencing the second
+    strongest identifier we have on real guests, which is worse than the bug
+    this detector was written for.
+    """
+    for real in ("Ernesto Testa", "Modesto Ruiz", "Internally Yours",
+                 "Anna Ops", "Lead Fernandes"):
+        assert is_internal_booking_name(real) is False, real
+    for label in ("test", "internal", "customer ops lead"):
+        assert is_internal_booking_name(label) is True, label
+        # the label with anything else attached is a name again
+        assert is_internal_booking_name(f"{label} Fernandes") is False, label
 
 
 def test_an_empty_name_is_not_an_internal_label():

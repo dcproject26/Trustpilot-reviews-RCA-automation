@@ -47,15 +47,34 @@ router = APIRouter()
 
 # ── Pydantic models ─────────────────────────────────────────────────────────
 
-def _received_at_from(slack_ts, rid=""):
-    """When the review reached the channel, from the message timestamp.
+def _received_at_from(slack_ts, rid="", published_at=None, published_src=""):
+    """When the review was POSTED, falling back to when it reached the channel.
 
-    Falls back to now, and SAYS SO: a review stamped with the ingest moment
-    looks like a review that arrived then, and a whole batch stamped
-    identically looks like fifteen reviews posted in one second. If the
-    fallback ever fires we want it in the log rather than inferred from a
-    suspicious-looking column.
+    THREE DIFFERENT FACTS, and the column used to hold whichever one it could
+    get without saying which:
+
+      1. the Trustpilot publish time, from the payload — what "Review date"
+         and the timeline's "Review posted" claim to be;
+      2. the Slack message timestamp — when the integration relayed it, which
+         is minutes later on a good day and hours later on a bad one;
+      3. the ingest moment — when we happened to run, which is not a fact
+         about the review at all.
+
+    All three rendered identically. A reader comparing the review against a
+    ticket raised the same morning was reading a gap that could be wrong by
+    the whole relay delay, and nothing on screen said so.
+
+    The publish date wins whenever the payload carries one. Every fallback is
+    logged with the source, so "we used the arrival time" is never inferred
+    from a column that looks slightly off.
     """
+    if published_at is not None:
+        log.info(f"[ingest] {rid}: review publish date {published_at} "
+                 f"(from {published_src or 'the payload'})")
+        return published_at
+    log.info(f"[ingest] {rid}: the payload carries no Trustpilot publish date "
+             f"— using the Slack arrival time, which is later by however long "
+             f"the integration took")
     from datetime import datetime, timezone
     try:
         ts = float(str(slack_ts).strip())
@@ -351,9 +370,15 @@ def _indicator_match(d: RcaDraft) -> dict:
         r = getattr(d, "review", None)
         text = (getattr(r, "body_english", None)
                 or getattr(r, "body_original", None) or "") if r else ""
+        # ticket_facts.guest_full_name is the DATA-SOURCE SPEC's guest name —
+        # "BQ guestName is a hash — do NOT use". The card has read it for a
+        # while; this check was still comparing the reviewer against the hash,
+        # so the strongest identifier after the booking id was thrown away on
+        # exactly the rows where it was available.
         return bic.check(text, d.booking,
                          author=getattr(r, "author", None) if r else None,
-                         received_at=getattr(r, "received_at", None) if r else None)
+                         received_at=getattr(r, "received_at", None) if r else None,
+                         ticket_facts=getattr(d, "ticket_facts", None))
     except Exception as e:              # never break the card over a hint
         log.warning(f"[indicator-match] skipped: {e}")
         return {"state": "unchecked", "signals": [], "contradictions": [],
@@ -1548,7 +1573,9 @@ async def refresh_slack(hours: int = 72, background_tasks: BackgroundTasks = Non
         # channel, which is the closest thing to the review's own date that
         # this pipeline ever sees; Trustpilot's publish time is not in the
         # payload.
-        _at = _received_at_from(parsed["slack_ts"], rid)
+        _at = _received_at_from(parsed["slack_ts"], rid,
+                                parsed.get("published_at"),
+                                parsed.get("published_at_source", ""))
         db.add(Review(
             id=rid, slack_ts=parsed["slack_ts"],
             slack_channel=parsed["slack_channel"], rating=parsed["rating"],
@@ -2561,6 +2588,19 @@ async def reprocess_review(
                     refreshed = True
                 if parsed.get("reference_number") and not r.reference_number:
                     r.reference_number = parsed["reference_number"]
+                    refreshed = True
+                # THE PUBLISH DATE, for reviews ingested before it was read.
+                # Their received_at is the Slack arrival time, and without
+                # this a re-run would leave every existing review showing the
+                # relay date under "Review date" and on the timeline for ever
+                # — the fix would apply only to reviews that had not arrived
+                # yet, which is the half that was never wrong.
+                _pub = parsed.get("published_at")
+                if _pub and _pub != r.received_at:
+                    log.info(f"[reprocess] {review_id}: review date corrected "
+                             f"{r.received_at} → {_pub} (from "
+                             f"{parsed.get('published_at_source') or 'the payload'})")
+                    r.received_at = _pub
                     refreshed = True
                 if refreshed:
                     db.commit()

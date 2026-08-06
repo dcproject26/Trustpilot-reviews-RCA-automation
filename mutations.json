@@ -208,5 +208,23 @@
     "name": "api: a refused post is marked posted anyway",
     "find": "    ts = await post_to_thread(r.slack_channel, r.slack_ts, text, as_user=True)\n    if ts is None and not MOCK_MODE:",
     "replace": "    ts = await post_to_thread(r.slack_channel, r.slack_ts, text, as_user=True)\n    d.rca_posted_at = datetime.utcnow()\n    if ts is None and not MOCK_MODE:"
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "guest name: the spec's ticket_facts source is ignored",
+    "find": "        for src, key in ((_tf, \"guest_full_name\"),",
+    "replace": "        for src, key in (({}, \"guest_full_name\"),"
+  },
+  {
+    "file": "server/bid_indicator_check.py",
+    "name": "guest name: the requester outranks the spec's field",
+    "find": "        for src, key in ((_tf, \"guest_full_name\"),\n                         (booking, \"zendesk_guest_name\"),\n                         (booking, \"zendesk_requester_name\")):",
+    "replace": "        for src, key in ((booking, \"zendesk_requester_name\"),\n                         (booking, \"zendesk_guest_name\"),\n                         (_tf, \"guest_full_name\")):"
+  },
+  {
+    "file": "server/api.py",
+    "name": "api: the card stops passing ticket_facts to the indicator check",
+    "find": "                         ticket_facts=getattr(d, \"ticket_facts\", None))",
+    "replace": "                         )"
   }
 ]

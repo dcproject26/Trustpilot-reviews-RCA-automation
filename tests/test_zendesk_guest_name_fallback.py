@@ -196,3 +196,71 @@ def test_the_shortlist_candidates_carry_the_zendesk_name():
     assert '_c["zendesk_guest_name"] = _sig.get("guest_name", "")' in src, (
         "shortlist candidates no longer carry the Zendesk guest name, so the "
         "fallback can never fire on the path it was written for")
+
+
+# ── the source the DATA-SOURCE SPEC actually names ─────────────────────────
+#
+# "Primary guest name | Zendesk | ticket_facts.guest_full_name (BQ guestName
+# is a hash — do NOT use)". The dashboard has followed that for a while. This
+# check did not: it compared the reviewer against the hash and threw the
+# comparison away, on exactly the rows where a real name was available one
+# field over.
+
+def test_ticket_facts_guest_full_name_is_used():
+    got = check("the tickets never arrived",
+                {"experienceName": "Swiss Travel Pass",
+                 "primary_guest_name": HASH},
+                author=AUTHOR, received_at="2026-08-05",
+                ticket_facts={"guest_full_name": "Mariana Campos"})
+    assert _guest(got)["state"] == "match", _guest(got)
+
+
+def test_ticket_facts_outranks_the_other_two_zendesk_sources():
+    """The spec's field is the source of truth, and it is the best of the
+    three: the name a CE actually addressed the guest by, rather than whoever
+    happens to own the Zendesk account."""
+    got = check("the tickets never arrived",
+                {"experienceName": "Swiss Travel Pass",
+                 "primary_guest_name": "Customer Ops Lead",
+                 "zendesk_guest_name": "Someone Else",
+                 "zendesk_requester_name": "Someone Else Again"},
+                author=AUTHOR, received_at="2026-08-05",
+                ticket_facts={"guest_full_name": "Mariana Campos"})
+    assert "Mariana Campos" in _guest(got)["why"], _guest(got)["why"]
+
+
+def test_a_hashed_ticket_fact_is_rejected_like_any_other():
+    """The extraction prompt already rejects hashes, but a stale draft may
+    carry one. The guard is applied to every source, not just the ones we
+    expect to be dirty."""
+    got = check("the tickets never arrived",
+                {"experienceName": "Swiss Travel Pass",
+                 "primary_guest_name": "Customer Ops Lead",
+                 "zendesk_guest_name": "Mariana Campos"},
+                author=AUTHOR, received_at="2026-08-05",
+                ticket_facts={"guest_full_name": HASH})
+    assert _guest(got)["state"] == "match", _guest(got)
+    assert "Mariana Campos" in _guest(got)["why"], _guest(got)["why"]
+
+
+def test_no_ticket_facts_is_not_an_error():
+    """The pipeline's own call runs BEFORE the timeline is fetched, so it has
+    no ticket_facts to give. That path must degrade to the other sources, not
+    raise."""
+    got = check("the tickets never arrived",
+                {"experienceName": "Swiss Travel Pass",
+                 "primary_guest_name": "Customer Ops Lead",
+                 "zendesk_guest_name": "Mariana Campos"},
+                author=AUTHOR, received_at="2026-08-05")
+    assert _guest(got)["state"] == "match", _guest(got)
+
+
+def test_the_card_passes_ticket_facts_in():
+    """NEGATIVE-shaped source assertion: the chain can be perfect and never
+    fire if the caller does not supply the field."""
+    import inspect
+    from server import api
+    src = inspect.getsource(api)
+    assert 'ticket_facts=getattr(d, "ticket_facts", None)' in src, (
+        "the card's indicator check no longer passes ticket_facts, so the "
+        "spec's guest-name source is unreachable from it")

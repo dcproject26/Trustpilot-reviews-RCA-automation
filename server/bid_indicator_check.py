@@ -390,7 +390,8 @@ def _date_signal(review_text: str, booking: dict, reference: date | None) -> dic
                 f"visited {visit.isoformat()}, {delta} days apart")
 
 
-def _guest_signal(author: str | None, booking: dict) -> dict:
+def _guest_signal(author: str | None, booking: dict,
+                  ticket_facts: dict | None = None) -> dict:
     from server.names import is_placeholder, parse_author, is_internal_booking_name
     from server.services.zendesk import _name_score
 
@@ -432,9 +433,24 @@ def _guest_signal(author: str | None, booking: dict) -> dict:
         # Only ever a FALLBACK. The warehouse name wins whenever it is
         # readable, because it is the booking's own record; this runs solely
         # where that record has nothing to give.
+        # ORDER IS THE DATA-SOURCE SPEC'S, NOT AN INVENTION. It names the
+        # guest name as a ZENDESK fact — `ticket_facts.guest_full_name` — and
+        # says of the warehouse column: "BQ guestName is a hash — do NOT use".
+        # The dashboard has followed that for a while; this check never did,
+        # so matching was reading the one source the spec rules out.
+        #
+        #   1. ticket_facts.guest_full_name — the spec's source of truth. The
+        #      name a CE actually addressed the guest by, extracted from the
+        #      ticket prose, already hash-rejecting at extraction time.
+        #   2. the ticket's guest-name custom field.
+        #   3. the Zendesk requester — weakest of the three, because it is
+        #      whoever owns the account: an assistant, a parent, a colleague.
+        _tf = ticket_facts if isinstance(ticket_facts, dict) else {}
         zdn = ""
-        for key in ("zendesk_guest_name", "zendesk_requester_name"):
-            v = str(booking.get(key) or "").strip()
+        for src, key in ((_tf, "guest_full_name"),
+                         (booking, "zendesk_guest_name"),
+                         (booking, "zendesk_requester_name")):
+            v = str(src.get(key) or "").strip()
             # The same three disqualifications apply — Zendesk carries desk
             # labels and blanks too, and accepting one here would reintroduce
             # the exact bug on the fallback path.
@@ -512,7 +528,7 @@ def _looks_hashed(s: str) -> bool:
 # ── the check ──────────────────────────────────────────────────────────────
 
 def check(review_text: str, booking: dict, *, author: str | None = None,
-          received_at=None) -> dict:
+          received_at=None, ticket_facts: dict | None = None) -> dict:
     """Whether the booking this id returned is the trip the review describes.
 
     Returns {"state", "signals", "contradictions", "agreements", "checked",
@@ -533,7 +549,7 @@ def check(review_text: str, booking: dict, *, author: str | None = None,
         _venue_signal(review_text, booking),
         _city_signal(review_text, booking),
         _date_signal(review_text, booking, ref),
-        _guest_signal(author, booking),
+        _guest_signal(author, booking, ticket_facts),
     ]
     by_state = lambda st: [s["name"] for s in signals if s["state"] == st]  # noqa: E731
     contradictions = by_state("mismatch")
