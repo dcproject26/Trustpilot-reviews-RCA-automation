@@ -1532,6 +1532,23 @@ that turned out fine is silence — never a line in the output.
    root cause. Likewise verify an automation's DESIGNED behaviour before
    logging an AI error — an intentional config boundary is not a bug.
 
+4g. A CLAIM ABOUT THE AMOUNT IS NEVER SETTLED BY THE BOOKING RECORD ALONE.
+   "Booking 32142070 records one adult, CHF 461.19 total, no add-ons" was
+   offered as proof that a guest claiming a double charge was wrong. It proves
+   nothing: it is the record confirming its own pax count. The question is not
+   how many tickets we recorded — it is whether CHF 461.19 is the price of ONE
+   of them or TWO.
+   Settling it needs a UNIT price, which the total and the pax count cannot
+   supply between them. Two sources can:
+     the ZENDESK ticket text — booking dumps and confirmation emails routinely
+       state per-person amounts. "net" is what we paid the PARTNER, never what
+       the guest paid; reading one for the other tells a guest they were
+       charged 450 when they paid 606.
+     the EXPERIENCE PAGE — the list price for that variant and date.
+   With no unit price from either, the verdict is "Unknown" and the note says
+   the amount could not be checked. NOT "Inaccurate": a guest wrongly told
+   they were not double-charged is worse than one told we could not tell.
+
 5. VERIFY EVERY GUEST CLAIM AT ITS SOURCE. Two steps, in order.
    FIRST list every factual claim the guest makes — in the review AND in what
    they told support. A claim is anything checkable: "I was never told X",
