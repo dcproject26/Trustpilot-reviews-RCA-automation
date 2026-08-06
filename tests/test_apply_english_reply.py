@@ -50,14 +50,20 @@ def _stored(db):
         s.close()
 
 
-def _call(english="They never arrived at all."):
-    """Drive the real endpoint function against the live session."""
+def _call(english="They never arrived at all.", language=None):
+    """Drive the real endpoint function against the live session.
+
+    `language` is what the CARD supplies in the unknown-language case: the
+    review is known not to be English (its text was translated inbound) and
+    only the NAME was missing, which the associate reading the review can
+    see. Passing it is what unblocks the rewrite.
+    """
     import server.api as api
     import server.db as db
     s = db.SessionLocal()
     try:
         return asyncio.run(api.apply_english_reply(
-            "tp_x", api.EnglishReplyBody(english=english), s))
+            "tp_x", api.EnglishReplyBody(english=english, language=language), s))
     finally:
         s.close()
 
@@ -236,10 +242,62 @@ def test_no_language_refuses_and_leaves_the_reply_alone(api_db, monkeypatch):
 
 
 def test_no_language_names_what_would_fix_it(api_db):
+    """"An error should name what would work."
+
+    THE REMEDY MOVED, THE GUARANTEE DID NOT. This used to insist on the
+    literal string "Review.language", which was the only route at the time:
+    someone had to go and set the column. The card can now supply the name
+    itself, so the message points at the control the reader is looking at
+    rather than at a database field they cannot reach — and it still names the
+    fallback of writing the reply in the guest's language directly.
+
+    Asserted on both routes rather than on one phrase, because the phrase is
+    what changed and the routes are what matter.
+    """
     _seed(api_db, language="")
     with pytest.raises(Exception) as e:
         _call()
-    assert "Review.language" in str(e.value)
+    msg = str(e.value)
+    assert "Name the guest's language" in msg, msg
+    assert "edit the outgoing reply directly" in msg, msg
+
+
+def test_naming_the_language_on_the_card_unblocks_the_rewrite(api_db):
+    """The other half of the same change, and the reason the message moved.
+
+    A review whose text was translated inbound is KNOWN not to be English;
+    only the language code was missing. Refusing outright left the associate
+    with no route at all from the card they were looking at.
+    """
+    _seed(api_db, language="")
+    out = _call(language="Italian")
+    assert out["ok"] is True, out
+    assert out["translated"] is True, out
+    assert out["language"] == "Italian", out
+
+
+def test_the_named_language_is_recorded_so_it_is_asked_for_once(api_db):
+    """Otherwise every later render asks again, and a fact the associate
+    already established is thrown away on each pass."""
+    import server.db as db
+    _seed(api_db, language="")
+    _call(language="Italian")
+    s = db.SessionLocal()
+    try:
+        r = s.query(db.Review).filter(db.Review.id == "tp_x").first()
+        assert (r.language or "").strip() == "Italian", r.language
+    finally:
+        s.close()
+
+
+def test_a_blank_language_is_not_taken_as_an_answer(api_db):
+    """Whitespace is not a language. Accepting it would record "" and leave
+    the card in a state where it has stopped asking and still cannot
+    translate."""
+    _seed(api_db, language="")
+    with pytest.raises(Exception) as e:
+        _call(language="   ")
+    assert "Name the guest's language" in str(e.value)
 
 
 # ── Empty input ─────────────────────────────────────────────────────────────
