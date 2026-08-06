@@ -15,7 +15,7 @@ import re
 # import of a module-level name shadows that name for the WHOLE function and
 # raises UnboundLocalError on every earlier use — which is precisely how the
 # Zendesk lookup went dark for two reviews, swallowed by an except.
-from server import price_check
+from server import dss_check, price_check
 from server.checklist import (ACTION_TEAMS, FLAG_TEAM_ALIASES, ACTION_TABS,
                               actions_raised, findings_text,
                               actions_from_findings)
@@ -796,7 +796,7 @@ def _booking_logs(raw, booking_confirmed, notes):
 
 def validate(rca: dict, scenarios_routed=None, keep_actions=None,
              booking_confirmed: bool = True, events=None,
-             booking=None) -> tuple[dict, list]:
+             booking=None, review_at=None) -> tuple[dict, list]:
     """Return (coerced rca, notes). Never raises."""
     notes: list[str] = []
     if not isinstance(rca, dict):
@@ -807,6 +807,10 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
     issues = [_issue(i, notes) for i in (_gi if isinstance(_gi, list) else [])
               if isinstance(i, dict)]
     _gate_amount_claims(issues, booking, events, notes)
+    _dss_followed, _dss_note = dss_check.gate_dss_followed(
+        _obj(rca.get("dss")).get("followed"), events, review_at)
+    if _dss_note:
+        notes.append(_dss_note)
 
     scenarios = [s for s in (rca.get("scenarios") if isinstance(rca.get("scenarios"), list) else []) if _clean(s)]
     overlays = [s for s in (rca.get("overlay_scenarios") if isinstance(rca.get("overlay_scenarios"), list) else [])
@@ -994,5 +998,9 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
         "takedown": {"verdict": _enum(_obj(rca.get("takedown")).get("verdict"),
                                       TAKEDOWN, "Untraceable")},
         "dss": {"prescribes": _clean(dss.get("prescribes")),
-                "ref":        _clean(dss.get("ref"))},
+                "ref":        _clean(dss.get("ref")),
+                # Whether we TOOK the prescribed path, which `prescribes`
+                # deliberately does not say. Only written where the timeline
+                # shows the guest wrote in first — see `dss_check`.
+                "followed":   _dss_followed},
     }, notes

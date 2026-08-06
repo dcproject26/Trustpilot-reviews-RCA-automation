@@ -1889,6 +1889,7 @@ that turned out fine is silence — never a line in the output.
   "dss": {
     "prescribes": "<what the matched DSS row prescribes for this scenario>",
     "ref": "<DSS row URL | null>",
+    "followed": "<followed | not_followed | unestablished — ONLY where the guest contacted support BEFORE the review; null otherwise>",
     "missed_next_step": [
       {"team": "<one of the nine team codes>",
        "action": "<the next escalation step the DSS row prescribes that DID NOT happen on this booking>"}
@@ -2162,6 +2163,23 @@ that turned out fine is silence — never a line in the output.
     classification). Do NOT cite the DSS sheet in `evidence[]` at all — it has no source
     value, and a row about the sheet's own coverage is not a record of what happened to this
     booking. `dss.prescribes` is where the needle belongs.
+14a. `dss.followed` IS THE COMPLIANCE VERDICT, and it is a different field from `prescribes`
+    for a reason: `prescribes` is what the sheet says and must stay free of your analysis,
+    while this is whether we actually took that path.
+    ANSWER IT ONLY WHERE THE GUEST CONTACTED SUPPORT BEFORE POSTING THE REVIEW. A guest who
+    wrote in first has already been through a decision sheet — there was a prescribed path and
+    we took it or we did not. A review with no prior contact has no such path: nobody was owed
+    the step, so "not_followed" there is blame for something never required, and "followed" is
+    praise for the same. Leave it null and the card says the check did not apply.
+    `not_followed` is a FINDING. Say what the sheet prescribed and what was done instead, in
+    the issue's `operational_failure` if a person or system departed from it, or its `sop_gap`
+    if the path did not cover the case. Do not restate the verdict as its own bullet.
+    `unestablished` when they did write in and the record does not show what path was taken —
+    that is a real answer and is not the same as `not_followed`.
+    THIS IS ALSO CHECKED IN CODE. The timeline decides whether the guest wrote in first, and a
+    verdict written where they did not is dropped with a note on the trail; a case where they
+    did and this was left null comes back as `unestablished`. Answer it properly here so the
+    card is right the first time.
 15. `l1`, `l2` and `sub_themes` must come from the taxonomy verbatim (including any letter
     prefix, e.g. `"C. Ticket Delayed"`). Never invent a category, never abbreviate one, and
     never leave them empty — if the review is unclassifiable, use the taxonomy's own catch-all.

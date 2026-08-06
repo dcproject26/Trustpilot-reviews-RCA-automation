@@ -460,5 +460,41 @@
     "name": "actions: an empty field is counted as an unroutable finding",
     "find": "        if not str(text or \"\").strip():\n            return False",
     "replace": "        if False:\n            return False"
+  },
+  {
+    "file": "server/dss_check.py",
+    "name": "dss: an internal note counts as the guest reaching out",
+    "find": "    guest_rows = [e for e in rows\n                  if str(e.get(\"actor\") or \"\").strip().lower() == \"guest\"]",
+    "replace": "    guest_rows = list(rows)"
+  },
+  {
+    "file": "server/dss_check.py",
+    "name": "dss: no timeline reads as a guest who never wrote in",
+    "find": "    if not rows:\n        return NO_TIMELINE, (\"no support timeline was loaded for this booking, \"",
+    "replace": "    if not rows:\n        return NO_PRIOR_CONTACT, (\"no support timeline was loaded for this booking, \""
+  },
+  {
+    "file": "server/dss_check.py",
+    "name": "dss: contact after the review still opens the check",
+    "find": "    if not earlier:\n        return NO_PRIOR_CONTACT,",
+    "replace": "    if False:\n        return NO_PRIOR_CONTACT,"
+  },
+  {
+    "file": "server/dss_check.py",
+    "name": "dss: a verdict with no standing is kept",
+    "find": "        if said in (\"followed\", \"not_followed\"):\n            return None,",
+    "replace": "        if False:\n            return None,"
+  },
+  {
+    "file": "server/dss_check.py",
+    "name": "dss: an unanswered check that had standing is not reported",
+    "find": "    return \"unestablished\", (f\"dss.followed was not answered",
+    "replace": "    return None, (f\"dss.followed was not answered"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "dss: the followed gate is wired into nothing",
+    "find": "    _dss_followed, _dss_note = dss_check.gate_dss_followed(",
+    "replace": "    _dss_followed, _dss_note = (None, None) or dss_check.gate_dss_followed("
   }
 ]

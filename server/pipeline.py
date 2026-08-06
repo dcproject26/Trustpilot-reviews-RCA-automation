@@ -3131,7 +3131,11 @@ async def process_review(review_id: str, force_candidates: bool = False):
                                                   booking_confirmed=_booking_confirmed,
                                                   events=timeline or [],
                                                   # For the amount-claim gate.
-                                                  booking=booking or {})
+                                                  booking=booking or {},
+                                                  # For the DSS-followed gate:
+                                                  # decides whether the guest
+                                                  # wrote in BEFORE the review.
+                                                  review_at=review.received_at)
                 # A coercion the reader cannot see is a silent edit. The trail
                 # is where this build already puts "we changed what the model
                 # said, and here is why", so each note goes there verbatim.
