@@ -95,30 +95,108 @@ def _gate_src():
     return tail.split("# Date alone is not evidence")[0]
 
 
+# ── driven, because the source assertions did not hold ─────────────────────
+#
+# A mutation forcing `name_checked = True` SURVIVED every test in this file.
+# They were all source assertions — the branch needs a live BigQuery, so that
+# was all that seemed possible — and `checked` is the entire point of the fix.
+# The logic moved into gate_name_check() so it can be driven.
+
+from server.pipeline import gate_name_check, gate_unusable_reason
+
+
+def _g(booking_name, zendesk_name="", zendesk_why="", first="Ioan",
+       last="Popescu"):
+    name, checked, score, source, why = gate_name_check(
+        booking_name, zendesk_name, zendesk_why, first, last)
+    return {"name": name, "checked": checked, "score": score,
+            "source": source, "why": why}
+
+
+def test_a_readable_booking_name_is_compared_and_wins():
+    got = _g("Ioan Popescu")
+    assert got["checked"] is True
+    assert got["score"] == 1.0
+    assert got["source"] == "the booking record"
+
+
+@pytest.mark.parametrize("pgn", [HASH, "Customer Ops Lead", ""])
+def test_an_unusable_booking_name_with_no_zendesk_name_is_NOT_CHECKED(pgn):
+    """THE MUTATION THAT SURVIVED. `checked` False is what stops the card
+    reporting a score for a comparison that never ran, and stops the gate
+    reading "we could not compare" as "they disagree"."""
+    got = _g(pgn)
+    assert got["checked"] is False, (pgn, got)
+    assert got["score"] == 0.0, got
+
+
+@pytest.mark.parametrize("pgn", [HASH, "Customer Ops Lead", ""])
+def test_an_unusable_booking_name_falls_back_to_zendesk(pgn):
+    got = _g(pgn, "Ioan Popescu", "the Zendesk ticket's guest-name field")
+    assert got["checked"] is True, (pgn, got)
+    assert got["score"] == 1.0, got
+    assert "Zendesk" in got["source"], got
+
+
+def test_a_readable_booking_name_is_never_displaced_by_zendesk():
+    """The booking's own record is authoritative wherever it is readable. If
+    Zendesk could displace it, a ticket raised by a travel agent would rewrite
+    the guest on the booking."""
+    got = _g("Fredrik Andersson", "Ioan Popescu", "the ticket")
+    assert got["name"] == "Fredrik Andersson", got
+    assert got["source"] == "the booking record", got
+
+
+def test_a_real_disagreement_is_still_CHECKED():
+    """Not-checked and checked-and-zero must not collapse: one is a booking
+    under someone else's name, the other is a record with nothing in it."""
+    got = _g("Fredrik Andersson")
+    assert got["checked"] is True
+    assert got["score"] == 0.0
+
+
+def test_the_reason_zendesk_gave_survives_when_it_had_nothing():
+    """"Zendesk had no readable name" and "Zendesk was never asked" must not
+    read the same — the whole point of that lookup returning a sentence."""
+    got = _g(HASH, "", "no Zendesk ticket references this booking id")
+    assert got["checked"] is False
+    assert "no Zendesk ticket" in got["why"], got
+
+
+@pytest.mark.parametrize("pgn,want", [
+    (HASH, "a warehouse hash"),
+    ("Customer Ops Lead", "an internal desk label"),
+    ("", "no guest name"),
+])
+def test_the_card_names_WHICH_kind_of_unusable_it_was(pgn, want):
+    """A hash and a desk label call for different responses — one is a PII
+    policy, the other a record that needs correcting."""
+    assert gate_unusable_reason(pgn) == want
+
+
+def test_a_usable_name_has_no_unusable_reason():
+    assert gate_unusable_reason("Ioan Popescu") == ""
+
+
+def test_the_three_reasons_are_distinguishable():
+    seen = {gate_unusable_reason(p) for p in (HASH, "Customer Ops Lead", "")}
+    assert len(seen) == 3, seen
+
+
 def test_the_gate_no_longer_scores_the_raw_warehouse_name():
-    """The one line that caused this. `_nsc(pgn, ...)` scored the reviewer
-    straight against a hash."""
+    """NEGATIVE source assertion, still worth keeping: `_nsc(pgn, ...)` was
+    the exact line that scored the reviewer straight against a hash."""
     assert "_nsc(pgn," not in _gate_src(), (
         "the Tier-1 gate scores the raw warehouse name again — a hash, a desk "
         "label and a real disagreement are back to being one answer")
 
 
-def test_the_gate_guards_the_hash_and_the_desk_label():
-    src = _gate_src()
-    assert "_is_hashed_name(pgn)" in src, "the hash guard is not applied"
-    assert "_is_internal_booking_name(pgn)" in src, "the desk-label guard is not applied"
-
-
 def test_the_gate_asks_zendesk_before_giving_up_on_the_name():
-    """The fallback the ranking path already had. Without it the gate gives up
-    while a readable name sits one lookup away."""
     assert "guest_name_for_bid" in _gate_src(), (
         "the Tier-1 gate no longer consults Zendesk for the guest name")
 
 
 def test_the_gate_tracks_whether_a_comparison_HAPPENED():
-    """`name_conf` alone cannot carry this: 0.0 is what both answers look
-    like."""
     assert "name_checked" in _gate_src()
 
 

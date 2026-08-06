@@ -229,21 +229,15 @@
   },
   {
     "file": "server/pipeline.py",
-    "name": "tier1 gate: the hash guard is dropped and a hash is scored again",
-    "find": "                        if pgn and not _is_hashed_name(pgn) and \\\n                                not _is_internal_booking_name(pgn):",
-    "replace": "                        if pgn:"
-  },
-  {
-    "file": "server/pipeline.py",
     "name": "tier1 gate: an uncomparable name is reported as a real score",
-    "find": "                        name_checked = bool(_cmp_name)",
-    "replace": "                        name_checked = True"
+    "find": "    if not cmp_name:\n        return \"\", False, 0.0, \"\", why",
+    "replace": "    if False:\n        return \"\", False, 0.0, \"\", why"
   },
   {
     "file": "server/pipeline.py",
     "name": "tier1 gate: Zendesk is no longer consulted for the guest name",
-    "find": "                            _cmp_name, _zwhy = await zendesk.guest_name_for_bid(",
-    "replace": "                            _cmp_name, _zwhy = \"\", \"\"  # was: await zendesk.guest_name_for_bid("
+    "find": "                            _zdn, _zwhy = await zendesk.guest_name_for_bid(",
+    "replace": "                            _zdn, _zwhy = \"\", \"\"  # was: await zendesk.guest_name_for_bid("
   },
   {
     "file": "server/api.py",
@@ -284,13 +278,55 @@
   {
     "file": "server/pipeline.py",
     "name": "extraction: the state is no longer tracked, so {} reads as an answer",
-    "find": "                    if isinstance(_parsed, dict):\n                        indicators = _parsed\n                    else:",
-    "replace": "                    if True:\n                        indicators = _parsed or {}\n                    else:"
+    "find": "    if isinstance(parsed, dict):\n        return parsed, \"ok\", \"\"",
+    "replace": "    if True:\n        return (parsed or {}), \"ok\", \"\""
   },
   {
     "file": "server/pipeline.py",
     "name": "tier1 gate: the venue check goes back to the translation alone",
     "find": "                            match_text or review_text or \"\", exp_name)",
     "replace": "                            review_text or \"\", exp_name)"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "tier1 gate: a readable booking name is displaced by a Zendesk one",
+    "find": "    if pgn and not _is_hashed_name(pgn) and not is_internal_booking_name(pgn):",
+    "replace": "    if False:"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "tier1 gate: the unusable reasons collapse into one",
+    "find": "    if _is_hashed_name(pgn):\n        return \"a warehouse hash\"",
+    "replace": "    if _is_hashed_name(pgn):\n        return \"no guest name\""
+  },
+  {
+    "file": "server/response_gaps.py",
+    "name": "gaps: a range is read at its inner bound",
+    "find": "        n = int(hi or lo)",
+    "replace": "        n = int(lo)"
+  },
+  {
+    "file": "server/response_gaps.py",
+    "name": "gaps: a vague promise becomes a deadline",
+    "find": "        if hours is None:",
+    "replace": "        if False:"
+  },
+  {
+    "file": "server/response_gaps.py",
+    "name": "gaps: elapsed time alone flags again",
+    "find": "    else:\n        return None\n    return {\"check\": check, \"detail\": detail, \"hours\": round(hours, 1),\n            \"chases\": chases, \"answered\": answered, \"promise\": \"\"}",
+    "replace": "    else:\n        check, detail = \"Delayed response to guest\", \"slow\"\n    return {\"check\": check, \"detail\": detail, \"hours\": round(hours, 1),\n            \"chases\": chases, \"answered\": answered, \"promise\": \"\"}"
+  },
+  {
+    "file": "server/ticket_notes.py",
+    "name": "notes: a booking fact no longer beats an admin phrase",
+    "find": "    if _BOOKING_FACT.search(text):\n        return \"keep\", \"records something that happened to the booking\"",
+    "replace": "    if False:\n        return \"keep\", \"records something that happened to the booking\""
+  },
+  {
+    "file": "server/ticket_notes.py",
+    "name": "notes: repeated pings stop collapsing",
+    "find": "        if len(group) < min_run or not key:",
+    "replace": "        if True:"
   }
 ]

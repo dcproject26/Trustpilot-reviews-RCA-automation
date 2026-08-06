@@ -167,3 +167,79 @@ def test_the_pipeline_uses_this_function_rather_than_its_own_copy():
         "the pipeline no longer calls extraction_trail_line")
     assert "nothing usable was found in the review" not in src, (
         "the pipeline has its own copy of the sentence again")
+
+
+# ── what the trail line is HANDED ──────────────────────────────────────────
+#
+# A mutation collapsing `isinstance(parsed, dict)` into `parsed or {}`
+# SURVIVED every test above. They drive the pure trail-line function; nothing
+# drove the code deciding what to hand it — the same gap one layer up, and it
+# turns an unparseable reply back into "the review named nothing".
+
+from server.pipeline import classify_extraction
+
+
+def test_a_parsed_object_is_the_answer():
+    ind, state, why = classify_extraction({"experience_or_venue": "Colosseum"},
+                                          '{"experience_or_venue":"Colosseum"}')
+    assert state == "ok" and why == ""
+    assert ind["experience_or_venue"] == "Colosseum"
+
+
+def test_an_empty_parsed_object_is_still_an_answer():
+    """A model that looked and found nothing HAS answered. This is the honest
+    empty case and it must not be reported as a failure."""
+    assert classify_extraction({}, "{}")[1] == "ok"
+
+
+def test_a_reply_that_is_not_an_object_is_NOT_an_empty_answer():
+    """THE MUTATION THAT SURVIVED. Coercing it to {} makes an unparseable
+    reply indistinguishable from a review that named nothing — the whole
+    fault this tracking exists to fix."""
+    ind, state, why = classify_extraction(None, "I'm sorry, I can't help.")
+    assert state == "unparsed", (state, why)
+    assert ind == {}
+    assert "not a JSON object" in why, why
+
+
+@pytest.mark.parametrize("parsed", [None, "a string", 42, ["a", "list"]])
+def test_no_non_dict_is_treated_as_an_answer(parsed):
+    assert classify_extraction(parsed, "raw")[1] == "unparsed", parsed
+
+
+def test_a_raised_call_is_a_failure_and_names_the_exception():
+    ind, state, why = classify_extraction(None, "", RuntimeError("529 overloaded"),
+                                          ai_live=True)
+    assert state == "failed"
+    assert "RuntimeError" in why and "529" in why, why
+
+
+def test_a_raise_with_no_provider_configured_says_THAT_instead():
+    """One is broken, the other is how this server is set up, and a reader
+    chases only the first."""
+    _, state, why = classify_extraction(None, "", RuntimeError("boom"),
+                                        ai_live=False, mock_mode=False)
+    assert state == "unavailable"
+    assert "not configured" in why, why
+
+
+def test_mock_mode_reports_a_raise_as_a_failure_not_as_unconfigured():
+    """In mock mode is_live is false for everything, so the unconfigured
+    branch would swallow a real bug in the mock path."""
+    _, state, _ = classify_extraction(None, "", RuntimeError("boom"),
+                                      ai_live=False, mock_mode=True)
+    assert state == "failed"
+
+
+def test_the_four_states_are_the_ones_the_trail_line_knows():
+    """A fifth state would fall through to the failure branch and be reported
+    as an outage."""
+    states = {
+        classify_extraction({}, "{}")[1],
+        classify_extraction(None, "prose")[1],
+        classify_extraction(None, "", RuntimeError("x"), ai_live=True)[1],
+        classify_extraction(None, "", RuntimeError("x"), ai_live=False)[1],
+    }
+    assert states == {"ok", "unparsed", "failed", "unavailable"}
+    for st in states:
+        assert line(st, "why", {})["text"].strip(), st

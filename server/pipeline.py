@@ -260,6 +260,84 @@ def complete_booking_row(booking: dict, lookup) -> tuple:
                             + ", so they were fetched separately."}
 
 
+def gate_name_check(booking_name, zendesk_name, zendesk_why, author_first,
+                    author_last):
+    """(name, checked, score, source, why) for the Tier-1 booking-id gate.
+
+    A FUNCTION for the same reason as classify_extraction: the branch this
+    came from needs a live BigQuery, so the only tests possible were source
+    assertions — and a mutation forcing `name_checked = True` SURVIVED them
+    all. `checked` is the entire point of the fix and nothing drove it.
+
+    CHECKED IS NOT "THE SCORE WAS ZERO". A warehouse hash, an internal desk
+    label, a blank field and a genuinely different person all score 0.0, and
+    the gate read "we could not compare" as "they disagree" — routing a
+    booking id the guest quoted in their own review to manual confirmation and
+    reporting a disagreement that never happened.
+    """
+    from server.names import is_internal_booking_name
+    from server.services.zendesk import _name_score
+
+    pgn = str(booking_name or "").strip()
+    if pgn and not _is_hashed_name(pgn) and not is_internal_booking_name(pgn):
+        cmp_name, source = pgn, "the booking record"
+        why = ""
+    else:
+        cmp_name = str(zendesk_name or "").strip()
+        source = zendesk_why if cmp_name else ""
+        why = "" if cmp_name else (zendesk_why or "")
+    if not cmp_name:
+        return "", False, 0.0, "", why
+    return (cmp_name, True, _name_score(cmp_name, author_first, author_last),
+            source, "")
+
+
+def gate_unusable_reason(booking_name):
+    """WHICH kind of unusable the booking's own name was. A hash and a desk
+    label call for different responses — one is a PII policy, the other a
+    record that needs correcting — and 'no readable name' loses that."""
+    from server.names import is_internal_booking_name
+    pgn = str(booking_name or "").strip()
+    if not pgn:
+        return "no guest name"
+    if _is_hashed_name(pgn):
+        return "a warehouse hash"
+    if is_internal_booking_name(pgn):
+        return "an internal desk label"
+    return ""
+
+
+def classify_extraction(parsed, raw, failure=None, ai_live=True,
+                        mock_mode=False):
+    """(indicators, state, why) for one indicator-extraction attempt.
+
+    A FUNCTION because the branch that used to hold this is only reachable
+    with a live model, so nothing could drive it — and a mutation collapsing
+    `isinstance(parsed, dict)` into `parsed or {}` SURVIVED the whole suite.
+    The pure trail-line function was tested; the code deciding what to hand it
+    was not, which is the same gap one layer up.
+
+    `parsed` is what _extract_json_object returned. NOT-A-DICT IS NOT AN EMPTY
+    ANSWER: coercing it to {} makes an unparseable reply indistinguishable
+    from a review that named nothing, which is the whole fault this tracking
+    exists to fix.
+    """
+    if failure is not None:
+        # An unconfigured provider and a provider that broke are different
+        # things to a reader: one is how this server is set up, the other is
+        # worth chasing.
+        if not mock_mode and not ai_live:
+            return {}, "unavailable", ("the AI provider is not configured on "
+                                       "this server")
+        return {}, "failed", f"{type(failure).__name__}: {str(failure)[:120]}"
+    if isinstance(parsed, dict):
+        return parsed, "ok", ""
+    return {}, "unparsed", (
+        f"the model answered but the reply was not a JSON object "
+        f"({len(str(raw or ''))} character(s) came back) — it may have been "
+        f"truncated")
+
+
 def extraction_trail_line(state: str, why: str, indicators: dict) -> dict:
     """The one trail line describing what the indicator extraction produced.
 
@@ -1258,25 +1336,14 @@ async def process_review(review_id: str, force_candidates: bool = False):
                         # under different rules, and the weaker one made the
                         # more consequential decision.
                         pgn = bq_row.get("primary_guest_name") or ""
-                        _name_src, _name_why = "", ""
-                        if pgn and not _is_hashed_name(pgn) and \
-                                not _is_internal_booking_name(pgn):
-                            _cmp_name, _name_src = pgn, "the booking record"
-                        else:
+                        _zdn, _zwhy = "", ""
+                        if gate_unusable_reason(pgn):
                             # The warehouse has nothing usable. Ask Zendesk —
                             # the same source the ranking path already uses.
-                            _cmp_name, _zwhy = await zendesk.guest_name_for_bid(
+                            _zdn, _zwhy = await zendesk.guest_name_for_bid(
                                 bq_row.get("booking_id") or review.reference_number)
-                            if _cmp_name:
-                                _name_src = _zwhy
-                            else:
-                                _name_why = _zwhy
-                        # WHETHER A COMPARISON HAPPENED AT ALL. This is the
-                        # distinction the gate was missing: `name_conf` alone
-                        # cannot carry it, because 0.0 is what both answers
-                        # look like.
-                        name_checked = bool(_cmp_name)
-                        name_conf = _nsc(_cmp_name, _af, _al) if name_checked else 0.0
+                        _cmp_name, name_checked, name_conf, _name_src, _name_why = \
+                            gate_name_check(pgn, _zdn, _zwhy, _af, _al)
                         if name_checked and name_conf >= 0.7:   # surname agrees at minimum
                             verify_hits.append(f"name({name_conf:.1f})")
                         if name_checked and _name_src != "the booking record":
@@ -1293,9 +1360,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
                             confidence_trail.append({"mark": "warn",
                                 "text": f"<strong>The guest name could not be "
                                         f"compared</strong> — the booking record holds "
-                                        + ("a warehouse hash" if _is_hashed_name(pgn)
-                                           else "an internal desk label" if pgn
-                                           else "no guest name")
+                                        + gate_unusable_reason(pgn)
                                         + f", and {_name_why}. This is NOT a "
                                           f"disagreement: nothing was compared."})
 
@@ -1443,48 +1508,27 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 #
                 # Tracked explicitly rather than by truthiness, because
                 # truthiness is exactly what the coercion destroyed.
-                indicators = {}
-                _extract_state, _extract_why = "ok", ""
                 # THE ATTEMPT IS ALWAYS MADE. An earlier version vetoed the
-                # call when is_live("anthropic") was false, which read as a
-                # cheap optimisation and was a design fault: it decided the
+                # call when is_live("anthropic") was false, which decided the
                 # outcome from configuration rather than from what happened,
-                # so a caller that HAD supplied a working client — a test, a
-                # stub, a provider is_live is wrong about — got "not
-                # configured" for a call that would have succeeded. The reason
-                # is derived from the failure instead, which is the only thing
-                # that can distinguish the cases honestly.
+                # so a caller that HAD supplied a working client got "not
+                # configured" for a call that would have succeeded.
+                _parsed, _raw, _failure = None, "", None
                 try:
                     from server.prompts import match_indicator_prompt
                     _pub = (review.received_at or datetime.utcnow()).date().isoformat()
-                    raw = await claude._call(
+                    _raw = await claude._call(
                         match_indicator_prompt(match_text or "", _pub,
                                                reviewer_name=review.author or ""),
                         max_tokens=400)
-                    _parsed = claude._extract_json_object(raw)
-                    if isinstance(_parsed, dict):
-                        indicators = _parsed
-                    else:
-                        # The call returned and the answer was not usable. A
-                        # DIFFERENT FACT from the call failing, and from an
-                        # empty review: this one is worth a re-run.
-                        _extract_state = "unparsed"
-                        _extract_why = (
-                            f"the model answered but the reply was not a "
-                            f"JSON object ({len(str(raw or ''))} character(s) "
-                            f"came back) — it may have been truncated")
+                    _parsed = claude._extract_json_object(_raw)
                 except Exception as e:
-                    # An unconfigured provider and a provider that broke are
-                    # different things to a reader: one is how this server is
-                    # set up, the other is worth chasing.
-                    if not MOCK_MODE and not is_live("anthropic"):
-                        _extract_state = "unavailable"
-                        _extract_why = ("the AI provider is not configured on "
-                                        "this server")
-                    else:
-                        _extract_state = "failed"
-                        _extract_why = f"{type(e).__name__}: {str(e)[:120]}"
+                    _failure = e
                     log.warning(f"Indicator extraction failed: {e}")
+                indicators, _extract_state, _extract_why = classify_extraction(
+                    _parsed, _raw, _failure,
+                    ai_live=is_live("anthropic"), mock_mode=MOCK_MODE)
+
                 # THE CITY IS NOT A VENUE. "Rome, Italy" was being passed to
                 # the venue resolver alongside the venue itself, which
                 # guarantees a miss — no experience is named "Rome, Italy" —
@@ -1500,29 +1544,15 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 # zero silently, so pull the first date out or drop it.
                 _vd = str(indicators.get("visit_date_hint") or "")
                 _m = re.search(r"\d{4}-\d{2}-\d{2}", _vd)
-                indicators["visit_date_hint"] = _m.group(0) if _m else None
+                if indicators:
+                    indicators["visit_date_hint"] = _m.group(0) if _m else None
 
                 extracted_sigs["venue_hints"] = venue_hints
                 extracted_sigs["match_indicators"] = indicators
                 # pax is extracted and persisted, but cannot be SCORED yet: no
                 # BQ query in this codebase selects a pax/quantity column, and
-                # the Zendesk extractor does not populate one either. Wiring it
-                # needs the pax column name in fct_bookings.
+                # the Zendesk extractor does not populate one either.
                 extracted_sigs["pax_hint"] = indicators.get("pax")
-                # TWO WORDING FIXES, both about the same line.
-                #
-                # It was ticked "pass" while reporting venue='—' city='—'
-                # visit≈'—' — a green tick on a step that found nothing. The
-                # extraction ran; it came back empty, and an empty extraction
-                # is what sends the search down the weakest path it has. That
-                # is a finding, not a success.
-                #
-                # And it was headed "Indicators:", one line above "5
-                # booking(s) match the indicators from this review" — the same
-                # word for what was pulled OUT of the review and for what the
-                # search matched bookings ON. The extraction is now headed
-                # with the name the card already uses for it, "Extracted from
-                # review", and "indicators" is left to mean the search.
                 extracted_sigs["extraction_state"] = _extract_state
                 if _extract_state != "ok":
                     _ctr["t2_extraction_unavailable"] = _ctr.get(
