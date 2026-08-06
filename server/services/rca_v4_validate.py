@@ -18,7 +18,7 @@ import re
 from server import dss_check, price_check
 from server.checklist import (ACTION_TEAMS, FLAG_TEAM_ALIASES, ACTION_TABS,
                               actions_raised, findings_text,
-                              actions_from_findings)
+                              actions_from_fixes)
 from server.taxonomy import L1_CATEGORIES, L2_OPTIONS
 
 # Four. "Unknown" carries both "we checked and nothing can settle it" and "we
@@ -911,12 +911,21 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
     _improve_rows = _improvements(rca.get("area_of_improving"),
                                   issues, _flags, notes)
 
-    _actions, _ar = actions_from_findings(
-        issues, _flags,
-        improvements=_improve_rows,
-        dss_miss=(dss.get("missed_next_step")
-                  if isinstance(dss.get("missed_next_step"), list) else None),
-        keep=keep_actions)
+    # §3 IS THE SOURCE FOR ACTIONS TAKEN. Same rows, grouped by owner — not a
+    # second store. Merging six sources into its own array is how one
+    # remediation reached a card twice, as the fix that closes a gap and again
+    # as the flag that raised it.
+    # ALWAYS from the fixes, including on a draft that predates the section —
+    # `_fix_rows` migrates its per-issue fixes first. Branching on which shape
+    # the draft happens to be would give two cards two different meanings for
+    # one tab strip, which is worse than either meaning on its own.
+    #
+    # The five other sources this used to merge — flags, operational failures,
+    # SOP gaps, improvements, DSS misses — are NOT lost. Each already renders
+    # in its own section, and routing them here as well is what put one
+    # remediation on a card twice.
+    _fixes = _fix_rows(wwr.get("fixes"), issues, notes)
+    _actions, _ar = actions_from_fixes(_fixes, keep=keep_actions)
     notes.extend(_ar["notes"])
 
     return {
@@ -925,7 +934,11 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
         "sub_themes":        [s for s in (rca.get("sub_themes") if isinstance(rca.get("sub_themes"), list) else []) if _clean(s)],
         "scenarios":         scenarios,
         "overlay_scenarios": overlays,
-        "what_went_wrong":   {"guest_issues": issues},
+        # `fixes` is stored beside the issues, not derived at render: Actions
+        # Taken is a VIEW over it, and a view whose source lives only in a
+        # local would be rebuilt differently by each read path. That is the
+        # two-stores-for-one-fact defect, arrived at from the other direction.
+        "what_went_wrong":   {"guest_issues": issues, "fixes": _fixes},
         "issue_specific_answers": _answers(rca.get("issue_specific_answers"), notes),
         # INTERPRETATION, not facts. The rows the UI renders come from the
         # pipeline's Zendesk-derived frames - their time, channel and ticket id
@@ -1004,3 +1017,47 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
                 # shows the guest wrote in first — see `dss_check`.
                 "followed":   _dss_followed},
     }, notes
+
+
+def _fix_rows(raw, issues, notes) -> list:
+    """§3's fixes: [{action, owner, because}].
+
+    MIGRATES A PRE-RESTRUCTURE DRAFT rather than reading it as a case with no
+    fixes. Before this section existed the fix lived on each issue as
+    `issue.fix`; a draft written then has no `fixes` array, and returning []
+    for it would render "Nothing to fix" beside issues that name a fix. The
+    move is reported, because it is a rewrite of what was stored.
+
+    A fix with no action is dropped — a row with an owner and no action tells
+    a team they own something and does not say what.
+    """
+    rows, migrated = [], 0
+    src = raw if isinstance(raw, list) else None
+    if src is None:
+        for i in (issues or []):
+            f = i.get("fix") if isinstance(i.get("fix"), dict) else None
+            if f and _clean(f.get("action")):
+                rows.append(dict(f))
+                migrated += 1
+        if migrated:
+            notes.append(f"{migrated} fix(es) read from the old per-issue "
+                         f"shape — this draft predates the fixes section and "
+                         f"was not regenerated")
+        return rows
+
+    for f in src:
+        if not isinstance(f, dict):
+            continue
+        action = _clean(f.get("action"))
+        if not action:
+            continue
+        owner_raw = str(f.get("owner") or "").strip()
+        owner = FLAG_TEAM_ALIASES.get(owner_raw.lower(), owner_raw.lower())
+        if owner and owner.upper() not in OWNERS:
+            notes.append(f"fix.owner {owner_raw!r} is not one of the nine "
+                         f"teams → unrouted (it would name an owner with no tab)")
+            owner = ""
+        rows.append({"action": action,
+                     "owner": owner.upper() if owner else None,
+                     "because": _clean(f.get("because"))})
+    return rows

@@ -496,5 +496,59 @@
     "name": "dss: the followed gate is wired into nothing",
     "find": "    _dss_followed, _dss_note = dss_check.gate_dss_followed(",
     "replace": "    _dss_followed, _dss_note = (None, None) or dss_check.gate_dss_followed("
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "fixes: an unowned fix is dropped instead of reaching Unrouted",
+    "find": "        tab = owner if owner in ACTION_TEAMS else UNROUTED",
+    "replace": "        tab = owner if owner in ACTION_TEAMS else owner"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "fixes: the unrouted count stops being announced",
+    "find": "    if counts[UNROUTED]:",
+    "replace": "    if False:"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "fixes: two fixes worded the same become two rows",
+    "find": "        if _is_repeat(text, seen, \"action\"):\n            counts[\"repeat\"] += 1\n            continue",
+    "replace": "        if False:\n            counts[\"repeat\"] += 1\n            continue"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "fixes: an empty section stops saying so",
+    "find": "    if not counts[\"fix\"] and not kept:",
+    "replace": "    if False:"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "fixes: a fix with no action still takes a slot",
+    "find": "        if not text:\n            continue                      # a fix with no action is not a fix",
+    "replace": "        if False:\n            continue                      # a fix with no action is not a fix"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "fixes: a pre-restructure draft loses its fixes",
+    "find": "        for i in (issues or []):\n            f = i.get(\"fix\") if isinstance(i.get(\"fix\"), dict) else None",
+    "replace": "        for i in []:\n            f = i.get(\"fix\") if isinstance(i.get(\"fix\"), dict) else None"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "fixes: the migration stops reporting the rewrite",
+    "find": "        if migrated:\n            notes.append(",
+    "replace": "        if False:\n            notes.append("
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "fixes: an owner outside the nine is kept",
+    "find": "        if owner and owner.upper() not in OWNERS:",
+    "replace": "        if False:"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "fixes: actions taken is wired to nothing",
+    "find": "    _actions, _ar = actions_from_fixes(_fixes, keep=keep_actions)",
+    "replace": "    _actions, _ar = ({}, {'notes': []})"
   }
 ]

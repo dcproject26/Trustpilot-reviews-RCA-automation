@@ -10,6 +10,15 @@ from server.taxonomy import ACTION_TABS
 # by Actions Taken and Flags, because the two are joined on it.
 ACTION_TEAMS = tuple(ACTION_TABS)
 
+# UNROUTED IS A TAB, NOT A TEAM. It is deliberately absent from ACTION_TEAMS,
+# which is the vocabulary flags and fix owners are validated against — a flag
+# claiming team "unrouted" would be a team nobody can hand work to. It exists
+# only as the first tab in Actions Taken, so a fix with no owner is somewhere
+# a reader can see it rather than in a report line under a tab strip that
+# looks complete.
+UNROUTED = "unrouted"
+ACTION_TAB_ORDER = (UNROUTED,) + ACTION_TEAMS
+
 # What a flag written under an older vocabulary means in this one. CE and RO
 # were the two support-side chips and both are the CO team's work now. Anything
 # not listed here and not one of the nine reads as unrouted, which raises
@@ -1195,3 +1204,76 @@ def actions_from_findings(issues, flags, improvements=None, dss_miss=None,
     report = {"counts": counts, "unrouted": unrouted, "kept": kept,
               "notes": notes}
     return tabs, report
+
+
+def actions_from_fixes(fixes, keep=None) -> tuple:
+    """Actions Taken as a VIEW over §3's fixes. Returns (tabs, report).
+
+    ONE ARRAY, NOT TWO. Actions Taken used to be built by merging six sources
+    — flags, operational failures, SOP gaps, fixes, improvements and DSS
+    misses — into its own store. That is how the same remediation reached a
+    card twice: once as the fix that closes a gap and again as the flag that
+    raised it, worded differently enough to survive the repeat check. The
+    fixes ARE the actions; this groups them by owner and adds nothing.
+
+    AN UNOWNED FIX IS ON THE UNROUTED TAB, not in a footnote. The previous
+    behaviour reported it in `notes` and left the tab strip looking complete,
+    which is the shape of a finished card with a row nobody will pick up.
+
+    `keep` carries hand-typed rows forward through a re-run, as before: a row
+    someone typed is not model output and a rebuild must not eat it.
+    """
+    tabs = {t: [] for t in ACTION_TAB_ORDER}
+    seen = {"exact": set(), "tokens": {}}
+    counts = {"fix": 0, "repeat": 0, UNROUTED: 0}
+
+    for f in (fixes or []):
+        if not isinstance(f, dict):
+            continue
+        text = str(f.get("action") or "").strip()
+        if not text:
+            continue                      # a fix with no action is not a fix
+        if _is_repeat(text, seen, "action"):
+            counts["repeat"] += 1
+            continue
+        _remember(text, seen, "action")
+        owner = str(f.get("owner") or "").strip().lower()
+        owner = FLAG_TEAM_ALIASES.get(owner, owner)
+        tab = owner if owner in ACTION_TEAMS else UNROUTED
+        tabs[tab].append(text)
+        counts["fix"] += 1
+        if tab == UNROUTED:
+            counts[UNROUTED] += 1
+
+    kept = 0
+    for t, items in (keep or {}).items():
+        if t not in tabs:
+            continue
+        for row in (items or []):
+            txt = str(row or "").strip()
+            if txt and not _is_repeat(txt, seen, "action"):
+                _remember(txt, seen, "action")
+                tabs[t].append(txt)
+                kept += 1
+
+    notes = []
+    if kept:
+        notes.append(f"actions taken: {kept} hand-added row(s) carried forward "
+                     f"through this re-run")
+    if counts["repeat"]:
+        # A judgement, announced: two fixes worded differently were treated as
+        # one, and nothing else on the card would say so.
+        notes.append(f"actions taken: {counts['repeat']} fix(es) said what "
+                     f"another fix already said and were merged")
+    if counts[UNROUTED]:
+        notes.append(f"actions taken: {counts[UNROUTED]} fix(es) name no team "
+                     f"and sit on the Unrouted tab — nobody picks those up "
+                     f"until someone assigns them")
+    if not counts["fix"] and not kept:
+        # Distinguishable from a run that never looked: there were no fixes to
+        # route, which is a legitimate answer for a case needing no action.
+        notes.append("actions taken: §3 lists no fix, so there is nothing for "
+                     "any team to pick up")
+
+    return tabs, {"counts": counts, "kept": kept, "notes": notes,
+                  "unrouted": counts[UNROUTED]}

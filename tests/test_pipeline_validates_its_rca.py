@@ -200,10 +200,14 @@ def test_validation_that_cannot_run_says_so_rather_than_looking_clean(
 def test_actions_taken_is_computed_by_the_run_not_left_empty(live_db,
                                                             monkeypatch):
     """actions_taken has exactly one writer — validate()'s
-    actions_from_findings, via project_v4. With validate() dead the column was
+    actions_from_fixes, via project_v4. With validate() dead the column was
     projected from a key the model never emits, so every pipeline-generated
-    review had an empty nine-tab block: 'nothing was raised' rendered
-    identically to 'the routing never ran'.
+    review had an empty tab block: 'nothing was raised' rendered identically
+    to 'the routing never ran'.
+
+    The source is §3's fixes now, not six merged sources. The flag below still
+    renders in Flags; it no longer also lands on a tab, which is the
+    repetition the restructure removes.
     """
     from server.checklist import ACTION_TEAMS
     rca = json.loads(json.dumps(BASE))
@@ -215,11 +219,11 @@ def test_actions_taken_is_computed_by_the_run_not_left_empty(live_db,
     rca["what_went_wrong"]["guest_issues"] = [{
         "issue": "Tickets were sent late and never resent",
         "claim": "I was never told", "claim_accuracy": "Accurate",
-        "fix": {"action": "resend tickets when the delay is detected",
-                "owner": "CO", "because": "the guest had nothing to enter with",
-                "source": "zendesk"},
         "root_cause": "nobody resent the tickets",
         "evidence": [{"text": "no resend", "source": "zendesk", "ref": None}]}]
+    rca["what_went_wrong"]["fixes"] = [
+        {"action": "resend tickets when the delay is detected", "owner": "CO",
+         "because": "the guest had nothing to enter with"}]
     _stub(monkeypatch, rca)
     _seed(live_db, "tp_actions")
     _, trail, actions = _run(live_db, "tp_actions")
@@ -228,9 +232,10 @@ def test_actions_taken_is_computed_by_the_run_not_left_empty(live_db,
     # The shape itself is the regression signal. With validate() dead the
     # projection read a key the model never emits and stored {} — nine missing
     # tabs render as nine empty ones.
-    assert set(actions) == set(ACTION_TEAMS), \
-        (f"actions_taken is not the nine-team shape — the projection read a key "
-         f"nothing wrote: {sorted(actions)}")
+    from server.checklist import ACTION_TAB_ORDER
+    assert set(actions) == set(ACTION_TAB_ORDER), \
+        (f"actions_taken is not the Unrouted + nine-team shape — the projection "
+         f"read a key nothing wrote: {sorted(actions)}")
     assert actions["co"], \
         f"CO was flagged and owns the fix, and still nothing was raised: {actions}"
     # THE FINDINGS, not the playbook. A guideline row on this card would be a
@@ -247,9 +252,9 @@ def test_an_unroutable_finding_reaches_the_confidence_trail(live_db, monkeypatch
     which — and a finding that named no team is NOT on the card at all. A
     reader must not have to infer that from a section that looks complete.
 
-    Two flagged teams, and an operational failure whose issue names no fix
-    owner: there is no single flagged team to fall back on, so the router
-    declines rather than guessing, and says so.
+    A fix that names no owner now lands on the UNROUTED tab — visible, rather
+    than reported in a note under a tab strip that looks complete — and the
+    run still says how many went there.
     """
     rca = json.loads(json.dumps(BASE))
     rca["flags"] = [
@@ -261,15 +266,22 @@ def test_an_unroutable_finding_reaches_the_confidence_trail(live_db, monkeypatch
         "operational_failure": "Nobody watched the fulfilment queue",
         "root_cause": "nobody resent the tickets",
         "evidence": [{"text": "no resend", "source": "zendesk", "ref": None}]}]
+    rca["what_went_wrong"]["fixes"] = [
+        {"action": "Someone should watch the fulfilment queue"}]
     _stub(monkeypatch, rca)
     _seed(live_db, "tp_unrouted")
     _, trail, actions = _run(live_db, "tp_unrouted")
 
     said = " ".join(t for t in trail if "actions taken" in t)
-    assert "could not be routed" in said, trail
-    flat = [a for v in actions.values() for a in v]
-    assert "Nobody watched the fulfilment queue" not in flat, (
-        "an unroutable finding was parked on a tab instead of being reported")
+    assert "Unrouted tab" in said, trail
+    assert "Someone should watch the fulfilment queue" in actions["unrouted"], (
+        "an unowned fix must be visible on the Unrouted tab, not reported in a "
+        "note under a tab strip that looks complete")
+    for tab, rows in actions.items():
+        if tab != "unrouted":
+            assert "Someone should watch the fulfilment queue" not in rows, (
+                f"an unowned fix was parked on {tab} — a row attributed to a "
+                f"team that did nothing wrong")
 
 
 # ── what a re-run may and may not destroy ───────────────────────────────────

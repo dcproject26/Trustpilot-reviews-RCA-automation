@@ -12,8 +12,7 @@ that breaks the wiring fails HERE with a name, instead of on a card.
 """
 import json
 
-from server.checklist import (WHAT_WENT_WRONG_STRUCTURE, actions_from_findings,
-                              ACTION_TEAMS)
+from server.checklist import WHAT_WENT_WRONG_STRUCTURE, ACTION_TEAMS
 from server.services import wwr_post
 from server.services.rca_v4_validate import V4_PROJECTION, project_v4, validate
 
@@ -70,10 +69,11 @@ def test_the_guest_issues_projection_actually_carries_the_issue():
 # ── 3. Actions Taken is built from the WWR shape ───────────────────────────
 
 def test_a_fix_reaches_its_team_tab():
+    """Driven through validate, which is what actually builds the section —
+    §3's fixes grouped by owner."""
     out, _ = validate(_rca())
-    issues = out["what_went_wrong"]["guest_issues"]
-    tabs, _ = actions_from_findings(issues, out["flags"])
-    assert "Add an alert on failed fulfilment" in tabs["tech"], tabs["tech"]
+    assert "Add an alert on failed fulfilment" in out["actions_taken"]["tech"], \
+        out["actions_taken"]
 
 
 def test_actions_taken_is_computed_not_left_empty():
@@ -84,9 +84,13 @@ def test_actions_taken_is_computed_not_left_empty():
         out["actions_taken"]
 
 
-def test_every_action_tab_is_one_of_the_nine_teams():
+def test_every_action_tab_is_a_team_or_the_unrouted_tab():
+    """Unrouted is a TAB, not a tenth team — it is deliberately absent from
+    ACTION_TEAMS, which is what flags and fix owners are validated against."""
+    from server.checklist import ACTION_TAB_ORDER, UNROUTED
     out, _ = validate(_rca())
-    assert set(out["actions_taken"]) <= set(ACTION_TEAMS), out["actions_taken"]
+    assert set(out["actions_taken"]) == set(ACTION_TAB_ORDER), out["actions_taken"]
+    assert UNROUTED not in ACTION_TEAMS, "unrouted must not be a valid team"
 
 
 # ── 4. the card's own fields survive validation ────────────────────────────

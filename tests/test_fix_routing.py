@@ -82,3 +82,44 @@ def test_nothing_found_says_so_rather_than_rendering_empty():
     _, rep = actions_from_findings([], [])
     assert any("nothing this case found to raise" in n for n in rep["notes"]), \
         rep["notes"]
+
+
+# ── §3 is the source for Actions Taken ─────────────────────────────────────
+
+def test_a_fix_with_no_action_is_not_a_fix():
+    """A row with an owner and no action tells a team they own something and
+    does not say what. It must take no slot and no tab."""
+    from server.checklist import actions_from_fixes
+    tabs, rep = actions_from_fixes([
+        {"action": "", "owner": "TECH"},
+        {"action": "   ", "owner": "CO"},
+        {"owner": "SP"},
+        {"action": "Alert on failed fulfilment", "owner": "TECH"}])
+    assert tabs["tech"] == ["Alert on failed fulfilment"], tabs["tech"]
+    assert tabs["co"] == [] and tabs["sp"] == [], tabs
+    assert rep["counts"]["fix"] == 1, rep["counts"]
+
+
+def test_an_owner_outside_the_nine_teams_is_reported_and_unrouted():
+    """A tenth team names an owner with no tab: the reader is told who owns
+    the fix and then cannot find them anywhere. It goes to Unrouted, and the
+    coercion is reported rather than applied silently."""
+    from server.services.rca_v4_validate import validate
+    out, notes = validate({"what_went_wrong": {
+        "guest_issues": [],
+        "fixes": [{"action": "Run a campaign", "owner": "Marketing"}]}})
+    assert out["what_went_wrong"]["fixes"][0]["owner"] is None
+    assert out["actions_taken"]["unrouted"] == ["Run a campaign"], \
+        out["actions_taken"]
+    assert any("not one of the nine" in n for n in notes), notes
+
+
+def test_a_legacy_owner_spelling_is_translated_not_failed():
+    """A draft written under the old vocabulary names a REAL team; failing it
+    to unrouted would lose an owner the model got right."""
+    from server.services.rca_v4_validate import validate
+    out, _ = validate({"what_went_wrong": {
+        "guest_issues": [],
+        "fixes": [{"action": "Reply to the guest", "owner": "CE"}]}})
+    assert out["actions_taken"]["co"] == ["Reply to the guest"], \
+        out["actions_taken"]

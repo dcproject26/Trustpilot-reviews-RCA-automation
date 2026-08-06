@@ -342,12 +342,47 @@ def test_garbage_in_does_not_raise():
 
 
 def test_the_document_level_v3_fields_are_not_carried_forward():
-    """what_happened / root_causes / fixes moved onto the issues. Emitting
-    them at document level again would render nothing and hide the move."""
+    """what_happened / root_causes are v3 shapes with no renderer. Emitting
+    them again would render nothing and hide the move.
+
+    `fixes` IS BACK AT DOCUMENT LEVEL, DELIBERATELY. It was moved onto the
+    issues on the reasoning that a document-level array "would render nothing"
+    — true then, false now: §3 is its own section and Actions Taken is a view
+    over exactly this array, so a fix here is neither inert nor hidden. The
+    per-issue `fix` is still read, and migrated, for drafts written before the
+    section existed."""
     out, _ = validate(_ok(what_went_wrong={
         "what_happened": "old shape", "root_causes": ["old"],
         "guest_issues": [{"issue": "x", "root_cause": "y", "fix": {"action": "do the thing", "owner": "CE"}}]}))
-    assert set(out["what_went_wrong"]) == {"guest_issues"}
+    assert set(out["what_went_wrong"]) == {"guest_issues", "fixes"}
+    assert "what_happened" not in out["what_went_wrong"]
+    assert "root_causes" not in out["what_went_wrong"]
+
+
+def test_a_pre_restructure_fix_is_migrated_into_the_fixes_array():
+    """A draft written before §3 existed keeps its fix on the issue. Reading
+    it as a case with no fixes would render "Nothing to fix" beside an issue
+    that names one — and would empty that team's Actions Taken tab."""
+    out, notes = validate(_ok(what_went_wrong={"guest_issues": [{
+        "issue": "x", "claim": "the guest said so", "claim_accuracy": "Accurate",
+        "root_cause": "y",
+        "fix": {"action": "Watch the fulfilment queue", "owner": "TECH"}}]}))
+    fixes = out["what_went_wrong"]["fixes"]
+    assert [f["action"] for f in fixes] == ["Watch the fulfilment queue"], fixes
+    assert fixes[0]["owner"] == "TECH", fixes
+    assert out["actions_taken"]["tech"] == ["Watch the fulfilment queue"]
+    assert any("old per-issue shape" in n for n in notes), \
+        "a rewrite of what was stored must be reported"
+
+
+def test_an_issue_with_no_diagnosis_contributes_no_fix_to_migrate():
+    """`_diagnosable` already drops a fix under an Unknown verdict with
+    nothing in the case. The migration reads the VALIDATED issues, so it
+    inherits that rather than resurrecting a fix the validator removed."""
+    out, _ = validate(_ok(what_went_wrong={"guest_issues": [
+        {"issue": "x", "root_cause": "y",
+         "fix": {"action": "do the thing", "owner": "CE"}}]}))
+    assert out["what_went_wrong"]["fixes"] == []
 
 
 # ── the model writes interpretation, under its own key ──────────────────────

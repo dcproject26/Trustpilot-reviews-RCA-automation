@@ -9,12 +9,21 @@ scenario, passing both filters, and still a statement about work nobody did.
 The section is read as "this is what we did", which no playbook row can
 honestly say.
 
-Six sources now, every one of them already a finding on the card: the flags,
-each issue's operational failure, its SOP gap, its fix (which names the owning
-team), the provenance-checked improvement points, and the DSS MISS — what DSS
-says the next escalation step was, where it did not happen. That last one is
-the ONLY thing DSS contributes: it works out what should have come next, and
-is not an anchor, a definition, or a comment.
+ONE SOURCE NOW, NOT SIX. It was the flags, each issue's operational failure,
+its SOP gap, its fix, the improvement points and the DSS miss — all merged
+into a store of its own. That is how one remediation reached a card twice:
+as the fix that closes a gap, and again as the flag that raised it, worded
+differently enough to survive the repeat check.
+
+Actions Taken is now a VIEW over §3's `fixes`, grouped by owner. The other
+five each render in their own section already — a flag is the hand-off and
+says which team must act, so routing it here as well said it twice. A flag
+with no fix therefore puts nothing on a tab, and that is the intended
+reading: the Flags section is where a team is handed work.
+
+UNROUTED IS A TAB. A fix naming no team used to be reported in `notes` under
+a tab strip that looked complete, which is the shape of a finished card with
+a row nobody will pick up.
 
 `validate` still computes it, because that is the one place holding the
 validated issues, the validated flags and the improvement points at once.
@@ -70,14 +79,27 @@ def test_every_tab_key_is_present_even_when_empty():
     things: one is a tab with nothing raised, the other is a tab the
     projection forgot."""
     out, _ = validate(_rca(), [SCENARIO])
-    assert set(out["actions_taken"]) == set(ACTION_TEAMS)
+    from server.checklist import ACTION_TAB_ORDER
+    assert set(out["actions_taken"]) == set(ACTION_TAB_ORDER)
 
 
-def test_a_flagged_team_gets_the_FINDING_not_the_playbook_row():
-    """The change this file exists for. The flag's own wording lands on the
-    flag's own tab; the scenario's guideline rows do not land anywhere."""
-    out, _ = validate(_rca(), [SCENARIO])
-    assert "No follow-up after the first reply" in out["actions_taken"]["co"]
+def test_a_fix_lands_on_its_owners_tab_and_no_playbook_row_lands_anywhere():
+    """The section is the fixes, grouped by owner."""
+    rca = _rca()
+    rca["what_went_wrong"]["fixes"] = [
+        {"action": "Alert on failed fulfilment", "owner": "TECH"}]
+    out, _ = validate(rca, [SCENARIO])
+    assert "Alert on failed fulfilment" in out["actions_taken"]["tech"]
+
+
+def test_a_flag_with_no_fix_reaches_no_tab():
+    """It used to. A flag already names the team that must act and renders in
+    the Flags section; putting it here as well said it twice, which is the
+    repetition this restructure exists to remove."""
+    out, _ = validate(_rca(), [SCENARIO])          # fixture has a CO flag
+    assert out["actions_taken"]["co"] == [], out["actions_taken"]["co"]
+    assert out["flags"][0]["flag"] == "No follow-up after the first reply", \
+        "the flag itself must still render — it moved, it did not vanish"
 
 
 def test_no_guideline_row_reaches_the_card():
@@ -108,10 +130,12 @@ def test_a_finding_that_names_no_team_is_reported_rather_than_parked():
                       {"team": "SP", "flag": "b", "evidence": "e"}])
     rca["what_went_wrong"]["guest_issues"][0]["operational_failure"] = \
         "Nobody watched the fulfilment queue"
-    rca["what_went_wrong"]["guest_issues"][0]["fix"] = None
-    _, notes = validate(rca, [SCENARIO])
+    rca["what_went_wrong"]["fixes"] = [{"action": "Someone should look at this"}]
+    out, notes = validate(rca, [SCENARIO])
+    assert "Someone should look at this" in out["actions_taken"]["unrouted"], \
+        "an unowned fix belongs on a tab a reader can see, not in a footnote"
     said = " ".join(n for n in notes if "actions taken" in n)
-    assert "could not be routed" in said, notes
+    assert "Unrouted tab" in said, notes
 
 
 def test_nothing_found_says_so_rather_than_reporting_a_bare_zero():
@@ -120,34 +144,36 @@ def test_nothing_found_says_so_rather_than_reporting_a_bare_zero():
     _, notes = validate(_rca(flags=[], what_went_wrong={"guest_issues": []}),
                         [SCENARIO])
     said = " ".join(n for n in notes if "actions taken" in n)
-    assert "nothing this case found to raise" in said, notes
+    assert "no fix" in said, notes
 
 
 def test_the_same_finding_worded_twice_is_not_two_rows():
     """A root cause, a flag and an improvement point routinely say one thing
     three ways. Printing all three reads as three pieces of work — and the
     merge is a JUDGEMENT, so the run says it made one."""
-    rca = _rca(flags=[{"team": "CO",
-                       "flag": "Nobody watched the fulfilment queue",
-                       "evidence": "ZD-1"}])
+    rca = _rca()
+    rca["what_went_wrong"]["fixes"] = [
+        {"action": "Watch the fulfilment queue", "owner": "CO"},
+        {"action": "Watch the fulfilment queue", "owner": "CO"}]
     out, notes = validate(rca, [SCENARIO])
     assert len(out["actions_taken"]["co"]) == 1, out["actions_taken"]["co"]
     assert any("already said" in n for n in notes), notes
 
 
-def test_the_dss_miss_is_the_only_thing_dss_contributes():
-    """DSS works out what the next escalation step should have been. It is
-    not an anchor, a definition or a comment, and it supplies no rows of its
-    own."""
+def test_dss_contributes_no_rows_of_its_own():
+    """It used to supply the missed escalation step directly. A step DSS says
+    should have happened is a FIX — write it as one, with an owner — rather
+    than a seventh source feeding the same tabs by another route. What the
+    sheet prescribes has never belonged here."""
     rca = _rca()
     rca["dss"] = {"prescribes": "Refund within 5 days", "ref": "R-1",
                   "missed_next_step": [
                       {"team": "CO",
                        "action": "Escalate to leads after 24h with no reply"}]}
     out, _ = validate(rca, [SCENARIO])
-    co = out["actions_taken"]["co"]
-    assert "Escalate to leads after 24h with no reply" in co, co
-    assert "Refund within 5 days" not in co, co
+    raised = {a for v in out["actions_taken"].values() for a in v}
+    assert "Refund within 5 days" not in raised, raised
+    assert "Escalate to leads after 24h with no reply" not in raised, raised
 
 
 def test_a_clean_run_puts_nothing_on_the_trail():
@@ -156,6 +182,8 @@ def test_a_clean_run_puts_nothing_on_the_trail():
     rca = _rca(flags=[{"team": "CO", "flag": "No follow-up after the first "
                                              "reply", "evidence": "ZD-1"}])
     rca["what_went_wrong"]["guest_issues"][0].pop("operational_failure", None)
+    rca["what_went_wrong"]["fixes"] = [
+        {"action": "Follow up within the promised window", "owner": "CO"}]
     _, notes = validate(rca, [SCENARIO])
     assert not [n for n in notes if "actions taken" in n], notes
 
@@ -171,10 +199,13 @@ def test_the_computed_section_survives_the_projection():
     regenerate-rca both call — rather than asserting that a line assigning it
     appears in pipeline.py, which passes just as happily when that line is
     unreachable."""
-    out, _ = validate(_rca(), [SCENARIO])
+    rca = _rca()
+    rca["what_went_wrong"]["fixes"] = [
+        {"action": "Alert on failed fulfilment", "owner": "TECH"}]
+    out, _ = validate(rca, [SCENARIO])
     col = project_v4(out)["actions_taken"]
     assert col == out["actions_taken"]
-    assert col["co"], "the section reached the column empty"
+    assert col["tech"], "the section reached the column empty"
 
 
 def test_a_failed_rca_projects_an_empty_dict_not_a_missing_column():
