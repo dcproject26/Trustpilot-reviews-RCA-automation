@@ -168,9 +168,24 @@ def test_a_guest_issue_must_trace_to_the_guest():
     it; it renders as a numbered complaint with an empty Claim block, and
     leadership reads it as something the guest said."""
     out = _prompt()
-    assert "must trace to something the guest SAID OR IMPLIED" in out
-    assert "go to `flags`" in out
-    assert "Do not repeat in `guest_issues` anything you have already raised in `flags`" in out
+    # THE RULE MOVED, THE GUARANTEE DID NOT. It used to read "must trace to
+    # something the guest SAID OR IMPLIED", which tied every issue to the
+    # REVIEW and sent anything found only in the tickets to `flags` — the
+    # mechanism that deleted the modification request in the Bhayani case.
+    # An issue must still trace to this guest; it may now do so through what
+    # they asked support for, not only through what they wrote publicly.
+    assert "must trace to something that happened TO THIS GUEST" in out
+    # Our own gaps that touched no guest request are still flags.
+    assert "remain flags and are not guest issues" in out
+    # And the boundary the user drew: the ASK is always on the card; only the
+    # avoidable miss is a flag.
+    assert "COULD have and did not" in out
+    assert "It is NOT a flag: nobody did" in out
+    # The old rule barred a guest issue from restating a flag at all, which
+    # meant one event could only be described once — so a request the guest
+    # made and our failure to act on it could not both appear. Now only the
+    # WORDING may not repeat.
+    assert "Do not repeat the SAME SENTENCE in both" in out
 
 
 def test_a_cause_and_its_consequence_are_one_issue():

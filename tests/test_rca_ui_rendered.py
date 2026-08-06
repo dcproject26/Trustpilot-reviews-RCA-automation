@@ -494,7 +494,7 @@ def _post(page):
         return t ? t.value : ''; }""")
 
 
-def test_the_post_carries_the_five_mandated_headings(page):
+def test_the_post_carries_the_mandated_headings(page):
     """The what-went-wrong section follows the user's five-heading format, and
     the DASHBOARD shows the server's text — this is the browser end of the
     one-composer guarantee. The section is composed once, in
@@ -503,8 +503,7 @@ def test_the_post_carries_the_five_mandated_headings(page):
     i = txt.find("*What went wrong*")
     assert i != -1, "the post has no what-went-wrong section at all"
     for h in ("1. Guest issue", "2. Is the guest's claim accurate?",
-              "3. What actually happened?", "4. Supply Partner escalation",
-              "5. Fixes"):
+              "3. What actually happened?", "4. Fixes"):
         assert h in txt, f"missing mandated heading {h!r}\n{txt[i:i + 600]}"
 
 
@@ -522,16 +521,16 @@ def test_only_the_subpoints_that_issue_has_are_printed(page):
     focused block into a form with blanks in it."""
     txt = _post(page)
     i = txt.find("3. What actually happened?")
-    block = txt[i:txt.find("4. Supply Partner escalation", i)]
+    block = txt[i:txt.find("4. Fixes", i)]
     assert "Root cause:" in block, block
     assert "SOP/process gap:" not in block, "an absent sub-point was printed anyway"
 
 
-def test_the_owner_is_tagged_under_heading_five(page):
+def test_the_owner_is_tagged_under_the_fixes_heading(page):
     """Heading 5 is "tag the relevant team(s)". The owner CHIP came out of the
     post; the team is named where the mandate puts it."""
     txt = _post(page)
-    i = txt.find("5. Fixes")
+    i = txt.find("4. Fixes")
     block = txt[i:i + 300]
     assert "@CONTENT" in block, block
     assert "Add the two-hour delivery window to the page" in block, block
@@ -570,7 +569,7 @@ def test_an_issue_carries_one_fix_line(page):
     the object path and a fallback path both firing, so the post says the fix
     twice and the reader cannot tell which one the pipeline believes."""
     txt = _post(page)
-    i = txt.find("5. Fixes")
+    i = txt.find("4. Fixes")
     block = txt[i:txt.find("____", i)]
     assert block.count("Add the two-hour delivery window to the page") == 1, block
 

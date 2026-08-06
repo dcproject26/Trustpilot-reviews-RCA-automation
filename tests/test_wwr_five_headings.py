@@ -39,10 +39,9 @@ def test_headings_are_derived_from_the_checklist_structure():
         "1. Guest issue",
         "2. Is the guest's claim accurate?",
         "3. What actually happened?",
-        "4. Supply Partner escalation",
-        "5. Fixes",
+        "4. Fixes",
     ]
-    assert len(WHAT_WENT_WRONG_STRUCTURE) == 5
+    assert len(WHAT_WENT_WRONG_STRUCTURE) == 4
 
 
 def test_all_five_headings_are_present_even_when_the_rca_is_empty():
@@ -126,27 +125,6 @@ def test_heading_three_omits_only_the_indicative_subpoints_it_lacks():
     assert "Root cause: Vendor API timed out" in text
     assert "Operational failure" not in text
     assert "SOP/process gap" not in text
-
-
-def test_heading_four_says_when_no_escalation_verdict_was_recorded():
-    text = compose(_wwr([_issue()]))
-    assert "Not recorded" in text
-
-
-def test_heading_four_carries_the_dnd_reason_when_there_is_one():
-    text = compose(_wwr([_issue()],
-                        sp_escalation={"escalated": "No",
-                                       "reason_if_not": "SP is on DND"}))
-    assert "Did CE escalate to SP? No" in text
-    assert "SP is on DND" in text
-
-
-def test_a_bare_no_escalation_says_the_dnd_question_went_unanswered():
-    """The user asked specifically for the DND case to be stated. A "No" with
-    no reason is an incomplete answer to heading 4b and says so rather than
-    reading as a complete one."""
-    text = compose(_wwr([_issue()], sp_escalation={"escalated": "No"}))
-    assert "DND" in text
 
 
 def test_heading_five_says_when_no_fix_and_no_team_exist():

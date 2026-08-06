@@ -1250,7 +1250,9 @@ REVIEW TEXT:
 BOOKING:
 <<BOOKING>>
 
-ZENDESK TIMELINE (structured):
+ZENDESK TIMELINE (structured) — READ THIS CHRONOLOGICALLY BEFORE YOU DECIDE
+WHAT THE ISSUES ARE. It is what the guest asked us for and what we did about
+it, in order. The review is the ending of that story; this is the story.
 <<TIMELINE>>
 
 === ZENDESK TICKETS FOR THIS BOOKING (raw bodies) ===
@@ -1266,7 +1268,9 @@ similar-support counts, completion rates, and the window they cover):
 DSS RECOMMENDATION (SOP needle; {} or match_score 0 = needle unavailable):
 <<DSS>>
 
-SUPPORT SUMMARY:
+SUPPORT SUMMARY — the arc of the support case, already worked out for you.
+Use it to write `case_side` on each issue. It was pasted in here and referred
+to by no rule, so it was ignored on every card.
 <<SUPPORT_SUMMARY>>
 
 APPROVED REPLY VOICE — tone reference only, never content to copy:
@@ -1332,12 +1336,28 @@ that turned out fine is silence — never a line in the output.
    `claim_accuracy` (the verdict follows the evidence, never what seems
    plausible), then everything else.
 
-   AND `claim_accuracy` DECIDES HOW MUCH OF IT EXISTS:
-     Accurate, Partly accurate  ->  root_cause, operational_failure, sop_gap
-                                    and fix are REQUIRED
-     Inaccurate, Unknown        ->  ALL FOUR ARE NULL
-   The guest is wrong, or we cannot tell — nothing to diagnose, nothing to
-   fix. Do not fill them to look thorough. A root cause under an Inaccurate
+   AND `claim_accuracy` JUDGES THE REVIEW'S CLAIM — NOTHING MORE.
+     It does NOT decide whether there is a diagnosis. A verdict on what the
+     guest wrote publicly and a finding about what happened to the booking are
+     two different things, and this rule used to conflate them: Inaccurate or
+     Unknown nulled root_cause, operational_failure, sop_gap and fix outright.
+     So a review saying "the policy is too strict and support was unhelpful",
+     against a booking where the guest HAD asked to move their date and been
+     refused, scored Inaccurate and the whole chain was deleted. The card then
+     said the guest was wrong and showed nothing else — the modification
+     request they actually made never appeared anywhere.
+     "The public claim is inaccurate AND the booking had a real problem" is a
+     normal case and it must be expressible.
+     Accurate, Partly accurate  ->  root_cause and fix are REQUIRED.
+     Inaccurate, Unknown        ->  they are required IF `case_side` is not
+                                    null — i.e. the Zendesk case shows
+                                    something happened. With nothing in the
+                                    case and a claim that does not hold, they
+                                    are null: there genuinely is nothing to
+                                    diagnose.
+   operational_failure and sop_gap stay OPTIONAL throughout: they exist when
+   we got something wrong, and inventing one to fill a field is worse than
+   leaving it null. Do not fill them to look thorough. A root cause under an Inaccurate
    verdict is the shape of diligence with nothing behind it, and somebody
    acts on it.
 
@@ -1780,6 +1800,8 @@ that turned out fine is silence — never a line in the output.
     "guest_issues": [
       {
         "issue": "<one-line title, max 12 words, plain words, no trailing period>",
+      "review_side": "<one line: what the guest said publicly about this | null>",
+      "case_side": "<one line: what the Zendesk case shows — what they asked for, what we did, how it ended | null>",
         "claim": "<the guest's VERBATIM words from the review, quoted exactly | null>",
         "claim_accuracy": "<Accurate | Partly accurate | Inaccurate | Unknown>",
         "claim_accuracy_note": "<one sentence: how the evidence gets you to that verdict>",
@@ -1870,7 +1892,11 @@ that turned out fine is silence — never a line in the output.
    Nothing else, no punctuation, no trailing explanation. Put your reasoning in
    `claim_accuracy_note`. Do NOT write "Partially True — booking status shows…" in the verdict.
 4. `claim` is the guest's own words copied from the review, inside no quote marks (the UI adds
-   them). Never paraphrase. If the review does not state this issue in the guest's words, use null.
+   them). Never paraphrase. If the review does not state this issue in the guest's words, use
+   null — which is normal for an issue the CASE surfaced and the review never mentioned.
+   `review_side` is one line summarising what the guest said publicly about this issue, or
+   null. `case_side` is one line on what the Zendesk case shows — what they asked for, what we
+   did, how it ended — or null when they never contacted us about it.
 5. Every analytical statement attaches to the issue it explains. `operational_failure`,
    `sop_gap`, `pattern` and `fix` are fields ON each guest issue. Do NOT emit document-level
    `what_happened`, `root_causes`, `operational_failure`, `sop_gap`, `pattern` or `fixes` lists.
@@ -1902,8 +1928,27 @@ that turned out fine is silence — never a line in the output.
    Each array element is exactly one point, one line.
 8. All timestamps are IST, formatted `DD Mon HH:MM` (e.g. `22 Jul 15:41`), or a bare `DD Mon`
    for a date-only event, or null. Never "Unknown" and never an ISO string.
-9. One guest issue per distinct complaint in the review. If the guest raises three things,
-   return three objects — do not merge them, and do not invent a second issue when there is one.
+9. One guest issue per distinct problem on this booking — from the REVIEW, from the
+   ZENDESK CASE, or from both. If the guest raises three things in the review, return three
+   objects; if the case shows a fourth problem the review never mentions, that is a fifth
+   object. Do not merge them, and do not invent one.
+
+   THE REVIEW IS NOT THE ONLY SOURCE OF ISSUES, and treating it as one was the fault this
+   rule used to have. A guest who asked to move their booking, was refused, and then wrote a
+   review about "strict policy" has ONE story, and the review is its ending. An RCA that
+   starts and stops at the ending explains nothing.
+
+   EVERY ISSUE CARRIES BOTH SIDES, and either may be null:
+     `review_side` — what the guest said publicly, in their own words where they said it.
+     `case_side`   — what the Zendesk case shows: what they asked us for, what we did,
+                     whether it was resolved. Read the ticket chronologically to write it.
+   Null on one side is a FINDING, not a gap to hide:
+     review_side null  -> the case shows a problem the guest never wrote about publicly.
+     case_side null    -> they never contacted support; the review IS the case, and it is
+                          an open-and-shut one. Say so rather than implying we looked and
+                          found nothing.
+   Where both exist and they DISAGREE, that gap is the most useful thing on the card. Write
+   both plainly and let heading 3 explain how one became the other.
    Splitting a cause from its consequence is inventing one: "we did not disclose the delivery
    window" and "the delivery window clashed with their schedule" are one complaint, and the
    consequence belongs in that issue's `root_cause`, not in an issue of its own.
@@ -1913,13 +1958,27 @@ that turned out fine is silence — never a line in the output.
    issue belongs to CE — or it is the same issue as one you have already written for CE, and
    should be merged into it. (b) If an issue's `root_cause` restates another issue's finding,
    that issue is the other one's consequence. Merge it.
-   Every entry must trace to something the guest SAID OR IMPLIED. Our own process gaps are not
-   guest issues however serious — an out-of-policy refund, a missed SOP step, a DSS path not
-   followed go to `flags`. `claim` is null only where the review implies
+   Every entry must trace to something that happened TO THIS GUEST — in the review, or in
+   what they asked us for and what we did about it. It does not have to be in the review.
+
+   WHERE A REFUSED REQUEST GOES, because this is the line that used to send the whole story
+   to `flags` and out of the RCA:
+     The guest asked and we COULD NOT (policy correctly applied) -> it belongs under heading
+       3, as what actually happened. It explains the review. It is NOT a flag: nobody did
+       anything wrong.
+     The guest asked and we COULD have and did not, for whatever reason -> that is a FLAG.
+       Our conduct, and someone must act on it.
+     The guest asked and we did it -> narrate it under heading 3. No flag.
+   So the ask is ALWAYS visible on the card; only the avoidable miss becomes a flag.
+
+   Our own process gaps that touched no guest request — an out-of-policy refund nobody asked
+   for, a missed internal SOP step — remain flags and are not guest issues. `claim` is null only where the review implies
    the issue without words, or on a rule 13 routed-scenario coverage row; a `guest_issues` entry
    with no claim and no routed scenario behind it renders as a numbered guest complaint with an
    empty Claim block, and leadership reads it as something the guest said. They did not.
-   Do not repeat in `guest_issues` anything you have already raised in `flags`.
+   Do not repeat the SAME SENTENCE in both. A guest issue may describe what the guest asked
+   for and did not get, while a flag names our failure to do it — those are two statements
+   about one event and both belong. What must not happen is the same wording twice.
 10. `flags` contains failures only — things a named team must act on. An empty array means
     everything was checked and nothing needed raising; return `[]`, not a placeholder entry.
 10-teams. `team` IS ONE OF THESE NINE, and nothing else. They are the teams work is actually
@@ -2418,10 +2477,28 @@ findable; one you quietly corrected is not.
    same actor - merging a guest message into a system row destroys both. No
    "(xN)" in the label.
 
-4. LABELS - short and plain, from this vocabulary:
-   "Booking created", "Tickets sent", "Guest reached out", "Guest reply",
-   "CE response", "SP response", "Refund issued", "Booking cancelled",
-   "Escalated to SP", "Review posted".
+4. LABELS - a DESCRIPTIVE line saying what this event actually was, written
+   from its own body. Not a category.
+
+   There used to be a closed vocabulary of ten here, and it made every card
+   read the same: "SP response" tells a reader that a partner said something,
+   not what they said or what changed. "Booking details posted" is the name of
+   a mechanism, not of an event. The reader is scanning for the moment the
+   booking went wrong, and a column of ten repeating nouns hides it.
+     INSTEAD OF          WRITE
+     SP response         Booking intimation sent to the supply partner
+     Tickets sent        Confirmation email sent to guest
+     CE response         Apology and refund promised to guest
+     Guest reached out   Guest asked to move the tour to 14 Aug
+     Booking cancelled   Original booking cancelled via API
+     Refund issued       Full refund of CHF 461.19 processed
+   Keep them short — a line, not a sentence, and no trailing period.
+
+   THE ACTOR RULE IS UNCHANGED AND OUTRANKS ALL OF THIS. A label naming
+   someone who did not act is a false statement about a person, and it is the
+   one error here that can end up quoted back to a customer. A guest event
+   describes what the GUEST did; a CE event what WE did; an SP event what the
+   PARTNER did. Descriptive does not mean re-attributed.
    THE LABEL MUST MATCH THE ACTOR. This is not a style preference - a label
    naming someone who did not act is a false statement about a person, and it
    is the one error here that can end up quoted back to a customer.

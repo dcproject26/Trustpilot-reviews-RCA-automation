@@ -419,19 +419,50 @@ def _issue(raw, notes):
         notes.append(f"claim_accuracy {_given!r} → {acc}")
     note = _clean(raw.get("claim_accuracy_note")) or tail
 
-    # The guest is wrong, or we cannot tell: there is nothing to diagnose and
-    # nothing to fix. Cleared here rather than trusted to the model, because a
-    # root cause under an Inaccurate verdict reads as a real finding — it is
-    # the shape of thoroughness with nothing behind it, and somebody acts on it.
-    _diagnosable = acc in ("Accurate", "Partly accurate")
+    # THE VERDICT JUDGES THE REVIEW'S CLAIM. IT DOES NOT DECIDE WHETHER THERE
+    # IS A DIAGNOSIS.
+    #
+    # This used to clear root_cause, operational_failure, sop_gap and fix on
+    # any Inaccurate or Unknown verdict. The reasoning was sound about one
+    # case — a root cause under a claim that does not hold is the shape of
+    # thoroughness with nothing behind it — and wrong about another, which is
+    # the one that reached a real card: a guest asked to move their booking,
+    # was refused, and wrote a review about "strict policy". The public claim
+    # scored Inaccurate, and the modification request they actually made was
+    # deleted along with everything else. The card said the guest was wrong
+    # and showed nothing.
+    #
+    # So the test is no longer the verdict alone. A diagnosis survives when
+    # the ZENDESK CASE shows something happened — `case_side` — whatever the
+    # review's claim turned out to be. With no case and a claim that does not
+    # hold, there genuinely is nothing to diagnose and the fields still clear.
+    _case_side = _clean(raw.get("case_side"))
+    _diagnosable = acc in ("Accurate", "Partly accurate") or bool(_case_side)
     if not _diagnosable:
         for _f in ("root_cause", "operational_failure", "sop_gap", "fix"):
             if _clean(raw.get(_f)) or isinstance(raw.get(_f), dict):
-                notes.append(f"{_f} dropped — {acc} leaves nothing to diagnose")
+                notes.append(f"{_f} dropped — {acc}, and the Zendesk case "
+                             f"shows nothing on this issue, so there is "
+                             f"nothing to diagnose")
                 break
+    elif acc not in ("Accurate", "Partly accurate"):
+        # KEPT ON A CLAIM THAT DID NOT HOLD, which is a judgement worth
+        # announcing: the reader is being shown a diagnosis beside a verdict
+        # that says the guest was wrong, and the reason those coexist is the
+        # case, not the review.
+        notes.append(f"claim_accuracy is {acc} but the Zendesk case shows "
+                     f"something happened, so the diagnosis is kept — the "
+                     f"review's claim and the booking's problem are different "
+                     f"questions")
 
     out = {
         "issue":                _clean(raw.get("issue")) or "Untitled issue",
+        # THE TWO SIDES. Either may be null, and null is a finding rather than
+        # a gap: no review_side means the case surfaced something the guest
+        # never wrote about; no case_side means they never contacted support
+        # and the review IS the case.
+        "review_side":          _clean(raw.get("review_side")),
+        "case_side":            _case_side,
         # Verbatim guest words at whatever length they wrote - never trimmed.
         "claim":                raw.get("claim") if isinstance(raw.get("claim"), str)
                                 and raw.get("claim").strip() else None,
@@ -499,7 +530,15 @@ def _demote_findings(issues, flags, notes, routed=None):
         # field that had moved, not by anything the model did.
         _owner = (i.get("fix") or {}).get("owner") if isinstance(i.get("fix"), dict) \
             else i.get("owner")
-        if (i.get("claim") or _owner or i.get("operational_failure")):
+        # `case_side` KEEPS AN ISSUE HERE. A problem the Zendesk case shows
+        # and the review never mentioned has no claim by definition — the
+        # guest did not write about it publicly — and demoting it to flags is
+        # exactly how the modification request in the Bhayani case vanished
+        # from the RCA. It is a thing that happened to this guest, so it is a
+        # guest issue; our failure to act on it, if there was one, is the
+        # flag beside it.
+        if (i.get("claim") or i.get("case_side") or _owner
+                or i.get("operational_failure")):
             kept.append(i)
             continue
         _text = f"{i.get('issue') or ''} {i.get('root_cause') or ''}".lower()

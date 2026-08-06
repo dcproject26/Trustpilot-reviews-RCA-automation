@@ -85,7 +85,10 @@ def test_dropping_them_is_reported_not_silent():
     """A field the model wrote and the projection removed is a change to its
     answer, and the trail is where that is said."""
     _, notes = _issue(claim_accuracy="Inaccurate")
-    assert any("leaves nothing to diagnose" in n for n in notes), notes
+    # The wording moved with the rule: the verdict alone no longer decides.
+    # A diagnosis is dropped only when the claim does not hold AND the Zendesk
+    # case shows nothing — see test_wwr_case_side.py for the case that keeps it.
+    assert any("nothing to diagnose" in n for n in notes), notes
 
 
 # ── fix is an object ───────────────────────────────────────────────────────

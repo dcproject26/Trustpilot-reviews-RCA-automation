@@ -27,6 +27,13 @@ from server.checklist import WHAT_WENT_WRONG_STRUCTURE
 # whole text rather than silently losing anything, and `headings()` is driven
 # by a test that pins all five, so a re-wording fails loudly there instead of
 # quietly putting a paragraph of prompt guidance into a Slack post.
+# The count the composer is written against. A NUMBER, checked at runtime,
+# because the block builder indexes heads[0..3] — if the structure grows or
+# shrinks the indexing is silently wrong, and a post with a missing heading
+# looks like a model that had nothing to say under it.
+MANDATED_HEADINGS = 4
+
+
 def headings() -> list[str]:
     return [line.split(" — ", 1)[0].strip() for line in WHAT_WENT_WRONG_STRUCTURE]
 
@@ -95,35 +102,6 @@ def _join_points(v) -> str:
     return str(v or "").strip()
 
 
-def _escalation_lines(sx: dict) -> list[str]:
-    """Heading 4's sub-points, from the document-level sp_escalation node.
-
-    Escalation is a fact about the CASE, not about one complaint in it, so the
-    same answer prints under every issue block. Repeating it is deliberate:
-    heading 4 is mandatory, and an issue block that skipped it because another
-    block already said it would not follow the mandated structure.
-    """
-    esc = str((sx or {}).get("escalated") or "").strip()
-    out = []
-    if esc:
-        out.append(_sub("a", f"Did CE escalate to SP? {esc}"))
-    else:
-        out.append(_sub("a", "Did CE escalate to SP? Not recorded — the RCA "
-                             "gave no escalation verdict"))
-    # (b) is the reason. `reason_if_not` is what the model writes when it did
-    # not escalate — including the DND case the user calls out by name.
-    reason = str((sx or {}).get("reason_if_not") or "").strip()
-    if reason:
-        out.append(_sub("b", reason))
-    elif esc.lower().startswith("n"):
-        # "No" or "N/A" with no reason. The user asked specifically for the
-        # DND case to be stated, so a bare No is an incomplete answer and says
-        # so rather than reading as a complete one.
-        out.append(_sub("b", "No reason recorded — whether the SP is on DND "
-                             "was not stated"))
-    return out
-
-
 def _fix_lines(g: dict, doc_fixes: dict) -> list[str]:
     """Heading 5: the teams to tag, and the corrective action.
 
@@ -184,6 +162,10 @@ def _happened_from_document(wh: dict) -> dict:
 
 def _issue_block(g: dict, sx: dict, doc_fixes: dict, heads: list[str],
                  doc_happened: dict = None) -> str:
+    # `sx` is the sp_escalation node. It is accepted and NOT used: escalation
+    # moved to sp_interaction_notes, and the parameter stays so every caller
+    # keeps working. Removing it silently would be a signature change nobody
+    # asked for; leaving it undocumented would read as a bug.
     lines = []
 
     # 1. Guest issue
@@ -223,12 +205,14 @@ def _issue_block(g: dict, sx: dict, doc_fixes: dict, heads: list[str],
         lines.append(_sub("a", "No root cause recorded — nothing was written "
                                "under this heading"))
 
-    # 4. Supply Partner escalation
+    # 4. Fixes
+    #
+    # SUPPLY PARTNER ESCALATION USED TO BE HEADING 4. It is not dropped — it
+    # lives in `sp_interaction_notes`, which already carries whether it was
+    # raised, why not when it was not, and what came back. Repeating it here
+    # printed "Did CE escalate to SP? Not recorded" under every issue on every
+    # card, including the many with no supply partner involved at all.
     lines.append(heads[3])
-    lines.extend(_escalation_lines(sx))
-
-    # 5. Fixes
-    lines.append(heads[4])
     lines.extend(_fix_lines(g, doc_fixes))
 
     return "\n".join(lines)
@@ -245,10 +229,10 @@ def compose_legacy(wwr_scenarios, wwr_chain) -> str:
     written in an older shape.
 
     Mapped into synthetic guest issues so there is still only ONE thing that
-    knows the five-heading format.
+    knows the mandated heading format.
     """
     heads = headings()
-    if len(heads) != 5:
+    if len(heads) != MANDATED_HEADINGS:
         return ""
     issues = []
     for sc in (wwr_scenarios or []):
@@ -322,12 +306,13 @@ def compose(what_went_wrong: dict) -> str:
     if not _has_content(w):
         return ""
     heads = headings()
-    if len(heads) != 5:
-        # The structure is the source of truth and it no longer has five
-        # entries. Saying so beats printing whatever number it does have under
-        # a format the user mandated as five.
+    if len(heads) != MANDATED_HEADINGS:
+        # The structure is the source of truth and it no longer has the
+        # mandated number of entries. Saying so beats printing whatever number
+        # it does have under a format that was specified exactly.
         return (f"Cannot compose: checklist.WHAT_WENT_WRONG_STRUCTURE has "
-                f"{len(heads)} heading(s), and the mandated format has 5.")
+                f"{len(heads)} heading(s), and the mandated format has "
+                f"{MANDATED_HEADINGS}.")
 
     issues = [g for g in (w.get("guest_issues") or []) if isinstance(g, dict)]
     sx = w.get("sp_escalation") or {}

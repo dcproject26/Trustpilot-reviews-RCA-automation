@@ -24,14 +24,30 @@ FLAG_TEAM_ALIASES = {
 # Headings 1–5 are ALWAYS included; the (a)/(b)/(c) sub-points are indicative —
 # use only the ones relevant to the case. Objective: concise, structured, and
 # focused on the operational failure, NOT a restatement of the customer's review.
+# FOUR HEADINGS, and the objective is stated because it is what the headings
+# are for: make the RCA concise, structured, and focused on explaining the
+# OPERATIONAL FAILURE — not on restating the customer's review.
+#
+# The headings are mandatory and always appear. The sub-points are INDICATIVE:
+# use the ones this case has, drop the ones it does not.
+#
+# SUPPLY PARTNER ESCALATION USED TO BE HEADING 4 AND IS GONE FROM HERE. Not
+# dropped — it already has a better home in `sp_interaction_notes`, which
+# carries `raised` (Yes/No/N/A), the `reason` when it did not happen, and the
+# records of what was raised and what came back. A mandatory WWR heading
+# repeating that put "Did CE escalate to SP? Not recorded" under every issue
+# on every card, including the many where no supply partner was involved at
+# all — a heading answering a question nobody asked, five times per review.
+WHAT_WENT_WRONG_OBJECTIVE = (
+    "Concise, structured, and focused on explaining the operational failure "
+    "rather than restating the customer's review."
+)
+
 WHAT_WENT_WRONG_STRUCTURE = [
     "1. Guest issue — brief 1–2 line summary (concise pointers) of the issue the guest experienced.",
     "2. Is the guest's claim accurate? — state one of: Yes / Partially True / No.",
     "3. What actually happened? — (a) root cause; (b) operational failure, if any; (c) SOP/process gap, if any.",
-    "4. Supply Partner escalation — (a) did CE escalate to SP? Yes / No / N/A; "
-    "(b) if we are not escalating, specify why (e.g. SP is on DND).",
-    "5. Fixes — (a) tag the relevant team(s)/stakeholder(s) who need to evaluate or address the identified gaps; "
-    "(b) briefly mention any corrective actions taken or proposed.",
+    "4. Fixes — (a) briefly mention any corrective actions taken or proposed.",
 ]
 
 GENERAL_GUIDELINES = {
