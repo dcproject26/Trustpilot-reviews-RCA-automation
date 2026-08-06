@@ -615,6 +615,10 @@ NOT_YET_DRIVEN = {
     # The note the box writes its outcome into. A render target, not a
     # control — see data-slack-post-err.
     "data-bid-set-note",
+    # Which ending the Mark sent button will perform — state the handler
+    # reads so the label the person clicked and the request that goes out
+    # cannot disagree. Driven in tests/test_mark_sent_button.py.
+    "data-sent-mode",
 }
 
 
@@ -747,38 +751,49 @@ def test_every_toggle_control_actually_changes_something(page):
 
 # ── Mark sent, beside Post to thread ───────────────────────────────────────
 
-def test_mark_sent_is_disabled_until_the_rca_is_in_the_thread(page):
-    """Enabled earlier it would call /send with nothing posted — and /send
-    posts the RCA when rca_posted_at is unset, which is the second-copy
-    problem the button beside it already guards.
+def test_mark_sent_never_posts_the_rca_whichever_mode_it_is_in(page):
+    """THE GUARANTEE IS UNCHANGED; THE MECHANISM MOVED.
 
-    A disabled control must be visibly different from a broken one, so it
-    carries a title saying what to do first.
+    This button must never put the RCA in the thread — /send posts it when
+    rca_posted_at is unset, and a second copy in a thread people are reading
+    is the outcome the control beside it already guards.
+
+    It used to hold that by being DISABLED until the RCA was posted, and the
+    consequence was a dead end: rca_posted_at is only set by a SUCCESSFUL
+    Slack post, so wherever posting is impossible — unconfigured, app not in
+    the channel, revoked token, a review added by hand with no thread — the
+    button was greyed out for ever and a matched review could never be
+    finished from the card it lives on. A control that can never become
+    available is not a legitimate disabled state.
+
+    It now CHANGES instead: /send with the RCA posted, /close without, and
+    /close never touches Slack. So the guarantee is asserted directly — what
+    the button calls — rather than through the disabling that used to imply
+    it. Both modes are driven in tests/test_mark_sent_button.py.
     """
     got = page.evaluate("""() => {
       const r = REVIEWS.find(x => x.id === state.selected);
       const keep = r.rcaPostedAt;
       r.rcaPostedAt = null; renderRcaCol();
       const off = document.querySelector('[data-mark-sent]');
-      const a = off ? {disabled: off.disabled, title: off.title,
-                       cursor: getComputedStyle(off).cursor} : null;
+      const a = off ? {disabled: off.disabled, mode: off.dataset.sentMode,
+                       title: off.title, text: off.textContent.trim()} : null;
       r.rcaPostedAt = '2026-08-05T10:00:00'; renderRcaCol();
       const on = document.querySelector('[data-mark-sent]');
-      const b = on ? {disabled: on.disabled, title: on.title,
-                      cursor: getComputedStyle(on).cursor} : null;
+      const b = on ? {disabled: on.disabled, mode: on.dataset.sentMode,
+                      title: on.title, text: on.textContent.trim()} : null;
       r.rcaPostedAt = keep; renderRcaCol();
       return {a, b}; }""")
     assert got["a"], "the Mark sent button does not render at all — NOT BUILT"
-    assert got["a"]["disabled"] is True, (
-        "Mark sent is live before the RCA has been posted — pressing it would "
-        "post the RCA rather than only marking the review finished")
-    assert "Post the RCA" in got["a"]["title"], got["a"]
-    assert got["a"]["cursor"] != "pointer", (
-        "a disabled control still presents itself as clickable")
-    assert got["b"]["disabled"] is False, (
-        "Mark sent stays disabled after the RCA was posted, so the review "
-        "still cannot be finished from where the work happens")
+    # Nothing posted: it finishes the review WITHOUT Slack.
+    assert got["a"]["mode"] == "close", got["a"]
+    assert "without posting" in got["a"]["text"].lower(), got["a"]
+    assert "Slack" in got["a"]["title"], got["a"]
+    # RCA in the thread: it marks the review sent, posting nothing again.
+    assert got["b"]["mode"] == "send", got["b"]
     assert "nothing is posted again" in got["b"]["title"], got["b"]
+    # And neither state is a dead end.
+    assert got["a"]["disabled"] is False and got["b"]["disabled"] is False, got
 
 
 def test_mark_sent_calls_send_once_and_posts_nothing(page):

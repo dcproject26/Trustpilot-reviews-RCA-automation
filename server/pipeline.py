@@ -1224,7 +1224,16 @@ async def process_review(review_id: str, force_candidates: bool = False):
                         from server.names import (is_internal_booking_name
                                                   as _is_internal_booking_name)
                         from server.services.zendesk import _name_score as _nsc
-                        from server.services import zendesk
+                        # NO `from server.services import zendesk` HERE.
+                        # It is already imported at module scope, and a
+                        # function-local import of the same name makes
+                        # `zendesk` a LOCAL for the WHOLE of process_review —
+                        # so every later use (shortlist, find_bids_by_*,
+                        # get_timeline) raised UnboundLocalError on any review
+                        # that did not enter this branch, inside except
+                        # handlers that logged and carried on. Matching
+                        # degraded in silence. This is the same shape as the
+                        # validate() outage CLAUDE.md opens with.
                         # The SECOND copy of the first/last split, and it had
                         # the same fault. One rule, one place.
                         _af, _al = _pa(review.author or "")

@@ -75,7 +75,9 @@ def _received_at_from(slack_ts, rid="", published_at=None, published_src=""):
     log.info(f"[ingest] {rid}: the payload carries no Trustpilot publish date "
              f"— using the Slack arrival time, which is later by however long "
              f"the integration took")
-    from datetime import datetime, timezone
+    # `datetime` is module-level; importing it here too would make it a
+    # LOCAL for this whole function and break any use above this line.
+    from datetime import timezone
     try:
         ts = float(str(slack_ts).strip())
         if 1e9 < ts < 4e9:                      # 2001-2096: a real message
@@ -968,7 +970,8 @@ def _read_head_sha() -> str:
     Read from .git directly rather than shelling out: the git binary is not
     always on PATH in the run context.
     """
-    import os
+    # `os` is already imported at module scope. A local import of the same
+    # name makes it a LOCAL for this whole function.
     # Every failure has to end in a string. This runs at import and the result
     # is frozen into _BUILD_SHA, so anything raised here takes the whole app
     # down at startup - and .git/HEAD raises more than OSError: a truncated
@@ -1044,7 +1047,9 @@ def get_version():
     not always on PATH in the run context, and a version endpoint that fails is
     worse than none.
     """
-    import os
+    # `os` is module-level; a local import of the same name would make it a
+    # LOCAL for this whole function. `timezone` is not — the module imports it
+    # only as `_tz` — so that one is a genuine local import, not a shadow.
     from datetime import timezone
 
     sha = _BUILD_SHA
@@ -1108,7 +1113,11 @@ def get_version():
             f"Nothing was compared - this is NOT a report that the build is "
             f"current. Restart the server and check the logs at startup.")
     try:
-        from server.db import engine, SessionLocal, Review, RcaDraft
+        # Review and RcaDraft are module-level; re-importing them here
+        # would make them LOCALS for this whole function, so a failure of
+        # this import would turn every later use into an UnboundLocalError
+        # rather than the error that actually happened.
+        from server.db import engine, SessionLocal
         url = engine.url
         db_info["dialect"] = url.get_backend_name()
         if url.get_backend_name().startswith("sqlite"):

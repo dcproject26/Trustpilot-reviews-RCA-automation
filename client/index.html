@@ -4875,17 +4875,30 @@ function renderRcaCol() {
              had gone to the thread stayed in Matched, and the only way out was
              Send ↑ at the top of the column.
 
-             DISABLED UNTIL THE RCA IS IN THE THREAD. Enabled earlier it would
-             call /send with nothing posted, which posts the RCA — the exact
-             second-copy problem the button beside it already guards. Disabled
-             is a legitimate state and says why in its title, which is what
-             makes it different from broken. -->
+             IT USED TO BE DISABLED UNTIL THE RCA WAS IN THE THREAD, so that
+             it could not call /send with nothing posted — which posts the
+             RCA, the second-copy problem the button beside it already guards.
+             That guard was right and its consequence was a dead end: where
+             Slack posting is not possible at all — unconfigured, the app not
+             in the channel, a revoked token — rca_posted_at is never set, so
+             the button was greyed out for ever and a matched review could
+             never be finished from here.
+
+             So it does not gate; it CHANGES. Posting to the thread now moves
+             the review to Sent by itself, so this button is the route for the
+             other case: finishing a review WITHOUT posting anything. It goes
+             through /close, which never touches Slack and is recorded as
+             closed-by-hand, so the Sent tab still tells the two endings
+             apart. After a post it becomes a plain "mark sent", for the one
+             case where the post landed and the automatic move did not.
+             Nothing is ever posted from this button in either mode, which is
+             what the disabling was protecting. -->
         <button class="slack-sent-btn btn" data-mark-sent
-                ${r.rcaPostedAt ? '' : 'disabled'}
+                data-sent-mode="${r.rcaPostedAt ? 'send' : 'close'}"
                 title="${r.rcaPostedAt
                   ? 'Finish this review. The RCA is already in the thread, so nothing is posted again.'
-                  : 'Post the RCA to the thread first — marking sent before that would post it.'}"
-                >Mark sent →</button>
+                  : 'Finish this review WITHOUT posting to Slack. Nothing is sent to the thread, and the Sent tab records it as closed by hand.'}"
+                >${r.rcaPostedAt ? 'Mark sent →' : 'Send to Sent without posting →'}</button>
       </div>
       <!-- Filled by showPostError when Slack refuses the post. Empty is the
            normal state and draws nothing — an always-present empty box would
@@ -6159,25 +6172,63 @@ function renderRcaCol() {
       if (!resp.ok) throw postError(data.detail);
       clearPostError(col);
       r.rcaPostedAt = data.posted_at || new Date().toISOString();
-      // MARK SENT IS GATED ON rcaPostedAt AND ITS `disabled` WAS RENDERED
-      // BEFORE THIS POST HAPPENED. Setting the field on the object changed
-      // nothing on screen, so the button stayed greyed out after a successful
-      // post and read as broken — the associate had just done the one thing
-      // that unlocks it. Nothing re-renders here on purpose (that would
-      // discard an in-progress edit of the post), so the control is released
-      // directly.
+
+      // POSTING FINISHES THE REVIEW. The RCA is in the thread, which is the
+      // work; leaving the review in Matched afterwards meant every posted
+      // review had to be marked sent by hand as a second, separate step, and
+      // one forgotten click left finished work sitting in the queue.
+      //
+      // /send, not a second code path — it is the same endpoint the Send ↑
+      // button calls, and it refuses to post when rca_posted_at is already
+      // set, which it now is. So nothing reaches the thread twice: the guard
+      // is reused rather than re-implemented.
+      //
+      // A FAILURE HERE DOES NOT UNDO THE POST. The RCA has gone out; that is
+      // a fact and the card keeps saying so. Only the move to Sent is
+      // reported as not having happened, with the button beside it left in
+      // the state that completes it by hand.
+      let _sentOk = true, _sentWhy = '';
+      try {
+        const sres = await fetch(`/api/reviews/${r.id}/send`, {method: 'POST'});
+        if (!sres.ok) throw new Error(`${sres.status} ${await sres.text()}`.slice(0, 160));
+        const sout = await sres.json().catch(() => ({}));
+        r.status    = 'sent';
+        r.sentRoute = sout.sent_route || 'rca_posted';
+      } catch (e2) {
+        _sentOk  = false;
+        _sentWhy = String(e2.message || e2);
+      }
+
+      // The button beside this one. With the RCA in the thread it can only
+      // ever be "mark sent" — never the /close route, which would record a
+      // review whose RCA went out as closed without posting.
       const _sentBtn = col.querySelector('[data-mark-sent]');
       if (_sentBtn) {
         _sentBtn.disabled = false;
+        _sentBtn.dataset.sentMode = 'send';
+        _sentBtn.textContent = _sentOk ? '✓ Sent' : 'Mark sent →';
         _sentBtn.title = 'Finish this review. The RCA is already in the '
                        + 'thread, so nothing is posted again.';
       }
+      if (!_sentOk) {
+        // Counted and said. "Posted" alone would leave the reader to notice
+        // for themselves that the review is still in Matched.
+        showPostError(col, {message: 'The RCA IS in the thread — that part '
+                                     + 'worked. Moving the review to Sent did '
+                                     + 'not: ' + _sentWhy
+                                     + ' Use the button beside this one.',
+                            retryable: true});
+      }
       slackPostBtn.textContent = data.already_posted
         ? '✓ Already posted ' + _shortWhen(r.rcaPostedAt)
-        : '✓ Posted to thread';
-      setTimeout(() => {
+        : (_sentOk ? '✓ Posted & sent' : '✓ Posted to thread');
+      setTimeout(async () => {
         slackPostBtn.disabled = false;
         slackPostBtn.textContent = '✓ Posted ' + _shortWhen(r.rcaPostedAt);
+        // Refresh last, so the review moves into the Sent tab on screen. Not
+        // before the label settles, or the re-render throws the confirmation
+        // away before it has been read.
+        if (_sentOk) await reloadFromServer();
       }, 2500);
     } catch (e) {
       // The button says only that it did not go. The REASON goes in the
@@ -7299,11 +7350,30 @@ document.addEventListener('click', async (ev) => {
   const r = REVIEWS.find(x => x.id === state.selected);
   if (!r) return;
   const was = btn.textContent;
+  // WHICH ENDING THIS IS. /send finishes a review whose RCA is already in the
+  // thread; /close finishes one where nothing was posted and never touches
+  // Slack. Reading the mode off the button rather than off r.rcaPostedAt so
+  // the label the person clicked and the request that goes out cannot
+  // disagree — the button is re-rendered on every edit to the post.
+  const mode = btn.dataset.sentMode === 'close' ? 'close' : 'send';
   btn.disabled = true; btn.textContent = '⟳ marking…';
   try {
-    const res = await fetch(`/api/reviews/${r.id}/send`, {method: 'POST'});
+    const res = mode === 'close'
+      ? await fetch(`/api/reviews/${r.id}/close`, {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({reason: 'Finished from the RCA card without '
+                                        + 'posting to Slack.'})})
+      : await fetch(`/api/reviews/${r.id}/send`, {method: 'POST'});
     if (!res.ok) throw new Error(`${res.status} ${await res.text()}`.slice(0, 200));
     const out = await res.json();
+    if (mode === 'close') {
+      btn.textContent = '✓ Closed out';
+      r.status = 'sent';
+      r.sentRoute = 'closed';
+      r.closedAt = new Date().toISOString();
+      await reloadFromServer();
+      return;
+    }
     if (out.posted) {
       // Should be impossible while the button is gated on rcaPostedAt. Said
       // out loud rather than swallowed: a second copy in the thread is the
