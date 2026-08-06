@@ -39,6 +39,13 @@ def _set(page, steps):
         window.__tKeep = JSON.parse(JSON.stringify(r.confidenceTrail || []));
       r.confidenceTrail = st;
       state.trailOpen = {};
+      // OPENED, because the section is now shut by default — it is the
+      // working-out, not the answer, and it sat above the thing the reader
+      // came for on every card. Every test in this file is about what the
+      // trail SAYS, so it opens it first; that it starts shut, and that the
+      // header still says there is something behind it, is pinned in
+      // tests/test_match_trail_collapsed.py.
+      state.trailSectionOpen = {a: true, b: true};
       renderReviewCol();
     }""", steps)
     page.wait_for_timeout(350)
@@ -49,6 +56,7 @@ def _restore(page):
       const r = REVIEWS.find(x => x.id === state.selected);
       if (window.__tKeep !== undefined) r.confidenceTrail = window.__tKeep;
       window.__tKeep = undefined; state.trailOpen = {};
+      state.trailSectionOpen = {};
       renderReviewCol(); }""")
     page.wait_for_timeout(250)
 

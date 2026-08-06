@@ -226,3 +226,77 @@ def policy_from_events(events) -> tuple[str, str]:
             return got, ""
     return "", (f"none of the {len(bodies)} ticket event(s) state the "
                 f"cancellation terms")
+
+
+# ── vendor names, phone numbers and addresses ──────────────────────────────
+#
+# The prompt tells the model to write "the supply partner" and never a trading
+# name. That was the wrong mechanism twice over: an instruction can be ignored,
+# and it does nothing at all for the drafts already stored — so a card still
+# read "partner ref K507100323; RAIL EUROPE-CHF contact +41 33 828 72 33",
+# which is a vendor's name and a phone number on a card about a guest.
+#
+# Scrubbed in code, at render, so it holds whatever the model wrote and
+# whether the draft is new or a year old.
+#
+# THE REFERENCE STAYS. "partner ref K507100323" is what someone uses to find
+# the booking on the partner's side; the NAME and the CONTACT DETAILS are what
+# crowd out the fact the row exists to carry.
+
+_PHONE = re.compile(r"(?<![\w])\+\d[\d\s().-]{7,}\d")
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+
+# Words that make a vendor token too common to blank safely. Replacing "rail"
+# or "tours" everywhere would eat the sentence around it.
+_VENDOR_STOP = {"the", "and", "ltd", "llc", "inc", "gmbh", "srl", "sa", "sas",
+                "bv", "ag", "co", "company", "tours", "tour", "travel",
+                "rail", "bus", "boat", "group", "europe", "international"}
+
+
+def scrub_vendor(text: str, vendor_name: str = "") -> str:
+    """Replace the supply partner's identity with "the supply partner".
+
+    The vendor's own name is matched from the booking record rather than
+    guessed, so this cannot eat an unrelated proper noun. Phone numbers and
+    email addresses go regardless of whose they are: neither belongs on a card
+    about a guest's complaint, and a number left in is the one thing here that
+    could be dialled by mistake.
+    """
+    out = str(text or "")
+    if not out.strip():
+        return out
+
+    name = str(vendor_name or "").strip()
+    if name:
+        # The whole name first — "RAIL EUROPE- CHF" — tolerating the spacing
+        # and punctuation drift between the warehouse and the ticket text.
+        parts = [re.escape(p) for p in re.split(r"[^\w]+", name) if p]
+        if parts:
+            whole = r"[^\w]{0,3}".join(parts)
+            out = re.sub(whole, "the supply partner", out, flags=re.I)
+        # Then any distinctive token from it left standing on its own.
+        for tok in re.findall(r"[A-Za-z]{4,}", name):
+            if tok.lower() in _VENDOR_STOP:
+                continue
+            out = re.sub(rf"\b{re.escape(tok)}\b", "the supply partner",
+                         out, flags=re.I)
+
+    out = _PHONE.sub("[contact removed]", out)
+    out = _EMAIL.sub("[email removed]", out)
+    # "the supply partner contact [contact removed]" reads worse than the
+    # fact it replaced; the contact detail is gone, so the lead-in goes too.
+    out = re.sub(r"\s*(?:contact|tel|phone|email)\s*"
+                 r"\[(?:contact|email) removed\]", "", out, flags=re.I)
+    # A preposition left pointing at nothing ("emailed us at ") is worse than
+    # the detail it replaced.
+    out = re.sub(r"\s*\b(?:at|on|via)\s*\[(?:contact|email) removed\]",
+                 "", out, flags=re.I)
+    out = re.sub(r"\s*\[(?:contact|email) removed\]", "", out)
+    # "vendor the supply partner" — the label and the replacement say the same
+    # thing, and the pair reads as a bug.
+    out = re.sub(r"\b(?:vendor|partner|supplier)\s+the supply partner",
+                 "the supply partner", out, flags=re.I)
+    # Collapse the double-naming the substitutions can leave behind.
+    out = re.sub(r"(the supply partner)(?:[\s,-]+the supply partner)+",
+                 r"\1", out, flags=re.I)
+    return re.sub(r"[ \t]{2,}", " ", out).strip(" ;,-")

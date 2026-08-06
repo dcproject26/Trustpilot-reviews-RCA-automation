@@ -321,6 +321,13 @@
   }
 
   /* match trail — "how we built this match" */
+  .confidence-trail-label {
+    display: flex; align-items: baseline; gap: 8px; cursor: pointer;
+    user-select: none;
+  }
+  .confidence-trail-label:hover .section-chev { color: var(--text); }
+  .trail-sec-count { font-size: 10.5px; color: var(--dim); font-weight: 400;
+                     margin-left: auto; }
   .confidence-trail { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
   .confidence-trail-label {
     font-size: 10.5px; font-weight: 650; letter-spacing: .05em;
@@ -1572,7 +1579,10 @@ async function fetchInbox() {
         language:       row.language || 'en',
         lang:           (row.language || 'en').toUpperCase(),
         receivedAt:     row.received_at,
-        time:           row.received_at ? new Date(row.received_at).toLocaleString('en-GB', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '',
+        // A missing date says so. The column has no default any more, so a
+        // creation site that forgets one leaves NULL — and an empty cell
+        // reads as a formatting bug rather than as an absent fact.
+        time:           row.received_at ? new Date(row.received_at).toLocaleString('en-GB', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : 'no date recorded',
         status:         row.status || 'new',
         closedAt:       row.closed_at    || null,
         closeReason:    row.close_reason || '',
@@ -1801,6 +1811,34 @@ function matchTrail(steps) {
     const m = String(st && st.text || '').match(/^\s*<strong>([^<]*)<\/strong>/i);
     return !m || !_NOT_MATCH.test(m[1].trim());
   });
+}
+
+// "How we built this match", COLLAPSED BY DEFAULT.
+//
+// It is the working-out, not the answer. On a card where the match is
+// obvious it is eight lines of pipeline vocabulary above the thing the
+// reader came for, and they scroll past it every time; on a card where the
+// match is in doubt it is the first thing they open. Shut by default and one
+// click from open serves both, which a permanently open panel does not.
+//
+// The count is on the closed header on purpose: a reader has to be able to
+// see there IS working-out without expanding it, or a collapsed section and
+// a review with no trail at all look the same.
+function trailSection(steps, prefix) {
+  const all = matchTrail(steps || []);
+  if (!all.length) return '';
+  const open = !!state.trailSectionOpen[prefix];
+  const notable = all.filter(s => s.mark !== 'pass').length;
+  return `
+    <div class="confidence-trail${open ? '' : ' is-shut'}">
+      <div class="confidence-trail-label" data-trail-sec="${prefix}">
+        <span>How we built this match</span>
+        <span class="trail-sec-count">${all.length} step${all.length === 1 ? '' : 's'}${
+          notable ? ` · ${notable} to read` : ''}</span>
+        <span class="section-chev">${open ? '▾' : '▸'}</span>
+      </div>
+      ${open ? trailView(all, prefix) : ''}
+    </div>`;
 }
 
 function trailView(steps, prefix) {
@@ -2055,6 +2093,25 @@ document.addEventListener('click', ev => {
   const k = b.dataset.trailToggle;
   state.trailOpen[k] = !state.trailOpen[k];
   renderReviewCol();
+  renderRcaCol();
+});
+
+// The section header. DELEGATED, like every other control here that survives
+// a re-render — a handler bound after one render is dead after the next.
+//
+// AT TOP LEVEL, which is the whole point of a delegated handler. This was
+// spliced INSIDE the listener above, so it registered a new listener each
+// time that OTHER control was clicked and never fired on the first click of
+// its own. Syntactically valid, so the parse test passed and the control
+// looked live — the failure mode this file has hit four times now, and the
+// reason there is a test that clicks it.
+document.addEventListener('click', (ev) => {
+  const h = ev.target.closest && ev.target.closest('[data-trail-sec]');
+  if (!h) return;
+  const k = h.dataset.trailSec;
+  state.trailSectionOpen[k] = !state.trailSectionOpen[k];
+  renderReviewCol();
+  renderRcaCol();
 });
 
 async function refreshAfterScenarioChange(reviewId) {
@@ -2478,6 +2535,7 @@ const state = {
   dssEdit: false,
   rawErrOpen: {},
   trailOpen: {},
+  trailSectionOpen: {},
   insightsWindow: '90d',
   // Why the last window switch did not produce numbers, or ''. A failed switch
   // used to be a console line only, so on screen it was identical to a switch
@@ -2758,21 +2816,43 @@ const _TL_MONTHS = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,
 // The missing year is taken from the review, which is the only year in scope:
 // these are all events on one booking, weeks apart at most.
 function _tlSortValue(row, fallbackYear) {
+  // THE DISPLAYED TIME FIRST, and time_sort only as a fallback.
+  //
+  // They are in DIFFERENT TIME ZONES. `time_sort` is the pipeline's UTC
+  // instant; `time` is what the row shows, in IST. A log row has only the
+  // displayed string, so comparing one row's UTC against another's IST put a
+  // 21:22 UTC event after a 02:50 IST one — on screen, 02:52, 02:59, 02:50,
+  // 02:51, which is the whole point of a chronology gone.
+  //
+  // Sorting on what the reader SEES keeps every comparison in one frame, and
+  // it is the order they will check the list against.
+  const t = String(row.time || '').trim();
+  const shown = t ? _tlParse(t, fallbackYear) : null;
+  if (shown !== null) return shown;
   const iso = String(row.time_sort || '').trim();
   if (iso) {
     const n = Date.parse(iso.length <= 10 ? iso + 'T00:00:00' : iso);
     if (!isNaN(n)) return n;
   }
-  const t = String(row.time || '').trim();
+  return null;
+}
+
+function _tlParse(t, fallbackYear) {
   if (!t) return null;
   // "2026-08-02 10:00" and "2026-08-02T10:00" — already carries its year.
-  let n = Date.parse(t.replace(' ', 'T'));
+  // Parsed WITHOUT a zone so it is read as local, the same frame the
+  // day-month branch below uses. A trailing Z or offset would be honoured by
+  // Date.parse and drag one row into another timezone.
+  const bare = t.replace(' ', 'T').replace(/(Z|[+-]\d{2}:?\d{2})$/, '');
+  let n = Date.parse(bare);
   if (!isNaN(n)) return n;
   // "21 Jul 15:28" / "21 Jul" — day, month name, optional clock, no year.
   const m = t.match(/^(\d{1,2})\s+([A-Za-z]{3})[a-z]*(?:\s+(\d{1,2}):(\d{2}))?/);
   if (m && _TL_MONTHS[m[2].toLowerCase()] !== undefined) {
-    return Date.UTC(fallbackYear, _TL_MONTHS[m[2].toLowerCase()],
-                    +m[1], +(m[3] || 0), +(m[4] || 0));
+    // new Date(...), not Date.UTC: the branch above parses as local, and two
+    // branches in two zones is the fault this function exists to fix.
+    return new Date(fallbackYear, _TL_MONTHS[m[2].toLowerCase()],
+                    +m[1], +(m[3] || 0), +(m[4] || 0)).getTime();
   }
   return null;
 }
@@ -2786,9 +2866,10 @@ function mergedTimelineRows(r, v3d) {
     is_internal: !!e.is_internal, internal_reason: e.internal_reason || '',
   }));
   const logs = (v3d.booking_logs || []).map((l, i) => (typeof l === 'string'
-    ? {kind: 'log', idx: i, time: '', label: l.replace(/^\s*\d+[.)]\s*/, ''), detail: ''}
+    ? {kind: 'log', idx: i, time: '', label: l.replace(/^\s*\d+[.)]\s*/, ''),
+       detail: '', hand: true}
     : {kind: 'log', idx: i, time: _tlTime(l.time), label: l.what || '',
-       detail: l.detail || ''}));
+       detail: l.detail || '', hand: !!l.hand}));
   // The year the undated log rows belong to. Taken from the review's own date
   // where there is one, else from the first event that carries a year.
   const _y = (() => {
@@ -2800,7 +2881,25 @@ function mergedTimelineRows(r, v3d) {
     }
     return new Date().getUTCFullYear();
   })();
-  const all = [...evs, ...logs].map(x => ({...x, _sv: _tlSortValue(x, _y)}));
+  // THE TWO SOURCES ARE NOT TWO SETS OF FACTS. The Zendesk events are the
+  // RECORD; booking_logs is the model NARRATING that same record. Merging
+  // both showed every event twice — once with a channel chip, once with a
+  // delete button — seventeen rows for nine events on a real card.
+  //
+  // MATCHING THEM UP CANNOT WORK, and trying was the first mistake. "Guest
+  // reached out" and "Guest fulfilment query — no CE action recorded" are the
+  // same event at the same minute sharing one word; "Guest reply" and "Refund
+  // issued" are DIFFERENT events at the same minute. No overlap threshold
+  // separates those two cases, and a wrong guess either hides a real event or
+  // shows a duplicate.
+  //
+  // So there is no guessing. Where Zendesk gave us events they are the
+  // timeline, and the only booking_logs rows shown beside them are the ones a
+  // PERSON typed — the only ones carrying anything the events do not. Where
+  // there are no events at all, the narration is all we have and it is shown
+  // in full.
+  const kept = evs.length ? logs.filter(l => l.hand) : logs;
+  const all = [...evs, ...kept].map(x => ({...x, _sv: _tlSortValue(x, _y)}));
   // A row with NO time sinks to the end rather than floating to the top: an
   // undated row at the top reads as the first thing that happened, which is a
   // claim nobody made. Ties keep the order they arrived in, so an event and
@@ -2883,7 +2982,7 @@ function bookingTimelineHtml(r, v3d) {
 
   return `
   <div class="section" id="rca-booking-logs-section">
-    <div class="section-label"><span>Booking timeline</span>
+    <div class="section-label"><span>Events timeline</span>
       <span class="hint">times in IST</span>
       ${shown.length ? `<span class="sec-count">${shown.length} event${shown.length === 1 ? '' : 's'}</span>` : ''}
     <span class="section-chev">▾</span></div>
@@ -2992,11 +3091,7 @@ function renderReviewCol() {
              no matter what matching had done, and an empty panel got read as
              "matching never ran". Each step keeps its own mark instead of a
              hardcoded ✗: a warn and a fail are different findings. -->
-          ${(r.confidenceTrail || []).length ? `
-          <div class="confidence-trail">
-            <div class="confidence-trail-label">How we built this match</div>
-            ${trailView(matchTrail(r.confidenceTrail), 'a')}
-          </div>` : ''}
+          ${trailSection(r.confidenceTrail, 'a')}
         </div>
       </div>
     `;
@@ -3134,12 +3229,7 @@ function renderReviewCol() {
        </div>`
     : '';
 
-  const confTrail = r.confidenceTrail
-    ? `<div class="confidence-trail">
-         <div class="confidence-trail-label">How we built this match</div>
-         ${trailView(matchTrail(r.confidenceTrail), 'b')}
-       </div>`
-    : '';
+  const confTrail = trailSection(r.confidenceTrail, 'b');
 
   col.innerHTML = `
     <div class="col-label">The facts</div>
@@ -4085,8 +4175,12 @@ document.addEventListener('click', async ev => {
   if (t.hasAttribute('data-log-del')) {
     v3.booking_logs = (v3.booking_logs || []).filter((_, i) => i !== parseInt(t.dataset.logDel));
   } else {
+    // MARKED AS HAND-ADDED. It is the only thing that distinguishes a row a
+    // person wrote from the model's narration of the Zendesk events, and the
+    // merged timeline needs that: the narration duplicates the events, a
+    // typed row does not.
     v3.booking_logs = [...(v3.booking_logs || []),
-      {time: '', what: 'New event — click to edit', detail: ''}];
+      {time: '', what: 'New event — click to edit', detail: '', hand: true}];
   }
   await saveDraft(r.id, {rca_v3: v3});
   renderReviewCol(); if (state.selected) renderRcaCol();

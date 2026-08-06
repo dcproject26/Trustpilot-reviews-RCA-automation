@@ -510,6 +510,10 @@ def test_a_drafted_reply_keeps_the_normal_editing_prompt(page):
 
 # Driven by a test somewhere in this suite. The comment names where.
 DRIVEN = {
+    # The "How we built this match" header, which opens and shuts the section.
+    # Driven in tests/test_match_trail_collapsed.py — it starts shut, and a
+    # click opens it and shuts it again.
+    "data-trail-sec",
     # Set-the-booking-id, driven at the bottom of this file: rendered in every
     # state, gated correctly on what could be a booking id, and clicked to
     # prove it reaches a handler.

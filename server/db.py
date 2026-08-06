@@ -46,7 +46,16 @@ class Review(Base):
     body_original    = Column(Text)
     body_english     = Column(Text, nullable=True)
     reference_number = Column(String, nullable=True)
-    received_at      = Column(DateTime, default=datetime.utcnow)
+    # NO DEFAULT. A default here does not leave the column empty — it INVENTS
+    # a date, the moment this process happened to run, and nothing downstream
+    # can tell an invented one from a real one. That is how the live webhook
+    # path stamped every review with its own processing time while the batch
+    # importer beside it read the message timestamp correctly.
+    #
+    # Every creation site now states it, and a site that forgets gets NULL,
+    # which renders as "no date recorded" — visibly missing rather than
+    # quietly wrong.
+    received_at      = Column(DateTime, nullable=True)
     status           = Column(String, default="new")   # new|draft|sent
     # Closed out rather than replied to. An untraceable review reaches Sent by
     # someone deciding there is nothing more to do — no RCA, no posted reply —

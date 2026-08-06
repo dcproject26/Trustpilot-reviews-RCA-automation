@@ -366,6 +366,11 @@ def _inject_failure(page):
         text: '<strong>Run failed</strong> — the database connection dropped mid-run. '
             + 'Nothing was saved for this step. Re-run the review.',
         raw: raw}];
+      // OPENED. "How we built this match" is shut by default now — it is the
+      // working-out, not the answer — and these tests are about what a FAILED
+      // step says inside it. That it starts shut is pinned separately in
+      // tests/test_match_trail_collapsed.py.
+      state.trailSectionOpen = {a: true, b: true};
       renderReviewCol(); }""", RAW_ERR)
 
 
@@ -374,6 +379,7 @@ def _restore(page):
       const r = REVIEWS.find(x => x.id === state.selected);
       if (r._keepTrail) r.confidenceTrail = r._keepTrail;
       state.rawErrOpen = {};
+      state.trailSectionOpen = {};
       renderReviewCol(); }""")
 
 

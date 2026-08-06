@@ -434,6 +434,30 @@ def _response_language(d) -> dict:
                 "why": f"the review language could not be resolved: {e}"}
 
 
+def _scrub_timeline(rows, booking):
+    """Timeline rows with the supply partner's identity taken out.
+
+    The vendor's own name comes from the booking record rather than being
+    guessed, so an unrelated proper noun cannot be eaten. Phone numbers and
+    email addresses go regardless of whose they are — a number left in is the
+    one thing on this card that could be dialled by mistake.
+    """
+    from server.ticket_notes import scrub_vendor
+    vendor = str((booking or {}).get("vendorName")
+                 or (booking or {}).get("vendor_name") or "")
+    out = []
+    for r in (rows or []):
+        if not isinstance(r, dict):
+            out.append(r)
+            continue
+        row = dict(r)
+        for k in ("summary", "detail", "label", "raw_body"):
+            if row.get(k):
+                row[k] = scrub_vendor(row[k], vendor)
+        out.append(row)
+    return out
+
+
 def _draft_dict(d: RcaDraft) -> dict:
     _tf = d.ticket_facts or {}
     _bk = d.booking or {}
@@ -449,13 +473,43 @@ def _draft_dict(d: RcaDraft) -> dict:
         d.scenarios or ([d.primary_scenario] + list(d.overlay_scenarios or [])))
 
     def _first_name(*cands):
+        """The first candidate that is a readable value. Not name-aware —
+        booking_status uses it too."""
         for c in cands:
             c = (c or "").strip()
             if c and not _looks_like_hash(c):
                 return c
         return ""
 
-    guest_name = _first_name(
+    def _internal_label_on(tf, bk):
+        """The internal label a booking is recorded under, or ""."""
+        from server.names import is_internal_booking_name
+        for c in (tf.get("guest_full_name"), bk.get("guestName"),
+                  bk.get("primary_guest_name"), bk.get("zendesk_requester_name")):
+            c = (c or "").strip()
+            if c and is_internal_booking_name(c):
+                return c
+        return ""
+
+    def _first_guest_name(*cands):
+        """The first candidate that is a PERSON'S NAME.
+
+        THE THIRD COPY OF THIS RULE, and the only one that never learned it.
+        `_first_name` rejects a warehouse hash and nothing else, so
+        "Customer Ops Lead" — the label our own systems put on a desk-made or
+        corporate booking, which no guest ever types — went straight through
+        and rendered as the guest's name on the card. The indicator check and
+        the Tier-1 gate both reject it; the renderer did not, so the card
+        contradicted its own trail two panels down.
+        """
+        from server.names import is_internal_booking_name
+        for c in cands:
+            c = (c or "").strip()
+            if c and not _looks_like_hash(c) and not is_internal_booking_name(c):
+                return c
+        return ""
+
+    guest_name = _first_guest_name(
         _tf.get("guest_full_name"),
         _bk.get("guestName"),
         _bk.get("zendesk_requester_name"),
@@ -470,6 +524,15 @@ def _draft_dict(d: RcaDraft) -> dict:
              (_tf.get("guest_full_name"), _bk.get("guestName"))):
         guest_name_note = ("the warehouse stores this as a hash — check the "
                            "Zendesk ticket")
+    elif _internal_label_on(_tf, _bk):
+        # A DIFFERENT FACT from a hash, and it says the RECORD needs fixing
+        # rather than that our privacy policy got in the way. Naming the label
+        # matters too: "Customer Ops Lead" tells a reader this is a desk-made
+        # or corporate booking, which is the whole reason the guest name
+        # disagreeing with the reviewer proves nothing.
+        guest_name_note = (f"the booking is recorded under an internal label "
+                           f"('{_internal_label_on(_tf, _bk)}'), not a guest "
+                           f"name — no guest name is on this booking")
     elif d.zendesk_ticket_ids:
         guest_name_note = "no requester name on the linked Zendesk ticket"
     else:
@@ -491,7 +554,12 @@ def _draft_dict(d: RcaDraft) -> dict:
         "candidates_list":    d.candidates_list or [],
         "candidate_state":    d.candidate_state,
         "confidence_trail":   d.confidence_trail or [],
-        "timeline":           d.timeline or [],
+        # SCRUBBED AT RENDER, not by instruction. The prompt tells the model
+        # never to name a vendor; an instruction can be ignored, and it does
+        # nothing for the drafts already stored — so a card still read
+        # "RAIL EUROPE-CHF contact +41 33 828 72 33". Applied here, it holds
+        # whatever the model wrote and whether the draft is new or a year old.
+        "timeline":           _scrub_timeline(d.timeline or [], _bk),
         "insights":           d.insights or {},
         "similar_support":    d.similar_support or [],
         "similar_reviews":    d.similar_reviews or [],
@@ -796,10 +864,16 @@ async def add_manual_review(
     if db.query(Review).filter(Review.id == review_id).first():
         return {"ok": True, "review_id": review_id, "duplicate": True}
 
+    # EXPLICIT, not the column default. A review added by hand IS arriving
+    # now, so utcnow is the right answer here — but it is stated rather than
+    # inherited, because a default that silently invents a date is how the
+    # live webhook path stamped every review with the moment we happened to
+    # process it.
     review = Review(
         id=review_id, slack_ts=ts, slack_channel=data.slack_channel,
         rating=data.rating, language=None,
         author=data.author or None, body_original=data.body,
+        received_at=datetime.utcnow(),
         reference_number=data.reference_number, status="new",
     )
     db.add(review)

@@ -86,6 +86,21 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
             log.info(f"[dedupe] booking {bid} already has an active draft — skipped")
             return {"ok": True, "duplicate": True, "booking_id": bid}
 
+        # WHEN THE REVIEW CAME IN, not when our server got round to the
+        # webhook. This row was created with no received_at at all, so the
+        # column default fired and stamped datetime.utcnow() — the moment WE
+        # processed the message. On screen that is two different reviews both
+        # reading "05 Aug, 07:47", which is what a whole batch stamped in one
+        # second looks like.
+        #
+        # This is the LIVE path — the one every real review arrives on — and
+        # the batch importer beside it has guarded against exactly this since
+        # it was written. One path fixed, the other left with the default:
+        # the two disagreed and the live one was wrong.
+        from server.api import _received_at_from
+        _at = _received_at_from(parsed["slack_ts"], review_id,
+                                parsed.get("published_at"),
+                                parsed.get("published_at_source", ""))
         review = Review(
             id               = review_id,
             slack_ts         = parsed["slack_ts"],
@@ -94,6 +109,7 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
             language         = parsed["language"],
             author           = parsed.get("author") or None,
             body_original    = parsed["body_original"],
+            received_at      = _at,
             reference_number = parsed["reference_number"],
         )
         db.add(review)

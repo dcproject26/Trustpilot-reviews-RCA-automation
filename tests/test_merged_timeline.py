@@ -109,7 +109,7 @@ def test_booking_log_rows_stay_editable_and_events_do_not(page):
     other is what Zendesk recorded. Only the editable rows carry delete."""
     got = _render(page, [EV[0]],
                   [{"time": "2026-07-20 09:00", "what": "Booking created",
-                    "detail": "2 Adults"}])
+                    "detail": "2 Adults", "hand": True}])
     ev = next(r for r in got["rows"] if r["what"] == "Booking details posted")
     log = next(r for r in got["rows"] if r["what"] == "Booking created")
     assert log["editable"] is True and log["deletable"] is True, log
@@ -120,7 +120,7 @@ def test_events_and_logs_interleave_by_time(page):
     """Not events-then-logs. The whole point is one chronology."""
     got = _render(page, [EV[0], EV[1]],
                   [{"time": "2026-08-02 10:00", "what": "Payment taken",
-                    "detail": "PLN 606"}])
+                    "detail": "PLN 606", "hand": True}])
     order = [r["what"] for r in got["rows"] if r["what"]]
     assert order == ["Booking details posted", "Payment taken", "Review posted"], order
 
@@ -130,7 +130,7 @@ def test_an_undated_row_sinks_rather_than_leading(page):
     is a claim nobody made."""
     got = _render(page, [EV[0]],
                   [{"time": "", "what": "Guest narrated something",
-                    "detail": "no clock"}])
+                    "detail": "no clock", "hand": True}])
     order = [r["what"] for r in got["rows"] if r["what"]]
     assert order[-1] == "Guest narrated something", order
 
@@ -183,7 +183,7 @@ def test_a_model_written_day_month_time_sorts_against_an_iso_event(page):
          {"time": "2026-08-05 09:00", "time_sort": "2026-08-05T09:00:00",
           "thread": "review", "actor": "review", "label": "Review posted",
           "summary": "", "ticket_id": "", "is_internal": False}],
-        [{"time": "21 Jul 15:28", "what": "Tickets sent", "detail": "x"}])
+        [{"time": "21 Jul 15:28", "what": "Tickets sent", "detail": "x", "hand": True}])
     assert order == ["Booking created", "Tickets sent", "Review posted"], order
 
 
@@ -193,21 +193,21 @@ def test_an_august_log_row_does_not_jump_above_a_july_event(page):
         [{"time": "2026-07-21 15:28", "time_sort": "2026-07-21T15:28:00",
           "thread": "api", "actor": "system", "label": "Booking details posted",
           "summary": "", "ticket_id": "", "is_internal": False}],
-        [{"time": "02 Aug 10:00", "what": "Payment taken", "detail": "x"}])
+        [{"time": "02 Aug 10:00", "what": "Payment taken", "detail": "x", "hand": True}])
     assert order == ["Booking details posted", "Payment taken"], order
 
 
 def test_two_log_rows_sort_against_each_other(page):
     order = _order(page, [],
-        [{"time": "31 Jul 12:01", "what": "Reminder sent", "detail": "x"},
-         {"time": "21 Jul 15:29", "what": "Confirmation sent", "detail": "x"}])
+        [{"time": "31 Jul 12:01", "what": "Reminder sent", "detail": "x", "hand": True},
+         {"time": "21 Jul 15:29", "what": "Confirmation sent", "detail": "x", "hand": True}])
     assert order == ["Confirmation sent", "Reminder sent"], order
 
 
 def test_a_time_with_no_clock_still_sorts_by_its_day(page):
     order = _order(page, [],
-        [{"time": "05 Aug", "what": "Later", "detail": "x"},
-         {"time": "21 Jul", "what": "Earlier", "detail": "x"}])
+        [{"time": "05 Aug", "what": "Later", "detail": "x", "hand": True},
+         {"time": "21 Jul", "what": "Earlier", "detail": "x", "hand": True}])
     assert order == ["Earlier", "Later"], order
 
 
@@ -218,5 +218,142 @@ def test_an_unparseable_time_sinks_instead_of_leading(page):
         [{"time": "2026-07-21 15:28", "time_sort": "2026-07-21T15:28:00",
           "thread": "api", "actor": "system", "label": "Real event",
           "summary": "", "ticket_id": "", "is_internal": False}],
-        [{"time": "sometime last week", "what": "Vague", "detail": "x"}])
+        [{"time": "sometime last week", "what": "Vague", "detail": "x", "hand": True}])
     assert order == ["Real event", "Vague"], order
+
+
+# ── the two sources describe the same events ───────────────────────────────
+#
+# booking_logs is the model's account of the booking's life; the Zendesk
+# events are the record of it. So "Booking created" arrives from BOTH, and the
+# first merge showed it twice — once with a channel chip and once with a
+# delete button. On a real card that was seventeen rows for nine events.
+
+def test_the_models_narration_is_not_shown_beside_the_events(page):
+    """booking_logs is the model NARRATING the same Zendesk events, not a
+    second set of facts. Showing both put every event on screen twice — once
+    with a channel chip, once with a delete button."""
+    ev = [{"time": "2026-06-14 02:50", "time_sort": "2026-06-14T02:50:00",
+           "thread": "booking", "actor": "creation", "label": "Booking created",
+           "summary": "1 Adult; CHF 461.19", "ticket_id": "", "is_internal": False}]
+    order = [r["what"] for r in _render(page, ev, [
+        {"time": "14 Jun 02:50", "what": "Booking created",
+         "detail": "1 adult; CHF 461.19 paid."}])["rows"] if r["what"]]
+    assert order == ["Booking created"], order
+
+
+def test_wording_that_shares_almost_nothing_is_still_not_duplicated(page):
+    """The case that broke the first attempt. "Guest reached out" and "Guest
+    fulfilment query — no CE action recorded" are one event at one minute
+    sharing a single word; no overlap threshold catches that."""
+    ev = [{"time": "2026-07-05 13:04", "time_sort": "2026-07-05T13:04:00",
+           "thread": "api", "actor": "guest", "label": "Guest reached out",
+           "summary": "requested fulfilment check", "ticket_id": "33499639",
+           "is_internal": False}]
+    order = [r["what"] for r in _render(page, ev, [
+        {"time": "05 Jul 13:04",
+         "what": "Guest fulfilment query — no CE action recorded",
+         "detail": "no agent response recorded."}])["rows"] if r["what"]]
+    assert order == ["Guest reached out"], order
+
+
+def test_two_real_events_at_the_same_minute_both_survive(page):
+    """The other half, and why matching on time was impossible: "Guest reply"
+    and "Refund issued" are different events at the same minute."""
+    ev = [{"time": "2026-07-10 10:24", "time_sort": "2026-07-10T10:24:00",
+           "thread": "api", "actor": "guest", "label": "Guest reply",
+           "summary": "x", "ticket_id": "", "is_internal": False},
+          {"time": "2026-07-10 10:24", "time_sort": "2026-07-10T10:24:00",
+           "thread": "api", "actor": "system", "label": "Refund issued",
+           "summary": "y", "ticket_id": "", "is_internal": False}]
+    order = [r["what"] for r in _render(page, ev, [])["rows"] if r["what"]]
+    assert sorted(order) == ["Guest reply", "Refund issued"], order
+
+
+def test_a_row_a_person_typed_is_kept_beside_the_events(page):
+    """The only booking_logs rows carrying anything the events do not.
+    Dropping them would discard the work of writing them."""
+    ev = [{"time": "2026-06-14 02:50", "time_sort": "2026-06-14T02:50:00",
+           "thread": "booking", "actor": "creation", "label": "Booking created",
+           "summary": "x", "ticket_id": "", "is_internal": False}]
+    rows = _render(page, ev, [
+        {"time": "14 Jun 09:00", "what": "Rang the vendor myself",
+         "detail": "no answer", "hand": True}])["rows"]
+    order = [r["what"] for r in rows if r["what"]]
+    assert "Rang the vendor myself" in order, order
+    kept = next(r for r in rows if r["what"] == "Rang the vendor myself")
+    assert kept["deletable"] is True, "the hand-added row lost its delete"
+
+
+def test_with_no_events_the_narration_is_all_there_is_and_is_shown(page):
+    """An unmatched review has no Zendesk timeline. Hiding the model's account
+    there would leave the section empty on exactly the cards that need it."""
+    rows = _render(page, [], [
+        {"time": "14 Jun 02:50", "what": "Booking created", "detail": "x", "hand": True},
+        {"time": "14 Jun 02:51", "what": "Tickets sent", "detail": "y", "hand": True}])["rows"]
+    order = [r["what"] for r in rows if r["what"]]
+    assert order == ["Booking created", "Tickets sent"], order
+
+
+def test_the_add_button_marks_its_row_as_hand_added(page):
+    """Driven, not read out of the source. Without the marker a typed row is
+    indistinguishable from the model's narration and vanishes the moment
+    events exist — so this clicks Add and checks the row it produced."""
+    got = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const v3 = r.rca.v3;
+      const keep = v3.booking_logs;
+      v3.booking_logs = [];
+      renderReviewCol();
+      document.querySelector('[data-log-add]').click();
+      const added = (v3.booking_logs || []).map(l => !!l.hand);
+      v3.booking_logs = keep;
+      renderReviewCol();
+      return added; }""")
+    assert got == [True], (
+        f"the row Add produced was marked {got} — an unmarked row is treated "
+        f"as the model's narration and hidden as soon as events exist")
+
+
+def test_the_section_is_headed_events_timeline(page):
+    got = page.evaluate("""() => {
+      const s = document.querySelector('#rca-booking-logs-section .section-label span');
+      return s ? s.textContent.trim() : null; }""")
+    assert got == "Events timeline", got
+
+
+def test_a_utc_sort_key_does_not_reorder_rows_shown_in_ist(page):
+    """THE ORDER BUG FROM THE CARD. Events carry `time_sort` in UTC while the
+    row SHOWS IST; log rows have only the displayed string. Comparing one
+    row's UTC against another's IST put a 21:22 UTC event ahead of a 02:50 IST
+    one, and the column read 02:52, 02:59, 02:50, 02:51.
+
+    Sorting on what the reader sees keeps every comparison in one frame — and
+    it is the order they will check the list against.
+    """
+    ev = [
+        {"time": "14 Jun 02:52", "time_sort": "2026-06-13T21:22:00Z",
+         "thread": "api", "actor": "system", "label": "Booking-in-progress email",
+         "summary": "x", "ticket_id": "", "is_internal": False},
+        {"time": "14 Jun 02:59", "time_sort": "2026-06-13T21:29:00Z",
+         "thread": "api", "actor": "system", "label": "Tickets sent",
+         "summary": "x", "ticket_id": "", "is_internal": False},
+        {"time": "14 Jun 02:50", "time_sort": "2026-06-13T21:20:00Z",
+         "thread": "booking", "actor": "creation", "label": "Booking created",
+         "summary": "x", "ticket_id": "", "is_internal": False},
+    ]
+    order = [r["what"] for r in _render(page, ev, [])["rows"] if r["what"]]
+    assert order == ["Booking created", "Booking-in-progress email",
+                     "Tickets sent"], order
+
+
+def test_an_event_and_a_log_row_interleave_in_the_displayed_frame(page):
+    """The same fault seen from the other side: a log row has no UTC key at
+    all, so it must be compared against what the events SHOW."""
+    ev = [{"time": "14 Jun 02:52", "time_sort": "2026-06-13T21:22:00Z",
+           "thread": "api", "actor": "system", "label": "Tickets sent",
+           "summary": "x", "ticket_id": "", "is_internal": False}]
+    order = [r["what"] for r in _render(page, ev, [
+        {"time": "14 Jun 02:40", "what": "Payment taken", "detail": "x", "hand": True}])["rows"]
+        if r["what"]]
+    assert order == ["Payment taken", "Tickets sent"], order
