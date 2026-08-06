@@ -951,27 +951,19 @@
      unrecoverable — but muted, because it means nothing to the associate. */
   /* The card asking for the guest's language, in the case where the review
      was translated inbound so it is known NOT to be English but no language
-     code was ever recorded. Sits inside the English panel because that is
-     where the reply is being written. */
-  .reply-lang-ask {
-    display: flex; align-items: center; gap: 8px; margin-top: 8px;
-    flex-wrap: wrap;
+     code was ever recorded. The ROW is .reply-meta and the button is .btn —
+     the same pair the known-language panel below uses — so the two states of
+     this panel read as one component. Only the input is new, and it takes
+     .res-amount's rule, which is what a small inline text input looks like
+     here. */
+  .reply-lang-ask { display: inline-flex; align-items: center; gap: 6px; }
+  .reply-lang-ask label { font-size: 10.5px; color: var(--dim); }
+  .reply-lang-input {
+    width: 110px; font: inherit; font-size: 12px;
+    padding: 3px 6px; border-radius: 6px; border: 1px solid var(--input-bd);
+    background: var(--facts-bg); color: var(--text); outline: none;
   }
-  .reply-lang-ask label { font-size: 11px; color: var(--muted); }
-  .reply-lang-ask input {
-    font: inherit; font-size: 12px; padding: 5px 8px; border-radius: 6px;
-    border: 1px solid var(--input-bd); background: var(--card);
-    color: var(--text); outline: none; min-width: 140px;
-  }
-  .reply-lang-ask input:focus { border-color: var(--accent); }
-  .reply-lang-ask button {
-    font: inherit; font-size: 12px; font-weight: 600; padding: 6px 14px;
-    border-radius: 7px; border: none; background: var(--accent); color: #fff;
-    cursor: pointer;
-  }
-  .reply-lang-ask button:disabled {
-    opacity: .5; cursor: default; background: var(--empty);
-  }
+  .reply-lang-input:focus { border-color: var(--accent); }
 
   .slack-post-err .code {
     font-family: var(--mono); font-size: 11px; color: var(--empty);
@@ -5565,13 +5557,17 @@ function renderRcaCol() {
         </div>
         <textarea class="reply-text" data-english-reply
                   placeholder="Write the reply in English here, then name the guest's language to have it rewritten above.">${esc(engText)}</textarea>
-        <div class="reply-lang-ask">
-          <label for="reply-lang-name">Guest's language</label>
-          <input id="reply-lang-name" data-reply-lang-name type="text"
-                 placeholder="e.g. Spanish" value="">
-          <button data-apply-english disabled
+        <div class="reply-meta">
+          <span class="reply-lang-ask">
+            <label for="reply-lang-name">Guest's language</label>
+            <input id="reply-lang-name" class="reply-lang-input"
+                   data-reply-lang-name type="text" placeholder="e.g. Spanish"
+                   value="">
+          </span>
+          <button class="btn" style="font-size:11px;padding:3px 10px"
+                  data-apply-english disabled
                   title="Name the guest's language first — the reply above cannot be rewritten into a language nothing has established.">
-            Apply →</button>
+            Apply</button>
         </div>
       </div>`;
         }
