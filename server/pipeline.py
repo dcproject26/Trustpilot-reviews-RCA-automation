@@ -260,6 +260,68 @@ def complete_booking_row(booking: dict, lookup) -> tuple:
                             + ", so they were fetched separately."}
 
 
+def extraction_trail_line(state: str, why: str, indicators: dict) -> dict:
+    """The one trail line describing what the indicator extraction produced.
+
+    A FUNCTION, because the branch it lives in is unreachable wherever
+    BigQuery is offline — the pipeline stops before Tier 2 matching — so a
+    test driving process_review() cannot see any of these cases and would
+    assert nothing while looking thorough. This is the part worth pinning.
+
+    THREE OUTCOMES, and they were all one sentence:
+
+      * the extraction DID NOT RUN or did not produce an answer — the provider
+        is unconfigured, the call raised, or the reply would not parse;
+      * it ran and the review named nothing the search can use;
+      * it ran and the review named something.
+
+    The first used to render as the second, because `indicators` stayed {} on
+    every failure path and a later coercion wrote `visit_date_hint = None`
+    into it, making the empty dict truthy. So an outage printed "nothing
+    usable was found in the review text" — blaming the guest's words for our
+    own failure, in the sentence a reader acts on.
+
+    AND "USABLE" MEANS EVERY FIELD THE SEARCH READS. It used to mean venue,
+    city and visit date, then assert the search had "only the author's name to
+    work with" — false whenever issue_terms exist, since they gate the whole
+    shortlist step and are searched one query per term, and false whenever
+    dates_mentioned exist, which drive the support-anchored search.
+    """
+    if state != "ok":
+        return {"mark": "fail" if state == "failed" else "warn",
+                "text": "<strong>Indicators could not be extracted from this "
+                        "review</strong> — " + (why or "no reason was recorded")
+                        + ". This is NOT a review that named nothing: the "
+                          "extraction produced no answer, so the search fell "
+                          "back to the author's name alone. Re-run once it is "
+                          "available."}
+    ind = indicators if isinstance(indicators, dict) else {}
+    issue = [t for t in (ind.get("issue_terms") or []) if str(t).strip()]
+    dates = [d for d in (ind.get("dates_mentioned") or []) if str(d).strip()]
+    found = [v for v in (ind.get("experience_or_venue"),
+                         ind.get("city_or_country"),
+                         ind.get("visit_date_hint")) if v and str(v).strip()]
+    extra = []
+    if issue:
+        extra.append(f"{len(issue)} issue phrase(s)")
+    if dates:
+        extra.append(f"{len(dates)} date(s) mentioned")
+    anything = bool(found or issue or dates)
+    return {
+        "mark": "pass" if anything else "warn",
+        "text": "<strong>Extracted from review:</strong> "
+                f"venue='{ind.get('experience_or_venue') or '—'}' · "
+                f"city='{ind.get('city_or_country') or '—'}' · "
+                f"visit≈'{ind.get('visit_date_hint') or '—'}'"
+                + (" · " + ", ".join(extra) if extra else "")
+                + ("" if anything else
+                   " — nothing usable was found in the review text, so the "
+                   "search has only the author's name to work with")
+                + (" — no venue, city or date, so the search leads on the "
+                   "problem the guest described" if anything and not found
+                   else "")}
+
+
 def _venue_token_overlap(review_text: str, exp_name: str) -> bool:
     """
     Robust venue signal: True only when the review and the experience name
@@ -1228,8 +1290,24 @@ async def process_review(review_id: str, force_candidates: bool = False):
                                         + f", and {_name_why}. This is NOT a "
                                           f"disagreement: nothing was compared."})
 
+                        # MATCH_TEXT, NOT REVIEW_TEXT — the same surface the
+                        # indicator extraction reads, and for the reason
+                        # already written out where match_text is built:
+                        # "Translation is lossy for anything that does not
+                        # read as prose... Venue and guest names are proper
+                        # nouns and survive untranslated."
+                        #
+                        # This check decides whether a booking id the guest
+                        # quoted is trusted, and it was reading the English
+                        # translation alone. A venue that survives only in the
+                        # original — in a trailing "Reference number:" line,
+                        # or simply not translated — could not be seen, and
+                        # the card then said "whose experience is not
+                        # mentioned in the review", which is a statement about
+                        # the review rather than about the text searched.
                         exp_name = (bq_row.get("experienceName") or "")
-                        venue_ok = bool(exp_name) and _venue_token_overlap(review_text or "", exp_name)
+                        venue_ok = bool(exp_name) and _venue_token_overlap(
+                            match_text or review_text or "", exp_name)
                         if venue_ok:
                             verify_hits.append("venue")
 
@@ -1341,17 +1419,51 @@ async def process_review(review_id: str, force_candidates: bool = False):
             if not booking or match_tier != 1:
                 # Matching indicators (approved prompt): one Claude call that
                 # reads the review and extracts everything usable for matching.
+                # WHETHER THE EXTRACTION PRODUCED AN ANSWER AT ALL.
+                #
+                # `indicators` stayed {} on every failure path, and the
+                # coercion twenty lines below writes `visit_date_hint = None`
+                # into it — which turns {} into a TRUTHY dict. So the gate
+                # `if indicators:` was always true, and a timeout, a rate
+                # limit, a truncated response, unparseable prose and a review
+                # that genuinely named nothing ALL rendered the same sentence:
+                # the empty-review sentence (see extraction_trail_line, which
+                # owns the wording). That sentence
+                # blames the guest's text for our own outage, and it is the
+                # one a reader acts on — they stop looking.
+                #
+                # Tracked explicitly rather than by truthiness, because
+                # truthiness is exactly what the coercion destroyed.
                 indicators = {}
-                try:
-                    from server.prompts import match_indicator_prompt
-                    _pub = (review.received_at or datetime.utcnow()).date().isoformat()
-                    raw = await claude._call(
-                        match_indicator_prompt(match_text or "", _pub,
-                                               reviewer_name=review.author or ""),
-                        max_tokens=400)
-                    indicators = claude._extract_json_object(raw) or {}
-                except Exception as e:
-                    log.warning(f"Indicator extraction failed: {e}")
+                _extract_state, _extract_why = "ok", ""
+                if not MOCK_MODE and not is_live("anthropic"):
+                    _extract_state = "unavailable"
+                    _extract_why = ("the AI provider is not configured on this "
+                                    "server, so no extraction was attempted")
+                else:
+                    try:
+                        from server.prompts import match_indicator_prompt
+                        _pub = (review.received_at or datetime.utcnow()).date().isoformat()
+                        raw = await claude._call(
+                            match_indicator_prompt(match_text or "", _pub,
+                                                   reviewer_name=review.author or ""),
+                            max_tokens=400)
+                        _parsed = claude._extract_json_object(raw)
+                        if isinstance(_parsed, dict):
+                            indicators = _parsed
+                        else:
+                            # The call returned and the answer was not usable.
+                            # A DIFFERENT FACT from the call failing, and from
+                            # an empty review: this one is worth a re-run.
+                            _extract_state = "unparsed"
+                            _extract_why = (
+                                f"the model answered but the reply was not a "
+                                f"JSON object ({len(str(raw or ''))} character(s) "
+                                f"came back) — it may have been truncated")
+                    except Exception as e:
+                        _extract_state = "failed"
+                        _extract_why = f"{type(e).__name__}: {str(e)[:120]}"
+                        log.warning(f"Indicator extraction failed: {e}")
                 # THE CITY IS NOT A VENUE. "Rome, Italy" was being passed to
                 # the venue resolver alongside the venue itself, which
                 # guarantees a miss — no experience is named "Rome, Italy" —
@@ -1390,21 +1502,12 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 # search matched bookings ON. The extraction is now headed
                 # with the name the card already uses for it, "Extracted from
                 # review", and "indicators" is left to mean the search.
-                if indicators:
-                    _found = [v for v in (indicators.get("experience_or_venue"),
-                                          indicators.get("city_or_country"),
-                                          indicators.get("visit_date_hint"))
-                              if v and str(v).strip()]
-                    confidence_trail.append({
-                        "mark": "pass" if _found else "warn",
-                        "text": "<strong>Extracted from review:</strong> "
-                                f"venue='{indicators.get('experience_or_venue') or '—'}' · "
-                                f"city='{indicators.get('city_or_country') or '—'}' · "
-                                f"visit≈'{indicators.get('visit_date_hint') or '—'}'"
-                                + ("" if _found else
-                                   " — nothing usable was found in the review "
-                                   "text, so the search has only the author's "
-                                   "name to work with")})
+                extracted_sigs["extraction_state"] = _extract_state
+                if _extract_state != "ok":
+                    _ctr["t2_extraction_unavailable"] = _ctr.get(
+                        "t2_extraction_unavailable", 0) + 1
+                confidence_trail.append(
+                    extraction_trail_line(_extract_state, _extract_why, indicators))
 
                 # Resolve venue hints → TGIDs
                 tgids = None

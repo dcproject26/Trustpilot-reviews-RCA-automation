@@ -256,5 +256,41 @@
     "name": "set-bid: an overwrite no longer says what it replaced",
     "find": "                          + (f\"replacing {was}. \" if was and was != bid else \"\")",
     "replace": "                          + \"\""
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "extraction: a failure is reported as an empty review again",
+    "find": "    if state != \"ok\":\n        return {\"mark\": \"fail\" if state == \"failed\" else \"warn\",",
+    "replace": "    if False:\n        return {\"mark\": \"fail\" if state == \"failed\" else \"warn\","
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "extraction: issue terms stop counting as something usable",
+    "find": "    anything = bool(found or issue or dates)",
+    "replace": "    anything = bool(found)"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "extraction: a raised call is softened to a warning",
+    "find": "        return {\"mark\": \"fail\" if state == \"failed\" else \"warn\",",
+    "replace": "        return {\"mark\": \"warn\","
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "extraction: blank issue phrases are counted as found",
+    "find": "    issue = [t for t in (ind.get(\"issue_terms\") or []) if str(t).strip()]",
+    "replace": "    issue = list(ind.get(\"issue_terms\") or [])"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "extraction: the state is no longer tracked, so {} reads as an answer",
+    "find": "                        if isinstance(_parsed, dict):\n                            indicators = _parsed\n                        else:",
+    "replace": "                        if True:\n                            indicators = _parsed or {}\n                        else:"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "tier1 gate: the venue check goes back to the translation alone",
+    "find": "                            match_text or review_text or \"\", exp_name)",
+    "replace": "                            review_text or \"\", exp_name)"
   }
 ]

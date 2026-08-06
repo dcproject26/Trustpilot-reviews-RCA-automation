@@ -176,3 +176,45 @@ def test_an_offline_zendesk_says_so_rather_than_reporting_no_name():
     # Whichever of the unavailable reasons applies here, it must be one of the
     # named ones rather than a bare empty string.
     assert why in GUEST_NAME_UNAVAILABLE.values() or "failed" in why, why
+
+
+# ── the venue half of the same gate ────────────────────────────────────────
+#
+# The gate accepts a booking id from review text on the NAME or the VENUE.
+# The venue half read `review_text` — the English translation alone — while
+# indicator extraction deliberately reads `match_text`, translation PLUS
+# original, for a reason written out where match_text is built:
+#
+#   "Translation is lossy for anything that does not read as prose: Claude
+#    drops trailing metadata lines such as 'Reference number: Salt mines
+#    Krakow', which is frequently the only venue in the whole review. Venue
+#    and guest names are proper nouns and survive untranslated."
+#
+# That reasoning applies exactly to this check, and it is the check that
+# decides whether a booking id the guest quoted is trusted. A venue surviving
+# only in the original could not be seen, and the card then said "whose
+# experience is not mentioned in the review" — a claim about the review rather
+# than about the text that was searched.
+
+def test_the_venue_check_reads_the_original_as_well_as_the_translation():
+    """NEGATIVE source assertion. Driving the branch needs a live BigQuery."""
+    src = _gate_src()
+    assert "match_text or review_text" in src, (
+        "the Tier-1 venue check reads the English translation alone again — a "
+        "venue that survives only in the untranslated original is invisible "
+        "to it")
+
+
+def test_a_venue_only_in_the_untranslated_original_is_still_matched():
+    """The behaviour the change buys, driven through the real comparison the
+    gate calls."""
+    from server.pipeline import _venue_token_overlap
+    english = "We bought some tickets and the date could not be secured."
+    original = ("Hemos comprado unas entradas\n"
+                "Reference number: Salt mines Krakow")
+    match_text = f"{english}\n{original}"
+    exp = "Wieliczka Salt Mine Krakow Guided Tour"
+    assert _venue_token_overlap(english, exp) is False, (
+        "the fixture is wrong — the translation already carries the venue")
+    assert _venue_token_overlap(match_text, exp) is True, (
+        "the venue in the untranslated original is still not seen")
