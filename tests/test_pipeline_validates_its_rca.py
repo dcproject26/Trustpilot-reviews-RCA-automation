@@ -199,16 +199,16 @@ def test_validation_that_cannot_run_says_so_rather_than_looking_clean(
 
 def test_actions_taken_is_computed_by_the_run_not_left_empty(live_db,
                                                             monkeypatch):
-    """actions_taken has exactly one writer — validate()'s actions_raised, via
-    project_v4. With validate() dead the column was projected from a key the
-    model never emits, so every pipeline-generated review had an empty nine-tab
-    block: 'nothing was raised' rendered identically to 'the routing never ran'.
+    """actions_taken has exactly one writer — validate()'s
+    actions_from_findings, via project_v4. With validate() dead the column was
+    projected from a key the model never emits, so every pipeline-generated
+    review had an empty nine-tab block: 'nothing was raised' rendered
+    identically to 'the routing never ran'.
     """
     from server.checklist import ACTION_TEAMS
     rca = json.loads(json.dumps(BASE))
-    # CO is one of the teams the guidelines route for "Tickets sent late", and
-    # the flag wording overlaps the guideline row, so all three conditions of
-    # the AND are satisfied and a row must appear.
+    # The flag and the fix are both findings on this card and both name CO, so
+    # CO's tab must carry them. Nothing here comes from the guideline sheet.
     rca["flags"] = [{"team": "CO",
                      "flag": "Tickets were not resent when the delay was seen",
                      "evidence": "no resend on the ticket", "zd_ref": None}]
@@ -232,10 +232,44 @@ def test_actions_taken_is_computed_by_the_run_not_left_empty(live_db,
         (f"actions_taken is not the nine-team shape — the projection read a key "
          f"nothing wrote: {sorted(actions)}")
     assert actions["co"], \
-        f"the AND held on all three conditions and still raised nothing: {actions}"
-    # An empty tab means three different things. The run has to say which.
-    assert any("actions taken:" in t for t in trail), \
-        f"nothing on the trail explains what was and was not raised: {trail}"
+        f"CO was flagged and owns the fix, and still nothing was raised: {actions}"
+    # THE FINDINGS, not the playbook. A guideline row on this card would be a
+    # statement about work nobody did.
+    from server.checklist import _ALL_GUIDELINE_ACTIONS
+    raised = {a for v in actions.values() for a in v}
+    assert not (raised & _ALL_GUIDELINE_ACTIONS), \
+        f"guideline rows reached the card: {raised & _ALL_GUIDELINE_ACTIONS}"
+    assert any("resend" in a.lower() for a in actions["co"]), actions["co"]
+
+
+def test_an_unroutable_finding_reaches_the_confidence_trail(live_db, monkeypatch):
+    """An empty tab means several different things, so the run has to say
+    which — and a finding that named no team is NOT on the card at all. A
+    reader must not have to infer that from a section that looks complete.
+
+    Two flagged teams, and an operational failure whose issue names no fix
+    owner: there is no single flagged team to fall back on, so the router
+    declines rather than guessing, and says so.
+    """
+    rca = json.loads(json.dumps(BASE))
+    rca["flags"] = [
+        {"team": "CO", "flag": "No follow-up", "evidence": "e", "zd_ref": None},
+        {"team": "SP", "flag": "Vendor silent", "evidence": "e", "zd_ref": None}]
+    rca["what_went_wrong"]["guest_issues"] = [{
+        "issue": "Tickets were sent late",
+        "claim": "I was never told", "claim_accuracy": "Accurate",
+        "operational_failure": "Nobody watched the fulfilment queue",
+        "root_cause": "nobody resent the tickets",
+        "evidence": [{"text": "no resend", "source": "zendesk", "ref": None}]}]
+    _stub(monkeypatch, rca)
+    _seed(live_db, "tp_unrouted")
+    _, trail, actions = _run(live_db, "tp_unrouted")
+
+    said = " ".join(t for t in trail if "actions taken" in t)
+    assert "could not be routed" in said, trail
+    flat = [a for v in actions.values() for a in v]
+    assert "Nobody watched the fulfilment queue" not in flat, (
+        "an unroutable finding was parked on a tab instead of being reported")
 
 
 # ── what a re-run may and may not destroy ───────────────────────────────────

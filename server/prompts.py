@@ -1410,6 +1410,13 @@ that turned out fine is silence — never a line in the output.
    NEVER write a step you cannot find in DSS. An invented process produces a
    deviation from nothing, and the team is sent to fix a rule that does not
    exist.
+   WHERE THE SKIPPED STEP GOES: `dss.missed_next_step`, as
+   [{"team", "action"}]. That list is the ONLY thing DSS contributes to
+   Actions Taken, and Actions Taken is read as "this is what we did / what
+   must be done" — so it carries the step that SHOULD have been taken and was
+   not, on the team that would have taken it. An empty list is the correct
+   answer whenever the path was followed, and it is not the same as omitting
+   the field.
 
    WRITE THE PROCESS FAILURE, NOT THE SHEET'S COVERAGE. The reader of this
    field owns an operation, not a spreadsheet. "No DSS path governs a
@@ -1835,7 +1842,11 @@ that turned out fine is silence — never a line in the output.
   "takedown": { "verdict": "<Yes | No | Untraceable>" },
   "dss": {
     "prescribes": "<what the matched DSS row prescribes for this scenario>",
-    "ref": "<DSS row URL | null>"
+    "ref": "<DSS row URL | null>",
+    "missed_next_step": [
+      {"team": "<one of the nine team codes>",
+       "action": "<the next escalation step the DSS row prescribes that DID NOT happen on this booking>"}
+    ]
   }
 }
 

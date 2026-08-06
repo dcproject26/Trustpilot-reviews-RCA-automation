@@ -1,9 +1,23 @@
-"""Actions Taken is computed where both halves of the rule are in hand.
+"""Actions Taken is computed from what THIS CASE FOUND.
 
-HANDOFF §1. A row appears because the DSS guidelines say it must be raised AND
-because it has been flagged. The guidelines come from the routed scenarios and
-the flags come from the RCA, and the one place that holds both is `validate` —
-which is why it computes the section rather than copying one the model wrote.
+It used to be sourced from the DSS guideline sheet for the routed scenario and
+then filtered — by flagged team, and by word overlap with the findings. Two
+filters applied to the wrong source. Guideline rows are a PLAYBOOK for a
+scenario, not things that happened on this booking, so "Share ARN number for
+delayed refunds" reached a card with no delayed refund: a valid row for the
+scenario, passing both filters, and still a statement about work nobody did.
+The section is read as "this is what we did", which no playbook row can
+honestly say.
+
+Six sources now, every one of them already a finding on the card: the flags,
+each issue's operational failure, its SOP gap, its fix (which names the owning
+team), the provenance-checked improvement points, and the DSS MISS — what DSS
+says the next escalation step was, where it did not happen. That last one is
+the ONLY thing DSS contributes: it works out what should have come next, and
+is not an anchor, a definition, or a comment.
+
+`validate` still computes it, because that is the one place holding the
+validated issues, the validated flags and the improvement points at once.
 
 Two things this file guards that a routing test cannot:
 
@@ -59,49 +73,90 @@ def test_every_tab_key_is_present_even_when_empty():
     assert set(out["actions_taken"]) == set(ACTION_TEAMS)
 
 
-def test_a_flagged_team_gets_the_guideline_step_for_the_routed_scenario():
+def test_a_flagged_team_gets_the_FINDING_not_the_playbook_row():
+    """The change this file exists for. The flag's own wording lands on the
+    flag's own tab; the scenario's guideline rows do not land anywhere."""
     out, _ = validate(_rca(), [SCENARIO])
-    assert out["actions_taken"]["co"] == actions_for([SCENARIO])["co"]
-    assert out["actions_taken"]["co"], "the fixture prescribes nothing for CO"
+    assert "No follow-up after the first reply" in out["actions_taken"]["co"]
 
 
-def test_an_unflagged_team_gets_nothing_however_much_is_prescribed():
+def test_no_guideline_row_reaches_the_card():
+    """"Share ARN number for delayed refunds" on a card with no delayed
+    refund is the reported bug. The sheet's rows are not a source any more,
+    so NONE of them may appear — not the ones this scenario routes, and not
+    the ones any other scenario routes."""
+    out, _ = validate(_rca(), [SCENARIO])
+    raised = {a for v in out["actions_taken"].values() for a in v}
+    from server.checklist import _ALL_GUIDELINE_ACTIONS
+    assert not (raised & _ALL_GUIDELINE_ACTIONS), raised & _ALL_GUIDELINE_ACTIONS
+
+
+def test_a_team_with_no_finding_gets_nothing_however_much_is_prescribed():
     out, _ = validate(_rca(), [SCENARIO])
     prescribed = actions_for([SCENARIO])
-    withheld = [t for t, v in prescribed.items() if v and t != "co"]
-    assert withheld, "the fixture prescribes nothing to withhold"
-    for team in withheld:
+    assert any(prescribed.values()), "the fixture prescribes nothing at all"
+    for team in (t for t in prescribed if t != "co"):
         assert out["actions_taken"][team] == [], team
 
 
-def test_what_was_withheld_is_reported_to_the_caller():
-    """The pipeline writes every note `validate` returns onto the confidence
-    trail as a warn. A withheld row that is never mentioned is a row the
-    reader cannot tell from one that was never prescribed."""
-    _, notes = validate(_rca(), [SCENARIO])
+def test_a_finding_that_names_no_team_is_reported_rather_than_parked():
+    """CLAUDE.md §1. A finding that could not be routed is NOT on the card,
+    and the reader must not have to infer that from a tab that looks
+    complete. It is also not dropped onto a plausible-looking tab, which
+    would be worse: a row attributed to a team that did nothing wrong."""
+    rca = _rca(flags=[{"team": "CO", "flag": "a", "evidence": "e"},
+                      {"team": "SP", "flag": "b", "evidence": "e"}])
+    rca["what_went_wrong"]["guest_issues"][0]["operational_failure"] = \
+        "Nobody watched the fulfilment queue"
+    rca["what_went_wrong"]["guest_issues"][0]["fix"] = None
+    _, notes = validate(rca, [SCENARIO])
     said = " ".join(n for n in notes if "actions taken" in n)
-    assert "withheld" in said, notes
+    assert "could not be routed" in said, notes
 
 
-def test_nothing_flagged_says_so_rather_than_reporting_a_bare_zero():
-    _, notes = validate(_rca(flags=[]), [SCENARIO])
-    assert any("nothing was flagged" in n for n in notes), notes
+def test_nothing_found_says_so_rather_than_reporting_a_bare_zero():
+    """An empty section because nothing was found, and an empty section
+    because the builder broke, are the same blank space on screen."""
+    _, notes = validate(_rca(flags=[], what_went_wrong={"guest_issues": []}),
+                        [SCENARIO])
+    said = " ".join(n for n in notes if "actions taken" in n)
+    assert "nothing this case found to raise" in said, notes
+
+
+def test_the_same_finding_worded_twice_is_not_two_rows():
+    """A root cause, a flag and an improvement point routinely say one thing
+    three ways. Printing all three reads as three pieces of work — and the
+    merge is a JUDGEMENT, so the run says it made one."""
+    rca = _rca(flags=[{"team": "CO",
+                       "flag": "Nobody watched the fulfilment queue",
+                       "evidence": "ZD-1"}])
+    out, notes = validate(rca, [SCENARIO])
+    assert len(out["actions_taken"]["co"]) == 1, out["actions_taken"]["co"]
+    assert any("already said" in n for n in notes), notes
+
+
+def test_the_dss_miss_is_the_only_thing_dss_contributes():
+    """DSS works out what the next escalation step should have been. It is
+    not an anchor, a definition or a comment, and it supplies no rows of its
+    own."""
+    rca = _rca()
+    rca["dss"] = {"prescribes": "Refund within 5 days", "ref": "R-1",
+                  "missed_next_step": [
+                      {"team": "CO",
+                       "action": "Escalate to leads after 24h with no reply"}]}
+    out, _ = validate(rca, [SCENARIO])
+    co = out["actions_taken"]["co"]
+    assert "Escalate to leads after 24h with no reply" in co, co
+    assert "Refund within 5 days" not in co, co
 
 
 def test_a_clean_run_puts_nothing_on_the_trail():
-    """Everything prescribed was raised: the rows are the report. A note on
-    every healthy run is how a trail stops being read.
-
-    Each flag carries the wording of its own team's guideline rows, so the
-    third condition — does this row bear on what the case found — passes for
-    all of them. A flag reading "x" would fail it, and rightly: a row about
-    escalating a recurring issue has nothing to do with a card that never
-    mentions one.
-    """
-    guideline = actions_for([SCENARIO])
-    flags = [{"team": t.upper(), "flag": " ".join(v), "evidence": "y"}
-             for t, v in guideline.items() if v]
-    _, notes = validate(_rca(flags=flags), [SCENARIO])
+    """Every finding routed and nothing merged: the rows are the report. A
+    note on every healthy run is how a trail stops being read."""
+    rca = _rca(flags=[{"team": "CO", "flag": "No follow-up after the first "
+                                             "reply", "evidence": "ZD-1"}])
+    rca["what_went_wrong"]["guest_issues"][0].pop("operational_failure", None)
+    _, notes = validate(rca, [SCENARIO])
     assert not [n for n in notes if "actions taken" in n], notes
 
 

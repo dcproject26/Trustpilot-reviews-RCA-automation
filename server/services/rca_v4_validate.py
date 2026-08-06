@@ -12,7 +12,8 @@ an entire RCA to one bad enum is worse than rendering it with one grey chip.
 import re
 
 from server.checklist import (ACTION_TEAMS, FLAG_TEAM_ALIASES, ACTION_TABS,
-                              actions_raised, findings_text)
+                              actions_raised, findings_text,
+                              actions_from_findings)
 from server.taxonomy import L1_CATEGORIES, L2_OPTIONS
 
 # Four. "Unknown" carries both "we checked and nothing can settle it" and "we
@@ -783,19 +784,37 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
                    notes, enums={"team": (FLAG_TEAMS, "OTHER")})
     issues, _flags = _demote_findings(issues, _flags, notes, scenarios_routed)
 
-    # Actions Taken. The DSS guidelines say what must be raised for the routed
-    # scenarios; the flags say what actually went wrong. A row needs both.
-    # keep_actions is the PREVIOUS Actions Taken, when there is one. A row an
-    # associate typed is carried forward; the guidelines' own rows are left to
-    # the AND. Without it, regenerating an RCA silently discarded work someone
-    # had decided mattered.
-    # THIRD CONDITION: the row must bear on what this case actually found.
-    # Built from the validated issues and flags, not from the model's raw
-    # output, so a finding that was coerced or dropped cannot keep a row alive.
-    _findings = findings_text({"what_went_wrong": {"guest_issues": issues},
-                               "flags": _flags})
-    _actions, _ar = actions_raised(scenarios_routed, _flags, keep=keep_actions,
-                                   findings=_findings)
+    # ACTIONS TAKEN IS BUILT FROM WHAT THIS CASE FOUND.
+    #
+    # It used to be built from the DSS guideline sheet for the routed
+    # scenario, then filtered by flagged team and word overlap — two filters
+    # applied to the wrong source. Guideline rows are a PLAYBOOK for a
+    # scenario, not things that happened on this booking, so "Share ARN number
+    # for delayed refunds" reached a card with no delayed refund: a valid row
+    # for the scenario, passing both filters, and still a statement about work
+    # nobody did. The section is read as "this is what we did", which no
+    # playbook row can honestly say.
+    #
+    # Six sources, all of them findings already on this card: the flags, each
+    # issue's operational failure, its SOP gap, its fix (which names the owning
+    # team), the provenance-checked improvement points, and the DSS MISS.
+    #
+    # DSS now contributes ONE thing: what the next escalation step should have
+    # been where it did not happen. Not an anchor, not a definition, not a
+    # comment — and no rows of its own.
+    # Computed here rather than in the return dict, because Actions Taken
+    # reads it. Two calls would be two lists — and the second would report its
+    # dropped points a second time, so the trail would say twice over that a
+    # point was discarded.
+    _improve_rows = _improvements(rca.get("area_of_improving"),
+                                  issues, _flags, notes)
+
+    _actions, _ar = actions_from_findings(
+        issues, _flags,
+        improvements=_improve_rows,
+        dss_miss=(dss.get("missed_next_step")
+                  if isinstance(dss.get("missed_next_step"), list) else None),
+        keep=keep_actions)
     notes.extend(_ar["notes"])
 
     return {
@@ -871,8 +890,7 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
         # nine keys, so an empty tab is a tab with nothing raised rather than a
         # tab the projection forgot.
         "actions_taken":     _actions,
-        "area_of_improving": _improvements(rca.get("area_of_improving"),
-                                           issues, _flags, notes),
+        "area_of_improving": _improve_rows,
         "resolution":         _clean(rca.get("resolution")),
         "suggested_response": _clean(reply),
         "takedown": {"verdict": _enum(_obj(rca.get("takedown")).get("verdict"),

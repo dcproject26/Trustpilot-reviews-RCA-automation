@@ -1,0 +1,62 @@
+[
+  {
+    "file": "server/services/slack.py",
+    "name": "review date: the attachment timestamp is never read",
+    "find": "    for att in event.get(\"attachments\", []) or []:\n        got = _from_epoch(att.get(\"ts\"))\n        if got:\n            return got, \"attachment_ts\"",
+    "replace": "    for att in []:\n        got = _from_epoch(att.get(\"ts\"))\n        if got:\n            return got, \"attachment_ts\""
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "review date: a dated field is no longer read",
+    "find": "            if title.lower().rstrip(\":\") in _DATE_TITLES:",
+    "replace": "            if False and title.lower().rstrip(\":\") in _DATE_TITLES:"
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "review date: ANY field is read, so a visit date becomes the publish date",
+    "find": "            if title.lower().rstrip(\":\") in _DATE_TITLES:",
+    "replace": "            if True:"
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "review date: the footer date is dropped",
+    "find": "        got = _from_text(att.get(\"footer\"))\n        if got:\n            return got, \"footer\"",
+    "replace": "        got = None\n        if got:\n            return got, \"footer\""
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "review date: an implausible epoch is accepted, giving a 1970 date",
+    "find": "        if 1e9 < f < 4e9:\n            return datetime.fromtimestamp(f, timezone.utc).replace(tzinfo=None)\n        return None",
+    "replace": "        return datetime.fromtimestamp(abs(f) or 1, timezone.utc).replace(tzinfo=None)"
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "review date: the source is not reported, so a fallback looks like a read",
+    "find": "    return None, \"\"",
+    "replace": "    return None, \"footer\""
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "review date: parse_review stops carrying it",
+    "find": "    _pub_at, _pub_src = review_published_at(event)",
+    "replace": "    _pub_at, _pub_src = None, \"\""
+  },
+  {
+    "file": "server/api.py",
+    "name": "review date: the ingest ignores the publish date and stamps the relay time",
+    "find": "    if published_at is not None:\n        log.info(f\"[ingest] {rid}: review publish date {published_at} \"\n                 f\"(from {published_src or 'the payload'})\")\n        return published_at",
+    "replace": "    if False:\n        log.info(f\"[ingest] {rid}: review publish date {published_at} \"\n                 f\"(from {published_src or 'the payload'})\")\n        return published_at"
+  },
+  {
+    "file": "server/api.py",
+    "name": "review date: re-run no longer corrects an already-ingested review",
+    "find": "                if _pub and _pub != r.received_at:",
+    "replace": "                if False and _pub and _pub != r.received_at:"
+  },
+  {
+    "file": "server/api.py",
+    "name": "review date: the ingest passes the publish date but never the source",
+    "find": "        _at = _received_at_from(parsed[\"slack_ts\"], rid,\n                                parsed.get(\"published_at\"),\n                                parsed.get(\"published_at_source\", \"\"))",
+    "replace": "        _at = _received_at_from(parsed[\"slack_ts\"], rid)"
+  }
+]

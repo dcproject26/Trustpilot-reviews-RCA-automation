@@ -869,3 +869,254 @@ def issue_questions_for(scenario_names) -> list:
     if not out:
         return list(GENERAL_ISSUE_QUESTIONS)
     return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Actions Taken, built from THIS CASE'S FINDINGS
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# `actions_raised` above sources its rows from the DSS guideline sheet for the
+# routed scenario, then filters by flagged team and word overlap. Two filters
+# on a wrong source: the rows are a PLAYBOOK for a scenario, not things that
+# happened on this booking. That is how "Share ARN number for delayed refunds"
+# and "BMS refund error -> raise with Leads on #co-issue or Fin on priority"
+# reached a card with no delayed refund and no BMS error — both were valid
+# guideline rows for the scenario, both satisfied the AND, and both were still
+# statements about work nobody did.
+#
+# The section is read as "this is what we did / what must be done". So a row
+# earns its place by BEING a finding on this card, not by resembling one:
+#
+#   1. a flag raised here
+#   2. an operational failure found here
+#   3. an SOP / process gap found here
+#   4. a fix, with the team that owns it
+#   5. an area-of-improvement point (already provenance-checked upstream —
+#      _improvements drops any point whose stated source matches nothing)
+#   6. the DSS MISS: what DSS says the next escalation step was, where it did
+#      not happen
+#
+# DSS IS USED ONLY FOR 6. It works out what should have come next in the
+# escalation; it is not an anchor, a definition, or a comment pasted onto the
+# output, and it no longer supplies rows of its own.
+#
+# NOTHING IS INVENTED. Every row is a string that already exists on the card.
+
+# Rows are deduplicated on subject-matter words, not on exact text: the same
+# finding is written three ways across a root cause, a flag and an improvement
+# point, and printing all three reads as three pieces of work.
+_DEDUP_MIN_TOKENS = 3
+_DEDUP_OVERLAP = 0.7
+
+# A PROBLEM AND ITS REMEDY ARE NOT THE SAME ROW. "No alert exists for a
+# stalled fulfilment run" and "Add an alert on a stalled fulfilment run" share
+# almost every content word, and merging them drops the remedy — which is the
+# half the reader is meant to act on. So rows only merge within their own
+# half: findings with findings, actions with actions.
+_ACTION_KINDS = {"fix", "dss_miss", "improvement"}
+
+
+def _dedup_key(text) -> frozenset:
+    return frozenset(_relevance_tokens(text))
+
+
+def _group_of(kind) -> str:
+    return "action" if kind in _ACTION_KINDS else "finding"
+
+
+def _is_repeat(text, seen, group="finding") -> bool:
+    """Whether this row says what an earlier one already said.
+
+    Short rows are compared exactly — with one or two content words there is
+    not enough to judge overlap on, and collapsing them would drop distinct
+    findings that happen to share a word.
+    """
+    toks = _dedup_key(text)
+    norm = " ".join(str(text or "").lower().split())
+    if norm in seen["exact"]:
+        return True
+    if len(toks) < _DEDUP_MIN_TOKENS:
+        return False
+    for prev in seen["tokens"].get(group, []):
+        if not prev:
+            continue
+        overlap = len(toks & prev) / max(1, min(len(toks), len(prev)))
+        if overlap >= _DEDUP_OVERLAP:
+            return True
+    return False
+
+
+def _remember(text, seen, group="finding") -> None:
+    seen["exact"].add(" ".join(str(text or "").lower().split()))
+    seen["tokens"].setdefault(group, []).append(_dedup_key(text))
+
+
+def _team_of_improvement(point, issues, flags) -> str:
+    """The team an improvement point belongs to, from the finding it cites.
+
+    `_improvements` has already checked that the point's stated source matches
+    an operational failure, an SOP gap or a flag on this card, so the same
+    match is re-run here to find WHICH one — and that finding's team is the
+    point's team. A flag names its team directly; a failure or a gap is owned
+    by whoever owns its issue's fix.
+
+    Returns "" when the citation cannot be tied back, which routes the point
+    to the unrouted report rather than to a guessed tab.
+    """
+    src = str(point.get("source") or "")
+    kind = str(point.get("from") or "")
+    if not src:
+        return ""
+    if kind == "flag":
+        for f in flags or []:
+            text = f"{f.get('flag') or ''} {f.get('evidence') or ''}"
+            if _overlaps_tokens(src, text):
+                return team_of_flag(f)
+        return ""
+    for i in issues or []:
+        cand = i.get(kind) if kind in ("operational_failure", "sop_gap") else None
+        if cand and _overlaps_tokens(src, cand):
+            fix = i.get("fix") if isinstance(i.get("fix"), dict) else {}
+            owner = str(fix.get("owner") or "").strip().lower()
+            return FLAG_TEAM_ALIASES.get(owner, owner)
+    return ""
+
+
+def _overlaps_tokens(a, b) -> bool:
+    """Half of the shorter side's content words appear in the other.
+
+    The same threshold `_improvements` used to accept the citation, so a point
+    it let through cannot fail to route here for a reason it was never told
+    about.
+    """
+    ta, tb = _relevance_tokens(a), _relevance_tokens(b)
+    if not ta or not tb:
+        return False
+    return len(ta & tb) / max(1, min(len(ta), len(tb))) >= 0.5
+
+
+def actions_from_findings(issues, flags, improvements=None, dss_miss=None,
+                          keep=None) -> tuple[dict, dict]:
+    """Actions Taken from what this case found. Returns (tabs, report).
+
+    `dss_miss` is [{team, action}] — the escalation step DSS prescribes that
+    did not happen. It is the ONLY thing DSS contributes.
+
+    A finding whose team cannot be determined is NOT parked on a plausible
+    tab. It is counted and named in the report, because a row silently routed
+    to the wrong team is worse than a row a reader is told went nowhere.
+    """
+    tabs = {t: [] for t in ACTION_TEAMS}
+    seen = {"exact": set(), "tokens": {}}
+    unrouted, counts = [], {}
+
+    def _add(team, text, kind):
+        text = str(text or "").strip()
+        if not text or team not in tabs:
+            return False
+        grp = _group_of(kind)
+        if _is_repeat(text, seen, grp):
+            counts["repeat"] = counts.get("repeat", 0) + 1
+            return False
+        _remember(text, seen, grp)
+        tabs[team].append(text)
+        counts[kind] = counts.get(kind, 0) + 1
+        return True
+
+    flags = [f for f in (flags or []) if isinstance(f, dict)]
+    issues = [i for i in (issues or []) if isinstance(i, dict)]
+
+    # The team a finding belongs to, when the finding itself does not say.
+    # ONE flagged team is an unambiguous answer; several is a choice this
+    # function has no basis to make, so it declines and says so.
+    flagged_teams = [t for t in {team_of_flag(f) for f in flags} if t]
+    _sole = flagged_teams[0] if len(flagged_teams) == 1 else ""
+
+    def _route(explicit, text, kind):
+        team = str(explicit or "").strip().lower()
+        team = FLAG_TEAM_ALIASES.get(team, team)
+        if team in tabs:
+            return _add(team, text, kind)
+        if _sole:
+            return _add(_sole, text, kind)
+        unrouted.append((kind, str(text or "")[:80]))
+        return False
+
+    # 1. THE FLAGS. Each one is a thing raised on this case, and the flag's own
+    #    team is not a guess.
+    for f in flags:
+        _route(f.get("team"), f.get("flag"), "flag")
+
+    # 2-4. What each issue found, and who owns the fix. The fix's owner routes
+    #      the operational failure and the SOP gap too: they are the same
+    #      finding seen from three angles, and the fix is the only one of the
+    #      three that names a team.
+    for i in issues:
+        fix = i.get("fix") if isinstance(i.get("fix"), dict) else {}
+        owner = fix.get("owner")
+        _route(owner, i.get("operational_failure"), "operational_failure")
+        _route(owner, i.get("sop_gap"), "sop_gap")
+        _route(owner, fix.get("action"), "fix")
+
+    # 5. Area of improvement. Already provenance-checked upstream, so a point
+    #    that survives to here has a source that exists on this card — and
+    #    that source is what routes it. An AOI row carries {point, from,
+    #    source} and no team of its own, so reading `p["team"]` would send
+    #    every point to the unrouted pile: the section would report six
+    #    findings it could not place on a card where all six were placeable.
+    for p in (improvements or []):
+        if not isinstance(p, dict):
+            continue
+        _route(_team_of_improvement(p, issues, flags),
+               p.get("point") or p.get("text"), "improvement")
+
+    # 6. THE DSS MISS, and the only thing DSS puts here.
+    for m in (dss_miss or []):
+        if isinstance(m, dict):
+            _route(m.get("team"), m.get("action"), "dss_miss")
+
+    # A row someone typed survives a re-run, exactly as before. Nothing here is
+    # sourced from the guideline sheet any more, so a hand-typed row is simply
+    # any previous row this rebuild did not produce.
+    kept = 0
+    for t, items in (keep or {}).items():
+        if t not in tabs:
+            continue
+        for row in (items or []):
+            txt = str(row or "").strip()
+            if (txt and txt not in _ALL_GUIDELINE_ACTIONS
+                    and not _is_repeat(txt, seen, "action")
+                    and not _is_repeat(txt, seen, "finding")):
+                _remember(txt, seen, "action")
+                tabs[t].append(txt)
+                kept += 1
+
+    notes = []
+    if kept:
+        notes.append(f"actions taken: {kept} hand-added row(s) carried forward "
+                     f"through this re-run")
+    if counts.get("repeat"):
+        # A judgement, announced. Two findings worded differently were treated
+        # as one, and nothing else on the card would say so.
+        notes.append(f"actions taken: {counts['repeat']} row(s) said what "
+                     f"another row already said and were merged")
+    if unrouted:
+        # The §1 line. These findings exist and are NOT on the card; a reader
+        # must not have to infer that from a tab that looks complete.
+        notes.append(
+            f"actions taken: {len(unrouted)} finding(s) name no team and could "
+            f"not be routed — " +
+            "; ".join(f"{k}: {t}" for k, t in unrouted[:3]) +
+            ("" if len(unrouted) <= 3 else f" (+{len(unrouted) - 3} more)"))
+    if not any(tabs.values()):
+        if not flags and not issues:
+            notes.append("actions taken: nothing was flagged and no issue "
+                         "recorded a failure, gap or fix — there is nothing "
+                         "this case found to raise")
+        else:
+            notes.append("actions taken: this case has findings but none of "
+                         "them named a team, so no row could be placed")
+
+    report = {"counts": counts, "unrouted": unrouted, "kept": kept,
+              "notes": notes}
+    return tabs, report
