@@ -931,7 +931,7 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
     # remediation on a card twice.
     _findings = _case_findings(wwr.get("case_findings"), issues, notes)
     _fixes = _fix_rows(wwr.get("fixes"), issues, notes)
-    _actions, _ar = actions_from_fixes(_fixes, _flags, keep=keep_actions)
+    _actions, _ar = actions_from_fixes(_fixes, keep=keep_actions)
     notes.extend(_ar["notes"])
 
     return {

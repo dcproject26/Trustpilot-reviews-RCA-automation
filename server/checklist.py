@@ -1206,10 +1206,10 @@ def actions_from_findings(issues, flags, improvements=None, dss_miss=None,
     return tabs, report
 
 
-def actions_from_fixes(fixes, flags=None, keep=None) -> tuple:
+def actions_from_fixes(fixes, keep=None) -> tuple:
     """Actions Taken as a VIEW over §3's fixes. Returns (tabs, report).
 
-    TWO SOURCES: the fixes, and the flags. Not six — operational failures,
+    TWO SOURCES: the fixes, and the rows a person typed. Not six — operational failures,
     SOP gaps, improvement points and the DSS missed step are each already a
     finding in their own section, and routing them here as well is how one
     finding reached a card three ways.
@@ -1254,23 +1254,17 @@ def actions_from_fixes(fixes, flags=None, keep=None) -> tuple:
         if tab == UNROUTED:
             counts[UNROUTED] += 1
 
-    for f in (flags or []):
-        if not isinstance(f, dict):
-            continue
-        text = str(f.get("flag") or "").strip()
-        if not text:
-            continue
-        if _is_repeat(text, seen, "action"):
-            counts["repeat"] += 1
-            continue
-        _remember(text, seen, "action")
-        team = str(f.get("team") or "").strip().lower()
-        team = FLAG_TEAM_ALIASES.get(team, team)
-        tab = team if team in ACTION_TEAMS else UNROUTED
-        tabs[tab].append(text)
-        counts["flag"] = counts.get("flag", 0) + 1
-        if tab == UNROUTED:
-            counts[UNROUTED] += 1
+    # THE FLAGS DO NOT COME IN HERE, by request.
+    #
+    # They were routed in as actions and produced rows like "No Headout
+    # process required monitoring SP-initiated time-change communications" and
+    # "Nobody was required to contact the guest proactively" — the ABSENCE of
+    # an action, filed under Actions Taken, indistinguishable from a row
+    # someone had performed. A flag is what went wrong; it is already a
+    # finding in the Flags section and does not need a second home.
+    #
+    # What remains is what the heading can honestly carry: the fixes, and the
+    # rows a person typed.
 
     kept = 0
     for t, items in (keep or {}).items():
@@ -1296,11 +1290,11 @@ def actions_from_fixes(fixes, flags=None, keep=None) -> tuple:
         notes.append(f"actions taken: {counts[UNROUTED]} fix(es) name no team "
                      f"and sit on the Unrouted tab — nobody picks those up "
                      f"until someone assigns them")
-    if not counts["fix"] and not counts.get("flag") and not kept:
+    if not counts["fix"] and not kept:
         # Distinguishable from a run that never looked: there was nothing to
         # route, which is a legitimate answer for a case needing no action.
-        notes.append("actions taken: no fix in §3 and no flag raised, so there "
-                     "is nothing for any team to pick up")
+        notes.append("actions taken: no fix in §3 and no row typed by hand, "
+                     "so there is nothing for any team to pick up")
 
     return tabs, {"counts": counts, "kept": kept, "notes": notes,
                   "unrouted": counts[UNROUTED]}

@@ -118,11 +118,24 @@ def test_the_numbers_biz_acts_on_are_fields_not_prose():
         assert key in handler, f"{key} is collected but never sent"
 
 
-def test_the_facts_reach_slack_and_the_action_log():
+def test_the_facts_reach_the_slack_message():
+    """The numbers are the point of the flag: a message saying "completion is
+    low" without them is a claim the Biz team cannot act on.
+
+    It used to assert TWO uses — the message and an actions_taken entry. Flag
+    to Biz no longer writes into actions_taken: that column is the fixes and
+    the rows a person typed, and a second writer is how it came to carry four
+    kinds of row under one heading. The flag is recorded on the draft's own
+    flag_to_biz state and in the Slack thread it was posted to."""
     body = _fn(API, "flag_to_biz")
     assert "_biz_facts(body)" in body, "the numbers never reach the Slack message"
-    assert body.count("_biz_facts(body)") >= 2, \
-        "the action log should record what was raised, not only how it was worded"
+
+
+def test_flagging_to_biz_does_not_write_into_actions_taken():
+    """NEGATIVE, so a second writer cannot quietly come back."""
+    body = _fn(API, "flag_to_biz")
+    assert 'd.actions_taken =' not in body, \
+        "flag_to_biz is writing into actions_taken again"
 
 
 def test_flagging_without_a_slack_thread_is_refused_not_redirected():

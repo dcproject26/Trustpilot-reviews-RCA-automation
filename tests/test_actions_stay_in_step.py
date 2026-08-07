@@ -92,15 +92,20 @@ def test_an_unowned_fix_lands_on_the_unrouted_tab(live_db, client):
     assert draft["actions_taken"]["unrouted"] == ["Someone should look at this"]
 
 
-def test_a_flag_reaches_its_team_tab_through_the_saver(live_db, client):
-    """A flag is actionable: it names the team that must act and what they are
-    handed."""
+def test_a_flag_does_not_reach_a_team_tab(live_db, client):
+    """REMOVED BY REQUEST. Routing flags in here produced rows like "No
+    Headout process required monitoring SP-initiated time-change
+    communications" and "Nobody was required to contact the guest proactively"
+    — the ABSENCE of an action, filed under Actions Taken and formatted
+    identically to a row someone had performed.
+
+    A flag is what went wrong. It is already a finding in the Flags section
+    and does not need a second home."""
     rid = _seed(live_db)
     draft = _patch(client, rid, {
         "what_went_wrong": {"guest_issues": [], "fixes": []},
         "flags": [{"team": "TECH", "flag": "No alert on failed fulfilment"}]})
-    assert draft["actions_taken"]["tech"] == ["No alert on failed fulfilment"], \
-        draft["actions_taken"]
+    assert draft["actions_taken"]["tech"] == [], draft["actions_taken"]
 
 
 def test_the_client_cannot_write_the_column_behind_the_fixes(live_db, client):

@@ -1601,8 +1601,7 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
             from server.checklist import actions_from_fixes
             _blob = d.rca_v3 or {}
             _wwr = _blob.get("what_went_wrong") or {}
-            _tabs, _rep = actions_from_fixes(_wwr.get("fixes"),
-                                             _blob.get("flags"))
+            _tabs, _rep = actions_from_fixes(_wwr.get("fixes"))
             d.actions_taken = _tabs
             flag_modified(d, "actions_taken")
         except Exception as e:
@@ -2397,30 +2396,12 @@ async def flag_to_biz(review_id: str, body: FlagToBiz,
             d.flag_to_biz_state = "sent"
             d.flag_to_biz_message = body.message
 
-            # Log an entry in actions_taken.business.
-            #
-            # Copied, not mutated in place. SQLAlchemy compares a JSON column
-            # by identity, so appending to the list it already holds and
-            # assigning the same object back is not a change it can see - the
-            # endpoint returned {"ok": true} with the entry in the response
-            # and wrote nothing. Verified against a running server: the reply
-            # showed the entry, the reload showed null.
-            actions = {k: list(v) for k, v in
-                       (d.actions_taken or {}).items()} or {}
-            for _t in ("sp", "customer", "business", "product", "ce"):
-                actions.setdefault(_t, [])
-            actions["business"].append({
-                "with": "Biz team — raise completion to market rate",
-                "handle": tag or "—",
-                "time": datetime.utcnow().strftime("%d %b %H:%M"),
-                # The facts first, so the log says what was actually raised
-                # rather than only how it was worded.
-                "context": " — ".join(x for x in (_biz_facts(body),
-                                                  (body.message or "")[:200]) if x),
-                "where": f"slack.com/{channel.lstrip('#')}/{ts}",
-            })
-            d.actions_taken = actions
-            flag_modified(d, "actions_taken")
+            # NO actions_taken ENTRY, by request. Flagging to Biz is a real
+            # thing somebody did, but Actions Taken is the fixes and the rows
+            # a person typed — a second writer into that column is how it came
+            # to hold four different kinds of row under one heading. The flag
+            # is recorded on the draft's own flag_to_biz state and in the
+            # Slack thread it was posted to.
 
             m = db.query(ReviewMetric).filter(ReviewMetric.review_id == review_id).first()
             if m:

@@ -92,14 +92,17 @@ def test_a_fix_lands_on_its_owners_tab_and_no_playbook_row_lands_anywhere():
     assert "Alert on failed fulfilment" in out["actions_taken"]["tech"]
 
 
-def test_a_flag_with_no_fix_still_reaches_its_team_tab():
-    """A FLAG IS ACTIONABLE. It names the team that must act and what they are
-    handed, which is exactly what a tab is for. This briefly excluded them, on
-    the reasoning that a flag and its fix would say the same thing twice — but
-    the answer to that is the dedupe below, not dropping a real hand-off."""
+def test_a_flag_does_not_reach_a_team_tab():
+    """REMOVED BY REQUEST — Actions Taken is the fixes and the rows a person
+    typed, nothing else.
+
+    Flags were routed here on the reasoning that a flag names the team that
+    must act. What it produced was the absence of an action rendered as one:
+    "Nobody was required to contact the guest proactively" sitting in a list
+    of things done, formatted exactly like a row someone had performed. The
+    flag still renders in the Flags section, where it says what it means."""
     out, _ = validate(_rca(), [SCENARIO])          # fixture has a CO flag
-    assert out["actions_taken"]["co"] == ["No follow-up after the first reply"], \
-        out["actions_taken"]["co"]
+    assert out["actions_taken"]["co"] == [], out["actions_taken"]["co"]
 
 
 def test_no_guideline_row_reaches_the_card():
@@ -147,14 +150,17 @@ def test_nothing_found_says_so_rather_than_reporting_a_bare_zero():
     assert "no fix" in said, notes
 
 
-def test_the_same_finding_worded_twice_is_not_two_rows():
-    """A root cause, a flag and an improvement point routinely say one thing
-    three ways. Printing all three reads as three pieces of work — and the
-    merge is a JUDGEMENT, so the run says it made one."""
-    rca = _rca(flags=[{"team": "CO", "flag": "Watch the fulfilment queue",
-                       "evidence": "ZD-1"}])
+def test_two_fixes_worded_differently_are_not_two_rows():
+    """Two fixes routinely say one thing two ways. Printing both reads as two
+    pieces of work — and the merge is a JUDGEMENT, so the run says it made
+    one.
+
+    Checked between FIXES now rather than between a fix and a flag: flags no
+    longer reach this column at all."""
+    rca = _rca()
     rca["what_went_wrong"]["fixes"] = [
-        {"action": "Watch the fulfilment queue", "owner": "CO"}]
+        {"action": "Watch the fulfilment queue", "owner": "CO"},
+        {"action": "Watch the fulfilment queue closely", "owner": "CO"}]
     out, notes = validate(rca, [SCENARIO])
     assert len(out["actions_taken"]["co"]) == 1, out["actions_taken"]["co"]
     assert any("already said" in n for n in notes), notes
