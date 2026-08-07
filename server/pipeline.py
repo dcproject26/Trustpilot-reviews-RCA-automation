@@ -1659,6 +1659,9 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 })
 
                 # review_pub_date for BQ date param
+                # Date only HERE on purpose: this one is a BigQuery date
+                # parameter, not a timeline timestamp. The timeline's copy is
+                # `_zd_pub_date` and keeps its clock time.
                 pub_date = (review.received_at or datetime.utcnow()).strftime("%Y-%m-%d")
                 extracted_sigs["review_pub_date"] = pub_date
 
@@ -2769,7 +2772,15 @@ async def process_review(review_id: str, force_candidates: bool = False):
         extracted_bk  = {}
         zd_meta       = {"ticket_ids": [], "timeline_raw": []}
         bid_for_zd    = (booking or {}).get("id") or review.reference_number
-        _zd_pub_date  = review.received_at.strftime("%Y-%m-%d") if review.received_at else ""
+        # THE CLOCK TIME IS KEPT. This was "%Y-%m-%d" — date only — although
+        # `received_at` is a full datetime, so the "Review posted" row reached
+        # the timeline as a bare "04 Aug" and `_tlParse` reads a missing clock
+        # as 00:00. The review therefore sorted to the START of its own day,
+        # above a booking created at 02:43. The old "Review posted last" rule
+        # in the prompt was hiding that; removing the rule exposed a timestamp
+        # that had been lossy all along.
+        _zd_pub_date  = (review.received_at.strftime("%Y-%m-%d %H:%M")
+                         if review.received_at else "")
         _zd_err       = None
         if bid_for_zd:
             try:

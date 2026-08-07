@@ -640,5 +640,23 @@
     "name": "backfill: an out-of-range ts becomes a 1970 date",
     "find": "    if not (1e9 < ts < 4e9):\n        return None",
     "replace": "    if False:\n        return None"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "timeline: the label cap drops back to clipping every descriptive label",
+    "find": "LABEL_CAP   = 120",
+    "replace": "LABEL_CAP   = 60"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "timeline: the review loses its clock time again",
+    "find": "        _zd_pub_date  = (review.received_at.strftime(\"%Y-%m-%d %H:%M\")",
+    "replace": "        _zd_pub_date  = (review.received_at.strftime(\"%Y-%m-%d\")"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "timeline: a runaway label is cut with no marker",
+    "find": "    return cut.rstrip(\" ,;:-\") + f\" […cut at {n} chars]\"",
+    "replace": "    return cut.rstrip(\" ,;:-\")"
   }
 ]

@@ -2587,7 +2587,9 @@ findable; one you quietly corrected is not.
      Guest reached out   Guest asked to move the tour to 14 Aug
      Booking cancelled   Original booking cancelled via API
      Refund issued       Full refund of CHF 461.19 processed
-   Keep them short — a line, not a sentence, and no trailing period.
+   Keep them short — a line, not a sentence, and no trailing period. UNDER 120
+   CHARACTERS: past that the row clips and the reader is shown the cut marker
+   instead of the end of your label.
 
    THE ACTOR RULE IS UNCHANGED AND OUTRANKS ALL OF THIS. A label naming
    someone who did not act is a false statement about a person, and it is the

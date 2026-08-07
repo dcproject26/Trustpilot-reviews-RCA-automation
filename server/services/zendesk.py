@@ -2078,6 +2078,29 @@ def _clip(text: str, n: int) -> str:
     return cut.rstrip(" ,;:-") + f" […cut at {n} chars]"
 
 
+# 120, not the original 60. A label is a DESCRIPTIVE line now — "Duplicate-
+# booking cancellation request sent to the supply partner" — and 60 was set
+# when labels were category words like "Tickets sent". Every descriptive label
+# overflowed it and the reader got "[…cut at 60 chars]" inside a header.
+LABEL_CAP   = 120
+# Not a house style: a backstop against a model pasting a whole transcript.
+SUMMARY_CAP = 600
+
+
+def clip_shaped_text(ev: dict) -> dict:
+    """{label, summary} for one shaped event, each within its own cap.
+
+    DRIVABLE ON PURPOSE. The caps used to be literals inside an async function
+    that calls Claude, so the only thing a test could reach was `_clip` — which
+    takes the cap as an argument and therefore passes for any value the caller
+    might be using. A mutation dropping the label cap back to 60 survived
+    exactly that test.
+    """
+    e = ev if isinstance(ev, dict) else {}
+    return {"label":   _clip(e.get("label", ""), LABEL_CAP),
+            "summary": _clip(e.get("summary", ""), SUMMARY_CAP)}
+
+
 def _fallback_shape(raw_events: list) -> list:
     """
     Mechanical fallback when Claude shaping fails.
@@ -2279,7 +2302,14 @@ async def _shape_via_claude(
             "time_sort": time_sort,
             "thread":  thread,
             "actor":   actor,
-            # A label is a header word or two and 60 keeps the row intact.
+            # 120, not 60. A label is a DESCRIPTIVE line now — "Booking
+            # intimation sent to the supply partner", "Duplicate-booking
+            # cancellation request sent to the supply partner" — and the old
+            # cap was set when labels were category words like "Tickets sent".
+            # Every descriptive label overflowed it, so the reader got
+            # "[…cut at 60 chars]" rendered inside a header. The cap stays
+            # because a forty-word label still breaks the row; it is now set
+            # where only a runaway one reaches it.
             #
             # The summary is not a header, it is the content, and 110 was
             # cutting real sentences in half — "agent cited non-cancellable
@@ -2289,8 +2319,7 @@ async def _shape_via_claude(
             # it. A summary that reads badly should be fixed in the prompt,
             # where the model can write a shorter COMPLETE one, not with
             # scissors here, which only ever produces an incomplete one.
-            "label":   _clip(ev.get("label", ""), 60),
-            "summary": _clip(ev.get("summary", ""), 600),
+            **clip_shaped_text(ev),
             "ticket_id": next((s.get("ticket_id") for s in srcs if s.get("ticket_id")), ""),
             "is_internal":     is_internal,
             "internal_reason": internal[0].get("internal_reason", "") if is_internal else "",
