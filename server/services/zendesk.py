@@ -724,12 +724,42 @@ _MACHINE_BODY = [
 _MACHINE_CHANNELS = {"rule", "system", "automation", "trigger", "batch"}
 
 
+# A body this long is a CONVERSATION that mentions session boilerplate, not a
+# bookkeeping line that consists of it.
+#
+# "chat-bookkeeping" matches "chat transcript", "conversation started/ended",
+# "session id" — and a real chat transcript contains every one of those, at the
+# top, before the guest says anything. So a genuine guest chat was classified
+# as machinery: `_detect_actor` consults `_internal_reason` FIRST and returned
+# "system", `is_internal` went true, `is_conversation` rejected it, and the
+# ticket produced no contact frame at all. The model's note for that ticket
+# then had nothing to join to and rendered badged "unmatched ZD reference" —
+# a broken join reported as a reference the model got wrong.
+#
+# This module's own docstring already warned about the shape: "a real guest
+# sentence containing the word 'credential' was dropped with no trace". Moving
+# the decision earlier fixed WHERE it was made, not the over-match.
+#
+# 400 characters is a JUDGEMENT and only the bookkeeping patterns are subject
+# to it. The others name things a person does not write — webdriver output,
+# login credentials, a booking-info dump — and length says nothing about
+# those.
+_BOOKKEEPING_MAX_CHARS = 400
+_LENGTH_SENSITIVE = {"chat-bookkeeping", "bot-tagging"}
+
+
 def _machine_body_reason(body: str) -> str:
     """Which machine pattern this body matches, or '' if it reads as human."""
     text = _html.unescape(_TAG_RE.sub(" ", body or ""))[:4000]
     for rx, reason in _MACHINE_BODY:
-        if rx.search(text):
-            return reason
+        if not rx.search(text):
+            continue
+        if reason in _LENGTH_SENSITIVE and len(text.strip()) > _BOOKKEEPING_MAX_CHARS:
+            # The marker is in there, but so is a great deal of other text.
+            # Keep looking: a later pattern may still make this machinery on
+            # its own evidence.
+            continue
+        return reason
     return ""
 
 

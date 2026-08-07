@@ -115,3 +115,49 @@ def test_a_promoted_note_is_still_not_a_conversation():
 def test_a_real_guest_message_is_still_a_conversation():
     assert is_conversation(_note("Where are my tickets?", internal=False,
                                  actor="guest")) is True
+
+
+# ── a real chat is not bookkeeping because it mentions a session ───────────
+
+from server.services.zendesk import _machine_body_reason
+
+
+TRANSCRIPT = (
+    "Chat transcript\nConversation started at 15:36.\n"
+    "Guest said the new vendor told her pickup was at 13:45, and she asked to "
+    "revert to 08:30 or any time before 11:00. The AI bot acknowledged the "
+    "issue and passed to an agent. Agent confirmed the rescheduling window had "
+    "closed and no time change was possible. Agent provided the vendor's "
+    "contact number only. No escalation to SP or internally was raised. Guest "
+    "expressed dissatisfaction and asked for a refund instead.")
+
+
+def test_a_real_transcript_is_not_machinery():
+    """THE REPORTED SYMPTOM. The chat on ZD-34335318 was classified machinery
+    because its transcript opens with "Chat transcript" and "Conversation
+    started" — so `_detect_actor` returned "system", `is_internal` went true,
+    `is_conversation` rejected it, the ticket produced NO contact frame, and
+    the model's note for it rendered badged "unmatched ZD reference".
+
+    A broken join reported as a reference the model got wrong."""
+    assert _machine_body_reason(TRANSCRIPT) == "", _machine_body_reason(TRANSCRIPT)
+
+
+def test_a_bare_session_line_is_still_bookkeeping():
+    """The pattern is kept — a body that IS the boilerplate is exactly what it
+    was written for."""
+    assert _machine_body_reason(
+        "Conversation started at 15:36. Session id: a1b2c3") == "chat-bookkeeping"
+
+
+def test_length_does_not_excuse_the_other_patterns():
+    """Only the bookkeeping patterns are length-sensitive. The rest name
+    things a person does not write, and a long one is still machinery."""
+    assert _machine_body_reason("login credential: abc " + "x" * 500) == "credentials"
+
+
+def test_a_long_body_can_still_match_a_later_pattern():
+    """Skipping a length-sensitive match must keep looking, not return clean —
+    a transcript that ALSO dumps credentials is still machinery."""
+    body = TRANSCRIPT + "\nvendor login: portal-user / password: hunter2"
+    assert _machine_body_reason(body) == "credentials", _machine_body_reason(body)

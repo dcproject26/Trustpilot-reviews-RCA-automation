@@ -564,6 +564,12 @@ def _draft_dict(d: RcaDraft) -> dict:
         # field — one function in this file knew and the other did not.
         _bk.get("primary_guest_name"),
         _bk.get("primaryGuestName"),
+        # THE ZENDESK COPY, which the run already fetched. Where the warehouse
+        # holds a PII hash the ticket is the only readable source, and the
+        # pipeline asks it — then stored the answer nowhere, so this function
+        # fell through to "the warehouse stores this as a hash — check the
+        # Zendesk ticket", telling the reader to redo the lookup by hand.
+        _bk.get("zendesk_guest_name"),
         _bk.get("zendesk_requester_name"),
     )
     # When there is no name, say WHICH source failed. "[Guest name in Zendesk

@@ -1524,6 +1524,15 @@ async def process_review(review_id: str, force_candidates: bool = False):
                             # the same source the ranking path already uses.
                             _zdn, _zwhy = await zendesk.guest_name_for_bid(
                                 bq_row.get("booking_id") or review.reference_number)
+                        # KEPT, not just scored. This name was fetched from
+                        # Zendesk, used to decide the match, and dropped — so
+                        # the card read the warehouse's hash, found nothing
+                        # readable, and told the associate to "check the
+                        # Zendesk ticket": the exact lookup that had just been
+                        # performed for them. Stored on the booking so the one
+                        # readable copy survives the run that found it.
+                        if _zdn and bq_row is not None:
+                            bq_row["zendesk_guest_name"] = _zdn
                         _cmp_name, name_checked, name_conf, _name_src, _name_why = \
                             gate_name_check(pgn, _zdn, _zwhy, _af, _al)
                         if name_checked and name_conf >= 0.7:   # surname agrees at minimum
