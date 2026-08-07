@@ -284,3 +284,120 @@ def test_the_defaulted_case_refuses_rather_than_translating_to_nothing(fake_clau
     assert fake.calls == 0, "it tried to translate into a language it does not know"
     assert out == "They never arrived"
     assert trail["mark"] == "warn"
+
+
+# ── The guest's language is READ, never typed ───────────────────────────────
+#
+# The card used to show a "Guest's language — e.g. Spanish" text box, and the
+# reason it had to was a gate on the wrong thing: detection ran inside
+# `if not review.body_english:`, so it only fired when the inbound translation
+# happened on THAT run. A review translated earlier — or simply re-run — kept
+# the "en" that parse_review hard-codes, `language_state` said "unknown", and
+# an associate was asked to identify a language whose source text we are
+# holding in `body_original`.
+
+class _FakeDetector:
+    """Stands in for the detection call, and RECORDS whether it was made.
+
+    "we could not name the language" and "we never asked" produce the same
+    card, so the tests below assert on `calls` and not only on the outcome.
+    """
+    def __init__(self, answer=""):
+        self.answer, self.calls = answer, []
+
+    async def detect_language(self, text):
+        self.calls.append(text)
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return self.answer
+
+
+@pytest.fixture
+def fake_detector(monkeypatch):
+    def _install(answer=""):
+        import server.services.claude as real
+        fc = _FakeDetector(answer)
+        monkeypatch.setattr(real, "detect_language", fc.detect_language)
+        return fc
+    return _install
+
+
+def _resolve(review):
+    from server.services.reply_language import resolve_language
+    return asyncio.run(resolve_language(review))
+
+
+def test_a_cached_translation_no_longer_blocks_detection(fake_detector):
+    """THE BUG, stated directly. This review's `body_english` is already
+    present — the state every re-run and every pre-existing review is in — and
+    that used to mean the detection branch never opened at all."""
+    fc = fake_detector("French")
+    r = SimpleNamespace(id="tp_1", language="en",
+                        body_original="Ils ne sont jamais arrivés",
+                        body_english="They never arrived")
+    res = _resolve(r)
+    assert fc.calls, "the detection was never called — the old gate is back"
+    assert res["outcome"] == "detected"
+    assert res["language"] == "French"
+    assert r.language == "French", "the detection ran and nothing recorded it"
+
+
+def test_the_detected_language_makes_the_card_draw_two_boxes():
+    """The point of recording it. Driven through `language_state`, which is
+    what the card and the send path both read."""
+    r = SimpleNamespace(id="tp_1", language="French",
+                        body_original="Ils ne sont jamais arrivés",
+                        body_english="They never arrived")
+    st = language_state(r)
+    assert st["state"] == "translated" and st["language"] == "French"
+
+
+def test_an_undetectable_language_records_nothing_and_says_it_looked(fake_detector):
+    """A guess here sends the guest a reply they cannot read. The column is
+    left alone — and the outcome is NOT the same word as "we did not run"."""
+    fc = fake_detector("")
+    r = SimpleNamespace(id="tp_1", language="en",
+                        body_original="....",
+                        body_english="They never arrived")
+    res = _resolve(r)
+    assert fc.calls, "nothing was asked"
+    assert res["outcome"] == "undetected"
+    assert r.language == "en", "a language was invented"
+    assert "could not be named" in res["why"], res["why"]
+
+
+def test_a_failed_detection_call_is_not_reported_as_english(fake_detector):
+    fake_detector(RuntimeError("upstream down"))
+    r = SimpleNamespace(id="tp_1", language="en",
+                        body_original="Ils ne sont jamais arrivés",
+                        body_english="They never arrived")
+    res = _resolve(r)
+    assert res["outcome"] == "undetected"
+    assert r.language == "en"
+
+
+def test_an_actually_english_review_is_not_sent_for_detection(fake_detector):
+    """`body_original == body_english` means no inbound translation happened,
+    which is the positive evidence that it IS English. Asking anyway would
+    spend a model call per render on every English review on the board."""
+    fc = fake_detector("Spanish")
+    r = SimpleNamespace(id="tp_1", language="en",
+                        body_original="They never arrived",
+                        body_english="They never arrived")
+    res = _resolve(r)
+    assert res["outcome"] == "skipped_english"
+    assert not fc.calls, "an English review was sent to the detector"
+    assert r.language == "en"
+
+
+def test_a_review_that_already_names_its_language_is_left_alone(fake_detector):
+    """Re-detecting would overwrite a language somebody may have corrected by
+    hand, and it is a model call for a question already answered."""
+    fc = fake_detector("Spanish")
+    r = SimpleNamespace(id="tp_1", language="Italian",
+                        body_original="Non sono mai arrivati",
+                        body_english="They never arrived")
+    res = _resolve(r)
+    assert res["outcome"] == "skipped_known"
+    assert not fc.calls
+    assert r.language == "Italian"

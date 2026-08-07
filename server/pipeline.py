@@ -34,7 +34,8 @@ from sqlalchemy.orm.attributes import flag_modified
 from server.config import is_live, MOCK_MODE
 from server import prompts
 from server.db import SessionLocal, Review, RcaDraft, ReviewMetric
-from server.services import claude, bigquery as bq, zendesk, dss, slack as slk
+from server.services import (claude, bigquery as bq, zendesk, dss, slack as slk,
+                             reply_language)
 from server.services.canned import get_canned_responses
 from server.services.insights import get_insights as _get_insights
 from server.taxonomy import DIAGNOSTIC_CHECKS, BID_REGEX
@@ -447,6 +448,45 @@ def _venue_token_overlap(review_text: str, exp_name: str) -> bool:
     substring scan where any 4-char fragment could match inside the name.
     """
     return bool(_sig_tokens(review_text) & _sig_tokens(exp_name))
+
+
+def venue_fallthrough(tgids, venue_signal) -> bool:
+    """Should the cascade CONTINUE past a Zendesk shortlist that already
+    returned bookings?
+
+    The Zendesk step finds bookings by the guest's own tickets. That is a
+    strong signal about the PERSON and no signal at all about the BOOKING: a
+    frequent traveller's tickets are about whatever they last complained
+    about. When the review names a venue we resolved to tgids and NONE of
+    those bookings is for it, the step has answered a different question than
+    the one asked, and the cascade used to stop there anyway — it stopped at
+    the first path returning ANYTHING rather than the first returning
+    something that MATCHED. A review about the Eiffel Tower got the guest's
+    Sphere, Colosseum and cruise bookings, every one scored venue 0, while the
+    tgids sat unused.
+
+    Both halves are required. Without tgids there is no venue to search on, so
+    continuing gets a worse answer than staying; with a venue signal present
+    the shortlist already matched and must not be second-guessed.
+    """
+    return bool(tgids) and not venue_signal
+
+
+def shortlist_restore(cascade_done, fell_through, saved_candidates, saved_state):
+    """What the picker shows after Step 3 has had its turn at a fallthrough.
+
+    Returns (restore, candidates, state) — restore is True only when the
+    fallthrough happened AND Step 3 ended with nothing.
+
+    THE FALLTHROUGH IS ONLY FREE IF THIS EXISTS. Continuing the cascade puts
+    the shortlist aside so Step 3's answer can replace it; if Step 3 finds
+    nothing and the shortlist is not put back, a review that previously showed
+    three weak candidates now shows an empty picker, which reads as "this
+    guest has no bookings" — a stronger and falser claim than the weak list.
+    """
+    if cascade_done or not fell_through or not saved_candidates:
+        return False, None, None
+    return True, saved_candidates, saved_state
 
 
 # Where each in-flight run is, keyed by review id. In-process on purpose: the
@@ -1030,31 +1070,32 @@ async def process_review(review_id: str, force_candidates: bool = False):
                     review.body_original, review.language or "auto", review_id)
                 if result and result.strip() != "ENGLISH_ALREADY":
                     review.body_english = result.strip()
-                    # THE TRANSLATION IS THE PROOF IT WAS NOT ENGLISH, and the
-                    # column still said "en" — parse_review hard-codes it and
-                    # nothing ever corrected it. So the card could not offer
-                    # the guest's-language box at all, and the reply was one
-                    # English textarea for a guest who did not write in
-                    # English. Detected only here, where we already know a
-                    # translation happened; "" means we could not tell, which
-                    # leaves the column alone rather than guessing a language
-                    # the guest may not read.
-                    if (review.language or "").strip().lower() in ("", "en"):
-                        _det = await claude.detect_language(review.body_original)
-                        if _det:
-                            log.info(f"[pipeline] {review_id}: review language "
-                                     f"detected as {_det} (was "
-                                     f"{review.language!r}, which was the "
-                                     f"ingest default rather than a finding)")
-                            review.language = _det
-                        else:
-                            log.info(f"[pipeline] {review_id}: the text was "
-                                     f"translated so it is NOT English, but "
-                                     f"the language could not be named — the "
-                                     f"card will say so rather than guess")
                 db.commit()
             except Exception as e:
                 log.exception(f"Translation failed: {e}")
+
+        # ── 1b. Name the guest's language ─────────────────────────────────────
+        # OUTSIDE the block above, and that is the entire fix. The detection
+        # used to sit inside `if not review.body_english:`, so it ran only when
+        # the inbound translation happened on THIS run. A review translated
+        # before the detection existed — or simply re-run — skipped it: the
+        # translation was cached, the branch never opened, `language` kept the
+        # "en" that parse_review hard-codes, and the card asked the associate
+        # to type the language of a review whose original text we are holding.
+        #
+        # `resolve_language` says which of four things happened; the trail
+        # carries it so "we could not name it" cannot be read as "we did not
+        # look".
+        try:
+            _lang_res = await reply_language.resolve_language(review)
+            if _lang_res["outcome"] == "detected":
+                db.commit()
+            log.info(f"[pipeline] {review_id}: reply language — "
+                     f"{_lang_res['outcome']}: {_lang_res['why']}")
+        except Exception as e:
+            log.exception(f"Language detection failed: {e}")
+            _lang_res = {"outcome": "undetected", "language": "",
+                         "why": f"the language check itself failed: {e}"}
 
         review_text = review.body_english or review.body_original
 
@@ -1773,6 +1814,12 @@ async def process_review(review_id: str, force_candidates: bool = False):
                     return rows
 
                 cascade_done = False
+                # Set by the Zendesk branch when its shortlist matched no
+                # venue; read by Step 3 below. Defined HERE so every path that
+                # reaches Step 3 finds it bound — a name defined only inside
+                # one branch raises NameError on all the others, which the
+                # surrounding except would swallow into "matching failed".
+                _venue_mismatch_fallthrough = False
 
                 # ── Step 2: indicator shortlist ────────────────────────────
                 # Search Zendesk with whatever indicators the review gave us and
@@ -2343,7 +2390,36 @@ async def process_review(review_id: str, force_candidates: bool = False):
                                            if venue_signal else
                                            "visit date only, because no venue matched. "
                                            "These are weak — check before confirming.")})
-                            cascade_done = True
+                            # STEP 3 WINS OVER A VENUE-MISMATCHED SHORTLIST.
+                            #
+                            # This set `cascade_done` unconditionally, so the
+                            # BigQuery venue+date narrowing below never ran —
+                            # even here, in the branch that has just written
+                            # "no venue matched, these are weak" onto the
+                            # trail. A review naming the Eiffel Tower got the
+                            # guest's Sphere, Colosseum and cruise bookings,
+                            # every one of them venue 0, while the tgids
+                            # resolved from the review's own venue hints sat
+                            # unused. The cascade stopped at the first path
+                            # that returned ANYTHING, not the first that
+                            # returned something that matched.
+                            #
+                            # So when the venue resolved to tgids and NONE of
+                            # these bookings is for it, the cascade continues.
+                            # Step 3 queries on the venue the review actually
+                            # names; if it finds something, that is a stronger
+                            # signal than "this guest once had a ticket about
+                            # something else", and it replaces this shortlist.
+                            # If Step 3 finds nothing, these candidates are
+                            # still here — falling through costs nothing.
+                            _venue_mismatch_fallthrough = venue_fallthrough(tgids, venue_signal)
+                            cascade_done = not _venue_mismatch_fallthrough
+                            if _venue_mismatch_fallthrough:
+                                confidence_trail.append({"mark": "warn",
+                                    "text": "<strong>Still looking:</strong> none of these "
+                                            "is for the venue the review names, so the "
+                                            "booking search continues on venue and date. "
+                                            "Anything it finds replaces this list."})
                         else:
                             _ctr["t2_zendesk_no_match"] += 1
                             confidence_trail.append({"mark": "warn",
@@ -2353,22 +2429,83 @@ async def process_review(review_id: str, force_candidates: bool = False):
                         confidence_trail.append({"mark": "warn",
                             "text": "<strong>Zendesk:</strong> no BIDs found for this name"})
 
+                def _verify_and_trail(cand, window):
+                    """Check a venue+date row against the review, and SAY SO.
+
+                    Steps 3a/3b returned exactly one row for a tgid inside a
+                    date window and promoted it to the confirmed booking. The
+                    query never looked at the guest, so "one row came back" was
+                    being reported as "this is their booking".
+
+                    Three outcomes, three different trail lines, because
+                    "checked and it disagrees" and "there was nothing to check"
+                    are not the same fact and the second is the common one —
+                    the guest name is a PII hash on most rows. A single line
+                    saying "auto-promoted" covers all three and tells the
+                    reader nothing about which one they got.
+                    """
+                    v = bq.verify_identifiers(cand, indicators,
+                                              author_first, author_last)
+                    _agree = "; ".join(v["agreed"])
+                    _dis   = "; ".join(v["disagreed"])
+                    _unk   = "; ".join(v["uncheckable"])
+                    if v["verdict"] == "mismatch":
+                        confidence_trail.append({"mark": "warn",
+                            "text": f"<strong>Not auto-confirmed:</strong> one booking "
+                                    f"matched {window}, but its own details disagree with "
+                                    f"the review — {_dis}. Shown as a candidate to check "
+                                    f"rather than confirmed."})
+                    elif v["verdict"] == "match":
+                        confidence_trail.append({"mark": "pass",
+                            "text": f"<strong>Tier 1 auto-promote</strong> via {window} "
+                                    f"(single match), and the booking's own details agree: "
+                                    f"{_agree}."
+                                    + (f" Could not check: {_unk}." if _unk else "")})
+                    else:
+                        confidence_trail.append({"mark": "warn",
+                            "text": f"<strong>Tier 1 auto-promote</strong> via {window} "
+                                    f"(single match) on venue and date ALONE — none of the "
+                                    f"review's other identifiers could be compared against "
+                                    f"this booking: {_unk}. Confirm the guest before "
+                                    f"relying on it."})
+                    return v
+
                 # ── Step 3: BQ narrowing — venue+date only, never name ─────────
+                # THE SHORTLIST STEP 2 LEFT BEHIND. When we fell through here
+                # because none of its bookings was for the review's venue, its
+                # candidates are still in `candidates` and `candidate_state` is
+                # still True. Step 3 wins, so they are put aside — and RESTORED
+                # if Step 3 finds nothing, because a fallthrough that ends with
+                # an empty picker is worse than the weak list it replaced.
+                _t2_candidates = candidates if _venue_mismatch_fallthrough else None
+                _t2_state      = candidate_state if _venue_mismatch_fallthrough else None
+                if _venue_mismatch_fallthrough:
+                    candidates, candidate_state = [], False
                 if not cascade_done:
                     if tgids:
                         # 3a: venue + date_30
                         rows = _run_bq_attempt("venue_date_30", 30, tgid_list=tgids)
                         n = len(rows)
                         if n == 1:
-                            booking = _make_candidate(rows[0], "venue_date_30_auto", ["venue", "date"])
-                            booking.update(_get_booking_extra(booking.get("id", "")))
-                            match_tier = 1
-                            narrowing_path = "venue_date_30_auto"
-                            _ctr["t2_bq_venue_date_30_auto"] += 1
-                            _ctr["t1_auto_promoted"] += 1
-                            _ctr["t2_auto_promoted"] += 1
-                            confidence_trail.append({"mark": "pass",
-                                "text": "<strong>Tier 1 auto-promote</strong> via venue+date_30 (single match)"})
+                            _cand = _make_candidate(rows[0], "venue_date_30_auto", ["venue", "date"])
+                            _cand.update(_get_booking_extra(_cand.get("id", "")))
+                            if _verify_and_trail(_cand, "venue+date_30")["verdict"] == "mismatch":
+                                # OFFERED, NOT DISCARDED. A name disagreement is
+                                # not proof of the wrong booking — married names,
+                                # a booking made by a partner — so the row still
+                                # reaches the picker. What it loses is the claim
+                                # that we confirmed it.
+                                candidates, candidate_state = [_cand], True
+                                match_tier = 2
+                                narrowing_path = "venue_date_30_unverified"
+                                _ctr["t2_candidates"] += 1
+                            else:
+                                booking = _cand
+                                match_tier = 1
+                                narrowing_path = "venue_date_30_auto"
+                                _ctr["t2_bq_venue_date_30_auto"] += 1
+                                _ctr["t1_auto_promoted"] += 1
+                                _ctr["t2_auto_promoted"] += 1
                             cascade_done = True
                         elif 2 <= n <= 5:
                             candidates = [_make_candidate(r, "venue_date_30", ["venue", "date"])
@@ -2385,15 +2522,20 @@ async def process_review(review_id: str, force_candidates: bool = False):
                         rows = _run_bq_attempt("venue_date_60", 60, tgid_list=tgids)
                         n = len(rows)
                         if n == 1:
-                            booking = _make_candidate(rows[0], "venue_date_60_auto", ["venue", "date"])
-                            booking.update(_get_booking_extra(booking.get("id", "")))
-                            match_tier = 1
-                            narrowing_path = "venue_date_60_auto"
-                            _ctr["t2_bq_venue_date_60_auto"] += 1
-                            _ctr["t1_auto_promoted"] += 1
-                            _ctr["t2_auto_promoted"] += 1
-                            confidence_trail.append({"mark": "pass",
-                                "text": "<strong>Tier 1 auto-promote</strong> via venue+date_60 (single match)"})
+                            _cand = _make_candidate(rows[0], "venue_date_60_auto", ["venue", "date"])
+                            _cand.update(_get_booking_extra(_cand.get("id", "")))
+                            if _verify_and_trail(_cand, "venue+date_60")["verdict"] == "mismatch":
+                                candidates, candidate_state = [_cand], True
+                                match_tier = 2
+                                narrowing_path = "venue_date_60_unverified"
+                                _ctr["t2_candidates"] += 1
+                            else:
+                                booking = _cand
+                                match_tier = 1
+                                narrowing_path = "venue_date_60_auto"
+                                _ctr["t2_bq_venue_date_60_auto"] += 1
+                                _ctr["t1_auto_promoted"] += 1
+                                _ctr["t2_auto_promoted"] += 1
                             cascade_done = True
                         elif 2 <= n <= 10:
                             candidates = [_make_candidate(r, "venue_date_60", ["venue", "date"])
@@ -2479,6 +2621,31 @@ async def process_review(review_id: str, force_candidates: bool = False):
                             confidence_trail.append({"mark": "warn",
                                 "text": "<strong>Support contacts:</strong> no booking with a "
                                         "support contact matches this guest or these dates"})
+
+                    # ── the shortlist Step 3 was given the chance to beat ─────
+                    # Step 3 wins WHEN IT FINDS SOMETHING. When it finds
+                    # nothing, the venue-mismatched shortlist Step 2 built is
+                    # still the best thing we have, and an empty picker is
+                    # strictly worse than a weak one — it reads as "this guest
+                    # has no bookings", which is false.
+                    #
+                    # This is also the reason the fallthrough is safe to take
+                    # at all: the cost of continuing the cascade is zero,
+                    # because nothing is thrown away by continuing it.
+                    _restore, _rc, _rs = shortlist_restore(
+                        cascade_done, _venue_mismatch_fallthrough,
+                        _t2_candidates, _t2_state)
+                    if _restore:
+                        candidates, candidate_state = _rc, _rs
+                        match_tier = 2
+                        narrowing_path = "zendesk_requester_date_only"
+                        cascade_done = True
+                        confidence_trail.append({"mark": "warn",
+                            "text": f"<strong>Venue search found nothing:</strong> no booking "
+                                    f"for the venue this review names, in any date window. "
+                                    f"Back to the {len(_t2_candidates)} booking(s) from this "
+                                    f"guest's Zendesk tickets — none is for that venue, so "
+                                    f"they remain weak."})
 
                     if not cascade_done:
                         # Date-only matching removed (approved): bookings that

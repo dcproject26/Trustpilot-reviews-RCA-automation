@@ -134,6 +134,63 @@ def english_view(review, draft) -> dict:
                    "the outgoing response is what goes to the guest"}
 
 
+async def resolve_language(review) -> dict:
+    """Name the guest's language from the ORIGINAL review text, and record it.
+
+    THE ASSOCIATE SHOULD NEVER BE TYPING THIS. The guest wrote the review in
+    their own language and we still have that text in `body_original`; asking
+    a human to identify it is asking them to re-derive something already sitting
+    in the row.
+
+    It was being asked because the detection was gated on the wrong thing. It
+    ran inside `if not review.body_english:` — i.e. only when the inbound
+    translation was performed on THIS run. Every review translated before the
+    detection existed, and every re-run of any review, skipped it entirely:
+    `body_english` was already cached, so the branch never opened, `language`
+    kept the `"en"` that `parse_review` hard-codes, and the card fell back to
+    asking. Gated on the translation being fresh, when the thing that matters
+    is whether the LANGUAGE is unknown.
+
+    Returns a dict that distinguishes all four outcomes, because "did not run"
+    and "ran and could not tell" lead to different next steps for the reader:
+
+        skipped_known    the language was already recorded — nothing to do
+        skipped_english  the text was never translated, so it IS English
+        detected         ran, and named it (`language`)
+        undetected       ran, and could not tell — the column is left alone
+
+    `undetected` deliberately does NOT write a guess. A wrong language sends
+    the guest a reply they cannot read.
+    """
+    lang = (getattr(review, "language", "") or "").strip()
+    if lang and lang.upper() != "EN":
+        return {"outcome": "skipped_known", "language": lang,
+                "why": f"the review already records {lang}"}
+    if not _was_translated_inbound(review):
+        return {"outcome": "skipped_english", "language": lang,
+                "why": "the review text was not translated on the way in, so "
+                       "it is English and there is nothing to detect"}
+
+    from server.services import claude as claude_svc
+    try:
+        found = (await claude_svc.detect_language(
+            getattr(review, "body_original", "") or "") or "").strip()
+    except Exception as e:
+        _log_translation_failure(getattr(review, "id", None), "detect", e)
+        found = ""
+    if not found:
+        return {"outcome": "undetected", "language": "",
+                "why": "the review text is known NOT to be English — it was "
+                       "translated on the way in — but the language could not "
+                       "be named, so nothing was recorded rather than guessing "
+                       "one the guest may not read"}
+    review.language = found
+    return {"outcome": "detected", "language": found,
+            "why": f"detected from the guest's own words as {found} "
+                   f"(the review was filed as \"{lang or 'blank'}\", which was "
+                   f"the ingest default rather than a finding)"}
+
+
 async def translate_outgoing(english: str, review, review_id: str = None) -> tuple:
     """Turn the model's English draft into the reply that goes out.
 

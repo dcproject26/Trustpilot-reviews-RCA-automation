@@ -1,0 +1,116 @@
+[
+  {
+    "file": "server/pipeline.py",
+    "name": "step3: the venue-mismatched shortlist ends the cascade again (the original bug)",
+    "find": "    return bool(tgids) and not venue_signal",
+    "replace": "    return False"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "step3: the cascade continues even when the shortlist DID match the venue",
+    "find": "    return bool(tgids) and not venue_signal",
+    "replace": "    return not venue_signal"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "step3: continues with no venue to search on, losing the shortlist for nothing",
+    "find": "    return bool(tgids) and not venue_signal",
+    "replace": "    return not bool(tgids) or not venue_signal"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "step3: a fallthrough that finds nothing leaves an EMPTY picker",
+    "find": "    if cascade_done or not fell_through or not saved_candidates:\n        return False, None, None",
+    "replace": "    return False, None, None"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "step3: the restore fires over an answer Step 3 actually found",
+    "find": "    if cascade_done or not fell_through or not saved_candidates:",
+    "replace": "    if not fell_through or not saved_candidates:"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "step3: an EMPTY shortlist is restored, skipping Untraceable entirely",
+    "find": "    if cascade_done or not fell_through or not saved_candidates:",
+    "replace": "    if cascade_done or not fell_through:"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "step3: the Zendesk branch ends the cascade unconditionally again",
+    "find": "                            cascade_done = not _venue_mismatch_fallthrough",
+    "replace": "                            cascade_done = True"
+  },
+  {
+    "file": "server/services/bigquery.py",
+    "name": "identifiers: a PII hash is reported as a guest name that MATCHED",
+    "find": "    elif is_hashed_name(_bname):",
+    "replace": "    elif False and is_hashed_name(_bname):"
+  },
+  {
+    "file": "server/services/bigquery.py",
+    "name": "identifiers: an absent guest name is treated as a disagreement",
+    "find": "    elif not _bname:\n        uncheckable.append(\"guest name — the booking records none\")",
+    "replace": "    elif not _bname:\n        disagreed.append(\"guest name — the booking records none\")"
+  },
+  {
+    "file": "server/services/bigquery.py",
+    "name": "identifiers: 'nothing could be checked' is reported as a match",
+    "find": "    verdict = \"mismatch\" if _hard else (\"match\" if agreed else \"unchecked\")",
+    "replace": "    verdict = \"mismatch\" if _hard else \"match\""
+  },
+  {
+    "file": "server/services/bigquery.py",
+    "name": "identifiers: a differing visit date alone demotes the booking",
+    "find": "    _hard = [d for d in disagreed if d.startswith(\"guest name\")]",
+    "replace": "    _hard = list(disagreed)"
+  },
+  {
+    "file": "server/services/bigquery.py",
+    "name": "identifiers: a first-name-only agreement is called a mismatch",
+    "find": "        elif _s > 0:",
+    "replace": "        elif False and _s > 0:"
+  },
+  {
+    "file": "server/services/reply_language.py",
+    "name": "language: detection gated on the translation being fresh again",
+    "find": "    if not _was_translated_inbound(review):",
+    "replace": "    if _was_translated_inbound(review):"
+  },
+  {
+    "file": "server/services/reply_language.py",
+    "name": "language: an undetectable language is guessed rather than declined",
+    "find": "    if not found:\n        return {\"outcome\": \"undetected\", \"language\": \"\",",
+    "replace": "    if False:\n        return {\"outcome\": \"undetected\", \"language\": \"\","
+  },
+  {
+    "file": "server/services/reply_language.py",
+    "name": "language: a review that already names its language is re-detected",
+    "find": "    if lang and lang.upper() != \"EN\":",
+    "replace": "    if False and lang and lang.upper() != \"EN\":"
+  },
+  {
+    "file": "server/services/reply_language.py",
+    "name": "language: the detected language is never recorded",
+    "find": "    review.language = found",
+    "replace": "    pass"
+  },
+  {
+    "file": "server/api.py",
+    "name": "resolve: a failed translation still stamps the English projection",
+    "find": "    if not translated:\n        return {\"ok\": True, \"outcome\": res[\"outcome\"], \"translated\": False,",
+    "replace": "    if False:\n        return {\"ok\": True, \"outcome\": res[\"outcome\"], \"translated\": False,"
+  },
+  {
+    "file": "server/api.py",
+    "name": "resolve: an existing English working copy is retranslated over",
+    "find": "    if not before or already:",
+    "replace": "    if not before:"
+  },
+  {
+    "file": "server/api.py",
+    "name": "resolve: the detected language is not committed",
+    "find": "    res = await resolve_language(r)\n    if res[\"outcome\"] == \"detected\":\n        db.commit()",
+    "replace": "    res = await resolve_language(r)"
+  }
+]

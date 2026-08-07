@@ -416,7 +416,10 @@ def test_a_blank_reply_says_to_write_it_yourself(page):
 def test_a_blank_reply_says_why_it_is_blank(page):
     got = _reply_state(page, "")
     assert "no approved macro" in got["meta"].lower(), got["meta"]
-    assert "Write it yourself" in got["meta"], got["meta"]
+    # Case-insensitive: the sentence was shortened and the instruction moved
+    # from the front to the end of it, so an exact-case match here was testing
+    # the capitalisation rather than the guarantee.
+    assert "write it yourself" in got["meta"].lower(), got["meta"]
     assert "confidence trail" in got["meta"], \
         "it does not point at where the reason is recorded"
 
@@ -426,7 +429,7 @@ def test_a_drafted_reply_is_not_told_to_write_itself(page):
     anything, and the deliberate blanks are lost among them."""
     got = _reply_state(page, "Hi Lewis, I'm sorry about the meeting point.")
     assert "curate the response yourself" not in got["placeholder"]
-    assert "Write it yourself" not in got["meta"]
+    assert "write it yourself" not in got["meta"].lower()
     assert "Editable" in got["meta"]
 
 
@@ -471,7 +474,10 @@ def test_a_blank_reply_says_why_it_is_blank(page):
     pipeline and a broken one."""
     got = _reply_box(page, "")
     assert "no approved macro" in got["meta"].lower(), got["meta"]
-    assert "Write it yourself" in got["meta"]
+    # Case-insensitive, like the line above it: the sentence was shortened and
+    # the instruction moved to the end, so matching the capital W tested the
+    # wording rather than the guarantee.
+    assert "write it yourself" in got["meta"].lower(), got["meta"]
 
 
 def test_a_blank_reply_points_at_the_trail(page):
@@ -599,6 +605,12 @@ NOT_CONTROLS = {
     # guarantee that a refused post leaves the review where it is has its own
     # test there too.
     "data-slack-post-err",
+    # The line the language lookup writes its outcome into on the two-box
+    # panel — present only when the language was named but the reply could not
+    # be translated into it, which is the one state the panel's own layout has
+    # no room to say. A render target, not a thing to click; the outcomes it
+    # renders are driven in tests/test_resolve_reply_language.py.
+    "data-lang-note",
 }
 
 # Deliberately not driven, each with the reason.
@@ -620,13 +632,14 @@ NOT_YET_DRIVEN = {
     "data-slack-sec-all", "data-slack-sec-none", "data-trail-toggle",
     "data-v3sel", "data-wwr-all", "data-wwr-ev-add", "data-wwr-toggle",
     "data-aoi-del",
-    # The guest's-language input, which gates Apply in the unknown-language
-    # case. A real control and a NAMED GAP: it only renders for a review whose
-    # text was translated inbound with no language code recorded, and the
-    # harness fixture has no such review. Listed rather than folded into
-    # DRIVEN, because a census that counts an undriven control as covered is
-    # worth less than no census.
-    "data-reply-lang-name",
+    # The unknown-language panel. There is no longer an input here — the
+    # language is read off the review's ORIGINAL text rather than typed — so
+    # what renders is the panel that fires that lookup and the line it writes
+    # its outcome into. A NAMED GAP for the same reason the input was: both
+    # render only for a review whose text was translated inbound with no
+    # language code recorded, and the harness fixture has no such review. The
+    # lookup itself is driven in tests/test_reply_language.py.
+    "data-resolve-lang", "data-lang-status",
     # The set-booking-id box. Its BUTTON (data-bid-set) is driven below; the
     # input is the thing that enables it, and is listed here rather than
     # folded into DRIVEN so the census keeps meaning something.
@@ -1072,7 +1085,10 @@ def test_a_stale_english_copy_says_so_on_screen(page):
     assert got["shown"], (
         "a stale English copy renders with nothing saying it is behind the "
         "outgoing reply")
-    assert "BEHIND" in got["text"] or "behind" in got["text"], got["text"]
+    # Case-insensitive. The word is the guarantee — the reader must be told
+    # this English is not the current reply — and it now opens the line, so a
+    # two-case check happened to exclude the only casing it can have.
+    assert "behind" in got["text"].lower(), got["text"]
 
 
 def test_the_apply_control_says_the_edit_was_not_applied_when_it_fails(page):

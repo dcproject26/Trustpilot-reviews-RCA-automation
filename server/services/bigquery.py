@@ -232,6 +232,83 @@ NOT_A_HASH_SQL = """NOT (NOT REGEXP_CONTAINS(b.primary_guest_name, r'\\s')
                                              r'^[A-Za-z0-9+/=_-]+$'))"""
 
 
+def verify_identifiers(booking, indicators, first=None, last=None) -> dict:
+    """Do the acquired booking's OWN fields agree with what the review named?
+
+    The venue+date steps auto-promote a single returned row straight to the
+    confirmed booking. The query that found it constrained a tgid and a date
+    WINDOW; it never looked at the guest. One row coming back is enough to be
+    worth showing and not enough to state as fact, so this compares the row's
+    own fields against the review's indicators afterwards.
+
+    THE POINT OF THE THREE-WAY VERDICT. `primary_guest_name` is a PII hash on
+    a large share of rows, so "the name did not match" and "there was no name
+    to match" are the overwhelmingly common pair here — and they mean opposite
+    things. Collapsing them to a boolean would report a booking we could not
+    check as one we checked and cleared, which is this codebase's signature
+    bug. Every field lands in exactly one of three lists and none is dropped:
+
+        agreed      compared, and it agreed
+        disagreed   compared, and it disagreed
+        uncheckable compared nothing — with the reason it could not be
+
+    `verdict` is "mismatch" if anything disagreed, else "match" if anything
+    agreed, else "unchecked". "unchecked" is NOT "match": a caller that
+    auto-promotes on it is promoting on venue and date alone, which is what
+    it was already doing, and the trail should say so.
+
+    The date is compared and reported but never sets "mismatch" on its own.
+    `dates_mentioned` is whatever date the review happened to name — often the
+    booking date, or the date they were emailed — and a visit date differing
+    from it is routine. That is a judgement, so the line says which date each
+    side held and lets the reader make it.
+    """
+    from server.services.zendesk import _name_score
+
+    agreed, disagreed, uncheckable = [], [], []
+
+    # ── guest name ────────────────────────────────────────────────────────
+    _bname = str((booking or {}).get("primary_guest_name") or "").strip()
+    if not ((first or "").strip() or (last or "").strip()):
+        uncheckable.append("guest name — the review gives no author name to compare")
+    elif not _bname:
+        uncheckable.append("guest name — the booking records none")
+    elif is_hashed_name(_bname):
+        uncheckable.append("guest name — the booking stores it as a PII hash, "
+                           "so it cannot be compared to the reviewer")
+    else:
+        _s = _name_score(_bname, first, last)
+        _who = " ".join(x for x in (first, last) if x).strip()
+        if _s >= 0.7:
+            agreed.append(f"guest name ({_bname} vs {_who})")
+        elif _s > 0:
+            agreed.append(f"guest name, partly ({_bname} vs {_who} — "
+                          f"first name only, surnames differ)")
+        else:
+            disagreed.append(f"guest name — the booking is under {_bname}, "
+                             f"the review is by {_who}")
+
+    # ── visit date ────────────────────────────────────────────────────────
+    _want = _iso_dates((indicators or {}).get("dates_mentioned"))
+    _got  = str((booking or {}).get("date_of_visit")
+                or (booking or {}).get("visitDate") or "")[:10]
+    if not _want:
+        uncheckable.append("visit date — the review names no date in a usable form")
+    elif not _got:
+        uncheckable.append("visit date — the booking records none")
+    elif _got in _want:
+        agreed.append(f"visit date ({_got})")
+    else:
+        disagreed.append(f"visit date — the booking is for {_got}, the review "
+                         f"names {', '.join(_want)} (not on its own a "
+                         f"mismatch: a review often names the booking date)")
+
+    _hard = [d for d in disagreed if d.startswith("guest name")]
+    verdict = "mismatch" if _hard else ("match" if agreed else "unchecked")
+    return {"verdict": verdict, "agreed": agreed,
+            "disagreed": disagreed, "uncheckable": uncheckable}
+
+
 def _search_name(raw: str) -> str:
     """The part of a display name worth matching a booking against.
 

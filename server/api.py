@@ -2756,6 +2756,104 @@ async def apply_english_reply(review_id: str, body: EnglishReplyBody,
             "note": f"The {lang} reply below is what goes to the guest."}
 
 
+@router.post("/api/reviews/{review_id}/resolve-reply-language")
+async def resolve_reply_language(review_id: str,
+                                 db: Session = Depends(get_session)):
+    """Name the guest's language from their OWN words, and put the reply in it.
+
+    Replaces a text box that asked the associate to type "Spanish". The guest's
+    original review is in `body_original`; identifying its language is not a
+    human's job when the text is right there, and every associate typing it is
+    another chance to type it differently.
+
+    Two steps, and the second only runs if the first succeeds:
+
+      1. `resolve_language` reads the ORIGINAL text and records what it finds.
+         It leaves the column alone when it cannot tell — a wrong language here
+         sends the guest a reply they cannot read, so declining is the safe
+         direction and the response says which happened.
+      2. If the reply is still sitting in English on a review that is not, it
+         is translated into the detected language and the English is kept as
+         the working copy. That is the state the card wants to be in for a
+         non-English review, and it is now reached without anyone pressing
+         anything.
+
+    NOTHING IS HALF-WRITTEN. If the translation fails, the language is still
+    recorded (it is a true fact about the review and re-deriving it costs
+    another model call) and the reply is left EXACTLY as it was, with
+    `translated: false` and the reason. A reply that looks translated and is
+    not is the failure this whole area exists to prevent.
+    """
+    from server.services.reply_language import (resolve_language, outgoing,
+                                                english_view, language_state,
+                                                set_english_projection)
+    r = db.query(Review).filter(Review.id == review_id).first()
+    d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
+    if not r or not d:
+        raise HTTPException(404, "Not found")
+
+    res = await resolve_language(r)
+    if res["outcome"] == "detected":
+        db.commit()
+    if res["outcome"] in ("undetected", "skipped_english"):
+        # Not an error. The card shows the reason; an HTTP failure here would
+        # read as "the check broke" for a review that simply is English, or
+        # for one where we looked and genuinely could not tell.
+        return {"ok": True, "outcome": res["outcome"], "translated": False,
+                "language": res["language"], "note": res["why"],
+                "response_language": language_state(r),
+                "english_view": english_view(r, d),
+                "outgoing": outgoing(d)}
+
+    lang = language_state(r)["language"]
+    before = outgoing(d)
+    already = (getattr(d, "response_english", "") or "").strip()
+    if not before or already:
+        # Either there is no reply to translate, or the English working copy
+        # already exists and the pair is whatever the associate last made it.
+        # Re-translating over that would silently discard their edit.
+        _why = (f"{res['why']}. There is no drafted reply to translate."
+                if not before else
+                f"{res['why']}. The reply already has an English working copy, "
+                f"so it was left as it is — retranslating would discard "
+                f"whatever was last edited there.")
+        return {"ok": True, "outcome": res["outcome"], "translated": False,
+                "language": lang,
+                "note": _why,
+                "response_language": language_state(r),
+                "english_view": english_view(r, d),
+                "outgoing": before}
+
+    from server.services import claude as claude_svc
+    try:
+        translated = (await claude_svc.translate_to(before, lang, review_id) or "").strip()
+    except Exception as e:
+        log.exception("[resolve-language] translation call failed")
+        translated = ""
+    if not translated:
+        return {"ok": True, "outcome": res["outcome"], "translated": False,
+                "language": lang,
+                "note": f"{res['why']}. The reply was NOT translated — the "
+                        f"translation returned nothing, so it is still the "
+                        f"English above, unchanged. Edit it in {lang}, or use "
+                        f"the English box to retry.",
+                "response_language": language_state(r),
+                "english_view": english_view(r, d),
+                "outgoing": before}
+
+    set_english_projection(d, before, translated)
+    db.commit()
+    log.info(f"[resolve-language] {review_id}: detected {lang}, reply translated")
+    return {"ok": True, "outcome": res["outcome"], "translated": True,
+            "language": lang,
+            "note": f"{res['why']}. The reply was drafted in English and "
+                    f"translated into {lang}; the {lang} text is what goes to "
+                    f"the guest.",
+            "response_language": language_state(r),
+            "english_view": english_view(r, d),
+            "outgoing": translated}
+
+
 class SlackPostBody(BaseModel):
     """The exact text to post, as the dashboard is showing it.
 

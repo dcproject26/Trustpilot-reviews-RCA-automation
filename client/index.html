@@ -996,22 +996,6 @@
   }
   .bid-set-note.ok { background: var(--green-bg); color: var(--green); }
 
-  /* The card asking for the guest's language, in the case where the review
-     was translated inbound so it is known NOT to be English but no language
-     code was ever recorded. The ROW is .reply-meta and the button is .btn —
-     the same pair the known-language panel below uses — so the two states of
-     this panel read as one component. Only the input is new, and it takes
-     .res-amount's rule, which is what a small inline text input looks like
-     here. */
-  .reply-lang-ask { display: inline-flex; align-items: center; gap: 6px; }
-  .reply-lang-ask label { font-size: 10.5px; color: var(--dim); }
-  .reply-lang-input {
-    width: 110px; font: inherit; font-size: 12px;
-    padding: 3px 6px; border-radius: 6px; border: 1px solid var(--input-bd);
-    background: var(--facts-bg); color: var(--text); outline: none;
-  }
-  .reply-lang-input:focus { border-color: var(--accent); }
-
   .slack-post-err .code {
     font-family: var(--mono); font-size: 11px; color: var(--empty);
   }
@@ -6012,16 +5996,19 @@ function renderRcaCol() {
         // panel, and nothing that implies a translation happened — because
         // none did, and a card that hints at one invites a reader to go
         // looking for the "real" reply.
-        const outLabel = isEn
-          ? 'Response to guest — this is what goes out'
-          : (lang ? `Response to guest · ${esc(lang)} — THIS is what goes to the guest`
-                  : 'Response to guest — this is what goes out');
+        // SHORT. This header carried a sentence — "THIS is what goes to the
+        // guest" — plus a second sentence under it, plus a third in the meta
+        // line, all saying the same thing three ways. The language chip says
+        // it once.
+        const outLabel = isEn || !lang
+          ? 'Response to guest'
+          : `Response to guest · ${esc(lang)}`;
         const outChars = (rca.reply || '').length;
 
         const head = `
       <div class="reply-head">
         <span class="section-label" style="margin:0">${outLabel}</span>
-        <span class="hint" style="font-size:11px;color:var(--dim)">goes out via Trustpilot on Send ↑</span>
+        <span class="hint" style="font-size:11px;color:var(--dim)">sent on Send ↑</span>
         <div class="reply-head-actions">
           <button data-reply-edit>✎ Edit</button>
           <button data-reply-copy>⧉ Copy</button>
@@ -6037,8 +6024,8 @@ function renderRcaCol() {
         }">${esc(rca.reply)}</textarea>
       <div class="reply-meta">
         <span>${(rca.reply || '').trim()
-          ? `Editable — review before sending${!isEn && lang ? ' · goes out in ' + esc(lang) : ''}`
-          : `<span class="rca-empty" style="font-style:normal">Write it yourself — no approved macro covers this issue, and a reply nobody approved must not be generated to fill the box. See the confidence trail for what was searched.</span>`}</span>
+          ? 'Editable'
+          : `<span class="rca-empty" style="font-style:normal">No approved macro covers this issue — write it yourself. The confidence trail says what was searched.</span>`}</span>
         <span>${outChars} chars</span>
       </div>`;
 
@@ -6060,29 +6047,35 @@ function renderRcaCol() {
         // What is missing is only the TARGET, so Apply cannot run until
         // somebody names the language — and the card asks for it inline
         // rather than sending the reader elsewhere.
+        // THE LANGUAGE IS NOT SOMETHING TO TYPE. The guest wrote the review
+        // in it and we still hold that text, so the card resolves it from
+        // `body_original` instead of showing a "Guest's language: e.g.
+        // Spanish" input. `data-resolve-lang` is picked up below and fired
+        // once; on success the server has recorded the language AND put the
+        // reply into it, and this branch is not taken on the next render.
+        //
+        // `resolved` marks the case where that already ran and could not name
+        // the language — the box must then say we LOOKED, because a card that
+        // looks identical before and after the attempt tells the reader
+        // nothing about whether one happened.
         if (lv.state === 'unknown') {
           const engText = ev.state === 'absent' ? '' : (ev.text || '');
+          const tried   = rca._langResolved || '';
           return head + outBox + `
-      <div class="translation-card" data-english-panel style="border-top:1px dashed var(--warn-bd,#a76)">
+      <div class="translation-card" data-english-panel data-resolve-lang="${tried ? '' : '1'}"
+           style="border-top:1px dashed var(--warn-bd,#a76)">
         <div class="translation-label" style="color:var(--warn,#c93)">
-          English working copy — NOT sent to the guest
+          English working copy — not sent
         </div>
-        <div class="hint" style="font-size:11px;color:var(--dim);margin-bottom:6px">
-          ${esc(lv.why || '')}
+        <div class="hint" data-lang-status style="font-size:11px;color:var(--dim);margin-bottom:6px">
+          ${tried ? esc(tried) : 'Working out the guest\'s language from their review…'}
         </div>
         <textarea class="reply-text" data-english-reply
-                  placeholder="Write the reply in English here, then name the guest's language to have it rewritten above.">${esc(engText)}</textarea>
+                  placeholder="English working copy">${esc(engText)}</textarea>
         <div class="reply-meta">
-          <span class="reply-lang-ask">
-            <label for="reply-lang-name">Guest's language</label>
-            <input id="reply-lang-name" class="reply-lang-input"
-                   data-reply-lang-name type="text" placeholder="e.g. Spanish"
-                   value="">
-          </span>
+          <span data-english-status></span>
           <button class="btn" style="font-size:11px;padding:3px 10px"
-                  data-apply-english disabled
-                  title="Name the guest's language first — the reply above cannot be rewritten into a language nothing has established.">
-            Apply</button>
+                  data-apply-english>Apply</button>
         </div>
       </div>`;
         }
@@ -6093,23 +6086,26 @@ function renderRcaCol() {
         return head + outBox + `
       <div class="translation-card" data-english-panel style="border-top:1px dashed var(--accent-bd)">
         <div class="translation-label" style="color:var(--accent)">
-          English working copy — NOT sent to the guest
+          English working copy — not sent
         </div>
         <div class="hint" style="font-size:11px;color:var(--dim);margin-bottom:6px">
-          Edit here and press “Apply to ${esc(lang)}”: the ${esc(lang)} reply above is rewritten by translating this text. Nothing is applied until you press it.
+          Edit here; Apply retranslates the ${esc(lang)} reply above.
         </div>
+        ${rca._langNote ? `<div class="rca-empty" data-lang-note style="font-style:normal;color:var(--warn,#c93)">
+          ${esc(rca._langNote)}
+        </div>` : ''}
         ${stale ? `<div class="rca-empty" data-english-stale style="font-style:normal;color:var(--warn,#c93)">
-          This English is BEHIND the ${esc(lang)} reply — ${esc(ev.why || '')}
+          Behind the ${esc(lang)} reply — ${esc(ev.why || '')}
         </div>` : ''}
         ${ev.state === 'absent' ? `<div class="rca-empty" style="font-style:normal">
-          No English view has been made yet. Paste or write the English here and apply it, or edit the ${esc(lang)} reply above directly.
+          No English copy yet — write it here and Apply, or edit the ${esc(lang)} reply directly.
         </div>` : ''}
         <textarea class="reply-text" data-english-reply
-          placeholder="English working copy — edits are applied by translating into ${esc(lang)}">${esc(engText)}</textarea>
+          placeholder="English working copy">${esc(engText)}</textarea>
         <div class="reply-meta">
           <span data-english-status>${stale
             ? `Behind the ${esc(lang)} reply`
-            : (ev.state === 'current' ? `Matches the ${esc(lang)} reply above` : '')}</span>
+            : (ev.state === 'current' ? `Matches the ${esc(lang)} reply` : '')}</span>
           <button class="btn" style="font-size:11px;padding:3px 10px"
                   data-apply-english>Apply to ${esc(lang)}</button>
         </div>
@@ -6493,21 +6489,48 @@ function renderRcaCol() {
   // status line says the English edit was NOT applied, and why.
   const engArea  = col.querySelector('[data-english-reply]');
   const applyEng = col.querySelector('[data-apply-english]');
-  // Only present in the unknown-language case. Apply stays disabled until a
-  // language is named — a button that looks live and 409s on every press is
-  // worse than one that says what it is waiting for.
-  const langAsk  = col.querySelector('[data-reply-lang-name]');
-  if (langAsk && applyEng) {
-    const _sync = () => {
-      const named = !!langAsk.value.trim();
-      applyEng.disabled = !named;
-      applyEng.title = named
-        ? `Rewrite the reply above into ${langAsk.value.trim()}.`
-        : "Name the guest's language first — the reply above cannot be "
-          + "rewritten into a language nothing has established.";
-    };
-    langAsk.addEventListener('input', _sync);
-    _sync();
+  // AUTO-RESOLVE THE GUEST'S LANGUAGE. Present only in the unknown case, and
+  // fired once: the server reads the review's ORIGINAL text, records the
+  // language, and — when the reply is still sitting in English — translates
+  // it, so the pair of boxes arrives in the state it should already have been
+  // in. Nothing is typed by hand.
+  //
+  // `rca._langResolved` is set whichever way it goes, so a second render does
+  // not re-fire it, and so the panel can say we looked and could not tell
+  // rather than showing the same "working it out…" line forever.
+  const langPanel = col.querySelector('[data-resolve-lang="1"]');
+  if (langPanel) {
+    const stat = langPanel.querySelector('[data-lang-status]');
+    (async () => {
+      try {
+        const resp = await fetch(`/api/reviews/${r.id}/resolve-reply-language`,
+                                 {method: 'POST'});
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.detail || `${resp.status}`);
+        rca._langResolved = data.note || '';
+        if (data.outcome === 'detected') {
+          rca.responseLanguage = data.response_language || rca.responseLanguage;
+          rca.englishView      = data.english_view || rca.englishView;
+          if (data.outgoing) rca.reply = data.outgoing;
+          // The re-render draws the two-box panel, which has no place for
+          // this response's note — and the note is the only thing that
+          // distinguishes "translated into French" from "the language is
+          // French but the translation failed and this is still English".
+          rca._langNote = data.translated ? '' : (data.note || '');
+          renderRcaCol();
+          return;
+        }
+        // Looked and could not tell, or the review really is English. Said in
+        // the panel, because an unchanged card is how "did not run" looks.
+        if (stat) { stat.textContent = data.note || 'The language could not be named.';
+                    stat.style.color = 'var(--warn,#c93)'; }
+      } catch (e) {
+        rca._langResolved = 'The language check failed: ' + String(e.message || e).slice(0, 120)
+                          + ' — the reply is unchanged and still in English.';
+        if (stat) { stat.textContent = rca._langResolved;
+                    stat.style.color = 'var(--warn,#c93)'; }
+      }
+    })();
   }
   const engStat  = col.querySelector('[data-english-status]');
   const _applyEnglish = async () => {
@@ -6528,10 +6551,7 @@ function renderRcaCol() {
     try {
       const resp = await fetch(`/api/reviews/${r.id}/apply-english-reply`, {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        // The language, when the card had to ask for it. Sent only in the
-        // unknown case; elsewhere the review already records it and this is
-        // undefined, which JSON.stringify omits.
-        body: JSON.stringify({english, language: (langAsk && langAsk.value.trim()) || undefined}),
+        body: JSON.stringify({english}),
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(data.detail || `${resp.status} — translation failed`);
