@@ -778,5 +778,11 @@
     "name": "post: the dss verdict stops being included",
     "find": "    sections.append((\"DSS followed\", \"• \" + _FOLLOWED_TEXT.get(",
     "replace": "    _skip = (\"DSS followed\", \"• \" + _FOLLOWED_TEXT.get("
+  },
+  {
+    "file": "client/index.html",
+    "name": "edits: the inline saver stops persisting",
+    "find": "  col.querySelectorAll('[data-v3p]').forEach(el => {",
+    "replace": "  [].forEach(el => {"
   }
 ]

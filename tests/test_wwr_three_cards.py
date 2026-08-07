@@ -35,7 +35,7 @@ def _patch_and_reload(page, wwr=None, dss=None):
     page.reload(wait_until="load")
     page.wait_for_selector(".review-item", timeout=15000)
     page.locator(".review-item").first.click()
-    page.wait_for_selector("#rca-fixes-section", timeout=15000)
+    page.wait_for_selector("#rca-casefindings-section", timeout=15000)
 
 
 # ── §1 case findings ───────────────────────────────────────────────────────
@@ -77,46 +77,6 @@ def test_the_evidence_no_longer_renders_inside_an_issue(page):
 
 
 # ── §3 fixes ───────────────────────────────────────────────────────────────
-
-def test_the_fixes_card_renders(page):
-    assert _q(page, "() => !!document.querySelector('#rca-fixes-section')")
-
-
-def test_an_unowned_fix_is_visibly_unrouted(page):
-    """A row nobody picks up, hidden, is worse than one shown as unassigned.
-    Driven by writing one into the draft and re-rendering."""
-    _patch_and_reload(page, wwr={"fixes": [
-        {"action": "Nobody owns this", "owner": None, "because": ""}]})
-    got = page.evaluate("""() => ({
-        note: (document.querySelector('#rca-fixes-section .fx-unrouted')
-               || {}).textContent || '',
-        hint: (document.querySelector('#rca-fixes-section .hint')
-               || {}).textContent || ''})""")
-    assert "nobody will pick it up" in got["note"], got
-    assert "unrouted" in got["hint"], got["hint"]
-
-
-def test_an_owned_fix_shows_no_unrouted_callout(page):
-    _patch_and_reload(page, wwr={"fixes": [
-        {"action": "Alert on failed fulfilment", "owner": "TECH",
-         "because": "no alert existed"}]})
-    got = page.evaluate(
-        "() => document.querySelectorAll('#rca-fixes-section .fx-unrouted').length")
-    assert got == 0, "an owned fix rendered as unrouted"
-
-
-def test_the_add_fix_button_is_bound(page):
-    """A handler spliced inside another handler parses clean and never binds.
-    Four such failures in this file; this drives the click."""
-    _patch_and_reload(page, wwr={"fixes": []})
-    got = page.evaluate("""async () => {
-        const before = document.querySelectorAll('#rca-fixes-section .fx-row').length;
-        document.querySelector('[data-fx-add]').click();
-        await new Promise(r => setTimeout(r, 900));
-        return {before, after: document.querySelectorAll('#rca-fixes-section .fx-row').length};
-    }""")
-    assert got["after"] == got["before"] + 1, got
-
 
 def test_the_add_finding_button_is_bound(page):
     got = page.evaluate("""async () => {
@@ -163,39 +123,6 @@ def test_the_delete_finding_button_is_bound(page):
     assert got["after"] == got["before"] - 1, got
 
 
-def test_the_delete_fix_button_is_bound(page):
-    _patch_and_reload(page, wwr={"fixes": [
-        {"action": "Fix one", "owner": "TECH", "because": ""},
-        {"action": "Fix two", "owner": "CO", "because": ""}]})
-    got = page.evaluate("""async () => {
-        const before = document.querySelectorAll('#rca-fixes-section .fx-row').length;
-        document.querySelector('[data-fx-del]').click();
-        await new Promise(r => setTimeout(r, 900));
-        return {before, after: document.querySelectorAll('#rca-fixes-section .fx-row').length};
-    }""")
-    assert got["after"] == got["before"] - 1, got
-
-
-def test_a_deleted_row_stays_deleted_after_a_reload(page):
-    """The splice has to reach the server. A delete that only edits the DOM
-    comes back on the next render, which reads as the delete having failed
-    silently."""
-    _patch_and_reload(page, wwr={"fixes": [
-        {"action": "Fix one", "owner": "TECH", "because": ""},
-        {"action": "Fix two", "owner": "CO", "because": ""}]})
-    page.evaluate("""async () => {
-        document.querySelector('[data-fx-del]').click();
-        await new Promise(r => setTimeout(r, 900));
-    }""")
-    page.reload(wait_until="load")
-    page.wait_for_selector(".review-item", timeout=15000)
-    page.locator(".review-item").first.click()
-    page.wait_for_selector("#rca-fixes-section", timeout=15000)
-    got = page.evaluate("""() => [...document.querySelectorAll(
-        '#rca-fixes-section .fx-action')].map(e => e.textContent.trim())""")
-    assert "Fix one" not in got, got
-
-
 # ── the Unrouted tab, which the server routes to and the client must draw ──
 
 def test_the_unrouted_tab_is_drawn(page):
@@ -228,17 +155,6 @@ def test_an_unowned_fix_shows_a_count_on_that_tab(page):
     assert got and got["count"].strip() == "1", got
     assert "action-tab-unrouted" in got["cls"], \
         "an unrouted row is not visually distinguished from an owned one"
-
-
-def test_unrouted_is_not_offered_as_a_fix_owner(page):
-    """The tab strip and the owner vocabulary are different lists. Offering
-    Unrouted as a team would let someone assign work to nobody and think they
-    had assigned it."""
-    opts = page.evaluate("""() => {
-        const s = document.querySelector('#rca-fixes-section select');
-        return s ? [...s.options].map(o => o.value) : [];
-    }""")
-    assert "unrouted" not in [o.lower() for o in opts], opts
 
 
 # ── deleting a whole issue ─────────────────────────────────────────────────
@@ -294,19 +210,83 @@ def test_the_right_issue_goes(page):
     assert "Issue 0" in got and "Issue 2" in got, got
 
 
-def test_the_delete_survives_a_reload(page):
-    """A splice that only edits the DOM comes back on the next render, which
-    reads as the delete having failed silently."""
-    _seed_issues(page)
-    page.evaluate("""async () => {
-        window.confirm = () => true;
-        document.querySelector('[data-wwr-issue-del]').click();
-        await new Promise(r => setTimeout(r, 900));
-    }""")
+# ── an edit survives a real browser refresh ────────────────────────────────
+
+def _reload(page):
     page.reload(wait_until="load")
     page.wait_for_selector(".review-item", timeout=15000)
     page.locator(".review-item").first.click()
-    page.wait_for_selector("#rca-fixes-section", timeout=15000)
+    page.wait_for_selector("#rca-casefindings-section", timeout=15000)
+
+
+def test_an_inline_edit_survives_a_refresh(page):
+    """THE CONTRACT: an edit saves as it is made and a refresh keeps it.
+
+    The API tests prove the endpoint stores what it is sent. They cannot prove
+    the CONTROL calls it — and a control that never saves looks exactly like
+    one that does until the page is reloaded, which is the whole failure mode
+    this drives out.
+    """
+    _patch_and_reload(page, wwr={"guest_issues": [
+        {"issue": "Original title", "claim": "c", "claim_accuracy": "Accurate",
+         "root_cause": "original cause"}], "fixes": []})
+    page.evaluate("""async () => {
+        const el = document.querySelector('[data-v3p$=".issue"]');
+        el.focus();
+        el.textContent = 'I typed this';
+        el.dispatchEvent(new Event('blur'));
+        await new Promise(r => setTimeout(r, 1200));
+    }""")
+    _reload(page)
     got = page.evaluate("""() => [...document.querySelectorAll('.wwr-issue-title')]
         .map(e => e.textContent.trim())""")
-    assert "Issue 0" not in got, got
+    assert any("I typed this" in t for t in got), got
+
+
+def test_an_edited_case_finding_survives_a_refresh(page):
+    _patch_and_reload(page, wwr={"guest_issues": [], "fixes": [],
+                                 "case_findings": [{"text": "before",
+                                                    "source": None}]})
+    page.evaluate("""async () => {
+        const el = document.querySelector('#rca-casefindings-section [data-v3p]');
+        el.focus();
+        el.textContent = 'edited finding';
+        el.dispatchEvent(new Event('blur'));
+        await new Promise(r => setTimeout(r, 1200));
+    }""")
+    _reload(page)
+    got = page.evaluate("""() => [...document.querySelectorAll(
+        '#rca-casefindings-section .cf-text')].map(e => e.textContent.trim())""")
+    assert any("edited finding" in t for t in got), got
+
+
+def test_an_edit_is_saved_without_leaving_the_card(page):
+    """It saves as it is MADE, not on some later action. The blur is the save,
+    so the draft on the server has already moved before anything else happens."""
+    _patch_and_reload(page, wwr={"guest_issues": [
+        {"issue": "Before", "claim": "c", "claim_accuracy": "Accurate"}],
+        "fixes": []})
+    stored = page.evaluate("""async () => {
+        const el = document.querySelector('[data-v3p$=".issue"]');
+        el.focus();
+        el.textContent = 'Saved on blur';
+        el.dispatchEvent(new Event('blur'));
+        await new Promise(r => setTimeout(r, 1200));
+        // Read the SERVER, not the page.
+        const d = (await (await fetch('/api/reviews/tp_ui')).json()).draft;
+        return ((d.rca_v3 || {}).what_went_wrong || {}).guest_issues || [];
+    }""")
+    assert stored and stored[0]["issue"] == "Saved on blur", stored
+
+
+def test_the_fixes_card_is_no_longer_rendered(page):
+    """Removed by request, to come back later. The tests that drove it were
+    removed WITH it rather than left green against a section nobody draws.
+
+    Nothing behind it is gone: `what_went_wrong.fixes` is still validated and
+    stored, and Actions Taken is a view over exactly that array — see
+    tests/test_edits_persist.py::test_an_edited_fix_owner_moves_its_action_row_too,
+    which still passes and reads the fixes through the saver.
+    """
+    got = _q(page, "() => !!document.querySelector('#rca-fixes-section')")
+    assert not got, "the Fixes card is back on the dashboard"

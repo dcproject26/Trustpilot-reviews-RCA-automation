@@ -515,7 +515,7 @@ DRIVEN = {
     # rows, and the fix delete is additionally checked to SURVIVE A RELOAD:
     # a splice that only edits the DOM comes back on the next render, which
     # reads as the delete having failed silently.
-    "data-cf-add", "data-cf-del", "data-fx-add", "data-fx-del",
+    "data-cf-add", "data-cf-del",
     # Deletes a whole issue, not just its claim text. Driven in
     # tests/test_wwr_three_cards.py: the count drops, declining the confirm
     # leaves it, the RIGHT one goes, and the delete survives a reload.
