@@ -72,8 +72,13 @@ def test_a_missing_gaps_key_is_not_reported_as_an_empty_case(live_db, capsys):
                                      "flags": []}, actions_taken={})
     out = _actions(live_db, "tp_pre", capsys)
     assert "ABSENT" in out
-    assert "Regenerate before reading" in out
+    assert "This is NOT an empty case" in out
     assert "found no unsolved gap" not in out
+    # AND IT MUST SAY WHAT TO DO. The three tests below cover which diagnosis
+    # is printed; this one only guards that SOME actionable next step is,
+    # because the paragraph that named three causes and picked none was read
+    # twice in a row and moved nobody forward.
+    assert "Regenerate" in out
 
 
 def test_a_stale_column_is_reported_as_drift_not_silently_reprinted(live_db,
@@ -289,3 +294,57 @@ def test_each_tracer_imports_the_rule_it_reports_on(path, names):
             f"{path} does not import {n} — it cannot move when the rule moves"
         assert n not in defined, \
             f"{path} defines its own {n} — that is a second implementation"
+
+
+# ── "regenerate it" is useless advice to someone who just did ──────────────
+#
+# The trace was run twice on one card and printed the same ABSENT paragraph
+# both times. The paragraph was true and unactionable: it named three possible
+# causes and gave the reader no way to tell which.
+#
+# `validate` writes `gaps` unconditionally, so ABSENT proves the blob did not
+# come from the current validate. The stored prompt stamp splits the rest: a
+# stamp older than the running one is a stale draft, a MATCHING stamp is not —
+# it means the code ran and the key still went missing.
+
+def test_a_stale_draft_is_told_apart_from_a_current_one(live_db, capsys):
+    from server.prompts import RCA_PROMPT_VERSION
+    _seed(live_db, "tp_stale",
+          rca_v3={"what_went_wrong": {"guest_issues": [], "fixes": []}},
+          actions_taken={}, rca_prompt_version="rca-v4+deadbeef")
+    out = _actions(live_db, "tp_stale", capsys)
+    assert "predates the running prompt" in out
+    assert RCA_PROMPT_VERSION in out, "the reader cannot compare what is hidden"
+
+
+def test_a_current_stamp_with_no_gaps_points_at_the_code_not_the_draft(
+        live_db, capsys):
+    """THE CASE THAT MATTERS. Telling someone to regenerate a draft the
+    current build already produced sends them round the same loop."""
+    from server.prompts import RCA_PROMPT_VERSION
+    _seed(live_db, "tp_current",
+          rca_v3={"what_went_wrong": {"guest_issues": [], "fixes": []}},
+          actions_taken={}, rca_prompt_version=RCA_PROMPT_VERSION)
+    out = _actions(live_db, "tp_current", capsys)
+    assert "MATCHES the running prompt" in out
+    assert "keeping raw output" in out
+    assert "predates the running prompt" not in out
+
+
+def test_an_unstamped_draft_says_so_rather_than_comparing_nothing(live_db,
+                                                                  capsys):
+    _seed(live_db, "tp_nostamp",
+          rca_v3={"what_went_wrong": {"guest_issues": [], "fixes": []}},
+          actions_taken={})
+    out = _actions(live_db, "tp_nostamp", capsys)
+    assert "NO prompt stamp at all" in out
+
+
+def test_a_stored_empty_list_is_not_reported_as_absent(live_db, capsys):
+    """The inverse. [] is the model answering "nothing outstanding", and
+    sending the reader to regenerate a correct card is the same waste in the
+    other direction."""
+    _seed(live_db, "tp_emptygaps", rca_v3=_gaps(), actions_taken={})
+    out = _actions(live_db, "tp_emptygaps", capsys)
+    assert "found no unsolved gap" in out
+    assert "ABSENT" not in out
