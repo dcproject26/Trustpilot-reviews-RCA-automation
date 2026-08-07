@@ -174,6 +174,13 @@ def test_a_failed_refresh_says_so_rather_than_returning_quietly(page):
       window.fetch = () => Promise.reject(new Error('offline'));
     }""")
     try:
-        assert page.evaluate("() => reloadFromServer()") is False
+        # RACED AGAINST A TIMER, because `evaluate` takes no timeout: an
+        # awaited promise that never settles wedges the whole run instead of
+        # failing this test. This one needs the return value, so it cannot be
+        # fire-and-forget — bounding it turns a hang into an assertion.
+        got = page.evaluate("""() => Promise.race([
+            reloadFromServer(),
+            new Promise(r => setTimeout(() => r('TIMED-OUT'), 8000))])""")
+        assert got is False, got
     finally:
         _restore(page)

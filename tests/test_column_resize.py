@@ -121,14 +121,14 @@ def test_the_width_survives_a_reload(page):
     try:
         _drag(page, "inbox", 90)
         want = _w(page, ".inbox")
-        page.reload(wait_until="networkidle")
+        page.reload(wait_until="load")
         page.wait_for_timeout(900)
         got = _w(page, ".inbox")
         assert abs(got - want) < 5, f"width was {want}, came back {got}"
     finally:
         _reset(page)
-        page.reload(wait_until="networkidle")
-        page.wait_for_timeout(900)
+        page.reload(wait_until="load")
+        page.wait_for_selector(".review-item", timeout=15000)
         page.locator(".review-item").first.click()
         page.wait_for_timeout(1200)
 

@@ -160,8 +160,8 @@ def test_clicking_revert_saves_the_routed_scenario(page):
             f"renders and is bound to nothing.")
     finally:
         _restore(page)
-        page.reload(wait_until="networkidle")
-        page.wait_for_timeout(900)
+        page.reload(wait_until="load")
+        page.wait_for_selector(".review-item", timeout=15000)
         page.locator(".review-item").first.click()
         page.wait_for_timeout(1500)
 

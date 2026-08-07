@@ -33,11 +33,41 @@ DIVERGED = {
 }
 
 
+def _kick_refresh(page):
+    """Start the refresh WITHOUT awaiting it.
+
+    THE HANG THIS FIXES. `refreshAfterScenarioChange` is an async function, so
+    `page.evaluate("() => refreshAfterScenarioChange(...)")` implicitly returns
+    its promise and Playwright AWAITS it — and `evaluate` takes no timeout. A
+    fetch that is merely slow when 28 modules share one uvicorn therefore
+    became a permanent stall, at 15% of the batch, in a test that passes on
+    its own every time.
+
+    The braces make the arrow return undefined, so nothing is awaited. The
+    callers already wait on `wait_for_timeout`, which is what they were
+    relying on anyway — and a slow request now costs a failed assertion
+    instead of a wedged run.
+    """
+    page.evaluate("() => { refreshAfterScenarioChange(state.selected); }")
+
+
 def _watch(page):
-    """Record every request the page makes from now on."""
+    """Record every request the page makes from now on.
+
+    The listener is REMOVED by the caller. `page.on` accumulates, and with a
+    page shared across a module every later test paid for every earlier
+    test's handler on every request.
+    """
     page.evaluate("() => { window.__reqs = []; }")
-    seen = []
-    page.on("request", lambda r: seen.append(r.url))
+    # A plain list takes no attributes, so the un-listen hook needs somewhere
+    # to live. Subclass rather than returning a tuple: every call site here
+    # already treats the return value as the list of urls.
+    class _Seen(list):
+        pass
+    seen = _Seen()
+    handler = lambda r: seen.append(r.url)      # noqa: E731
+    page.on("request", handler)
+    seen.off = lambda: page.remove_listener("request", handler)
     return seen
 
 
@@ -73,7 +103,7 @@ def test_the_refresh_helper_is_reachable(page):
 
 def test_the_refresh_asks_for_the_draft_and_the_insights(page):
     seen = _watch(page)
-    page.evaluate("() => refreshAfterScenarioChange(state.selected)")
+    _kick_refresh(page)
     page.wait_for_timeout(1500)
     rid = page.evaluate("() => state.selected")
     assert any(u.endswith(f"/api/reviews/{rid}") for u in seen), \
@@ -87,7 +117,7 @@ def test_the_refresh_sends_the_window_the_picker_is_showing(page):
     window is how the panel showed one window's figures under another's
     button — a defect this dashboard already had."""
     seen = _watch(page)
-    page.evaluate("() => refreshAfterScenarioChange(state.selected)")
+    _kick_refresh(page)
     page.wait_for_timeout(1500)
     want = page.evaluate("() => state.insightsWindow")
     ins = [u for u in seen if "/insights?window=" in u]
@@ -101,7 +131,7 @@ def test_the_refresh_updates_the_routing_verdict(page):
     try:
         _inject(page, DIVERGED)
         assert page.locator(".scenario-reconcile").count() == 1
-        page.evaluate("() => refreshAfterScenarioChange(state.selected)")
+        _kick_refresh(page)
         page.wait_for_timeout(1500)
         page.evaluate("() => renderReviewCol()")
         page.wait_for_timeout(300)
@@ -117,7 +147,7 @@ def test_a_failed_refresh_says_so_rather_than_blanking_the_panel(page):
     try:
         page.route("**/insights?**", lambda route: route.abort())
         page.route("**/api/reviews/tp_ui", lambda route: route.abort())
-        page.evaluate("() => refreshAfterScenarioChange(state.selected)")
+        _kick_refresh(page)
         page.wait_for_timeout(1200)
         err = page.evaluate("() => state.insightsError || ''")
         assert "could not be refreshed" in err, f"silent failure: {err!r}"
@@ -141,10 +171,10 @@ def test_reverting_re_runs_the_rca(page):
             f"revert saved the scenario without re-running the RCA: {seen}")
     finally:
         _restore(page)
-        page.reload(wait_until="networkidle")
-        page.wait_for_timeout(900)
+        page.reload(wait_until="load")
+        page.wait_for_selector(".review-item", timeout=15000)
         page.locator(".review-item").first.click()
-        page.wait_for_timeout(1500)
+        page.wait_for_timeout(900)
 
 
 def test_reverting_also_refreshes_the_insights(page):
@@ -157,10 +187,10 @@ def test_reverting_also_refreshes_the_insights(page):
             f"the insights were not refreshed after a revert: {seen}")
     finally:
         _restore(page)
-        page.reload(wait_until="networkidle")
-        page.wait_for_timeout(900)
+        page.reload(wait_until="load")
+        page.wait_for_selector(".review-item", timeout=15000)
         page.locator(".review-item").first.click()
-        page.wait_for_timeout(1500)
+        page.wait_for_timeout(900)
 
 
 def test_a_failed_re_run_still_reports_rather_than_going_quiet(page):
@@ -174,10 +204,10 @@ def test_a_failed_re_run_still_reports_rather_than_going_quiet(page):
     finally:
         page.unroute("**/regenerate-rca")
         _restore(page)
-        page.reload(wait_until="networkidle")
-        page.wait_for_timeout(900)
+        page.reload(wait_until="load")
+        page.wait_for_selector(".review-item", timeout=15000)
         page.locator(".review-item").first.click()
-        page.wait_for_timeout(1500)
+        page.wait_for_timeout(900)
 
 
 def test_the_page_is_still_healthy(page):

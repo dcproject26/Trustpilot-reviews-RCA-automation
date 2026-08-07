@@ -499,8 +499,8 @@ def test_close_out_arms_before_it_fires_and_then_calls_the_close_endpoint(page):
             f"the close was sent with no reason: {call}")
     finally:
         _restore_candidates(page)
-        page.reload(wait_until="networkidle")
-        page.wait_for_timeout(900)
+        page.reload(wait_until="load")
+        page.wait_for_selector(".review-item", timeout=15000)
         page.locator(".review-item").first.click()
         page.wait_for_timeout(1400)
 

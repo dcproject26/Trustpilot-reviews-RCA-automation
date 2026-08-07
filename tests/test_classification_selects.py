@@ -175,7 +175,7 @@ def test_a_classification_the_taxonomy_does_not_have_is_still_shown(page):
         await fetch('/api/reviews/tp_ui/draft-v2', {method: 'PATCH',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({l1: 'CO miss', l2: 'Failed escalation'})}); }""")
-    page.reload(wait_until="networkidle")
+    page.reload(wait_until="load")
     page.wait_for_timeout(1000)
     page.locator(".review-item").first.click()
     page.wait_for_timeout(1400)

@@ -134,7 +134,7 @@ def test_an_emptied_list_stays_empty(page):
         page.click("#rca-col [data-aoi-del]")
         page.wait_for_timeout(400)
     assert (_draft(page)["area_of_improving"] or []) == []
-    page.reload(wait_until="networkidle")
+    page.reload(wait_until="load")
     page.wait_for_timeout(1000)
     page.locator(".review-item").first.click()
     page.wait_for_timeout(1200)
@@ -242,7 +242,7 @@ def test_the_selection_survives_a_reload(page):
     page.wait_for_timeout(600)
     before = page.evaluate("() => document.querySelector('[data-slack-edit]').value")
 
-    page.reload(wait_until="networkidle")
+    page.reload(wait_until="load")
     page.wait_for_timeout(1000)
     page.locator(".review-item").first.click()
     page.wait_for_timeout(1400)
@@ -273,7 +273,7 @@ def test_an_empty_section_is_not_read_back_as_a_deselection(page):
         await fetch('/api/reviews/tp_ui/draft-v2', {method: 'PATCH',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({takedown: {}})}); }""")
-    page.reload(wait_until="networkidle")
+    page.reload(wait_until="load")
     page.wait_for_timeout(1000)
     page.locator(".review-item").first.click()
     page.wait_for_timeout(1400)
@@ -285,7 +285,7 @@ def test_an_empty_section_is_not_read_back_as_a_deselection(page):
     assert "*Review takedown*" not in saved, \
         "the fixture is not empty here, so this test would prove nothing"
 
-    page.reload(wait_until="networkidle")
+    page.reload(wait_until="load")
     page.wait_for_timeout(1000)
     page.locator(".review-item").first.click()
     page.wait_for_timeout(1400)

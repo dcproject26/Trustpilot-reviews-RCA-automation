@@ -983,7 +983,7 @@ def test_a_stale_build_says_so_loudly(page):
                                            content_type="application/json",
                                            body=stale))
     try:
-        page.reload(wait_until="networkidle")
+        page.reload(wait_until="load")
         # WAIT FOR THE CONDITION, not for a fixed 1200 ms. The page fixture is
         # module-scoped, so this test hands the page to the next one — and on a
         # loaded box the /api/version round trip had not landed inside the
@@ -1002,7 +1002,7 @@ def test_a_stale_build_says_so_loudly(page):
                   flag: document.body.dataset.stale}; }""")
     finally:
         page.unroute("**/api/version")
-        page.reload(wait_until="networkidle")
+        page.reload(wait_until="load")
         # Same again on the way out: the NEXT test asserts the bar is gone, so
         # leaving that to a timer makes its result depend on how busy the
         # machine is rather than on the build.
