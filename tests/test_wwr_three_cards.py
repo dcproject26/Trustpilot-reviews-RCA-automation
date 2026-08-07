@@ -194,3 +194,48 @@ def test_a_deleted_row_stays_deleted_after_a_reload(page):
     got = page.evaluate("""() => [...document.querySelectorAll(
         '#rca-fixes-section .fx-action')].map(e => e.textContent.trim())""")
     assert "Fix one" not in got, got
+
+
+# ── the Unrouted tab, which the server routes to and the client must draw ──
+
+def test_the_unrouted_tab_is_drawn(page):
+    """The server routes a fix with no owner to `unrouted`
+    (checklist.ACTION_TAB_ORDER). The client's tab strip was built from
+    ACTION_TEAMS — nine — so those rows landed on a tab that was never
+    rendered: invisible, on the screen whose whole job is to say what each
+    team has to pick up."""
+    tabs = page.evaluate("""() => [...document.querySelectorAll('.action-tab')]
+        .map(b => b.dataset.tab)""")
+    assert "unrouted" in tabs, tabs
+
+
+def test_unrouted_is_first_so_it_cannot_be_scrolled_past(page):
+    tabs = page.evaluate("""() => [...document.querySelectorAll('.action-tab')]
+        .map(b => b.dataset.tab)""")
+    assert tabs[0] == "unrouted", tabs
+
+
+def test_an_unowned_fix_shows_a_count_on_that_tab(page):
+    """A row nobody owns must be countable from the tab strip without opening
+    it, or the reader has no reason to look."""
+    _patch_and_reload(page, wwr={"guest_issues": [], "fixes": [
+        {"action": "Nobody owns this", "owner": None, "because": ""}]})
+    got = page.evaluate("""() => {
+        const b = document.querySelector('.action-tab[data-tab="unrouted"]');
+        return b ? {count: (b.querySelector('.count') || {}).textContent || '',
+                    cls: b.className} : null;
+    }""")
+    assert got and got["count"].strip() == "1", got
+    assert "action-tab-unrouted" in got["cls"], \
+        "an unrouted row is not visually distinguished from an owned one"
+
+
+def test_unrouted_is_not_offered_as_a_fix_owner(page):
+    """The tab strip and the owner vocabulary are different lists. Offering
+    Unrouted as a team would let someone assign work to nobody and think they
+    had assigned it."""
+    opts = page.evaluate("""() => {
+        const s = document.querySelector('#rca-fixes-section select');
+        return s ? [...s.options].map(o => o.value) : [];
+    }""")
+    assert "unrouted" not in [o.lower() for o in opts], opts

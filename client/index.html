@@ -1208,6 +1208,7 @@
                overflow-wrap:anywhere; }
   .fx-because { font-size:11.5px; color:var(--muted); margin-top:3px;
                 min-width:0; overflow-wrap:anywhere; }
+  .action-tab-unrouted { color:var(--amber); }
   .fx-unrouted { font-size:11.5px; color:var(--amber);
                  background:var(--amber-bg); border-radius:6px;
                  padding:4px 8px; margin-top:5px; }
@@ -2265,10 +2266,18 @@ async function loadDraftOverlays() {
         // fixed five would have dropped every row on a card written under the
         // new vocabulary, and an emptied tab is indistinguishable from a tab
         // with nothing to raise.
-        const tabs = Object.fromEntries(ACTION_TEAMS.map(([t]) => [t, []]));
+        // UNROUTED IS ONE OF THE BUCKETS. The server routes a fix with no
+        // owner to `unrouted`, and this built its buckets from the nine teams
+        // and dropped anything `actionTeamKey` could not map — so those rows
+        // were discarded HERE, on the way in, before the tab strip ever got a
+        // chance to draw them. The tab was added first and still read zero,
+        // which is how the ingest turned out to be the one eating them.
+        const tabs = Object.fromEntries(
+          [...ACTION_TAB_ORDER, ...ACTION_TEAMS].map(([t]) => [t, []]));
         Object.keys(draft.actions_taken).forEach(k => {
-          const t = actionTeamKey(k);
-          if (t) tabs[t] = tabs[t].concat(toItems(draft.actions_taken[k]));
+          const t = (String(k).toLowerCase() === 'unrouted')
+            ? 'unrouted' : actionTeamKey(k);
+          if (t && tabs[t]) tabs[t] = tabs[t].concat(toItems(draft.actions_taken[k]));
         });
         r.rca.actionsTaken = tabs;
       }
@@ -4143,6 +4152,18 @@ const _firstName = (author) => {
 // belongs to went wrong, and a row appears only where both are true. The server
 // computes the join (server/checklist.py::actions_raised); this list is what
 // renders it, so the labels have to be the same nine or a tab goes missing.
+// THE TAB STRIP, which is the nine teams PLUS Unrouted. The server routes a
+// fix with no owner to `unrouted` (checklist.ACTION_TAB_ORDER), and this list
+// used to be ACTION_TEAMS — nine — so those rows landed on a tab that was
+// never drawn. Invisible, on the screen whose whole job is to say what each
+// team has to pick up.
+//
+// SEPARATE from ACTION_TEAMS on purpose: that list is also the owner-select
+// vocabulary, and a tenth entry there would offer "Unrouted" as a team an
+// associate could assign work to.
+const ACTION_TAB_ORDER = [
+  ['unrouted', 'Unrouted'],
+];
 const ACTION_TEAMS = [
   ['guest',     'NA/Guest error'],
   ['sp',        'Supply Partner'],
@@ -5737,13 +5758,16 @@ function renderRcaCol() {
       <div class="section-label"><span>Actions taken</span><span class="section-chev">▾</span></div>
       <div class="action-block">
         <div class="action-tabs">
-          ${ACTION_TEAMS.map(([t, label]) => `
-          <button class="action-tab ${state.actionTab === t ? 'active' : ''}" data-tab="${t}">${label} <span class="count">${(rca.actionsTaken[t] || []).length}</span></button>`).join('')}
+          ${[...ACTION_TAB_ORDER, ...ACTION_TEAMS].map(([t, label]) => `
+          <button class="action-tab ${state.actionTab === t ? 'active' : ''}${
+            t === 'unrouted' && (rca.actionsTaken[t] || []).length ? ' action-tab-unrouted' : ''
+          }" data-tab="${t}">${label} <span class="count">${(rca.actionsTaken[t] || []).length}</span></button>`).join('')}
         </div>
         <div class="action-content">
           ${actions.length === 0
             ? `<div class="action-empty">${(() => {
-                const label = (ACTION_TEAMS.find(([t]) => t === state.actionTab) || ['', state.actionTab])[1];
+                const label = ([...ACTION_TAB_ORDER, ...ACTION_TEAMS]
+                  .find(([t]) => t === state.actionTab) || ['', state.actionTab])[1];
                 return _flaggedTeams.has(state.actionTab)
                   ? `${label} is flagged on this card, but the DSS guidelines prescribe no step to raise with them for the routed scenario.`
                   : `Nothing is flagged against ${label}, so nothing was raised with them. A row appears only where the guidelines say it must be raised AND a flag names the team.`;

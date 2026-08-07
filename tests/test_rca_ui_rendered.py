@@ -1084,14 +1084,21 @@ def _tabs(page):
                count: t.querySelector('.count').textContent.trim()}))""")
 
 
-def test_the_action_tabs_are_the_nine_teams(page):
+def test_the_action_tabs_are_unrouted_plus_the_nine_teams(page):
+    """UNROUTED IS FIRST and is not a tenth team. The server routes a fix with
+    no owner to `unrouted`; this strip was the nine, so those rows landed on a
+    tab that was never drawn — and the ingest, which built its buckets from the
+    same nine, discarded them before the strip even saw them. Both had to
+    change, and the tab alone still read zero, which is how the ingest turned
+    out to be the one eating them."""
     got = _tabs(page)
-    assert [t["key"] for t in got] == ["guest", "sp", "content", "co", "tech",
-                                       "inventory", "product", "biz", "finance"]
+    assert [t["key"] for t in got] == ["unrouted", "guest", "sp", "content",
+                                       "co", "tech", "inventory", "product",
+                                       "biz", "finance"]
     assert [t["label"] for t in got] == [
-        "NA/Guest error", "Supply Partner", "Content/Catalog/Media team",
-        "CO team", "Tech team", "Inventory Team", "Product team", "Biz team",
-        "Finance team"]
+        "Unrouted", "NA/Guest error", "Supply Partner",
+        "Content/Catalog/Media team", "CO team", "Tech team", "Inventory Team",
+        "Product team", "Biz team", "Finance team"]
 
 
 def test_a_row_the_server_raised_renders_under_its_team(page):
