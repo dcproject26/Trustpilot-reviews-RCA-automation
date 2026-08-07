@@ -754,5 +754,17 @@
     "name": "wwr: the wrong issue is deleted",
     "find": "      w.guest_issues = (w.guest_issues || []).filter((_, n) => n !== i);",
     "replace": "      w.guest_issues = (w.guest_issues || []).filter((_, n) => n !== i + 1);"
+  },
+  {
+    "file": "server/services/wwr_post.py",
+    "name": "slack: the fixes list crashes compose again",
+    "find": "    doc_fixes = _fx if isinstance(_fx, dict) else _fixes_as_doc(_fx)",
+    "replace": "    doc_fixes = _fx or {}"
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "slack: CE interactions carries system events again",
+    "find": "    _convos, _moved = _split(draft.support_interaction_frames or [])",
+    "replace": "    _convos, _moved = (draft.support_interaction_frames or []), []"
   }
 ]

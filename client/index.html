@@ -5673,7 +5673,16 @@ function renderRcaCol() {
     // already lived — two lists of one story, in two columns, each missing
     // what the other had. Nothing is lost: the actor, the channel pill and
     // the ZD link all moved with it.
-    return cfHtml + wwrHtml + fxHtml;
+    // FIXES (§3) IS NOT RENDERED FOR NOW, by request, to be brought back
+    // later. `fxHtml` is still BUILT above and simply not appended, so
+    // restoring it is putting it back in this line.
+    //
+    // NOTHING UNDER IT IS REMOVED. `what_went_wrong.fixes` is still validated
+    // and stored, and Actions Taken is a VIEW over exactly that array — the
+    // team tabs, the Unrouted tab and the saver that regroups on every patch
+    // all keep working off data this card is no longer drawing. Deleting the
+    // data would have taken Actions Taken with it.
+    return cfHtml + wwrHtml;
   })() : '';
 
   // ── v3 sections (legacy shape) ─────────────────────────────────────────

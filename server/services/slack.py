@@ -761,7 +761,35 @@ def format_rca_slack(review, draft) -> str:
             if gap: row += f" | ⚠ {gap}"
             lines.append(row)
         return nl.join(lines)
-    support_text = _frames(draft.support_interaction_frames or [], "Customer / CE interactions")
+    # ONLY EXCHANGES A PERSON TOOK PART IN. This passed every frame through,
+    # so the post carried booking dumps and vendor-API rows under a heading
+    # that says "Customer / CE interactions" — "Booking details submitted to
+    # vendor API: 2 Adults, 2 Children..." rendered as a conversation with the
+    # guest. The card has filtered these out for a while and says how many it
+    # moved; the post is the OTHER composer for the same section and never
+    # learned. Same predicate, so the two cannot disagree about what a
+    # conversation is.
+    #
+    # The moved ones are COUNTED, not dropped in silence: a section that
+    # quietly shrinks reads as a guest nobody spoke to, which is the opposite
+    # of what happened.
+    from server.services.zendesk import (split_contact_frames as _split,
+                                         moved_frames_note as _moved_note_fn)
+    _convos, _moved = _split(draft.support_interaction_frames or [])
+    support_text = _frames(_convos, "Customer / CE interactions")
+    _mv = _moved_note_fn(_moved)
+    if _mv and support_text:
+        support_text += nl + f"• ({_mv})"
+    elif _mv:
+        # NO CONVERSATIONS AT ALL. `_frames` returns "" for an empty list, so
+        # appending the note on its own left a bare parenthetical floating
+        # between two rules with no heading above it. The heading has to come
+        # with it, and the sentence has to say the guest was not spoken to —
+        # "N system events moved" alone reads as a section that lost its
+        # contents, not as a booking nobody contacted them about.
+        support_text = (f"*Customer / CE interactions:*{nl}"
+                        f"• No conversation with the guest on this booking — "
+                        f"{_mv}, so nobody spoke to them")
     sp_text      = _frames(draft.sp_interaction_frames or [], "SP interactions")
 
     # 6. Area of improvement

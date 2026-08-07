@@ -295,6 +295,24 @@ def _has_content(w: dict) -> bool:
     return bool(fx.get("teams") or fx.get("actions"))
 
 
+def _fixes_as_doc(fixes) -> dict:
+    """§3's list in the shape the fix lines already read.
+
+    Folded rather than special-cased at every use: the heading needs a team
+    list and an action list, and that is exactly what the v3 object carried.
+    A fix with no owner contributes its action and no team, so it still
+    reaches the post — an unowned fix omitted here would be a fix nobody sees
+    at all, which is the state the Unrouted tab exists to make visible.
+    """
+    rows = [f for f in (fixes or []) if isinstance(f, dict)]
+    return {
+        "teams":   [f["owner"] for f in rows
+                    if str(f.get("owner") or "").strip()],
+        "actions": [str(f["action"]).strip() for f in rows
+                    if str(f.get("action") or "").strip()],
+    }
+
+
 def compose(what_went_wrong: dict) -> str:
     """The full what-went-wrong section body for the Slack post.
 
@@ -316,7 +334,16 @@ def compose(what_went_wrong: dict) -> str:
 
     issues = [g for g in (w.get("guest_issues") or []) if isinstance(g, dict)]
     sx = w.get("sp_escalation") or {}
-    doc_fixes = w.get("fixes") or {}
+    # TWO SHAPES SHARE THIS KEY. In v3 `what_went_wrong.fixes` was an OBJECT
+    # — {teams: [...], actions: [...]} — and §3 made it a LIST of
+    # {action, owner, because}. This read `.get("teams")` on whatever was
+    # there, so every post on a card written since §3 landed came out as
+    # "What went wrong could not be composed: 'list' object has no attribute
+    # 'get'". The composer is wrapped in a try/except that turns any exception
+    # into that sentence, so it failed loudly on the card and silently in the
+    # test suite, where nothing drove compose() with the new shape.
+    _fx = w.get("fixes")
+    doc_fixes = _fx if isinstance(_fx, dict) else _fixes_as_doc(_fx)
 
     if not issues:
         # There IS content here — `_has_content` already established that —
