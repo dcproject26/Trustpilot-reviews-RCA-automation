@@ -2885,6 +2885,17 @@ function _tlSortValue(row, fallbackYear) {
 
 function _tlParse(t, fallbackYear) {
   if (!t) return null;
+  // NORMALISE FIRST, exactly as the display does. `stampText` runs
+  // `normaliseStamp` before formatting, so a raw epoch renders as a proper
+  // "04 Aug 15:52" in the gutter — while this function parsed the RAW value,
+  // where an epoch matches neither branch below and returns null. A null sort
+  // value sinks the row to the end, so "Booking created" showed a correct
+  // 04 Aug 15:52 and rendered BELOW a review posted on 05 Aug.
+  //
+  // The display and the sort reading one value through two different paths is
+  // the same defect this function's own comment describes for time_sort vs
+  // time. One value, one path.
+  t = normaliseStamp(t) || t;
   // "2026-08-02 10:00" and "2026-08-02T10:00" — already carries its year.
   // Parsed WITHOUT a zone so it is read as local, the same frame the
   // day-month branch below uses. A trailing Z or offset would be honoured by

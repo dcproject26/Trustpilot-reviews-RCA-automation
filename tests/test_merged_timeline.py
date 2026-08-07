@@ -357,3 +357,39 @@ def test_an_event_and_a_log_row_interleave_in_the_displayed_frame(page):
         {"time": "14 Jun 02:40", "what": "Payment taken", "detail": "x", "hand": True}])["rows"]
         if r["what"]]
     assert order == ["Payment taken", "Tickets sent"], order
+
+
+def test_an_epoch_timestamp_sorts_where_it_displays(page):
+    """THE ROW THAT SHOWED A DATE AND SORTED AS UNDATED.
+
+    `stampText` runs `normaliseStamp` before formatting, so a raw epoch
+    renders as a proper "04 Aug 15:52" in the gutter. `_tlParse` parsed the
+    RAW value, where an epoch matches neither of its branches and returns
+    null — and a null sort value sinks the row to the end. "Booking created"
+    therefore displayed 04 Aug 15:52 and rendered BELOW a review posted on
+    05 Aug.
+
+    Display and sort reading one value through two different paths is the
+    same defect this file already documents for time_sort against time.
+    """
+    evs = [
+        # 1785791592 = 03 Aug 2026 21:13 UTC = 04 Aug 02:43 IST
+        dict(EV[0], what="Booking created", time="1785791592",
+             time_sort="", label="Booking created"),
+        dict(EV[1], what="Review posted", time="05 Aug",
+             time_sort="", label="Review posted"),
+    ]
+    got = _render(page, evs, [])
+    order = [r["what"] for r in got["rows"] if r["what"]]
+    assert order.index("Booking created") < order.index("Review posted"), (
+        f"an epoch-stamped row sank below a later date: {order}")
+
+
+def test_the_epoch_row_still_shows_a_real_date(page):
+    """The fix must not cost the rendering that already worked."""
+    evs = [dict(EV[0], what="Booking created", time="1785791592",
+                time_sort="", label="Booking created")]
+    got = _render(page, evs, [])
+    times = [r.get("time", "") for r in got["rows"] if r.get("what")]
+    assert times and times[0] not in ("", "—"), got["rows"]
+    assert "1785791592" not in times[0], times[0]

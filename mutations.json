@@ -712,5 +712,11 @@
     "name": "candidate: narrowing_path is dropped by the remap again",
     "find": "          narrowing_path: c.narrowing_path || '',",
     "replace": "          narrowing_path: '',"
+  },
+  {
+    "file": "client/index.html",
+    "name": "timeline: an epoch row sorts as undated again",
+    "find": "  t = normaliseStamp(t) || t;",
+    "replace": "  t = t;"
   }
 ]
