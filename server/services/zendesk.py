@@ -2703,8 +2703,19 @@ async def _shape_via_claude(
     from server import prompts as _prompts
     from server.services import claude as _claude
 
+    # THE PUBLICATION DATE REACHES THE MODEL IN IST, like every other time.
+    #
+    # It arrives as UTC — `review.received_at.strftime("%Y-%m-%d %H:%M")` —
+    # and every raw event in the same prompt is an IST display string. The
+    # model copied the digits and labelled them IST, so a review published at
+    # 12:06 UTC rendered as "02 Aug 12:06 IST" instead of 17:36, and sorted
+    # BEFORE the escalation and the guest chat that preceded it.
+    #
+    # One timezone in, one out. `_normalize_time` already owns the conversion;
+    # it was simply never applied on the way in.
+    _pub_disp, _ = _normalize_time(review_pub_date or "")
     prompt = _prompts.zendesk_timeline_shape_prompt(
-        booking, review_body, review_pub_date, raw_events)
+        booking, review_body, _pub_disp or review_pub_date, raw_events)
     raw_text = await _claude.shape_timeline_events(prompt)
 
     shaped = _safe_parse_events(raw_text)
@@ -2784,7 +2795,7 @@ async def _shape_via_claude(
                 _bk = str(ev.get("thread") or "").strip().lower()
                 _src = ""
                 if _bk == "review":
-                    _src = review_pub_date or ""
+                    _src = review_pub_date or ""   # _normalize_time below
                 elif _bk == "booking":
                     _src = ((booking or {}).get("creationDate")
                             or (booking or {}).get("bookedOn")

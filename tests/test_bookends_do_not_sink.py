@@ -92,3 +92,37 @@ def test_no_date_in_the_record_does_not_invent_one(monkeypatch):
     rows = _shape(monkeypatch, ANSWER, booking={}, pub="")
     created = next(r for r in rows if r["label"] == "Booking created")
     assert not created["time_sort"], created
+
+
+# ── the publication date reaches the model in the same timezone as the rest ─
+
+def test_the_review_date_is_converted_before_the_model_sees_it(monkeypatch):
+    """It arrives as UTC and every raw event in the same prompt is an IST
+    display string. The model copied the digits and labelled them IST, so a
+    review published 12:06 UTC rendered "02 Aug 12:06 IST" instead of 17:36 —
+    and sorted BEFORE the escalation and the guest chat that preceded it."""
+    seen = {}
+
+    async def _fake(prompt):
+        seen["prompt"] = prompt
+        return ANSWER
+    import server.services.claude as claude
+    monkeypatch.setattr(claude, "shape_timeline_events", _fake)
+    asyncio.run(zd._shape_via_claude([], {}, "body", "2026-08-02 12:06"))
+    assert "02 Aug 17:36 IST" in seen["prompt"], \
+        "the model is still shown the raw UTC publication date"
+    assert "2026-08-02 12:06" not in seen["prompt"], seen["prompt"][-400:]
+
+
+def test_a_publication_date_that_cannot_be_parsed_is_passed_through(monkeypatch):
+    """Converting nothing must not blank the value — the model still needs
+    whatever we have for the review bookend."""
+    seen = {}
+
+    async def _fake(prompt):
+        seen["prompt"] = prompt
+        return ANSWER
+    import server.services.claude as claude
+    monkeypatch.setattr(claude, "shape_timeline_events", _fake)
+    asyncio.run(zd._shape_via_claude([], {}, "body", "sometime on Tuesday"))
+    assert "sometime on Tuesday" in seen["prompt"]
