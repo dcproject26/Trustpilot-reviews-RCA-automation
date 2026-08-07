@@ -3397,6 +3397,10 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 scenarios_routed=_scenarios_routed,
                 issue_questions=issue_questions_for(_scenarios_routed),
                 canned_list=canned_list,
+                # The tickets THEMSELVES, not only the worked-out arc. §1 has
+                # to say why the guest reached out and whether we solved it,
+                # and a one-line summary cannot answer either.
+                support_frames=support_frames,
             )
         except Exception as e:
             log.exception(f"RCA v3 generation failed: {e}")

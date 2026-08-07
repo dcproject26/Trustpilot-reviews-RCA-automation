@@ -520,6 +520,7 @@ async def generate_rca_v3(
     scenarios_routed: list = None,
     issue_questions: list = None,
     canned_list: list = None,
+    support_frames: list = None,
 ) -> dict:
     """
     Returns the RCA v3 shape:
@@ -573,7 +574,7 @@ async def generate_rca_v3(
             l1, l2, sub_theme, support_summary, checklist, review_id or "",
             timeline_raw=timeline_raw, ticket_facts=ticket_facts,
             scenarios_routed=scenarios_routed, issue_questions=issue_questions,
-            canned_list=canned_list),
+            canned_list=canned_list, support_frames=support_frames),
         max_tokens=16000,
     )
     # _extract_json_object, not json.loads: it tolerates a preamble, fences and

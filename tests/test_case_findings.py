@@ -67,82 +67,141 @@ def test_a_ref_written_directly_on_a_case_finding_survives_too():
     assert _findings(out)[0]["ref"] == "ZD-34011333", _findings(out)
 
 
-# ── the evidence merges into §1, and §1 is the only place it renders ───────
+# ── §1 does two jobs, and that is what stops it repeating itself ───────────
+#
+# NARRATIVE points say what happened: the booking arrived, was it fulfilled,
+# what did the guest hit, why did they contact us, what did we say, how did it
+# end. EVIDENCE points settle ONE claim the guest made, and carry the ZD ref
+# they were read from. Two jobs, so neither restates the other — and where the
+# model writes them as one fact anyway, it is collapsed and counted.
 
-def test_evidence_is_merged_into_case_findings():
-    """BACK ON, and this is now the only render.
-
-    It was switched off because it duplicated: the model writes one fact two
-    ways — as a case finding and again as evidence — and the dedupe keys on
-    normalised wording, so both survived.
-
-    Switching it off did not leave the evidence somewhere else. `evRow`, the
-    per-issue renderer in the client, had NO CALLERS, so the claim-backing
-    facts appeared nowhere at all. A dead renderer and a working one look
-    identical on a card whose evidence is empty, which is why nothing said so.
-
-    The answer to the duplication is not a better wording threshold — none
-    exists that separates two phrasings of one event from two different
-    events. It is that the prompt now tells the model §1 IS where a
-    claim-backing fact goes, so it has no reason to write the same fact twice.
-    """
+def test_evidence_moves_into_case_findings():
     out, notes = validate(_wwr(
-        case_findings=[{"text": "Confirmation emailed to guest",
-                        "source": "zendesk"}],
-        guest_issues=[{"issue": "A", "claim": "c",
-                       "claim_accuracy": "Accurate",
-                       "evidence": [{"text": "Confirmation email sent 09:13",
-                                     "source": "zendesk",
-                                     "ref": "ZD-33978941"}]}]))
+        case_findings=[{"text": "Tickets were issued on 01 Aug for the 03 Aug slot",
+                        "source": "booking"}],
+        guest_issues=[{"issue": "A", "claim": "The new time was never sent to me",
+                       "claim_accuracy": "Inaccurate",
+                       "evidence": [{"text": "Updated confirmation was delivered "
+                                             "to the address on the booking",
+                                     "source": "zendesk", "ref": "ZD-33978941"}]}]))
     rows = _findings(out)
     assert len(rows) == 2, [r["text"] for r in rows]
     assert any(r["ref"] == "ZD-33978941" for r in rows), rows
+    assert any("evidence point" in n for n in notes), notes
 
 
-def test_a_merged_finding_says_it_was_merged():
-    """A count the reader can check. Rows appearing in §1 that the model did
-    not write there is a rewrite of what it returned, and a rewrite is
-    announced."""
-    _, notes = validate(_wwr(
+def test_a_reworded_repeat_of_a_narrative_point_is_collapsed():
+    """THE PAIR THAT REACHED THE CARD. One event, two wordings, two different
+    sorted-token keys — so the exact-key check passed both and §1 showed
+    eighteen findings for nine facts."""
+    out, notes = validate(_wwr(
+        case_findings=[{"text": "Original 08:30 slot cancelled via API and "
+                                "rebooking sent to Krakville at 11:00 AM on "
+                                "the same booking reference",
+                        "source": "booking"}],
         guest_issues=[{"issue": "A", "claim": "c", "claim_accuracy": "Accurate",
-                       "evidence": [{"text": "Ticket resent 11:02",
-                                     "source": "zendesk"}]}]))
-    assert any("claim-backing fact" in n for n in notes), notes
-
-
-def test_a_merged_finding_stays_routed_to_its_claim():
-    """`backs_claim` is what kept a fact under the claim it supports. It has
-    to survive the move, or §1 becomes a flat list and the routing the card
-    does today is lost."""
-    out, _ = validate(_wwr(
-        guest_issues=[{"issue": "A", "claim": "c", "claim_accuracy": "Accurate"},
-                      {"issue": "B", "claim": "d", "claim_accuracy": "Accurate",
-                       "evidence": [{"text": "Refund raised 12 Aug",
-                                     "source": "zendesk"}]}]))
-    row = [r for r in _findings(out) if "Refund raised" in r["text"]]
-    assert row, _findings(out)
-    assert row[0]["backs_claim"] == 1, row[0]
-
-
-def test_an_exact_repeat_is_still_collapsed():
-    """The dedupe that can work still runs. Identical wording in both places
-    is one fact, and showing it twice is the complaint that started this."""
-    out, _ = validate(_wwr(
-        case_findings=[{"text": "Confirmation emailed to guest", "source": "zendesk"}],
-        guest_issues=[{"issue": "A", "claim": "c", "claim_accuracy": "Accurate",
-                       "evidence": [{"text": "Confirmation emailed to guest",
-                                     "source": "zendesk"}]}]))
+                       "evidence": [{"text": "Rebooking to Krakville at 11:00 "
+                                             "sent on the same booking "
+                                             "reference after the 08:30 slot "
+                                             "was cancelled via API",
+                                     "source": "zendesk", "ref": "ZD-33978941"}]}]))
     assert len(_findings(out)) == 1, [r["text"] for r in _findings(out)]
+    assert any("in different words and were collapsed" in n for n in notes), notes
 
 
-def test_the_card_has_no_second_place_for_evidence_to_render():
-    """NEGATIVE source assertion on CLIENT-SIDE JAVASCRIPT, the exception
-    CLAUDE.md names. The whole point of merging into §1 is that there is ONE
-    render; a second one reintroduces the duplication from the other side, and
-    last time the second one was dead code nobody could see."""
-    src = open("client/index.html", encoding="utf-8").read()
-    for gone in ("const evRow", "data-ev-del=", "data-wwr-ev-add="):
-        assert gone not in src, f"{gone} is back — §1 is no longer the only render"
+def test_the_collapse_is_counted_not_silent():
+    """A section that quietly shrinks is indistinguishable from a model that
+    returned less. The count is how a threshold set too high or too low is
+    visible rather than absorbed."""
+    _, notes = validate(_wwr(
+        case_findings=[{"text": "Guest contacted support at 15:36 about the "
+                                "pickup time discrepancy with the vendor",
+                        "source": "zendesk"}],
+        guest_issues=[{"issue": "A", "claim": "c", "claim_accuracy": "Accurate",
+                       "evidence": [{"text": "The guest contacted support at "
+                                             "15:36 regarding the vendor "
+                                             "pickup time discrepancy",
+                                     "source": "zendesk"}]}]))
+    assert any("1 case finding(s) repeated" in n for n in notes), notes
+
+
+def test_two_genuinely_different_facts_both_survive():
+    """The threshold has to keep real findings. Same case, same vocabulary,
+    different facts."""
+    out, _ = validate(_wwr(
+        case_findings=[{"text": "Tickets were issued on 01 Aug for the 03 Aug slot",
+                        "source": "booking"},
+                       {"text": "Wallet credit of USD 39.59 issued the day after "
+                                "the visit with no refund of the booking amount",
+                        "source": "booking"}]))
+    assert len(_findings(out)) == 2, [r["text"] for r in _findings(out)]
+
+
+def test_an_evidence_row_backing_no_claim_is_not_rendered():
+    """Evidence settles a claim. A row citing none is a timeline entry that
+    wandered in — and timeline entries are what made §1 read as a second copy
+    of the events timeline.
+
+    DRIVES `_case_findings` DIRECTLY. Going through `validate` cannot reach
+    this: an issue with no claim is moved to flags, and one that survives on
+    an operational failure alone has that dropped when the case shows nothing.
+    Contriving a path would have tested the contrivance. The function is pure
+    and takes its three inputs, so it is driven where it lives.
+    """
+    from server.services.rca_v4_validate import _case_findings
+    notes = []
+    rows = _case_findings(
+        [], [{"issue": "A", "claim": "",
+              "evidence": [{"text": "Confirmation email sent 09:13",
+                            "source": "zendesk"}]}], notes)
+    assert rows == [], rows
+    assert any("backed no claim" in n for n in notes), notes
+
+
+def test_a_dropped_evidence_row_says_so_rather_than_vanishing():
+    """Counted, never silent. A section that shrinks without saying so reads
+    as a model that returned less."""
+    from server.services.rca_v4_validate import _case_findings
+    notes = []
+    _case_findings(
+        [], [{"issue": "A", "claim": None,
+              "evidence": [{"text": "Rebooking sent 09:11", "source": "zendesk"},
+                           {"text": "Confirmation emailed 09:13",
+                            "source": "zendesk"}]}], notes)
+    assert any("2 evidence row(s) backed no claim" in n for n in notes), notes
+
+
+def test_an_evidence_point_stays_routed_to_its_claim():
+    """`backs_claim` is what kept a fact under the claim it settles. Moving the
+    row into §1 must not lose the routing the card already does."""
+    out, _ = validate(_wwr(
+        guest_issues=[{"issue": "A", "claim": "first claim",
+                       "claim_accuracy": "Accurate"},
+                      {"issue": "B", "claim": "second claim",
+                       "claim_accuracy": "Accurate",
+                       "evidence": [{"text": "The refund was raised on 12 Aug "
+                                             "and settled to the wallet",
+                                     "source": "booking"}]}]))
+    row = [r for r in _findings(out) if "refund was raised" in r["text"]]
+    assert row and row[0]["backs_claim"] == 1, _findings(out)
+
+
+def test_a_narrative_point_backs_no_claim():
+    """The two jobs are distinguishable in the DATA, not only in the prose —
+    otherwise the card cannot route one and not the other."""
+    out, _ = validate(_wwr(
+        case_findings=[{"text": "Booking arrived 01 Aug for the 03 Aug slot",
+                        "source": "booking"}]))
+    assert _findings(out)[0]["backs_claim"] is None, _findings(out)
+
+
+def test_a_very_short_point_is_never_collapsed_on_overlap():
+    """Two short rows sharing their only words are not necessarily one fact,
+    and collapsing them would delete a real finding."""
+    out, _ = validate(_wwr(
+        case_findings=[{"text": "Tickets were sent", "source": "booking"},
+                       {"text": "Tickets were late", "source": "booking"}]))
+    assert len(_findings(out)) == 2, _findings(out)
 
 
 def test_the_evidence_is_still_stored_on_its_issue():

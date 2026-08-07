@@ -2169,6 +2169,7 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
             scenarios_routed=scenarios,
             issue_questions=issue_questions_for(scenarios),
             canned_list=canned_list,
+            support_frames=d.support_interaction_frames or [],
         )
     except Exception as e:
         log.exception(f"[regenerate-rca] model call failed: {e}")

@@ -1043,6 +1043,56 @@ Return ONLY valid JSON, no markdown:
 
 
 # ─── 8. RCA v3 prompt ───────────────────────────────────────────────────────
+def _support_tickets_block(frames) -> str:
+    """Each guest contact as what they ASKED and what we REPLIED.
+
+    The prompt was given `support_summary` — one worked-out line about the arc
+    of the case — and nothing else about the tickets. That is enough to say a
+    conversation happened and not enough to answer either of the questions the
+    case findings have to answer: why did the guest reach out, and did we solve
+    it. A guest does not contact us without a reason, and the reason is in the
+    ticket.
+
+    Only CONVERSATIONS. The same predicate the card and the Slack post use, so
+    a booking dump cannot arrive here as something the guest said.
+
+    Says how many were dropped and why, rather than showing a short list that
+    reads like the whole of it.
+    """
+    rows = [f for f in (frames or []) if isinstance(f, dict)]
+    if not rows:
+        return "(no support contact was found on this booking)"
+    try:
+        from server.services.zendesk import is_conversation
+        convos = [f for f in rows if is_conversation(f)]
+    except Exception:
+        convos = rows
+    moved = len(rows) - len(convos)
+    if not convos:
+        return (f"(no conversation with the guest on this booking — "
+                f"{moved} system event(s) only, so nobody spoke to them)")
+    out = []
+    for f in convos[:20]:
+        said = str(f.get("guestSaid") or f.get("summary") or "").strip()
+        did  = str(f.get("weDid") or "").strip()
+        gap  = str(f.get("gap") or "").strip()
+        zd   = str(f.get("ticket_id") or "").strip()
+        bits = [f"- {f.get('time') or '?'}"]
+        if zd:
+            bits.append(f"(ZD-{zd})")
+        bits.append(f"guest: {said or '—'}")
+        bits.append(f"| we: {did or '— (no reply recorded)'}")
+        if gap:
+            bits.append(f"| gap: {gap}")
+        out.append(" ".join(bits))
+    if moved:
+        out.append(f"({moved} system event(s) on this booking are NOT listed "
+                   f"here — they are machinery, not contact)")
+    if len(convos) > 20:
+        out.append(f"({len(convos) - 20} further contact(s) not shown)")
+    return "\n".join(out)
+
+
 def rca_v3_prompt(
     review_text: str,
     booking: dict,
@@ -1060,6 +1110,7 @@ def rca_v3_prompt(
     scenarios_routed: list = None,
     issue_questions: list = None,
     canned_list: list = None,
+    support_frames: list = None,
 ) -> str:
     """
     Generates the RCA v3 shape: what_went_wrong
@@ -1142,6 +1193,7 @@ def rca_v3_prompt(
         "<<INSIGHTS>>":         json.dumps(insights or {}, default=str),
         "<<DSS>>":              json.dumps(dss_rec or {}, default=str),
         "<<SUPPORT_SUMMARY>>":  support_summary or "(none)",
+        "<<SUPPORT_TICKETS>>":  _support_tickets_block(support_frames),
         "<<CE_BLOCK>>":         _block("CE QA AREAS - guest-facing handling",
                                        (checklist or {}).get("ce", [])),
         "<<RO_BLOCK>>":         _block("RO QA AREAS - fulfilment and escalation",
@@ -1267,6 +1319,13 @@ similar-support counts, completion rates, and the window they cover):
 
 DSS RECOMMENDATION (SOP needle; {} or match_score 0 = needle unavailable):
 <<DSS>>
+
+THE SUPPORT TICKETS THEMSELVES — what the guest actually wrote and what we
+actually replied, per contact. This is the source for "why did they reach out"
+and "did we solve it". A one-line arc summary was all this prompt used to get,
+which is not enough to answer either: it says there was a conversation without
+saying what was asked or whether it was resolved.
+<<SUPPORT_TICKETS>>
 
 SUPPORT SUMMARY — the arc of the support case, already worked out for you.
 Use it to write `case_side` on each issue. It was pasted in here and referred
@@ -2029,18 +2088,27 @@ that turned out fine is silence — never a line in the output.
           we promised.
     One line each, with the `source` that shows it. `time` where the record carries one; null
     where it does not, and do not invent one to force an order.
-    THIS IS WHERE EVIDENCE LIVES NOW. Do not repeat a case finding inside an issue's
-    `root_cause` — §1 is the record and §2 is the diagnosis. A fact stated in both is the
-    repetition this structure exists to remove.
-    EVERY CLAIM-BACKING FACT IS A CASE FINDING, and this array is the only place you write
-    one. Do not put the same fact in an issue's `evidence` as well and reword it — that is
-    how the card came to show the same event twice, once as "Updated confirmation emailed to
-    guest: new start time 11:00 AM" and once as "Updated confirmation email sent at 09:13 on
-    02 Aug". Write it ONCE here, and set `backs_claim` to the index of the issue it supports
-    when it supports one.
-    INFER THESE FROM EVERYTHING YOU HAVE — the booking record, the timeline, every ticket,
-    the internal notes — not only from what the guest wrote. A fact that backs or contradicts
-    a claim is a finding even when no ticket states it in those words.
+    THIS SECTION CARRIES TWO KINDS OF POINT AND THEY DO DIFFERENT JOBS. Keeping them
+    separate is what stops this section repeating itself:
+
+      NARRATIVE points — (a) to (d) above. What happened, in order, from the booking.
+      EVIDENCE points  — written on an ISSUE, in `evidence`. Each one PROVES OR DISPROVES
+                         ONE CLAIM the guest made, and nothing else.
+
+    AN EVIDENCE POINT IS NOT A TIMELINE ROW. "Rebooking sent 02 Aug 09:11; confirmation
+    emailed 09:13" is a timeline row: it recounts. Evidence ADJUDICATES — the guest says the
+    new time was never communicated, so the evidence is what the record shows about whether
+    it was communicated, and it cites the ticket it was read from. If a point does not settle
+    something the guest asserted, it is not evidence; leave it out or make it a narrative
+    point.
+
+    NEVER WRITE THE SAME FACT AS BOTH. A narrative point and an evidence point describing the
+    same moment in different words is the repetition this section is built to avoid — it is
+    the commonest way this card goes wrong, and rewording does not make it two facts.
+
+    THE SUPPORT TICKETS ARE THE SOURCE for (b) and (c). A guest does not contact us without a
+    reason: read the tickets for what they actually asked, what we replied, and whether their
+    problem was solved. "Guest contacted support" is not an answer to (b).
     DO NOT WRITE A CLOCK TIME INTO `text`. Put it in `time`; the card does not render it and
     the events timeline is where the reader goes for the record with times on it. A finding
     that reads like a timeline row is the duplication this section keeps being accused of.

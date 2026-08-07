@@ -1082,6 +1082,52 @@ def _case_finding_key(text) -> str:
     return " ".join(sorted(_tokens(text)))
 
 
+# How much of the shorter row's wording has to reappear in the longer one
+# before they are the same fact said twice.
+#
+# 0.6 is a JUDGEMENT and it is applied where it can be seen: every collapse is
+# counted on the notes, so a threshold set too high shows up as repeated rows
+# on the card and one set too low shows up as a count that does not match what
+# is on screen. Neither fails silently.
+#
+# It exists because `_case_finding_key` compares SORTED TOKENS and therefore
+# only catches rows that say the same thing in the same words. The real
+# repeats never did:
+#
+#   "Original 08:30 slot cancelled via API and rebooking sent to Krakville
+#    at 11:00 AM on the same booking reference."
+#   "Rebooking to Krakville at 11:00 sent 02 Aug 09:11; updated confirmation
+#    emailed 02 Aug 09:13 with new deadline of 02 Aug 11:00."
+#
+# One event, two wordings, two different keys — so the exact-key check passed
+# both through and the card showed eighteen findings for nine facts.
+_SAME_FACT_OVERLAP = 0.6
+
+
+def _is_repeat_of(text, existing_token_sets) -> bool:
+    """Does this row say something already on the list, in other words?
+
+    Containment rather than Jaccard: an evidence row that proves a claim is
+    frequently a SHORTER, sharper restatement of a narrative row, and Jaccard
+    punishes the length difference exactly when the two are most alike. What
+    matters is whether the shorter row's content already appears in the longer.
+
+    A row with almost no significant tokens ("the guest complained") cannot be
+    judged this way and is never collapsed on it — two short rows sharing
+    their only two words are not necessarily one fact.
+    """
+    want = _tokens(text)
+    if len(want) < 4:
+        return False
+    for got in existing_token_sets:
+        if not got:
+            continue
+        overlap = len(want & got) / min(len(want), len(got))
+        if overlap >= _SAME_FACT_OVERLAP:
+            return True
+    return False
+
+
 def _case_findings(raw, issues, notes) -> list:
     """§1: the booking's story, evidenced — one ordered, deduplicated list.
 
@@ -1098,16 +1144,25 @@ def _case_findings(raw, issues, notes) -> list:
     must not happen is a case nobody read looking like a case that was read and
     was clean.
     """
-    rows, seen = [], set()
+    rows, seen, token_sets = [], set(), []
+    collapsed = 0
 
-    def _add(text, source, time, why, ref=None):
+    def _add(text, source, time, why, ref=None, backs=None):
+        nonlocal collapsed
         text = _clean(text)
         if not text:
             return
         key = _case_finding_key(text)
         if not key or key in seen:
             return
+        # THE REWORDED REPEAT, which the key above cannot see. A narrative row
+        # and the evidence row that proves a claim about the same moment are
+        # the commonest pair, and they are never worded identically.
+        if _is_repeat_of(text, token_sets):
+            collapsed += 1
+            return
         seen.add(key)
+        token_sets.append(_tokens(text))
         rows.append({"text": text,
                      "source": _enum(source, EVIDENCE_SOURCES, None),
                      "time": _clean(time),
@@ -1116,7 +1171,11 @@ def _case_findings(raw, issues, notes) -> list:
                      # and ref is what turns "41 negative reviews in the
                      # window" into a number with a range attached, and a
                      # ticket id into something you can open.
-                     "ref": _clean(ref)})
+                     "ref": _clean(ref),
+                     # WHICH CLAIM THIS PROVES, or None for a narrative row.
+                     # It is what separates the two jobs this list does, and
+                     # what keeps a moved evidence row routed to its claim.
+                     "backs_claim": backs})
 
     for r in (raw if isinstance(raw, list) else []):
         if isinstance(r, str):
@@ -1125,39 +1184,55 @@ def _case_findings(raw, issues, notes) -> list:
             _add(r.get("text"), r.get("source"), r.get("time"), "row",
                  r.get("ref"))
 
-    # THE EVIDENCE COMES BACK IN, and this is now the only place it renders.
+    # ── the evidence rows, which do a DIFFERENT JOB from the rows above ────
     #
-    # `evRow` — the per-issue evidence renderer in the client — had NO CALLERS.
-    # So with the merge switched off, the claim-backing facts appeared nowhere
-    # at all: not under their claim in §2, not here. A dead renderer and a
-    # working one look identical on a card whose evidence happens to be empty,
-    # which is why nothing said so.
+    # §1 carries two kinds of pointer and the difference is what stops them
+    # repeating each other:
     #
-    # The duplication that switched it off was real: the model writes the same
-    # fact two ways — "Updated confirmation emailed to guest: new start time
-    # 11:00 AM" as a case finding, "Updated confirmation email sent at 09:13
-    # on 02 Aug" as evidence — and no wording threshold separates that from two
-    # genuinely different facts. The answer is not a better threshold. It is
-    # that the model is now told §1 IS where claim-backing facts go, inferred
-    # from the whole case, so it has no reason to author the same fact twice.
-    # `_case_finding_key` still catches the wording collisions it can.
+    #   narrative  what happened — the booking arrived, was it fulfilled, what
+    #              did the guest hit, why did they contact us, what did we say,
+    #              how did it end
+    #   evidence   proves or disproves ONE claim the guest made, and carries
+    #              the ZD ref it was read from
     #
-    # `backs_claim` travels with the row, so a finding stays routed to the
-    # claim it supports exactly as it was when it rendered under it.
-    merged = 0
+    # They cannot restate one another while each is doing its own job. When
+    # they do, `_is_repeat_of` collapses the second and the count says so —
+    # because the pair that actually appeared on the card was a narrative row
+    # and an evidence row describing the same moment in different words, which
+    # the sorted-token key cannot see.
+    #
+    # A ROW THAT BACKS NO CLAIM IS NOT EVIDENCE. Evidence exists to settle a
+    # claim; a row citing nothing is a timeline entry that wandered in, and
+    # timeline entries are what made this section read as a second copy of the
+    # events timeline. Dropped and COUNTED, never dropped quietly — a section
+    # that silently shrinks is the failure this file opens with.
+    merged = dropped = 0
     for n, issue in enumerate(issues or []):
         for e in (issue.get("evidence") or []):
             if not isinstance(e, dict):
                 continue
+            if not _clean(e.get("text")):
+                continue
+            backs = e.get("backs_claim")
+            backs = n if backs in (None, "") else backs
+            if not _clean(issue.get("claim")):
+                dropped += 1
+                continue
             before = len(rows)
             _add(e.get("text"), e.get("source"), e.get("time"), "evidence",
-                 e.get("ref"))
+                 e.get("ref"), backs)
             if len(rows) > before:
-                rows[-1]["backs_claim"] = e.get("backs_claim") or n
                 merged += 1
     if merged:
-        notes.append(f"{merged} claim-backing fact(s) merged into case "
-                     f"findings from the issues that carried them")
+        notes.append(f"{merged} evidence point(s) moved into case findings "
+                     f"from the claims they back")
+    if dropped:
+        notes.append(f"{dropped} evidence row(s) backed no claim and were "
+                     f"NOT rendered — evidence settles a claim, and a row "
+                     f"citing none is a timeline entry")
+    if collapsed:
+        notes.append(f"{collapsed} case finding(s) repeated a point already "
+                     f"in the list in different words and were collapsed")
 
     # Rows carrying a time lead, in time order; the rest keep the order they
     # were written in. `sorted` is stable, so an undated row never jumps.

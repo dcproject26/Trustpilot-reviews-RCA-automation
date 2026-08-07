@@ -360,9 +360,15 @@ def test_a_note_is_escaped_before_it_reaches_the_trail():
 def test_every_path_that_produces_an_rca_validates_it():
     """A validator wired into one path looks exactly like one that works —
     which is the defect this whole layer was written to fix."""
+    # Bounded by the NEXT generate_rca_v3 call, or the end of the file — not
+    # by a character count. `i + 3000` broke the moment four lines were added
+    # to the call's arguments: the validation moved past the window and the
+    # test reported an unvalidated path in a build that validates it. A window
+    # that fails when the code around it grows is measuring the wrong thing.
     for src, name in ((PIPE, "server/pipeline.py"), (API, "server/api.py")):
-        for i, _ in _find_all(src, "generate_rca_v3("):
-            after = src[i:i + 3000]
+        calls = [i for i, _ in _find_all(src, "generate_rca_v3(")]
+        for n, i in enumerate(calls):
+            after = src[i:calls[n + 1] if n + 1 < len(calls) else len(src)]
             assert "_validate_rca(" in after, \
                 f"{name}: a generate_rca_v3 call at offset {i} never validates its output"
 
