@@ -527,6 +527,28 @@ def _clean_summary(body: str) -> str:
 # The whole vocabulary the renderer knows, for both stored enums. "booking" /
 # "review" and "creation" / "review" only ever appear on the injected bookends.
 _THREADS = {"email", "chat", "call", "sp", "booking", "review"}
+# The actors that are a PERSON. `is_conversation` calls itself "an exchange a
+# person took part in" and then never asked who took part — it tested the
+# thread and the internal flag only, both of which a booking row can pass.
+#
+# THE ROW THAT GOT THROUGH: "General Admission, 1-day pass; 2 Adults, 2
+# Children, 2 Seniors; EUR 203.35 paid; no add-ons selected | we: —", rendered
+# under "Customer / CE interactions" in a Slack post. It is a booking-detail
+# event. It reached the guest-contact list because `_map_channel` returns
+# "email" for any via.channel it does not recognise, so its thread was not in
+# NON_CONTACT_THREADS, and nothing had marked it internal.
+#
+# `actor` is the fact that was there all along: `_detect_actor` had already
+# called it "system". Machinery cannot be a party to a conversation whatever
+# channel it arrived on.
+#
+# Over-filtering fails SAFE here and under-filtering does not: everything this
+# excludes is counted by `moved_frames_note` and said out loud ("N system
+# events moved to the timeline"), so a wrongly excluded contact shows up as a
+# number that does not match, while a wrongly included one is a booking dump
+# presented to the team as something the guest said.
+_PERSON_ACTORS = {"guest", "co", "sp", "ai"}
+
 _ACTORS  = {"guest", "co", "sp", "ai", "system", "creation", "review"}
 
 # ── Guest ↔ support is CONVERSATIONS ONLY (HANDOFF §4) ──────────────────────
@@ -562,7 +584,19 @@ def is_conversation(frame) -> bool:
     if not isinstance(frame, dict):
         return False
     thread = str(frame.get("thread") or "").strip().lower()
-    return thread not in NON_CONTACT_THREADS and not frame.get("is_internal")
+    if thread in NON_CONTACT_THREADS or frame.get("is_internal"):
+        return False
+    # WHO TOOK PART. The two tests above are about the channel and the flag,
+    # and a booking-detail row passes both when its via.channel is one
+    # `_map_channel` does not recognise — it falls through to "email". An
+    # actor of "system" or "creation" is machinery, and machinery is not a
+    # party to a conversation whatever channel it arrived on.
+    #
+    # An ABSENT actor is left alone rather than excluded: frames written
+    # before the actor was recorded carry none, and reading a missing field as
+    # "machinery" would empty the section for every one of them.
+    actor = str(frame.get("actor") or "").strip().lower()
+    return not actor or actor in _PERSON_ACTORS
 
 
 def split_contact_frames(frames) -> tuple[list, list]:
