@@ -2032,6 +2032,18 @@ that turned out fine is silence — never a line in the output.
     THIS IS WHERE EVIDENCE LIVES NOW. Do not repeat a case finding inside an issue's
     `root_cause` — §1 is the record and §2 is the diagnosis. A fact stated in both is the
     repetition this structure exists to remove.
+    EVERY CLAIM-BACKING FACT IS A CASE FINDING, and this array is the only place you write
+    one. Do not put the same fact in an issue's `evidence` as well and reword it — that is
+    how the card came to show the same event twice, once as "Updated confirmation emailed to
+    guest: new start time 11:00 AM" and once as "Updated confirmation email sent at 09:13 on
+    02 Aug". Write it ONCE here, and set `backs_claim` to the index of the issue it supports
+    when it supports one.
+    INFER THESE FROM EVERYTHING YOU HAVE — the booking record, the timeline, every ticket,
+    the internal notes — not only from what the guest wrote. A fact that backs or contradicts
+    a claim is a finding even when no ticket states it in those words.
+    DO NOT WRITE A CLOCK TIME INTO `text`. Put it in `time`; the card does not render it and
+    the events timeline is where the reader goes for the record with times on it. A finding
+    that reads like a timeline row is the duplication this section keeps being accused of.
     AN EMPTY LIST IS A REAL ANSWER and the card says so in words. What must never happen is a
     case nobody read coming back looking like a case that was read and was clean.
 9-fixes. `fixes` IS ITS OWN SECTION, one row per remediation, each naming the ONE team that

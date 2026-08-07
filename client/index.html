@@ -5341,38 +5341,17 @@ function renderRcaCol() {
         title="${esc(raw || v)}">${opts.map(o =>
         `<option value="${esc(o)}"${o === v ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
     };
-    // §2b one evidence row: 62px source rail | text | ×. The rail is the row
-    // marker, so no leading em-dash; a legacy string renders with a "—" rail.
-    const evRow = (i, j, e) => {
-      const o = (e && typeof e === 'object') ? e : {text: e, source: null, ref: null};
-      const src = o.source ? String(o.source) : '';
-      // The rail says WHICH system; the ref says which row in it, and without
-      // the second the reader has been told where to look and not what to
-      // open. A ZD-xxxxx is not a URL - it went into href= verbatim and
-      // produced a relative link to a page that does not exist, so a ticket
-      // reference the model DID supply looked exactly like one it had not.
-      const ref = o.ref ? String(o.ref).trim() : '';
-      const isZd  = /^ZD-?\d+$/i.test(ref);
-      const isUrl = /^https?:\/\//i.test(ref);
-      const rail = src
-        ? (isUrl
-             ? `<a href="${esc(ref)}" target="_blank" rel="noopener" title="${esc(ref)}">${esc(src)}</a>`
-             : esc(src))
-        : '—';
-      // Non-URL refs - a ticket id, a booking id, the insights window - are
-      // shown as text beside the row rather than dropped. They are the answer
-      // to "where is this from", which is the question the source rail alone
-      // kept prompting.
-      const refTag = !ref ? ''
-        : isZd  ? ` <span class="ev-ref">${zdLink(ref)}</span>`
-        : isUrl ? ''
-        : ` <span class="ev-ref" title="where this came from">${esc(ref)}</span>`;
-      return `<div class="ev-row">
-        <span class="ev-src${src ? '' : ' none'}" title="${esc(src || 'no source recorded')}">${rail}</span>
-        <span class="ev-text">${edSpan(`what_went_wrong.guest_issues.${i}.evidence.${j}.text`, o.text || '', 'click to write the finding')}${refTag}</span>
-        <button class="x-del" data-ev-del="${i}:${j}" title="remove this evidence row">×</button>
-      </div>`;
-    };
+    // §2b HAS NO EVIDENCE ROWS. `evRow` lived here and had NO CALLERS — it
+    // was defined, styled and never invoked, so the claim-backing facts
+    // rendered nowhere on the card. A dead renderer and a working one look
+    // identical whenever the data behind them is empty, which is why nothing
+    // reported it.
+    //
+    // The facts are not gone: `_case_findings` merges them into §1, which
+    // already renders them as deletable pointers with the ticket link and no
+    // clock. §1 is the reading of the case; the events timeline is the record
+    // with times on it. One store, one render.
+
     // §2 the four optional analysis lines. Present ones render as an editable
     // key-value row with a ×; absent ones become a "+" button in the wrap row.
     const ALINES = [
@@ -6332,31 +6311,14 @@ function renderRcaCol() {
   };
   // Evidence is {text, source, ref} now; a legacy string is lifted on touch
   // rather than being left as a shape the row renderer has to special-case.
-  const _ev = (gi) => {
-    const raw = Array.isArray(gi.evidence) ? gi.evidence : asPoints(gi.evidence);
-    return raw.map(e => (e && typeof e === 'object') ? e
-                                                    : {text: e, source: null, ref: null});
-  };
-
-  col.querySelectorAll('[data-wwr-ev-add]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const gi = _gi(parseInt(btn.dataset.wwrEvAdd));
-      // The same field set as an existing row, with placeholder text - never
-      // a bare box. A row you cannot tell from an AI one is the point.
-      gi.evidence = [..._ev(gi), {text: 'New evidence — click to edit',
-                                  source: null, ref: null}];
-      await persistV3(); renderRcaCol();
-    });
-  });
-
-  col.querySelectorAll('[data-ev-del]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const [i, j] = btn.dataset.evDel.split(':').map(Number);
-      const gi = _gi(i);
-      gi.evidence = _ev(gi).filter((_, k) => k !== j);
-      await persistV3(); renderRcaCol();
-    });
-  });
+  // THE EVIDENCE HANDLERS WENT WITH THEIR ROWS. `data-wwr-ev-add` and
+  // `data-ev-del` were bound here and nothing rendered either attribute once
+  // `evRow` turned out to have no callers — three pieces of a control that
+  // could not be reached, held together by a census that only ever asked
+  // whether a RENDERED control has a test.
+  //
+  // Adding and removing a claim-backing fact is `data-cf-add` / `data-cf-del`
+  // on §1 now, where the facts actually render.
 
   // The claim × persists claim: null immediately - a real removal, not a UI
   // hide. "+ Claim" recreates the field.

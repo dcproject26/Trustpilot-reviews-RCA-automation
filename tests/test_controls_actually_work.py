@@ -627,11 +627,11 @@ UNDRIVEN_BY_DESIGN = {
 # for. Anything moved out of here must be moved because a test now drives it.
 NOT_YET_DRIVEN = {
     "data-aoi-add", "data-chk-group-toggle", "data-claim-del",
-    "data-contact-add", "data-ev-del", "data-flag-add", "data-ix-toggle",
+    "data-contact-add", "data-flag-add", "data-ix-toggle",
     "data-rca-only-regen", "data-refresh-slack", "data-reply-copy",
     "data-reply-edit", "data-rerun-all", "data-slack-post", "data-slack-regen",
     "data-slack-sec-all", "data-slack-sec-none", "data-trail-toggle",
-    "data-v3sel", "data-wwr-all", "data-wwr-ev-add", "data-wwr-toggle",
+    "data-v3sel", "data-wwr-all", "data-wwr-toggle",
     "data-aoi-del",
     # The unknown-language panel. There is no longer an input here — the
     # language is read off the review's ORIGINAL text rather than typed — so

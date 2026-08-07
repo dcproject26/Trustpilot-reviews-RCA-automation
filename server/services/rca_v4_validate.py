@@ -1125,22 +1125,46 @@ def _case_findings(raw, issues, notes) -> list:
             _add(r.get("text"), r.get("source"), r.get("time"), "row",
                  r.get("ref"))
 
-    # THE EVIDENCE MERGE IS OFF, by request, to be settled later.
+    # THE EVIDENCE COMES BACK IN, and this is now the only place it renders.
     #
-    # It produced DUPLICATES on real cards. The dedupe keys on normalised
-    # wording, and the model writes the same fact two ways — "Updated
-    # confirmation emailed to guest: new start time 11:00 AM" as a case
-    # finding and "Updated confirmation email sent at 09:13 on 02 Aug" as
-    # evidence. Different words, same event, both kept. No wording threshold
-    # separates that from two genuinely different facts, which is the same
-    # wall the timeline merge hit.
+    # `evRow` — the per-issue evidence renderer in the client — had NO CALLERS.
+    # So with the merge switched off, the claim-backing facts appeared nowhere
+    # at all: not under their claim in §2, not here. A dead renderer and a
+    # working one look identical on a card whose evidence happens to be empty,
+    # which is why nothing said so.
     #
-    # So §1 renders the model's own case_findings only. The evidence rows are
-    # NOT deleted: they are still validated and still stored on their issue,
-    # so bringing the merge back is re-enabling this loop rather than
-    # rebuilding the data.
+    # The duplication that switched it off was real: the model writes the same
+    # fact two ways — "Updated confirmation emailed to guest: new start time
+    # 11:00 AM" as a case finding, "Updated confirmation email sent at 09:13
+    # on 02 Aug" as evidence — and no wording threshold separates that from two
+    # genuinely different facts. The answer is not a better threshold. It is
+    # that the model is now told §1 IS where claim-backing facts go, inferred
+    # from the whole case, so it has no reason to author the same fact twice.
+    # `_case_finding_key` still catches the wording collisions it can.
+    #
+    # `backs_claim` travels with the row, so a finding stays routed to the
+    # claim it supports exactly as it was when it rendered under it.
+    merged = 0
+    for n, issue in enumerate(issues or []):
+        for e in (issue.get("evidence") or []):
+            if not isinstance(e, dict):
+                continue
+            before = len(rows)
+            _add(e.get("text"), e.get("source"), e.get("time"), "evidence",
+                 e.get("ref"))
+            if len(rows) > before:
+                rows[-1]["backs_claim"] = e.get("backs_claim") or n
+                merged += 1
+    if merged:
+        notes.append(f"{merged} claim-backing fact(s) merged into case "
+                     f"findings from the issues that carried them")
 
     # Rows carrying a time lead, in time order; the rest keep the order they
     # were written in. `sorted` is stable, so an undated row never jumps.
+    #
+    # The TIME IS NOT RENDERED — §1 is the reading of the case, the events
+    # timeline is the record with the clock on it. It is kept because it is
+    # the only thing that can order these rows, and an order the records
+    # support beats the order the model happened to write them in.
     rows.sort(key=lambda r: (r["time"] is None, r["time"] or ""))
     return rows

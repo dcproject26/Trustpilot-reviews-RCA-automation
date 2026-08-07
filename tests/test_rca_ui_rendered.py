@@ -1347,19 +1347,26 @@ def test_the_improvement_card_is_no_longer_rendered(page):
     assert got["rows"] == 0, got
 
 
-def test_case_findings_render_without_the_evidence_merge(page):
-    """The merge is OFF — it duplicated real cards, showing one event twice,
-    once with a ZD ref and once without. Three tests here drove it and were
-    removed with it.
+def test_case_findings_carry_the_merged_evidence(page):
+    """The merge is back ON and §1 is the ONLY place a claim-backing fact
+    renders. It was switched off for duplicating, and switching it off turned
+    out to hide the facts completely: `evRow`, the per-issue renderer, had no
+    callers, so §2 never drew them either.
 
-    §1 still renders, still carries the model's own findings, and no row
-    carries a ZD reference any more; the evidence itself is still stored on
-    its issue (tests/test_case_findings.py).
+    A ZD ref on a §1 row is the visible sign a merged fact arrived — that ref
+    is what turns a ticket id into something the reader can open.
     """
     got = page.evaluate("""() => ({
         section: !!document.querySelector('#rca-casefindings-section'),
-        refs: document.querySelectorAll('#rca-casefindings-section .cf-ref').length,
+        rows:    document.querySelectorAll('#rca-casefindings-section .cf-row').length,
+        dels:    document.querySelectorAll('#rca-casefindings-section [data-cf-del]').length,
+        times:   document.querySelectorAll('#rca-casefindings-section .cf-time').length,
         inIssue: document.querySelectorAll('.wwr-issue .ev-row').length})""")
     assert got["section"], "the case findings section stopped rendering"
-    assert got["refs"] == 0, "a merged evidence row is still showing its ZD ref"
-    assert got["inIssue"] == 0, got
+    assert got["rows"], "§1 rendered with no findings at all"
+    assert got["dels"] == got["rows"], \
+        f"{got['rows']} findings and {got['dels']} removers — a row cannot be deleted"
+    assert got["times"] == 0, "§1 is showing clock times; that is the timeline's job"
+    assert got["inIssue"] == 0, \
+        "the evidence is rendering under the issue AS WELL as in §1 — the "\
+        "duplication is back, from the other side"

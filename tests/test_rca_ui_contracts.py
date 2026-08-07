@@ -90,13 +90,17 @@ def test_evidence_is_a_three_column_grid_with_a_fixed_source_rail():
     assert re.search(r"\.ev-row\s*\{[^}]*grid-template-columns:\s*62px 1fr 16px", CLIENT)
 
 
-def test_the_source_rail_is_the_only_row_marker():
-    """The old row had a leading em-dash AND a source; two markers for one
-    row was the defect."""
-    i = CLIENT.find("const evRow =")
-    assert i > 0
-    body = CLIENT[i:i + 1200]
-    assert '<span class="dash">' not in body
+def test_the_evidence_rows_have_no_second_home():
+    """This asserted that `evRow` drew one row marker and not two. `evRow`
+    turned out to have NO CALLERS — the rows it styled rendered nowhere, so
+    the test was checking the punctuation of dead code while the claim-backing
+    facts were missing from the card entirely.
+
+    The facts render in §1 now, as deletable pointers. Stated NEGATIVELY,
+    which unreachable code cannot satisfy: there is no second renderer.
+    """
+    assert "const evRow =" not in CLIENT, \
+        "a second evidence renderer is back — §1 is meant to be the only one"
 
 
 # ── the claim (defect 2, and the claim-less empty state) ────────────────────
