@@ -2761,6 +2761,40 @@ async def _shape_via_claude(
             # alongside "22 Jul 14:03 IST" comments - two formats in one list.
             time_disp, time_sort = _normalize_time(ev.get("time", ""))
             time_sort = time_sort or by_display.get(time_disp, "")
+            # STAMPED FROM THE RECORD, not from what the model echoed back.
+            #
+            # A bookend has no idx_range, so there is no raw event to copy a
+            # time from, and the model returned "unknown" for both. The client
+            # sorts on the displayed time and sinks a row it cannot read to the
+            # END — so "Booking created" rendered at the BOTTOM of the
+            # timeline, under the review it precedes by two weeks. On screen
+            # that is indistinguishable from an event that happened last, which
+            # is why it read as the chronology being broken rather than as two
+            # rows missing a value.
+            #
+            # Both dates are already in hand. A bookend is first or last BY
+            # DEFINITION; asking a model to remember which is a question that
+            # did not need asking.
+            # ONLY WHEN THE MODEL GAVE NOTHING READABLE. "20 Jul 09:00 IST"
+            # has no year, so `_normalize_time` returns no sortable value for
+            # it — and stamping on an empty time_sort alone OVERWROTE a date
+            # the model had got right. A display string carrying digits is a
+            # date; "unknown" is not.
+            if not time_sort and not re.search(r"\d", time_disp or ""):
+                _bk = str(ev.get("thread") or "").strip().lower()
+                _src = ""
+                if _bk == "review":
+                    _src = review_pub_date or ""
+                elif _bk == "booking":
+                    _src = ((booking or {}).get("creationDate")
+                            or (booking or {}).get("bookedOn")
+                            or (booking or {}).get("date_of_booking") or "")
+                if _src:
+                    _d, _s = _normalize_time(_src)
+                    if _s:
+                        time_disp, time_sort = _d, _s
+                    log.info("[zendesk] bookend %r had no readable time; "
+                             "stamped from the record as %r", _bk, time_disp)
 
         thread = ev.get("thread", "email")
         # Zendesk's own channel beats Claude's reading of the body, but only
