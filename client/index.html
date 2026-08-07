@@ -5486,10 +5486,17 @@ function renderRcaCol() {
                   ['because',  'Closes'],
                 ].filter(([k]) => String(fx[k] || '').trim());
                 if (!rows.length) return '';
+                // THE SAME × AS EVERY OTHER LINE IN THIS BLOCK. Operational
+                // failure and SOP gap are removable and these two were not,
+                // so a fix the model invented could be edited into something
+                // else but never taken off the card — and an empty string is
+                // not the same as no fix: `actions_from_fixes` still routes a
+                // blank row, which lands in Unrouted for nobody to pick up.
                 return `<div class="wwr-fix">${rows.map(([k, label]) => `
                   <div class="wwr-aline">
                     <span class="wwr-aline-key">${label}:</span>
                     <span class="wwr-aline-val">${edSpan(`${bp}.fix.${k}`, fx[k])}</span>
+                    <button class="x-del" data-fix-del="${i}:${k}" title="remove this line">×</button>
                   </div>`).join('')}</div>`;
               })()}
             </div>
@@ -6375,6 +6382,33 @@ function renderRcaCol() {
       await persistV3(); renderRcaCol();
     });
   });
+  // Fix / Closes. One level deeper than the lines above — they are fields on
+  // the issue, these are fields on `issue.fix` — so the path differs and the
+  // handler cannot be shared, but the SAVE PATH is the same `persistV3` and
+  // the control is the same ×.
+  //
+  // Removing the last populated key drops the whole `fix` object rather than
+  // leaving `{action: null, because: null}` behind.
+  //
+  // NOT because Actions Taken would route it — that is built from the
+  // DOCUMENT-level `what_went_wrong.fixes` array, and `issue.fix` is a
+  // different store that only feeds it through `_fix_rows`'s migration of
+  // pre-restructure drafts. The husk is dropped because storing one means the
+  // next reader has to know that `fix` being present says nothing about
+  // whether there is a fix, and `_fix_rows` already treats "no action" and
+  // "no fix" as the same thing on the way in.
+  col.querySelectorAll('[data-fix-del]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const [i, k] = btn.dataset.fixDel.split(':');
+      const gi = _gi(parseInt(i));
+      if (!gi || !gi.fix || typeof gi.fix !== 'object') return;
+      gi.fix[k] = null;
+      const left = ['action', 'because'].some(f => String(gi.fix[f] || '').trim());
+      if (!left) gi.fix = null;
+      await persistV3(); renderRcaCol();
+    });
+  });
+
   const _APH = {
     operational_failure: 'What a person or system did wrong on this issue',
     sop_gap: 'The missing or deficient process step for this issue',

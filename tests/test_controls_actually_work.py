@@ -565,6 +565,7 @@ DRIVEN = {
     "data-rerun-match",        # test_confirm_candidate_refreshes
     "data-wwr-issue-add",      # this file, test_every_add_button_produces_a_row
     "data-aline-add",          # same
+    "data-fix-del",            # test_fix_lines_can_be_removed
     "data-sp-rec-add",         # …::test_a_record_added_to_a_draft…
     "data-add-action",         # test_rca_ui_rendered::…renders_under_its_team
     "data-scenario-revert",    # test_scenario_override_api
