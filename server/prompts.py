@@ -2652,7 +2652,22 @@ findable; one you quietly corrected is not.
    same actor - merging a guest message into a system row destroys both. No
    "(xN)" in the label.
 
-4. LABELS - a DESCRIPTIVE line saying what this event actually was, written
+   NEVER COLLAPSE AN EVENT WITH is_internal: true INTO ONE WITHOUT IT, and
+   never the reverse. An internal note is what Headout wrote to itself about
+   this booking - the reschedule that failed, the escalation, the credit - and
+   folding it into the confirmation mail beside it destroys the only record of
+   it. Measured on one booking: 26 comments, 18 of them internal notes
+   carrying the reschedule and the refund, arrived here and 8 rows came back.
+   The notes were not dropped by any filter; they were collapsed away.
+
+   Two internal notes MAY collapse together when they are the same automated
+   line repeating - that is what "one action at one moment" means for them.
+
+4. AN INTERNAL NOTE IS NEVER keep: false. Rule 2 already says keep everything;
+   this restates it for the rows most often lost, because they read like
+   machinery and they are the record of what we did about the problem.
+
+5. LABELS - a DESCRIPTIVE line saying what this event actually was, written
    from its own body. Not a category.
 
    There used to be a closed vocabulary of ten here, and it made every card
@@ -2795,7 +2810,7 @@ findable; one you quietly corrected is not.
    at one moment. This is one message recurring over hours, and the span is
    the point.
 
-5. SUMMARIES - NOT sentences. 2-3 telegraphic phrases separated by "; ",
+6. SUMMARIES - NOT sentences. 2-3 telegraphic phrases separated by "; ",
    each phrase one fact. Aim for about 100 characters, but FINISH THE
    THOUGHT: a complete third phrase at 130 characters beats a phrase that
    stops halfway at 100. Never trail off, never abbreviate a word to fit.
@@ -2817,7 +2832,7 @@ findable; one you quietly corrected is not.
    not state. Strip HTML and signatures. Never quote raw JSON. Never adopt
    the guest's emotional wording.
 
-6. ORDER - Booking created first, then the events as given. The input is
+7. ORDER - Booking created first, then the events as given. The input is
    already in order; do not re-sort it.
    REVIEW POSTED IS NOT LAST. It carries its own timestamp and the card sorts
    on it. This rule used to say "Review posted last", which contradicted the

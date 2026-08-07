@@ -226,3 +226,54 @@ def test_the_trail_counts_the_internal_notes():
     a screenshot to find."""
     src = open("server/pipeline.py", encoding="utf-8").read()
     assert "<strong>Internal notes:</strong>" in src
+
+
+# ── the notes arrive, and the shaper must not fold them away ──────────────
+#
+# MEASURED with scripts/trace_notes.py on booking 32885089:
+#
+#     public 8 · private 18 · private_kept 18 · private_dropped 0
+#
+# Every internal note reached the shaping call, including
+# "[RESCHEDULE] Automation has failed for booking 32885089", "NAR, tix are
+# already rescheduled for +45 mins" and the ORM credit note. 26 comments went
+# in; 8 rows came back. Nothing filtered them — the model collapsed them into
+# the public events beside them, and the prompt gave it no reason not to.
+
+import re
+
+from server.prompts import zendesk_timeline_shape_prompt
+
+
+def _prompt():
+    return zendesk_timeline_shape_prompt({}, "review", "2026-08-02",
+                                         [{"idx": 0, "is_internal": True}])
+
+
+def test_the_prompt_forbids_collapsing_a_note_into_a_public_event():
+    """An internal note is what Headout wrote to itself about this booking.
+    Folded into the confirmation mail beside it, the only record of the
+    reschedule is gone."""
+    assert "NEVER COLLAPSE AN EVENT WITH is_internal" in _prompt()
+
+
+def test_the_prompt_forbids_dropping_a_note():
+    """Rule 2 already says keep everything. This restates it for the rows most
+    often lost, because they read like machinery and they are the record of
+    what we did about the problem."""
+    assert "AN INTERNAL NOTE IS NEVER keep: false" in _prompt()
+
+
+def test_repeated_automated_notes_may_still_collapse_together():
+    """Six identical "Customer Reschedule Request can't be pushed to Pending"
+    lines are one action repeating — that is what the collapse rule is for,
+    and the exemption must not disable it."""
+    assert "Two internal notes MAY collapse together" in _prompt()
+
+
+def test_the_rules_are_numbered_once_each():
+    """Two rules numbered 5 is a prompt the model reads as contradicting
+    itself, and it is the kind of edit that lands unnoticed."""
+    nums = re.findall(r"^(\d)\. [A-Z]", _prompt(), re.M)
+    assert nums == sorted(nums), nums
+    assert len(nums) == len(set(nums)), nums
