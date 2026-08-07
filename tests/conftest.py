@@ -6,6 +6,7 @@ line has become unreachable. Driving process_review against a throwaway SQLite
 database costs a second and cannot pass for that reason.
 """
 import os
+import signal
 import tempfile
 import time
 
@@ -149,3 +150,18 @@ def ui_server():
             os.unlink(tmp.name)
         except OSError:
             pass
+
+
+# ── why there is no per-test timeout hook here ─────────────────────────────
+# A SIGALRM-based `pytest_runtest_call` wrapper was written and REMOVED. It
+# does not work: Playwright's sync API runs inside a greenlet on the main
+# thread, and while that greenlet is blocked waiting on CDP the signal does
+# not unwind it. A deliberate `page.evaluate("() => new Promise(() => {})")`
+# sat there well past the alarm, exactly as before. Shipping it would have
+# added a guard that guards nothing — the failure this codebase opens with,
+# and it was only caught because the guard was tested against a real hang
+# instead of being assumed to work.
+#
+# What DOES bound a hang is running each browser file in its own process with
+# a timeout: scripts/run_browser_tests.sh. A wedged file is killed and named,
+# and the rest of the batch still runs.
