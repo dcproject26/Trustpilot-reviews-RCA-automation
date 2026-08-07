@@ -123,3 +123,36 @@ def test_a_legacy_owner_spelling_is_translated_not_failed():
         "fixes": [{"action": "Reply to the guest", "owner": "CE"}]}})
     assert out["actions_taken"]["co"] == ["Reply to the guest"], \
         out["actions_taken"]
+
+
+def test_two_fixes_saying_one_thing_are_one_row():
+    """Fix-against-fix, not flag-against-fix. This went untested because the
+    mutation guarding it had an ambiguous anchor and reported SKIP — and a
+    SKIP is not a pass. Two fixes routinely say one thing two ways, and
+    printing both reads as two pieces of work."""
+    from server.checklist import actions_from_fixes
+    tabs, rep = actions_from_fixes([
+        {"action": "Resend the tickets to the guest", "owner": "CO"},
+        {"action": "Resend the tickets to the guest", "owner": "CO"}])
+    assert tabs["co"] == ["Resend the tickets to the guest"], tabs["co"]
+    assert rep["counts"]["repeat"] == 1, rep["counts"]
+
+
+def test_the_fix_merge_is_announced_as_a_judgement():
+    """Treating two differently worded fixes as one is a guess, and nothing
+    else on the card would say one was made."""
+    from server.checklist import actions_from_fixes
+    _, rep = actions_from_fixes([
+        {"action": "Resend the tickets to the guest", "owner": "CO"},
+        {"action": "Resend the tickets to the guest", "owner": "CO"}])
+    assert any("already said" in n for n in rep["notes"]), rep["notes"]
+
+
+def test_two_genuinely_different_fixes_are_two_rows():
+    """A dedupe that eats a real fix is worse than the repetition — that team
+    loses work nobody will pick up."""
+    from server.checklist import actions_from_fixes
+    tabs, _ = actions_from_fixes([
+        {"action": "Resend the tickets to the guest", "owner": "CO"},
+        {"action": "Refund the second ticket", "owner": "CO"}])
+    assert len(tabs["co"]) == 2, tabs["co"]

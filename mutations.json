@@ -512,8 +512,8 @@
   {
     "file": "server/checklist.py",
     "name": "fixes: two fixes worded the same become two rows",
-    "find": "        if _is_repeat(text, seen, \"action\"):\n            counts[\"repeat\"] += 1\n            continue",
-    "replace": "        if False:\n            counts[\"repeat\"] += 1\n            continue"
+    "find": "        if _is_repeat(text, seen, \"action\"):\n            counts[\"repeat\"] += 1\n            continue\n        _remember(text, seen, \"action\")\n        owner = str(f.get(\"owner\") or \"\").strip().lower()",
+    "replace": "        if False:\n            counts[\"repeat\"] += 1\n            continue\n        _remember(text, seen, \"action\")\n        owner = str(f.get(\"owner\") or \"\").strip().lower()"
   },
   {
     "file": "server/checklist.py",
