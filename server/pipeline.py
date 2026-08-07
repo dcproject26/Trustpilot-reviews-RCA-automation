@@ -3082,6 +3082,16 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 timeline, extracted_bk = [], {}
                 zd_meta = {"ticket_ids": [], "timeline_raw": []}
 
+        # WHICH SEARCHES RAN, before the count of what they found. The card
+        # said "one contact" with total confidence because the ticket search
+        # stopped at the first route that returned anything; this line is what
+        # makes a complete search distinguishable from a short one.
+        _sr = zd_meta.get("search_tally")
+        if _sr:
+            _sr_entry = zendesk.collect_trail(bid_for_zd, _sr)
+            if _sr_entry:
+                confidence_trail.append(_sr_entry)
+
         _tl_entry = timeline_entry(bid_for_zd, timeline,
                                    zd_meta.get("ticket_ids") or [], _zd_err)
         if _tl_entry:

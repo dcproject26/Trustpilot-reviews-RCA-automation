@@ -48,7 +48,127 @@ _ZD_SEM = LoopLocalSemaphore(10)
 IST = timezone(timedelta(hours=5, minutes=30))
 
 # Search-path hit counters (reported in delta verification)
-SEARCH_COUNTERS = {"fieldvalue": 0, "free_text": 0}
+SEARCH_COUNTERS = {"fieldvalue": 0, "free_text": 0, "requester": 0}
+
+
+def requester_email(tickets, signals=None) -> str:
+    """The guest's email, off the tickets we already found.
+
+    Two sources, and the custom field goes first because it is the one the
+    desk fills in per booking — "Customer Email" on the ticket, sitting beside
+    Tour Name and City. The requester's own address is the fallback: it is
+    structural, always present, and occasionally the address of whoever
+    forwarded the mail rather than the guest.
+
+    Returns "" when neither is readable, which is NOT an error — some tickets
+    genuinely have no requester email, and the caller reports the route as
+    unattempted rather than as having found nothing.
+    """
+    read = signals or ticket_signals
+    for t in (tickets or []):
+        try:
+            got = str((read(t) or {}).get("guest_email") or "").strip()
+        except Exception:
+            got = ""
+        if "@" in got:
+            return got
+    for t in (tickets or []):
+        got = ""
+        for attr in ("requester", "via"):
+            obj = getattr(t, attr, None)
+            got = str(getattr(obj, "email", "") or "").strip()
+            if "@" in got:
+                return got
+    return ""
+
+
+def collect_tickets(booking_id, search, email_of=None) -> tuple:
+    """Every ticket on this case, from ALL routes, deduplicated by ticket id.
+
+    THE SHORT-CIRCUIT THIS REPLACES:
+
+        tickets = search(f"type:ticket fieldvalue:{bid}")
+        if tickets: ...
+        else:       tickets = search(f'type:ticket "{bid}"')
+
+    Free-text ran only when the custom-field search found NOTHING. Measured on
+    one real case, the booking-id custom field is set on ONE ticket of four:
+
+        fieldvalue:33202346   -> 1   (the refund mail)
+        "33202346"            -> 3   (+ the chat, + a system ticket)
+        requester:<email>     -> 4   (+ an On-hold contact about this booking)
+
+    So fieldvalue returned something, the cascade stopped, and the card said
+    "one contact" — truthfully reporting what it found, having looked in the
+    one place that did not have the answer. Two real guest conversations were
+    invisible, one of them still open.
+
+    Stopping at the first route that returns ANYTHING rather than the first
+    that returns EVERYTHING is the same defect the booking cascade had.
+
+    `search` and `email_of` are injected so this is driven in tests without
+    Zendesk.
+
+    Returns `(tickets, tally)`. The tally counts what EACH route contributed
+    after dedupe, so "one contact" can only ever be printed when all three
+    ran — and `requester_skipped` says so when there was no email to search
+    on, which is not the same as a search that found nothing.
+    """
+    _email_of = email_of or requester_email
+    tally = {"fieldvalue": 0, "free_text": 0, "requester": 0,
+             "duplicates": 0, "requester_skipped": False}
+    out, seen = [], set()
+
+    def _take(rows, route):
+        for t in (rows or []):
+            tid = str(getattr(t, "id", "") or "")
+            if tid and tid in seen:
+                tally["duplicates"] += 1
+                continue
+            if tid:
+                seen.add(tid)
+            out.append(t)
+            tally[route] += 1
+
+    _take(search(f"type:ticket fieldvalue:{booking_id}"), "fieldvalue")
+    # NOT an elif. Both run, always.
+    _take(search(f'type:ticket "{booking_id}"'), "free_text")
+
+    # The requester route needs an address, and the address comes off the
+    # tickets the first two routes found — so it runs last and only when they
+    # found something to read it from.
+    email = _email_of(out) if out else ""
+    if email:
+        _take(search(f"type:ticket requester:{email}"), "requester")
+    else:
+        tally["requester_skipped"] = True
+    return out, tally
+
+
+def collect_trail(booking_id, tally) -> dict:
+    """One line saying which routes ran and what each added, or None.
+
+    None only when a single route found everything and the others added
+    nothing — there is no news in "and two other searches agreed". Anything
+    else is said out loud, because the failure being fixed here was a card
+    that reported one contact with total confidence.
+    """
+    extra = tally["free_text"] + tally["requester"]
+    if not (extra or tally["requester_skipped"]):
+        return None
+    bits = [f"{tally['fieldvalue']} by booking-id field"]
+    if tally["free_text"]:
+        bits.append(f"{tally['free_text']} more by searching the text")
+    if tally["requester"]:
+        bits.append(f"{tally['requester']} more from the same requester "
+                    f"(these may include another trip)")
+    if tally["requester_skipped"]:
+        bits.append("the requester search did NOT run — no email on any "
+                    "ticket found, so contacts filed under another booking "
+                    "id would not be here")
+    return {"mark": "warn" if tally["requester_skipped"] else "pass",
+            "text": f"<strong>Zendesk contacts for {booking_id}:</strong> "
+                    + "; ".join(bits) + "."}
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _SIG_SPLIT_RE = re.compile(r"(?:^--\s*$|\bBest regards\b)", re.I | re.M)
@@ -739,19 +859,21 @@ def _get_timeline_sync(_z, booking_id: str):
     meta contains ticket_ids, timeline_raw (parallel raw bodies), and
     zendesk_requester_name.
     """
-    # ── Search: fieldvalue first, free-text fallback ─────────────────────────
-    tickets = _search_with_retry(_z, f"type:ticket fieldvalue:{booking_id}")
-    if tickets:
-        SEARCH_COUNTERS["fieldvalue"] += 1
-        log.info(f"[zendesk] fieldvalue: {len(tickets)} tickets for BID {booking_id}")
-    else:
-        tickets = _search_with_retry(_z, f'type:ticket "{booking_id}"')
-        if tickets:
-            SEARCH_COUNTERS["free_text"] += 1
-            log.info(f"[zendesk] free-text: {len(tickets)} tickets for BID {booking_id}")
-        else:
-            log.info(f"[zendesk] no tickets for BID {booking_id} (both search paths)")
-            return [], {}, {"ticket_ids": [], "timeline_raw": [], "zendesk_requester_name": ""}
+    # ── Search: ALL THREE ROUTES, unioned ────────────────────────────────────
+    # Not fieldvalue-then-fallback. The custom field is set on a minority of a
+    # case's tickets, so a hit there used to end the search with the chat and
+    # the open contact still unfound. See `collect_tickets`.
+    tickets, _search_tally = collect_tickets(
+        booking_id, lambda q: _search_with_retry(_z, q))
+    for _route in ("fieldvalue", "free_text", "requester"):
+        if _search_tally[_route]:
+            SEARCH_COUNTERS[_route] += 1
+    log.info(f"[zendesk] BID {booking_id}: {len(tickets)} ticket(s) — {_search_tally}")
+    if not tickets:
+        log.info(f"[zendesk] no tickets for BID {booking_id} (all search routes)")
+        return [], {}, {"ticket_ids": [], "timeline_raw": [],
+                        "zendesk_requester_name": "",
+                        "search_tally": _search_tally}
 
     # ── Extract booking fields from custom fields + tags ─────────────────────
     extracted = {}
@@ -940,6 +1062,9 @@ def _get_timeline_sync(_z, booking_id: str):
         "timeline_raw": timeline_raw,
         "timeline_raw_ticket_ids": timeline_raw_ticket_ids,
         "zendesk_requester_name": zendesk_requester_name,
+        # WHICH ROUTES RAN AND WHAT EACH FOUND. Carried out so the trail can
+        # say it: "one contact" is only honest when all three searched.
+        "search_tally": _search_tally,
     }
 
 
