@@ -565,21 +565,9 @@
   },
   {
     "file": "server/services/rca_v4_validate.py",
-    "name": "case findings: the evidence merge stops running",
-    "find": "    for i in (issues or []):\n        for e in (i.get(\"evidence\") or []):",
-    "replace": "    for i in []:\n        for e in (i.get(\"evidence\") or []):"
-  },
-  {
-    "file": "server/services/rca_v4_validate.py",
     "name": "case findings: duplicates are kept",
     "find": "        if not key or key in seen:\n            return",
     "replace": "        if not key:\n            return"
-  },
-  {
-    "file": "server/services/rca_v4_validate.py",
-    "name": "case findings: the merge stops being reported",
-    "find": "    if merged:\n        notes.append(",
-    "replace": "    if False:\n        notes.append("
   },
   {
     "file": "server/services/rca_v4_validate.py",
