@@ -942,6 +942,10 @@ def _get_timeline_sync(_z, booking_id: str):
     # ── Extract booking fields from custom fields + tags ─────────────────────
     extracted = {}
     ticket_mail_seen = False
+    # COUNTED. A private note that was read and set aside and one that was
+    # never fetched produce the same timeline, and only the count tells them
+    # apart.
+    _private_kept = _private_dropped = 0
     for t in tickets:
         if not extracted.get("tgid"):
             v = get_custom_field(t, ZENDESK_TGID_FIELD)
@@ -1057,6 +1061,32 @@ def _get_timeline_sync(_z, booking_id: str):
             actor = _detect_actor(author_id, ticket, _role(author_id), is_sp, tags,
                                   body=body, via_channel=via_ch)
             thread = "sp" if is_sp else _map_channel(via_ch)
+            # ONLY THE PRIVATE NOTES THAT RECORD A BOOKING FACT.
+            #
+            # Keeping every private comment was wrong twice over. What was
+            # asked for was the notes that say what happened to the booking —
+            # rescheduled, cancelled, refunded — and what arrived was all of
+            # them: agent macros, queue moves, and full HTML mail bodies
+            # complete with ![Logo](https://cdn-imgix-open...). That payload
+            # went to the shaping call, which came back unparseable, and
+            # `_fallback_shape` rendered RAW BODIES with generic labels. The
+            # entire timeline regressed and nothing said why.
+            #
+            # `note_disposition` already encodes the rule — reschedule,
+            # cancellation, refund, tickets sent, payment are booking facts;
+            # ticket administration is not. It was written for exactly this
+            # and was being applied after shaping, too late to keep the
+            # payload sane.
+            #
+            # "judge" is KEPT, per its own contract: unsure means show it.
+            if _is_private:
+                from server.ticket_notes import note_disposition
+                _verdict, _why_note = note_disposition(body)
+                if _verdict == "drop":
+                    _private_dropped += 1
+                    continue
+                _private_kept += 1
+
             reason = _internal_reason(body, via_ch, _role(author_id))
             # A private comment IS internal, whatever its text looks like.
             # `_internal_reason` reads the body for machinery patterns and a
@@ -1161,6 +1191,7 @@ def _get_timeline_sync(_z, booking_id: str):
         # WHICH ROUTES RAN AND WHAT EACH FOUND. Carried out so the trail can
         # say it: "one contact" is only honest when all three searched.
         "search_tally": _search_tally,
+        "internal_notes": {"kept": _private_kept, "dropped": _private_dropped},
     }
 
 
@@ -2534,8 +2565,22 @@ async def _shape_via_claude(
 
     shaped = _safe_parse_events(raw_text)
     if not shaped:
-        log.warning("[zendesk] Claude returned unparseable shaping response — using fallback")
-        return _fallback_shape(raw_events)
+        # THE FALLBACK MUST NOT PASS FOR A TIMELINE. `_fallback_shape` renders
+        # RAW BODIES with category labels — "System event" over
+        # "![Logo](https://cdn-imgix-open...)" — and it rendered them under the
+        # same heading, in the same rows, as a shaped timeline. A reader saw a
+        # redesign; what had happened was that the shaping call failed.
+        #
+        # It failed because the payload grew: every private comment, HTML mail
+        # bodies and all, went into one prompt. That is fixed at the fetch, but
+        # the fallback being INVISIBLE is the reason it took a screenshot to
+        # find out, so the rows now say what they are.
+        log.warning("[zendesk] Claude returned unparseable shaping response — "
+                    "falling back to RAW bodies for %d event(s)", len(raw_events))
+        rows = _fallback_shape(raw_events)
+        for r in rows:
+            r["shaping_failed"] = True
+        return rows
 
     # Claude returns prose, not provenance: it is asked to echo each raw event's
     # timestamp and to name the raw indices it collapsed, and everything else

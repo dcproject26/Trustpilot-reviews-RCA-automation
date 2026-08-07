@@ -161,3 +161,68 @@ def test_a_long_body_can_still_match_a_later_pattern():
     a transcript that ALSO dumps credentials is still machinery."""
     body = TRANSCRIPT + "\nvendor login: portal-user / password: hunter2"
     assert _machine_body_reason(body) == "credentials", _machine_body_reason(body)
+
+
+# ── only the notes that record a booking fact ─────────────────────────────
+
+from server.ticket_notes import note_disposition
+
+
+def test_a_reschedule_note_is_kept():
+    """What was actually asked for."""
+    assert note_disposition("Guest rescheduled to 11:00")[0] == "keep"
+
+
+def test_a_cancellation_note_is_kept():
+    assert note_disposition("Original 08:30 slot cancelled via API")[0] == "keep"
+
+
+def test_a_refund_note_is_kept():
+    assert note_disposition("Refund of EUR 39.59 processed to wallet")[0] == "keep"
+
+
+def test_ticket_administration_is_dropped():
+    """Keeping EVERY private comment sent agent macros, queue moves and full
+    HTML mail bodies into one shaping prompt. It came back unparseable and
+    `_fallback_shape` rendered RAW BODIES — "![Logo](https://cdn-imgix-open…)"
+    under a "System event" label — for the whole timeline."""
+    assert note_disposition("Ticket assigned to Tier 2 queue")[0] == "drop"
+
+
+def test_an_unclear_note_is_kept_not_dropped():
+    """Unsure means show it. Hiding a booking fact is the expensive
+    direction."""
+    assert note_disposition("Spoke to the vendor about this one")[0] == "judge"
+
+
+def test_the_fetch_applies_the_disposition_rule():
+    """WIRING. `note_disposition` was being applied AFTER shaping — too late
+    to keep the payload sane, which is what broke the timeline."""
+    src = open("server/services/zendesk.py", encoding="utf-8").read()
+    i = src.index("_is_private = getattr(c,")
+    j = src.index("events.append((", i)
+    assert "note_disposition(body)" in src[i:j], \
+        "the fetch keeps every private comment again"
+
+
+def test_a_failed_shaping_marks_its_rows():
+    """A fallback timeline is raw bodies under category labels, and it rendered
+    in the same rows as a shaped one — so a failed model call read as a
+    redesign of the card."""
+    src = open("server/services/zendesk.py", encoding="utf-8").read()
+    assert 'r["shaping_failed"] = True' in src, \
+        "a fallback timeline is indistinguishable from a shaped one again"
+
+
+def test_the_trail_says_the_timeline_was_not_summarised():
+    src = open("server/pipeline.py", encoding="utf-8").read()
+    assert "The events timeline was not summarised" in src
+    assert 'e.get("shaping_failed")' in src
+
+
+def test_the_trail_counts_the_internal_notes():
+    """A note read and set aside and a note never fetched leave the same
+    timeline. Only the count tells them apart — and it is the reason this took
+    a screenshot to find."""
+    src = open("server/pipeline.py", encoding="utf-8").read()
+    assert "<strong>Internal notes:</strong>" in src

@@ -3101,6 +3101,27 @@ async def process_review(review_id: str, force_candidates: bool = False):
             if _sr_entry:
                 confidence_trail.append(_sr_entry)
 
+        # THE SHAPING FAILED, SAID OUT LOUD. A fallback timeline is raw ticket
+        # bodies under category labels, and it rendered in the same rows as a
+        # shaped one — so a failed model call read as a redesign of the card.
+        if any(isinstance(e, dict) and e.get("shaping_failed") for e in (timeline or [])):
+            confidence_trail.append({"mark": "fail",
+                "text": "<strong>The events timeline was not summarised.</strong> "
+                        "The shaping call came back unreadable, so these rows are "
+                        "the RAW ticket bodies with category labels — not the "
+                        "usual descriptive ones. Nothing is missing; nothing has "
+                        "been rewritten. Re-run to try again."})
+
+        # HOW MANY INTERNAL NOTES CAME IN, and how many were set aside. A note
+        # read and dropped and a note never fetched leave the same timeline.
+        _in = (zd_meta or {}).get("internal_notes") or {}
+        if _in.get("kept") or _in.get("dropped"):
+            confidence_trail.append({"mark": "pass" if _in.get("kept") else "warn",
+                "text": f"<strong>Internal notes:</strong> {_in.get('kept', 0)} kept "
+                        f"as booking facts (reschedules, cancellations, refunds); "
+                        f"{_in.get('dropped', 0)} were ticket administration and "
+                        f"are not on the timeline."})
+
         _tl_entry = timeline_entry(bid_for_zd, timeline,
                                    zd_meta.get("ticket_ids") or [], _zd_err)
         if _tl_entry:
