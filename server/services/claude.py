@@ -664,7 +664,18 @@ async def shape_timeline_events(prompt: str) -> str:
     entries. Returns the raw text response for the caller to parse.
     Always runs against the live model (MOCK_MODE timelines bypass this).
     """
-    return await _call(prompt, max_tokens=3000)
+    # 3000 WAS NOT ENOUGH FOR THE TIMELINES THIS ACTUALLY GETS. The prompt
+    # asks for one shaped entry per raw event, the fetch caps at 41 events
+    # (20 + elision marker + 20), and an entry with idx_range, time, thread,
+    # actor, label and summary runs 60-100 tokens. Forty of those is past
+    # 3000, so the answer was cut mid-array — and `_safe_parse_events` needs a
+    # CLOSED array, so it returned [] and the whole timeline fell back to raw
+    # ticket bodies under category labels.
+    #
+    # The RCA call next door already sizes for its own shape and repairs a
+    # truncated tail; this one did neither. Same figure as that call, for the
+    # same reason: a long case must degrade, not vanish.
+    return await _call(prompt, max_tokens=16000)
 
 
 # ─── 8. Ticket fact extraction (Zendesk → structured facts) ─────────────────

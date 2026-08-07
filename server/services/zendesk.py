@@ -116,14 +116,37 @@ def collect_tickets(booking_id, search, email_of=None) -> tuple:
     """
     _email_of = email_of or requester_email
     tally = {"fieldvalue": 0, "free_text": 0, "requester": 0,
-             "duplicates": 0, "requester_skipped": False}
+             "duplicates": 0, "id_collision": 0, "requester_skipped": False}
     out, seen = [], set()
+
+    _bid = str(booking_id or "").strip()
 
     def _take(rows, route):
         for t in (rows or []):
             tid = str(getattr(t, "id", "") or "")
             if tid and tid in seen:
                 tally["duplicates"] += 1
+                continue
+            # THE ID COLLISION. Zendesk ticket ids and Headout booking ids
+            # share the same numeric space — both are commonly eight digits —
+            # so a free-text search for "32885089" matches TICKET #32885089,
+            # which has nothing to do with booking 32885089.
+            #
+            # That is not hypothetical: it put a German-language chat from
+            # 11 Jun at the top of a timeline whose booking was not confirmed
+            # until 21 Jul. A month before the booking existed, wrecking the
+            # chronology and the case findings built on it.
+            #
+            # `bids_from_ticket_text` already guards this in the other
+            # direction ("a ticket body referencing ANOTHER ticket would
+            # otherwise be harvested as a booking id"). The search needed the
+            # same guard and did not have it.
+            #
+            # Only the TEXT routes are affected. `fieldvalue:` matched a custom
+            # field, which is a statement about the booking; a requester hit is
+            # about the person. Neither can collide this way.
+            if route == "free_text" and tid and tid == _bid:
+                tally["id_collision"] += 1
                 continue
             if tid:
                 seen.add(tid)
@@ -153,7 +176,7 @@ def collect_trail(booking_id, tally) -> dict:
     else is said out loud, because the failure being fixed here was a card
     that reported one contact with total confidence.
     """
-    extra = tally["free_text"] + tally["requester"]
+    extra = tally["free_text"] + tally["requester"] + tally.get("id_collision", 0)
     if not (extra or tally["requester_skipped"]):
         return None
     bits = [f"{tally['fieldvalue']} by booking-id field"]
@@ -162,6 +185,10 @@ def collect_trail(booking_id, tally) -> dict:
     if tally["requester"]:
         bits.append(f"{tally['requester']} more from the same requester "
                     f"(these may include another trip)")
+    if tally.get("id_collision"):
+        bits.append(f"{tally['id_collision']} ticket whose own NUMBER equals "
+                    f"this booking id was excluded — same numeric space, "
+                    f"different thing")
     if tally["requester_skipped"]:
         bits.append("the requester search did NOT run — no email on any "
                     "ticket found, so contacts filed under another booking "
@@ -2542,7 +2569,61 @@ def _safe_parse_events(text: str) -> list:
                 return parsed
         except Exception:
             pass
-    return []
+    # A TRUNCATED ARRAY, SALVAGED. Both attempts above need a CLOSED `]`, so a
+    # response cut mid-array returned nothing at all and the caller fell back
+    # to raw ticket bodies for EVERY event — losing forty shaped entries
+    # because the forty-first was incomplete.
+    #
+    # The RCA path already does this ("closing the open string and braces so a
+    # long RCA degrades to a partial one instead of vanishing"); the timeline
+    # path never learned it. Whole objects are kept, the incomplete tail is
+    # dropped, and the caller is told how many so a short timeline cannot pass
+    # for a complete one.
+    salvaged = _salvage_objects(cleaned)
+    if salvaged:
+        log.warning("[zendesk] shaping response was truncated — salvaged %d "
+                    "complete event(s); the tail was incomplete and dropped",
+                    len(salvaged))
+    return salvaged
+
+
+def _salvage_objects(text: str) -> list:
+    """Every complete top-level {...} in a truncated JSON array.
+
+    Brace-counting rather than a regex, because a summary legitimately
+    contains braces and quotes; the scan tracks string state so a brace inside
+    a quoted value does not close an object.
+    """
+    import json as _json
+    out, depth, start, in_str, esc = [], 0, None, False, False
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start is not None:
+                try:
+                    obj = _json.loads(text[start:i + 1])
+                    if isinstance(obj, dict):
+                        out.append(obj)
+                except Exception:
+                    pass
+                start = None
+            elif depth < 0:
+                depth = 0
+    return out
 
 
 async def _shape_via_claude(
@@ -2595,8 +2676,16 @@ async def _shape_via_claude(
                   for e in by_idx.values() if e.get("time")}
 
     kept = []
+    _dropped_by_model = 0
     for ev in shaped:
         if not ev.get("keep", True):
+            # COUNTED. The prompt says "KEEP EVERY EVENT — keep: false only
+            # for an event with no readable content at all", and a model that
+            # drops more than that leaves a timeline that simply looks
+            # shorter. A payment reminder and a charge confirmation
+            # disappearing takes the payment story with them, and nothing on
+            # the card said the count had moved.
+            _dropped_by_model += 1
             continue
         srcs = sorted((by_idx[i] for i in (ev.get("idx_range") or []) if i in by_idx),
                       key=lambda s: s.get("idx", 0))
@@ -2670,7 +2759,16 @@ async def _shape_via_claude(
             "is_internal":     is_internal,
             "internal_reason": internal[0].get("internal_reason", "") if is_internal else "",
         })
-    return select_internal_notes(kept)
+    out = select_internal_notes(kept)
+    # RAW IN, SHAPED OUT. Collapsing is legitimate — the prompt asks for it —
+    # but "10 events became 8" is a judgement the model made and the reader
+    # cannot see. Stamped on the first row so the pipeline can put it on the
+    # trail; a shorter timeline and a complete one look identical otherwise.
+    if out and len(raw_events) != len(out):
+        out[0] = dict(out[0], _shape_counts={
+            "raw": len(raw_events), "shown": len(out),
+            "dropped_by_model": _dropped_by_model})
+    return out
 
 
 # The guest's real name for a booking id, and where it came from.

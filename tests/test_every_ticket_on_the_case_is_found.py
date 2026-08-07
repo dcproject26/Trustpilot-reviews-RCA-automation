@@ -78,7 +78,11 @@ def test_the_chat_and_the_open_contact_are_both_found():
     ids = sorted(str(t.id) for t in got)
     assert "34383352" in ids, "the chat is still invisible"
     assert "34382691" in ids, "the On-hold contact is still invisible"
-    assert len(ids) == 5, ids          # 4 real + the id-collision system ticket
+    # FOUR. The measured free-text search also returned ticket #33202346 —
+    # whose NUMBER is the booking id — and that one is excluded by the
+    # collision guard below, not carried. It is a different thing that happens
+    # to be the same number.
+    assert len(ids) == 4, ids
 
 
 def test_free_text_runs_even_when_the_field_search_succeeded():
@@ -209,3 +213,50 @@ def test_a_ticket_with_no_id_is_still_carried():
     got, _ = collect_tickets("1", _searcher({"fieldvalue:1": [_NoId()]}),
                              lambda ts: "")
     assert len(got) == 1
+
+
+# ── the ticket id / booking id collision ───────────────────────────────────
+
+def test_a_ticket_whose_number_equals_the_booking_id_is_excluded():
+    """THE CHRONOLOGY BUG. Zendesk ticket ids and Headout booking ids share
+    the same numeric space, so free-text "32885089" matched TICKET #32885089 —
+    an unrelated German-language chat from 11 Jun — and put it at the top of a
+    timeline whose booking was not confirmed until 21 Jul.
+
+    A month before the booking existed, above every real event, with the case
+    findings written from it.
+    """
+    s = _searcher({"fieldvalue:32885089": [_T("34382891", "a@b.com")],
+                   '"32885089"': [_T("32885089"), _T("34382891", "a@b.com")]})
+    got, tally = collect_tickets("32885089", s, lambda ts: "")
+    assert [str(t.id) for t in got] == ["34382891"], [str(t.id) for t in got]
+    assert tally["id_collision"] == 1, tally
+
+
+def test_the_collision_is_reported_not_silently_dropped():
+    """A ticket removed without a word is one nobody can check. If the
+    exclusion is ever wrong, the count is how anyone finds out."""
+    s = _searcher({'"1"': [_T("1")]})
+    _, tally = collect_tickets("1", s, lambda ts: "")
+    line = collect_trail("1", tally)
+    assert line and "own NUMBER equals this booking id" in line["text"], line
+
+
+def test_only_the_text_route_is_guarded():
+    """`fieldvalue:` matched a CUSTOM FIELD — a statement about the booking —
+    and a requester hit is about the person. Neither can collide this way, and
+    excluding a real ticket because its number happens to match would lose the
+    case's own ticket."""
+    s = _searcher({"fieldvalue:34382891": [_T("34382891", "a@b.com")]})
+    got, tally = collect_tickets("34382891", s, lambda ts: "")
+    assert [str(t.id) for t in got] == ["34382891"]
+    assert tally["id_collision"] == 0, tally
+
+
+def test_a_collision_ticket_found_by_the_field_search_is_kept():
+    """If the custom field says this ticket is about this booking, it is —
+    whatever its own number happens to be."""
+    s = _searcher({"fieldvalue:32885089": [_T("32885089")]})
+    got, tally = collect_tickets("32885089", s, lambda ts: "")
+    assert [str(t.id) for t in got] == ["32885089"]
+    assert tally["id_collision"] == 0

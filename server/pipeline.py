@@ -3112,6 +3112,22 @@ async def process_review(review_id: str, force_candidates: bool = False):
                         "usual descriptive ones. Nothing is missing; nothing has "
                         "been rewritten. Re-run to try again."})
 
+        # WHAT THE SHAPING COLLAPSED OR DROPPED. Legitimate, and invisible:
+        # a timeline that went from ten rows to eight looks exactly like a
+        # booking with eight events.
+        _sc = next((e.get("_shape_counts") for e in (timeline or [])
+                    if isinstance(e, dict) and e.get("_shape_counts")), None)
+        if _sc:
+            _bits = [f"{_sc['raw']} ticket event(s) read, {_sc['shown']} shown"]
+            if _sc.get("dropped_by_model"):
+                _bits.append(f"{_sc['dropped_by_model']} judged to have no "
+                             f"readable content")
+            _bits.append("the rest were collapsed as one action at one moment")
+            confidence_trail.append({"mark": "warn",
+                "text": "<strong>Events timeline:</strong> " + "; ".join(_bits)
+                        + ". Nothing was deleted — open a ticket to see every "
+                          "comment."})
+
         # HOW MANY INTERNAL NOTES CAME IN, and how many were set aside. A note
         # read and dropped and a note never fetched leave the same timeline.
         _in = (zd_meta or {}).get("internal_notes") or {}
