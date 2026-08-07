@@ -133,3 +133,62 @@ def test_a_row_with_no_usable_slack_ts_is_reported_not_silently_left():
     action, why = classify(datetime(2030, 1, 1), "garbage")
     assert action == "skip", action
     assert "no better value" in why
+
+
+# ── the script has to RUN, not just import ─────────────────────────────────
+
+def test_the_backfill_runs_as_a_program(tmp_path):
+    """IT DID NOT. `from server.db import ...` raised ModuleNotFoundError the
+    moment anyone actually ran it, because the file lives in scripts/ and the
+    repo root was not on sys.path. Every test above imports the pure functions
+    through pytest, which puts the root on the path itself — so the script was
+    green and unrunnable at the same time, which is the failure CLAUDE.md
+    opens with.
+
+    Driven as a SUBPROCESS, the way it is used. Importing main() would not
+    have caught it either.
+    """
+    import os
+    import subprocess
+    import sys
+
+    db = tmp_path / "t.db"
+    env = dict(os.environ, DATABASE_URL=f"sqlite:///{db}")
+    seed = (
+        "import sys; sys.path.insert(0, '.')\n"
+        "from datetime import datetime\n"
+        "import server.db as db\n"
+        "db.init_db()\n"
+        "s = db.SessionLocal()\n"
+        "s.add(db.Review(id='r1', slack_ts='1753539960.0', rating=1,\n"
+        "                author='A', body_original='b', status='draft',\n"
+        "                received_at=datetime(2025, 7, 27, 9, 0)))\n"
+        "s.commit(); s.close()\n")
+    subprocess.run([sys.executable, "-c", seed], check=True, env=env,
+                   capture_output=True)
+
+    dry = subprocess.run([sys.executable, "scripts/backfill_received_at.py"],
+                         env=env, capture_output=True, text=True)
+    assert dry.returncode == 0, dry.stderr[-800:]
+    assert "1 review(s) examined" in dry.stdout, dry.stdout
+    assert "dry run — nothing written" in dry.stdout, dry.stdout
+
+    # DRY MUST MEAN DRY. A report that quietly writes is worse than one that
+    # refuses to.
+    read = ("import sys; sys.path.insert(0, '.')\n"
+            "import server.db as db\n"
+            "s = db.SessionLocal()\n"
+            "print(s.query(db.Review).first().received_at)\n"
+            "s.close()\n")
+    before = subprocess.run([sys.executable, "-c", read], env=env,
+                            capture_output=True, text=True).stdout.strip()
+    assert before.startswith("2025-07-27"), before
+
+    hot = subprocess.run(
+        [sys.executable, "scripts/backfill_received_at.py", "--apply"],
+        env=env, capture_output=True, text=True)
+    assert hot.returncode == 0, hot.stderr[-800:]
+    assert "dry run" not in hot.stdout, hot.stdout
+    after = subprocess.run([sys.executable, "-c", read], env=env,
+                           capture_output=True, text=True).stdout.strip()
+    assert after.startswith("2025-07-26"), (before, after)

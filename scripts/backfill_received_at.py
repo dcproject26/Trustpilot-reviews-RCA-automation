@@ -30,8 +30,16 @@ Dry by default, because a column this many things read is not one to rewrite
 on a typo.
 """
 import argparse
+import os
 import sys
 from datetime import datetime, timezone
+
+# THE REPO ROOT, because this file lives in scripts/ and is run as a program.
+# Without it `from server.db import ...` raises ModuleNotFoundError the moment
+# anyone actually runs this — which nobody had, because the tests import the
+# pure functions through pytest and pytest puts the root on sys.path itself.
+# Tested, green, and unrunnable: the failure this codebase opens with.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def slack_time(slack_ts):

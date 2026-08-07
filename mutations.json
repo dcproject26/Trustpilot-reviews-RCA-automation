@@ -658,5 +658,17 @@
     "name": "timeline: a runaway label is cut with no marker",
     "find": "    return cut.rstrip(\" ,;:-\") + f\" […cut at {n} chars]\"",
     "replace": "    return cut.rstrip(\" ,;:-\")"
+  },
+  {
+    "file": "scripts/backfill_received_at.py",
+    "name": "backfill: the script is unrunnable again",
+    "find": "sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))",
+    "replace": "pass"
+  },
+  {
+    "file": "scripts/backfill_received_at.py",
+    "name": "backfill: --apply defaults to on, so a report writes",
+    "find": "    ap.add_argument(\"--apply\", action=\"store_true\",",
+    "replace": "    ap.add_argument(\"--apply\", action=\"store_false\","
   }
 ]
