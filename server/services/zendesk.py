@@ -2101,6 +2101,86 @@ def clip_shaped_text(ev: dict) -> dict:
             "summary": _clip(e.get("summary", ""), SUMMARY_CAP)}
 
 
+_MONEY_IN_NOTE = re.compile(
+    r"(?:[A-Z]{3}\s*\d|[£€$₹]\s*\d)", re.I)
+
+
+def select_internal_notes(events: list) -> list:
+    """Keep the internal notes that say something; collapse repeated pings.
+
+    WIRED HERE BECAUSE IT WAS WIRED NOWHERE. `server/ticket_notes.py` has held
+    `note_disposition`, `collapse_repeats` and `ping_summary` with tests since
+    they were written, and no code path called any of them — so the rule
+    "drop ticket housekeeping, keep booking facts, collapse repeated system
+    pings" existed only as a passing test suite. Every internal note reached
+    the card and the client hid the lot behind a toggle.
+
+    THREE OUTCOMES, and they must not look alike on the row:
+      keep  — a booking fact. It stops being internal: `is_internal` is
+              cleared so it renders inline rather than behind the toggle,
+              which is the whole point of keeping it.
+      drop  — ticket administration. Stays marked internal and stays behind
+              the toggle. NOT deleted: the toggle already says how many it
+              hid, and an event nobody can reach is one nobody can check.
+      judge — no certain signal, so it is KEPT. Unsure means show it; hiding
+              a booking fact is the expensive direction and hiding it
+              silently is worse.
+
+    A collapsed run becomes ONE row carrying its count and span, because with
+    four identical automated messages the repetition is the signal and the
+    individual lines are not.
+    """
+    from server.ticket_notes import collapse_repeats, note_disposition, ping_summary
+
+    rows = [e for e in (events or []) if isinstance(e, dict)]
+    internal = [e for e in rows if e.get("is_internal")]
+    if not internal:
+        return rows
+
+    # NEVER COLLAPSE A ROW WHOSE DIGITS ARE THE POINT. `_ping_key` normalises
+    # digits to "#" — right for an automated ping, where a ticket number or a
+    # timestamp is boilerplate, and wrong where the number IS the fact:
+    # "Refund of GBP 5.12 processed" and "Refund of GBP 9.99 processed" share
+    # a key and would render as one repeated row, losing a second refund.
+    #
+    # Exempting every booking fact was tried and is too wide — three identical
+    # "Reschedule cannot be actioned" notes are a booking fact AND a repeated
+    # ping, and those are exactly what this is meant to collapse. Money is the
+    # narrow case where the digits carry the meaning.
+    facts = {id(e) for e in internal
+             if _MONEY_IN_NOTE.search(e.get("summary") or e.get("raw_body") or "")}
+    kept_pings, collapsed = collapse_repeats(
+        [e for e in internal if id(e) not in facts])
+    dropped_ids = ({id(e) for e in internal} - facts
+                   - {id(e) for e in kept_pings})
+
+    out, ids = [], {}
+    for e in rows:
+        if e.get("is_internal") and id(e) in dropped_ids:
+            continue                       # folded into its run's first row
+        original = id(e)
+        if e.get("is_internal"):
+            verdict, why = note_disposition(
+                e.get("summary") or e.get("raw_body") or "")
+            if verdict in ("keep", "judge"):
+                e = dict(e, is_internal=False,
+                         internal_reason=("" if verdict == "keep"
+                                          else f"kept because {why}"))
+        ids[len(out)] = original
+        out.append(e)
+
+    # The first row of each collapsed run carries the whole run. Keyed on the
+    # ORIGINAL object identity, which is what `collapse_repeats` returns — the
+    # loop above rebuilt some rows with dict(), so the lookup has to happen
+    # against the identities recorded before that.
+    runs = {id(c["first"]): c for c in collapsed}
+    out = [dict(e, summary=ping_summary(runs[k]), is_internal=False,
+                internal_reason=f"{runs[k]['count']} identical pings collapsed")
+           if (k := ids.get(i)) in runs else e
+           for i, e in enumerate(out)]
+    return out
+
+
 def _fallback_shape(raw_events: list) -> list:
     """
     Mechanical fallback when Claude shaping fails.
@@ -2324,7 +2404,7 @@ async def _shape_via_claude(
             "is_internal":     is_internal,
             "internal_reason": internal[0].get("internal_reason", "") if is_internal else "",
         })
-    return kept
+    return select_internal_notes(kept)
 
 
 # The guest's real name for a booking id, and where it came from.

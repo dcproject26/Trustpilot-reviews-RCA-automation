@@ -670,5 +670,35 @@
     "name": "backfill: --apply defaults to on, so a report writes",
     "find": "    ap.add_argument(\"--apply\", action=\"store_true\",",
     "replace": "    ap.add_argument(\"--apply\", action=\"store_false\","
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "internal notes: the selector is wired to nothing",
+    "find": "    return select_internal_notes(kept)",
+    "replace": "    return kept"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "internal notes: a booking fact stays behind the toggle",
+    "find": "        if verdict in (\"keep\", \"judge\"):",
+    "replace": "        if verdict == \"never\":"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "internal notes: an uncertain note is hidden",
+    "find": "            verdict, why = note_disposition(\n                e.get(\"summary\") or e.get(\"raw_body\") or \"\")\n            if verdict in (\"keep\", \"judge\"):",
+    "replace": "            verdict, why = note_disposition(\n                e.get(\"summary\") or e.get(\"raw_body\") or \"\")\n            if verdict == \"keep\":"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "internal notes: two different refunds collapse into one",
+    "find": "    facts = {id(e) for e in internal\n             if _MONEY_IN_NOTE.search(",
+    "replace": "    facts = {id(e) for e in [] \n             if _MONEY_IN_NOTE.search("
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "internal notes: a dropped note is deleted rather than hidden",
+    "find": "        if e.get(\"is_internal\") and id(e) in dropped_ids:\n            continue",
+    "replace": "        if e.get(\"is_internal\"):\n            continue"
   }
 ]
