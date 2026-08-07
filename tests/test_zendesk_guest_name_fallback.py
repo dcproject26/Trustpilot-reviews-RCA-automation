@@ -192,14 +192,30 @@ def test_a_review_with_no_author_never_reaches_the_fallback():
 # ── the pipeline actually supplies it ──────────────────────────────────────
 
 def test_the_shortlist_candidates_carry_the_zendesk_name():
-    """NEGATIVE-shaped source assertion, permitted by CLAUDE.md: the fallback
-    can be perfect and still never fire if nothing ever sets the field. This
-    is the wiring, and wiring that exists nowhere is the failure mode §1 opens
-    with — a validator called by nothing."""
+    """The fallback can be perfect and still never fire if nothing sets the
+    field — a validator called by nothing, which is what §1 of CLAUDE.md
+    opens with. This used to assert one line of pipeline.py verbatim; the
+    mapping now lives in `shortlist_rows`, so it is DRIVEN instead.
+
+    The case that matters is a hashed warehouse name: the ticket holds the
+    only readable copy, and it has to survive alongside rather than replace
+    the booking's own record.
+    """
+    from server.pipeline import shortlist_rows
+    rows, _ = shortlist_rows(
+        [{"booking_id": "1", "guest_name": "Mariana Campos"}],
+        lambda bid: {"primary_guest_name": "jVwe+fjfm48WSok1xEK+I/8fnI="})
+    assert rows[0]["zendesk_guest_name"] == "Mariana Campos"
+    assert rows[0]["primary_guest_name"] == "jVwe+fjfm48WSok1xEK+I/8fnI="
+
+
+def test_the_pipeline_puts_the_zendesk_name_onto_the_candidate():
+    """The remaining WIRING half, which driving `shortlist_rows` cannot show:
+    the branch has to copy the field onto the candidate the picker gets."""
     import inspect
     from server import pipeline
     src = inspect.getsource(pipeline)
-    assert '_c["zendesk_guest_name"] = _sig.get("guest_name", "")' in src, (
+    assert '_c["zendesk_guest_name"] = _row["zendesk_guest_name"]' in src, (
         "shortlist candidates no longer carry the Zendesk guest name, so the "
         "fallback can never fire on the path it was written for")
 

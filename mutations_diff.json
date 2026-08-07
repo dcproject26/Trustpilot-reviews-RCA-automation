@@ -1,140 +1,134 @@
 [
   {
-    "file": "tests/conftest.py",
-    "name": "ordering: the browser partition is dropped, so asyncio.run dies again",
-    "find": "    browser = [i for i in items if _needs_browser(i)]\n    if not browser:\n        return\n    rest = [i for i in items if not _needs_browser(i)]\n    items[:] = rest + browser",
-    "replace": "    browser = [i for i in items if _needs_browser(i)]\n    if not browser:\n        return\n    rest = [i for i in items if not _needs_browser(i)]"
-  },
-  {
-    "file": "tests/conftest.py",
-    "name": "ordering: the partition is INVERTED — browser tests run first",
-    "find": "    items[:] = rest + browser",
-    "replace": "    items[:] = browser + rest"
-  },
-  {
-    "file": "tests/conftest.py",
-    "name": "ordering: ui_server no longer counts as a browser fixture",
-    "find": "BROWSER_FIXTURES = {\"page\", \"ui_browser\", \"ui_server\"}",
-    "replace": "BROWSER_FIXTURES = {\"page\", \"ui_browser\"}"
-  },
-  {
-    "file": "tests/conftest.py",
-    "name": "ordering: the reseed between browser modules stops happening",
-    "find": "        from tests.test_rca_ui_rendered import seed_db\n        seed_db(self.url)",
-    "replace": "        pass"
+    "file": "server/pipeline.py",
+    "name": "shortlist: the warehouse is not asked at all (the reported blank card)",
+    "find": "            bq = lookup(bid) if bid else None\n            status = \"found\" if bq else \"absent\"",
+    "replace": "            bq = None\n            status = \"absent\""
   },
   {
     "file": "server/pipeline.py",
-    "name": "step3: the venue-mismatched shortlist ends the cascade again (the original bug)",
-    "find": "    return bool(tgids) and not venue_signal",
-    "replace": "    return False"
+    "name": "shortlist: a lookup that RAISED is reported as a booking we do not have",
+    "find": "        except Exception:\n            bq, status = None, \"failed\"",
+    "replace": "        except Exception:\n            bq, status = None, \"absent\""
   },
   {
     "file": "server/pipeline.py",
-    "name": "step3: the cascade continues even when the shortlist DID match the venue",
-    "find": "    return bool(tgids) and not venue_signal",
-    "replace": "    return not venue_signal"
+    "name": "shortlist: an empty warehouse field blanks out the ticket's value",
+    "find": "                if val not in (None, \"\"):\n                    merged[key] = val",
+    "replace": "                merged[key] = val"
   },
   {
     "file": "server/pipeline.py",
-    "name": "step3: continues with no venue to search on, losing the shortlist for nothing",
-    "find": "    return bool(tgids) and not venue_signal",
-    "replace": "    return not bool(tgids) or not venue_signal"
+    "name": "shortlist: the ticket overwrites the booking's own record",
+    "find": "            base = merged",
+    "replace": "            base = dict(merged, **{k: v for k, v in base.items() if v})"
   },
   {
     "file": "server/pipeline.py",
-    "name": "step3: a fallthrough that finds nothing leaves an EMPTY picker",
-    "find": "    if cascade_done or not fell_through or not saved_candidates:\n        return False, None, None",
-    "replace": "    return False, None, None"
+    "name": "shortlist: the Zendesk guest name is dropped, so the hash fallback cannot fire",
+    "find": "        base[\"zendesk_guest_name\"] = zd_name",
+    "replace": "        base[\"zendesk_guest_name\"] = \"\""
   },
   {
     "file": "server/pipeline.py",
-    "name": "step3: the restore fires over an answer Step 3 actually found",
-    "find": "    if cascade_done or not fell_through or not saved_candidates:",
-    "replace": "    if not fell_through or not saved_candidates:"
+    "name": "shortlist: a booking the warehouse lacks is dropped from the picker",
+    "find": "        tally[status] += 1\n        rows.append(base)",
+    "replace": "        tally[status] += 1\n        if status == \"found\":\n            rows.append(base)"
   },
   {
     "file": "server/pipeline.py",
-    "name": "step3: an EMPTY shortlist is restored, skipping Untraceable entirely",
-    "find": "    if cascade_done or not fell_through or not saved_candidates:",
-    "replace": "    if cascade_done or not fell_through:"
+    "name": "shortlist: an empty booking id is still sent to the warehouse",
+    "find": "            bq = lookup(bid) if bid else None",
+    "replace": "            bq = lookup(bid)"
   },
   {
     "file": "server/pipeline.py",
-    "name": "step3: the Zendesk branch ends the cascade unconditionally again",
-    "find": "                            cascade_done = not _venue_mismatch_fallthrough",
-    "replace": "                            cascade_done = True"
+    "name": "shortlist trail: a healthy shortlist prints a 0-count line as noise",
+    "find": "    if not total or not (absent or failed):\n        return None",
+    "replace": "    if not total:\n        return None"
   },
   {
-    "file": "server/services/bigquery.py",
-    "name": "identifiers: a PII hash is reported as a guest name that MATCHED",
-    "find": "    elif is_hashed_name(_bname):",
-    "replace": "    elif False and is_hashed_name(_bname):"
+    "file": "server/pipeline.py",
+    "name": "shortlist trail: bookings that could not be looked up go unmentioned",
+    "find": "    if failed:\n        bits.append(f\"{failed} could not be looked up, so nothing about \"",
+    "replace": "    if False:\n        bits.append(f\"{failed} could not be looked up, so nothing about \""
   },
   {
-    "file": "server/services/bigquery.py",
-    "name": "identifiers: an absent guest name is treated as a disagreement",
-    "find": "    elif not _bname:\n        uncheckable.append(\"guest name — the booking records none\")",
-    "replace": "    elif not _bname:\n        disagreed.append(\"guest name — the booking records none\")"
+    "file": "server/pipeline.py",
+    "name": "shortlist trail: missing bookings go unmentioned",
+    "find": "    if absent:\n        bits.append(f\"{absent} not in the warehouse at all",
+    "replace": "    if False:\n        bits.append(f\"{absent} not in the warehouse at all"
   },
   {
-    "file": "server/services/bigquery.py",
-    "name": "identifiers: 'nothing could be checked' is reported as a match",
-    "find": "    verdict = \"mismatch\" if _hard else (\"match\" if agreed else \"unchecked\")",
-    "replace": "    verdict = \"mismatch\" if _hard else \"match\""
+    "file": "server/pipeline.py",
+    "name": "shortlist: the lookup answer never reaches the candidate the picker gets",
+    "find": "                            _c[\"details_lookup\"] = _row[\"details_lookup\"]",
+    "replace": "                            pass"
   },
   {
-    "file": "server/services/bigquery.py",
-    "name": "identifiers: a differing visit date alone demotes the booking",
-    "find": "    _hard = [d for d in disagreed if d.startswith(\"guest name\")]",
-    "replace": "    _hard = list(disagreed)"
+    "file": "server/pipeline.py",
+    "name": "shortlist: the Zendesk name is not copied onto the candidate",
+    "find": "                            _c[\"zendesk_guest_name\"] = _row[\"zendesk_guest_name\"]",
+    "replace": "                            pass"
   },
   {
-    "file": "server/services/bigquery.py",
-    "name": "identifiers: a first-name-only agreement is called a mismatch",
-    "find": "        elif _s > 0:",
-    "replace": "        elif False and _s > 0:"
+    "file": "client/index.html",
+    "name": "sent: the sent bucket falls through to the Tier 1 vocabulary again",
+    "find": "  if (bucket === 'sent') {\n    if (!_matchBucket(row, tier, candState).startsWith('identified'))\n      return 'Sent without a confirmed booking';\n    bucket = 'identified';\n  }",
+    "replace": ""
   },
   {
-    "file": "server/services/reply_language.py",
-    "name": "language: detection gated on the translation being fresh again",
-    "find": "    if not _was_translated_inbound(review):",
-    "replace": "    if _was_translated_inbound(review):"
+    "file": "client/index.html",
+    "name": "sent: an unmatched sent review is called identified",
+    "find": "    if (!_matchBucket(row, tier, candState).startsWith('identified'))\n      return 'Sent without a confirmed booking';",
+    "replace": ""
   },
   {
-    "file": "server/services/reply_language.py",
-    "name": "language: an undetectable language is guessed rather than declined",
-    "find": "    if not found:\n        return {\"outcome\": \"undetected\", \"language\": \"\",",
-    "replace": "    if False:\n        return {\"outcome\": \"undetected\", \"language\": \"\","
+    "file": "client/index.html",
+    "name": "sent: a MATCHED sent review loses its title too",
+    "find": "    bucket = 'identified';",
+    "replace": "    return 'Sent without a confirmed booking';"
   },
   {
-    "file": "server/services/reply_language.py",
-    "name": "language: a review that already names its language is re-detected",
-    "find": "    if lang and lang.upper() != \"EN\":",
-    "replace": "    if False and lang and lang.upper() != \"EN\":"
+    "file": "client/index.html",
+    "name": "sent: the tab stops filing sent reviews under sent",
+    "find": "  if (row.status === 'sent') return 'sent';\n  return _matchBucket(row, tier, candState);",
+    "replace": "  return _matchBucket(row, tier, candState);"
   },
   {
-    "file": "server/services/reply_language.py",
-    "name": "language: the detected language is never recorded",
-    "find": "    review.language = found",
+    "file": "client/index.html",
+    "name": "confirm: the booking-details panel stops saying the record was unread",
+    "find": "      ${b.detailsLookup && b.detailsLookup !== 'found' ? `",
+    "replace": "      ${false ? `"
+  },
+  {
+    "file": "client/index.html",
+    "name": "confirm: details_lookup is dropped by the booking remap",
+    "find": "        r.booking.detailsLookup    = db.details_lookup                    || r.booking.detailsLookup;",
+    "replace": ""
+  },
+  {
+    "file": "server/api.py",
+    "name": "confirm: a failed lookup is reported as a missing booking",
+    "find": "        lookup, why = \"failed\", f\"the lookup did not complete ({type(e).__name__})\"",
+    "replace": "        lookup, why = \"absent\", \"the warehouse has no booking with this id\""
+  },
+  {
+    "file": "server/api.py",
+    "name": "confirm: nothing is recorded on the draft, only in the log",
+    "find": "    d.booking[\"details_lookup\"] = lookup",
     "replace": "    pass"
   },
   {
     "file": "server/api.py",
-    "name": "resolve: a failed translation still stamps the English projection",
-    "find": "    if not translated:\n        return {\"ok\": True, \"outcome\": res[\"outcome\"], \"translated\": False,",
-    "replace": "    if False:\n        return {\"ok\": True, \"outcome\": res[\"outcome\"], \"translated\": False,"
+    "name": "confirm: the trail line is not written",
+    "find": "        d.confidence_trail = _trail\n        flag_modified(d, \"confidence_trail\")",
+    "replace": "        pass"
   },
   {
     "file": "server/api.py",
-    "name": "resolve: an existing English working copy is retranslated over",
-    "find": "    if not before or already:",
-    "replace": "    if not before:"
-  },
-  {
-    "file": "server/api.py",
-    "name": "resolve: the detected language is not committed",
-    "find": "    res = await resolve_language(r)\n    if res[\"outcome\"] == \"detected\":\n        db.commit()",
-    "replace": "    res = await resolve_language(r)"
+    "name": "confirm: the stored booking aliases the candidates_list entry again",
+    "find": "if full else dict(match)",
+    "replace": "if full else match"
   }
 ]

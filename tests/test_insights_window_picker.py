@@ -33,8 +33,42 @@ def _note_texts(page):
 
 
 def _click_window(page, w):
+    """Click, then WAIT FOR THE ROUND TRIP — not for a fixed 700ms.
+
+    The click fires a request to /insights and the panel re-renders when it
+    answers. 700ms was enough on a quiet machine and not enough under a full
+    suite sharing one uvicorn, so these tests failed in the batch and passed
+    every time they were run on their own.
+
+    A fixed sleep cannot tell a slow answer from an absent one, which is the
+    precise distinction this module exists to make — the docstring above is
+    about a switch that "silently did nothing" rendering identically to one
+    that worked, and the test for it was itself timing-based.
+
+    Settled means either the figures moved to the window we asked for, or a
+    note appeared saying they could not. Both are answers; only "neither, yet"
+    is worth waiting on.
+
+    A timeout here is deliberately NOT raised: the assertions in each test
+    already say what went wrong in the terms that test cares about, and a bare
+    TimeoutError would replace "clicked 7d; the figures on screen are for 90
+    days" with a stack trace naming this helper.
+    """
+    want = int(w.rstrip("d"))
+    before = len(_note_texts(page))
     page.click(f'.window-btn[data-window="{w}"]')
-    page.wait_for_timeout(700)
+    try:
+        page.wait_for_function(
+            """([want, before]) => {
+                 const r = REVIEWS.find(x => x.id === state.selected);
+                 const got = r && r.liveInsights ? r.liveInsights._window_days : null;
+                 return got === want
+                     || document.querySelectorAll('.insight-note').length > before;
+               }""", arg=[want, before], timeout=10000)
+    except Exception:
+        pass
+    # The render that reads the response runs on the next frame.
+    page.wait_for_timeout(120)
 
 
 def test_the_panel_states_the_window_its_figures_cover(page):

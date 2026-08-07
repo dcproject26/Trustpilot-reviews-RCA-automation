@@ -19,12 +19,24 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tests.test_tier_sorting import CASES   # noqa: E402
 
 
+def _fn(html: str, name: str) -> str:
+    i = html.index(f"function {name}(row, tier, candState) {{")
+    return html[i:html.index("\n}", i) + 2]
+
+
 def _client_fallback_source() -> str:
+    """Both halves of the rule.
+
+    `_bucketFallback` used to be the whole of it. It now answers the sent
+    question and delegates the rest to `_matchBucket` — because "which tab"
+    and "what did the match find" are two questions, and a sent review is only
+    an answer to the first. Extracting one function ran the other's name
+    straight into a ReferenceError, which is a truthful failure and not the
+    one this file is about.
+    """
     html = open(os.path.join(os.path.dirname(__file__), "..",
                              "client", "index.html")).read()
-    i = html.index("function _bucketFallback(row, tier, candState) {")
-    j = html.index("\n}", i) + 2
-    return html[i:j]
+    return _fn(html, "_matchBucket") + "\n" + _fn(html, "_bucketFallback")
 
 
 def test_client_fallback_matches_the_server_rule():

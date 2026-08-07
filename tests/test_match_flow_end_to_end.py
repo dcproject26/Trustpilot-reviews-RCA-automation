@@ -70,21 +70,28 @@ def test_the_issue_pass_only_runs_when_the_direct_pass_found_nothing():
 # ── 2. what the searches return is shaped the way the picker reads ──────────
 
 def test_shortlist_candidates_carry_every_field_the_card_renders():
-    """The shortlist hands raw ticket signals to _make_candidate. Each key it
-    reads has to be supplied under the name it expects."""
-    i = PIPE.find("_short = await zendesk.shortlist(")
-    # Sliced to a real end marker, not a fixed 3200 characters. The window
-    # silently stopped reaching _make_candidate when a dozen lines were added
-    # between the two, and the test then failed for a reason that had nothing
-    # to do with what it checks.
-    j = PIPE.find("narrowing_path", i)
-    assert i > 0 and j > i, "the shortlist-to-candidate block could not be located"
-    block = PIPE[i:j]
-    for key in ("primary_guest_name", "experienceName", "date_of_visit",
-                "vendorName"):
-        assert key in block, f"{key} is not passed through to the candidate"
-    assert '_sig.get("guest_name"' in block, "ticket signals name it guest_name"
-    assert '_sig.get("visit_date"' in block, "ticket signals name it visit_date"
+    """DRIVEN, not read. The shortlist-to-candidate mapping moved into
+    `shortlist_rows`, which takes the warehouse lookup as an argument — so the
+    thing this test was reading off a source window can now be executed, with
+    the warehouse answering nothing so only the ticket's own fields are in
+    play. That is the case the mapping exists for.
+
+    The old version sliced pipeline.py between two markers and asserted key
+    names appeared inside. It failed the moment the mapping moved, which is
+    not the same event as the mapping breaking.
+    """
+    from server.pipeline import shortlist_rows
+    sig = {"booking_id": "32885089", "guest_name": "Mariana Compos",
+           "experience": "Eiffel Tower Summit", "visit_date": "2026-08-04",
+           "vendor_name": "Acme Tours", "matched_on": ["name"]}
+    rows, _ = shortlist_rows([sig], lambda bid: None)
+    got = rows[0]
+    # The names `_make_candidate` reads, from the names a ticket signal uses.
+    assert got["primary_guest_name"] == "Mariana Compos"
+    assert got["experienceName"] == "Eiffel Tower Summit"
+    assert got["date_of_visit"] == "2026-08-04"
+    assert got["vendorName"] == "Acme Tours"
+    assert got["id"] == "32885089"
 
 
 def test_support_candidates_bridge_the_naming_difference():

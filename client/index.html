@@ -1486,12 +1486,12 @@ loadSubThemeOptions();
 // only for rows from an older build that predates the field, and they mirror
 // that rule exactly - a second, differently-worded copy of this logic is what
 // put confirmed candidates in the wrong tab for weeks.
-function _bucketFallback(row, tier, candState) {
-  // Mirrors server/tiers.py classify() exactly, on the same three facts the
-  // server sends. Only used for rows from a build that predates the bucket
-  // field; kept in lockstep because a second, differently-worded copy of this
-  // rule is what misfiled confirmed candidates.
-  if (row.status === 'sent') return 'sent';
+function _matchBucket(row, tier, candState) {
+  // WHAT THE MATCH FOUND, with no opinion about whether the review is sent.
+  // Split out of _bucketFallback because "which tab" and "what did the match
+  // find" are two different questions and only the first one is answered by
+  // `sent` — see _matchTitle.
+  //
   // No draft row is NOT untraceable — see server/tiers.py. Untraceable is a
   // result; this is a run that has not produced one yet.
   if (row.has_draft === false) return 'processing';
@@ -1502,8 +1502,38 @@ function _bucketFallback(row, tier, candState) {
   return 'untraceable';
 }
 
+function _bucketFallback(row, tier, candState) {
+  // Mirrors server/tiers.py classify() exactly, on the same facts the server
+  // sends. Only used for rows from a build that predates the bucket field;
+  // kept in lockstep because a second, differently-worded copy of this rule
+  // is what misfiled confirmed candidates.
+  if (row.status === 'sent') return 'sent';
+  return _matchBucket(row, tier, candState);
+}
+
 function _matchTitle(row, tier, candState) {
-  const bucket = row.bucket || _bucketFallback(row, tier, candState);
+  let bucket = row.bucket || _bucketFallback(row, tier, candState);
+  // SENT IS A CLAIM ABOUT THE REVIEW, NOT ABOUT THE BOOKING. `classify()`
+  // returns it FIRST, ahead of candidates/identified/untraceable, so that a
+  // finished review cannot also appear under a working tab — which is right
+  // for filing and useless as a match title. There was no branch for it here,
+  // so a sent review fell past all three tests below and out of the bottom
+  // into the Tier 1 vocabulary: a review nobody ever matched was headed
+  // "Direct match", beside a "T2" badge, purely because the review text
+  // contained a reference number.
+  //
+  // Two reviews that could not be more different — one matched exactly, one
+  // never matched at all — rendered the identical title. So the title asks
+  // what the MATCH found, and the tab keeps asking what the review is.
+  //
+  // A sent review is NOT offered the candidate wording even when a shortlist
+  // is still on it: "associate to confirm" asks for an action on a review
+  // that is closed. It gets the one fact that still means something.
+  if (bucket === 'sent') {
+    if (!_matchBucket(row, tier, candState).startsWith('identified'))
+      return 'Sent without a confirmed booking';
+    bucket = 'identified';
+  }
   if (bucket === 'candidates') return 'Possible matches — associate to confirm';
   // "Untraceable" is a claim about the booking. This one is a claim about the
   // run, and saying the first when you mean the second sends someone looking
@@ -2342,14 +2372,18 @@ async function loadDraftOverlays() {
           guestName:      c.primary_guest_name || c.guestName || '',
           contactCount:   c.contact_count || 0,
           contactTags:    c.contact_tags || '',
-          // WHICH PATH FOUND THIS. Carried because the empty-details message
-          // is a different FACT per path: `indicator_shortlist` never queried
-          // the warehouse, so there is no row to be empty, while every other
-          // path queried it and got a row with nothing on it. This remap
+          // WHICH PATH FOUND THIS, and WHAT THE WAREHOUSE SAID. This remap
           // builds a fixed shape, so a field not named here is dropped — and
           // a message branching on a dropped field is a branch that never
           // fires.
+          //
+          // `detailsLookup` is the per-booking answer and it replaces
+          // inferring one from the path. The shortlist used to be the path
+          // that never asked the warehouse; it asks now, so "no details"
+          // there means one of three different things and only the server
+          // knows which.
           narrowing_path: c.narrowing_path || '',
+          detailsLookup:  c.details_lookup || '',
         }));
       }
 
@@ -2434,6 +2468,12 @@ async function loadDraftOverlays() {
         // Fresh draft data ALWAYS wins over whatever is on screen — a re-run
         // can change the matched booking entirely; stale values must not stick.
         r.booking.bid              = db.id                                || r.booking.bid;
+        // WHETHER THIS BOOKING'S OWN RECORD WAS EVER READ. Set by
+        // select-candidate, which stores the candidate's fields when the
+        // warehouse lookup returns nothing or does not complete — and the
+        // panel below is otherwise a wall of dashes that reads as a booking
+        // with no details rather than as a booking we could not fetch.
+        r.booking.detailsLookup    = db.details_lookup                    || r.booking.detailsLookup;
         r.booking.experience       = db.experienceName || db.experience_name || r.booking.experience;
         r.booking.tgid             = db.tgid                              || r.booking.tgid;
         r.booking.tid              = db.tid                               || r.booking.tid;
@@ -3428,16 +3468,27 @@ function renderReviewCol() {
                 // never coming — "we found nothing" rendered as "we have not
                 // finished yet", which is the one thing this card must not do.
                 //
-                // The two reasons are DIFFERENT FACTS and the candidate knows
-                // which: `indicator_shortlist` builds from Zendesk ticket
-                // signals alone and never queries the warehouse, so there is
-                // no row to be empty. Any other path did query it and got a
-                // row with nothing on it — that is a gap in the warehouse, and
-                // a reader should not open Zendesk looking for it.
-                const zdOnly = c.narrowing_path === 'indicator_shortlist';
-                return zdOnly
-                  ? 'No booking record was read for this id — it came from a Zendesk ticket. Confirm to fetch it.'
-                  : 'The booking record was read and carries no experience, date or vendor.';
+                // FOUR DIFFERENT FACTS, and the server says which. This used
+                // to branch on the PATH — `indicator_shortlist` meaning "never
+                // queried the warehouse" — which stopped being true when the
+                // shortlist started resolving its ids. A message inferred from
+                // a path is a message that goes stale the moment the path
+                // changes what it does, silently, while still reading as an
+                // explanation.
+                //
+                // "we looked and it is not there" and "we could not look" must
+                // not share a sentence: the first is a dead end, the second is
+                // a re-run.
+                if (c.detailsLookup === 'absent')
+                  return 'This id is not in the warehouse — the Zendesk ticket is everything we have on it.';
+                if (c.detailsLookup === 'failed')
+                  return 'The booking lookup did not complete, so nothing here was ruled out. Re-run to try again.';
+                if (c.detailsLookup === 'found')
+                  return 'The booking record was read and carries no experience, date or vendor.';
+                // No answer recorded — a candidate built before the lookup
+                // existed, or by a path that does not do one. Says that it
+                // does not know, rather than picking one of the three above.
+                return 'No booking details were read for this id. Confirm to fetch them.';
               })()}</div>
               <div class="candidate-reasons">
                 ${(c.matchReasons || []).map(r => `<span class="candidate-reason-pill">${r}</span>`).join('')}
@@ -3487,6 +3538,12 @@ function renderReviewCol() {
     ${r.type === 'identified' ? `
     <div class="facts-block">
       <div class="facts-head"><span class="facts-head-title">Booking details</span></div>
+      ${b.detailsLookup && b.detailsLookup !== 'found' ? `
+      <div class="rca-empty" data-booking-lookup style="font-style:normal;color:var(--warn,#c93)">
+        ${b.detailsLookup === 'failed'
+          ? 'These fields are from the Zendesk ticket, not the booking record — the warehouse lookup did not complete. Re-run to fetch it.'
+          : 'These fields are from the Zendesk ticket. The warehouse has no booking with this id, so there is no record to read.'}
+      </div>` : ''}
       <div class="details-grid">
         <div class="detail-row"><span class="k">Booking ID</span><span class="v mono">${b.bmsLink ? `<a href="${b.bmsLink}" target="_blank" rel="noopener" class="bms-link">${b.bid}</a>` : b.bid}</span></div>
         <div class="detail-row"><span class="k">Experience</span><span class="v">${b.experience || "—"}</span></div>

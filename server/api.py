@@ -1640,16 +1640,46 @@ async def select_candidate(review_id: str, body: CandidateSelect,
     # visit date); date_of_booking, fulfilment_type, booking_status and tid_name
     # are never in it, so confirming a candidate used to leave those fields
     # permanently blank on the booking card.
-    full = None
+    full, lookup, why = None, "found", ""
     try:
         from server.services.bigquery_patch import verify_bid
         full = verify_bid(body.bid)
+        if not full:
+            lookup, why = "absent", "the warehouse has no booking with this id"
     except Exception as e:
         log.warning(f"[select-candidate] verify_bid({body.bid}) failed: {e}")
-    d.booking = {**match, **(full or {}), "id": body.bid} if full else match
-    if not full:
-        log.warning(f"[select-candidate] {body.bid}: BQ row unavailable, "
-                    f"storing candidate fields only")
+        lookup, why = "failed", f"the lookup did not complete ({type(e).__name__})"
+    d.booking = {**match, **(full or {}), "id": body.bid} if full else dict(match)
+    # WHICH OF THE THREE THINGS HAPPENED, ON THE DRAFT rather than in the log.
+    #
+    # This branch used to be `log.warning(...)` and nothing else, and the
+    # booking it stored on the failing path was the candidate dict — which on
+    # the shortlist path was an id and a row of empty strings. `classify()`
+    # then reads `booking["id"]`, files the review under IDENTIFIED, and the
+    # card renders a confirmed match with no experience, no date and no
+    # vendor. The one record that anything went wrong was a line in a log
+    # that, as the client's own comment says two panels away, "the people
+    # reading these cards do not read".
+    #
+    # `absent` and `failed` are kept apart for the same reason as everywhere
+    # else here: the first is a dead end an associate acts on, the second is
+    # a re-run.
+    d.booking["details_lookup"] = lookup
+    if lookup != "found":
+        log.warning(f"[select-candidate] {body.bid}: {why}; storing the "
+                    f"candidate's own fields only")
+        _trail = list(d.confidence_trail or [])
+        _trail.append({"mark": "warn",
+            "text": f"<strong>Confirmed BID {body.bid}, but its booking record "
+                    f"was not read</strong> — {why}. What is shown below is "
+                    f"what the Zendesk ticket carried, not the booking's own "
+                    f"record"
+                    + (", so re-run once the warehouse is reachable."
+                       if lookup == "failed" else
+                       ". Check the id before the RCA is built on it.")})
+        d.confidence_trail = _trail
+        flag_modified(d, "confidence_trail")
+    flag_modified(d, "booking")
     d.selected_candidate_bid = body.bid
     d.candidate_state = False
     d.match_tier = 2

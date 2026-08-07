@@ -90,6 +90,107 @@ def _is_hashed_name(s: str) -> bool:
 SHORTLIST_LOOKBACK_DAYS = 540
 
 
+def shortlist_rows(sigs, lookup):
+    """Resolve each Zendesk shortlist signature against the warehouse.
+
+    Returns `(rows, tally)`. Each row is the dict `_make_candidate` reads,
+    plus `details_lookup` saying what the warehouse said about it.
+
+    WHY THIS EXISTS. The shortlist built its cards out of the Zendesk ticket's
+    own custom fields and never asked BigQuery — so a card showed `#32885089`,
+    an em-dash for the experience, and nothing else. Those fields are blank on
+    exactly the tickets this path draws from: the ones found by a requester
+    name search, which `matches_indicators` already keeps on the grounds that
+
+        "the tickets with an empty guest-name field are the SAME sparse
+         tickets that have an empty booking-id field"
+
+    They are kept because an empty field cannot contradict the review. What
+    nobody followed through on is that the card built from one has nothing on
+    it to choose by — and the associate is being asked to pick the booking the
+    whole RCA is built on.
+
+    The sibling path already does this. Step 2b resolves every BID through
+    `verify_bid` before showing it, so the SAME kind of id — a number lifted
+    off a Zendesk ticket — produced a full card through one path and a blank
+    one through the other, decided by which search happened to find it.
+
+    THE WAREHOUSE IS AUTHORITATIVE WHERE IT IS READABLE; the ticket fills the
+    gaps and never overwrites. The Zendesk guest name is kept separately as
+    `zendesk_guest_name`, because on a desk-made or hashed booking it is the
+    only readable copy of the strongest identifier after the booking id.
+
+    THREE OUTCOMES, NEVER ONE. `lookup` returning None and `lookup` raising
+    are not the same fact and neither is "it answered with an empty row":
+
+        found   the warehouse has this booking — its fields are on the card
+        absent  the warehouse does not have this id; the ticket is all there is
+        failed  the lookup itself did not complete, so nothing was ruled out
+
+    Collapsing them would put one sentence under all three, which is how "we
+    looked and found nothing" comes to read the same as "we never looked".
+    """
+    rows, tally = [], {"found": 0, "absent": 0, "failed": 0}
+    for sig in (sigs or []):
+        bid = str(sig.get("booking_id") or "")
+        zd_name = sig.get("guest_name", "") or ""
+        base = {
+            "id": bid,
+            "primary_guest_name": zd_name,
+            "experienceName":     sig.get("experience", "") or "",
+            "date_of_visit":      sig.get("visit_date", "") or "",
+            "vendorName":         sig.get("vendor_name", "") or "",
+        }
+        try:
+            bq = lookup(bid) if bid else None
+            status = "found" if bq else "absent"
+        except Exception:
+            bq, status = None, "failed"
+        if bq:
+            merged = dict(base)
+            for key in ("experienceName", "date_of_visit", "vendorName",
+                        "primary_guest_name", "tid", "tgid", "vid",
+                        "date_of_booking", "fulfilmentType", "booking_status",
+                        "bms_link", "tgid_link"):
+                val = bq.get(key)
+                if val not in (None, ""):
+                    merged[key] = val
+            base = merged
+        base["zendesk_guest_name"] = zd_name
+        base["details_lookup"] = status
+        base["matched_on"] = list(sig.get("matched_on") or ["name"])
+        tally[status] += 1
+        rows.append(base)
+    return rows, tally
+
+
+def shortlist_lookup_trail(tally) -> dict | None:
+    """The trail line for a shortlist that has just been resolved, or None.
+
+    None ONLY when every booking was read. "0 could not be read" on every
+    healthy shortlist is the noise that makes a reader stop reading the counts
+    that matter — but anything else is said out loud, because a blank card is
+    otherwise indistinguishable from a booking the warehouse simply has
+    nothing on.
+    """
+    found, absent, failed = tally["found"], tally["absent"], tally["failed"]
+    total = found + absent + failed
+    if not total or not (absent or failed):
+        return None
+    bits = []
+    if found:
+        bits.append(f"{found} read from the warehouse")
+    if absent:
+        bits.append(f"{absent} not in the warehouse at all — the Zendesk "
+                    f"ticket is everything we have on {'them' if absent > 1 else 'it'}")
+    if failed:
+        bits.append(f"{failed} could not be looked up, so nothing about "
+                    f"{'them' if failed > 1 else 'it'} was ruled out")
+    return {"mark": "warn",
+            "text": f"<strong>Booking details for these {total} option(s):</strong> "
+                    + "; ".join(bits) + "."}
+
+
 def _shape_weak_bid(row: dict, why: list) -> dict:
     """A verify_bid row, in the shape the candidate picker reads.
 
@@ -1946,27 +2047,43 @@ async def process_review(review_id: str, force_candidates: bool = False):
                                         f"was used; the others were not."})
 
                     if _short:
+                        # THE WAREHOUSE IS ASKED NOW, not on confirm. These
+                        # cards used to be built from the ticket's custom
+                        # fields alone, and those fields are blank on exactly
+                        # the tickets this search returns — so the picker
+                        # offered "#32885089 · —" and asked an associate to
+                        # choose the booking the whole RCA is built on.
+                        # `shortlist_rows` says per booking whether the
+                        # warehouse had it, did not have it, or could not be
+                        # asked; the card and the trail both read that rather
+                        # than inferring it from an empty field.
+                        from server.services.bigquery_patch import verify_bid as _vbid
+                        _rows, _tally = shortlist_rows(_short, _vbid)
                         candidates = []
-                        for _sig in _short:
-                            _c = _make_candidate(
-                                {"id": _sig["booking_id"],
-                                 "primary_guest_name": _sig.get("guest_name", ""),
-                                 "experienceName": _sig.get("experience", ""),
-                                 "date_of_visit": _sig.get("visit_date", ""),
-                                 "vendorName": _sig.get("vendor_name", "")},
-                                "indicator_shortlist",
-                                _sig.get("matched_on") or ["name"])
-                            _c["id"] = _sig["booking_id"]
-                            _c["matched_on"] = _sig.get("matched_on") or ["name"]
+                        for _row in _rows:
+                            _c = _make_candidate(_row, "indicator_shortlist",
+                                                 _row["matched_on"])
+                            _c["id"] = _row["id"]
+                            _c["matched_on"] = _row["matched_on"]
                             # The Zendesk guest name, kept SEPARATELY from the
-                            # one the warehouse will supply. On a desk-made or
+                            # one the warehouse supplies. On a desk-made or
                             # hashed booking the warehouse name is unusable and
                             # this is the only readable copy of the strongest
                             # identifier we have after the booking id — but it
                             # must not overwrite the booking's own record,
                             # which is authoritative wherever it is readable.
-                            _c["zendesk_guest_name"] = _sig.get("guest_name", "")
+                            _c["zendesk_guest_name"] = _row["zendesk_guest_name"]
+                            _c["details_lookup"] = _row["details_lookup"]
+                            for _k in ("tid", "tgid", "vid", "bms_link",
+                                       "tgid_link", "booking_status",
+                                       "date_of_booking", "fulfilmentType"):
+                                if _row.get(_k):
+                                    _c[_k] = _row[_k]
                             candidates.append(_c)
+                        _lk = shortlist_lookup_trail(_tally)
+                        if _lk:
+                            confidence_trail.append(_lk)
+                        log.info(f"[tier2] shortlist details: {_tally}")
                         candidate_state = True
                         match_tier = 2
                         narrowing_path = "indicator_shortlist"
