@@ -710,7 +710,20 @@
     flex: 1; min-width: 0; line-height: 1.5;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .convo-frame.open .interaction-summary-line { white-space: normal; overflow: visible; }
+  /* OPEN, THE SUMMARY GETS ITS OWN LINE.
+     The head is a flex row — [num] [CHAT] [time] [summary] [n events] [ZD-ref]
+     [chevron] — and every element except the summary is `flex: none`. Letting
+     the summary wrap INSIDE that row squeezed it between the fixed items on
+     both sides, so a long one rendered as a tall column two words wide, with
+     the time floating left and the ticket ref right, all vertically centred.
+     Wrapping it to a full-width line below the head keeps the head one line
+     and gives the summary the column. The collapsed one-line state, which was
+     never wrong, is untouched. */
+  .convo-frame.open .convo-frame-head { flex-wrap: wrap; align-items: flex-start; }
+  .convo-frame.open .interaction-summary-line {
+    white-space: normal; overflow: visible;
+    flex: 1 0 100%; order: 9; margin-top: 4px; padding-left: 30px;
+  }
   .convo-chevron { flex: none; font-size: 10px; color: var(--dim); }
   .convo-body { padding: 0 0 10px 30px; min-width: 0; display: none; }
   .convo-frame.open .convo-body { display: block; }

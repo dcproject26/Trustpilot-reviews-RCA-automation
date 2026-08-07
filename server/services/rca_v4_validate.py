@@ -1104,6 +1104,66 @@ def _case_finding_key(text) -> str:
 _SAME_FACT_OVERLAP = 0.6
 
 
+# WHEN AN EVIDENCE ROW IS THE SAME EVENT AS A NARRATIVE ROW.
+#
+# Lower than the collapse threshold above, and deliberately, because the two
+# do different things. Measured on tp_1785672694_664719:
+#
+#   0.55  [ 6] x [14]  the NAR note, twice          DUPLICATE
+#   0.50  [ 7] x [13]  the agent closing the window DUPLICATE
+#   0.45  [ 5] x [11]  the guest reporting 13:45    DUPLICATE
+#   0.45  [ 4] x [11]  our email vs the guest's report   DIFFERENT
+#   0.45  [ 1] x [ 9]  booking created vs cancelled     DIFFERENT
+#
+# There is NO GAP: 0.45 holds a duplicate and two non-duplicates. Stripping
+# digits does not separate them either — both land at 0.375. Every row about
+# one booking shares its times, its vendor and the word "guest", so word
+# overlap cannot tell "one event described twice" from "two events on one
+# booking".
+#
+# I set this to 0.45 first, on the reasoning that a mis-attributed ticket link
+# is cheaper than a duplicate row. That was wrong: folding REMOVES the row, so
+# a false positive does not mis-attribute a ref, it DELETES A REAL FINDING.
+# The test caught it immediately —
+#
+#   "Updated confirmation email sent to guest showing 11:00 AM start"
+#   "Guest reported the vendor sent a message showing 13:45 pickup, not 11:00"
+#
+# — two different events, 0.50 containment, and the duplicate pair
+# [7] x [13] is ALSO 0.50. Measured, both of them. There is no value that
+# folds one and keeps the other.
+#
+# So it sits at the collapse threshold, where a fold only happens on wording
+# similar enough that the collapse rule would have fired anyway. That leaves
+# some duplicates on the card. It never loses a finding, and between those two
+# failures only one is recoverable by a reader.
+#
+# The real key is not wording at all: [6] and [14] are both the NAR note at
+# 15:28, [7] and [13] are both the agent closing the window. Two rows are the
+# same event when they describe the same MOMENT, and `time` is already carried
+# on every finding for ordering. That is the fix worth making; it needs to be
+# built against real `time` values rather than guessed at, which is what every
+# threshold in this file has been.
+_EVIDENCE_FOLD_OVERLAP = _SAME_FACT_OVERLAP
+
+
+def _first_repeat_index(text, existing_token_sets, threshold):
+    """Index of the first row this restates, or None.
+
+    Same containment as `_is_repeat_of`, returning WHICH row matched so the
+    caller can fold into it rather than only knowing that it should.
+    """
+    want = _tokens(text)
+    if len(want) < 4:
+        return None
+    for i, got in enumerate(existing_token_sets):
+        if not got or len(got) < 4:
+            continue
+        if len(want & got) / min(len(want), len(got)) >= threshold:
+            return i
+    return None
+
+
 def _is_repeat_of(text, existing_token_sets) -> bool:
     """Does this row say something already on the list, in other words?
 
@@ -1206,7 +1266,7 @@ def _case_findings(raw, issues, notes) -> list:
     # timeline entries are what made this section read as a second copy of the
     # events timeline. Dropped and COUNTED, never dropped quietly — a section
     # that silently shrinks is the failure this file opens with.
-    merged = dropped = 0
+    merged = dropped = folded = 0
     for n, issue in enumerate(issues or []):
         for e in (issue.get("evidence") or []):
             if not isinstance(e, dict):
@@ -1217,6 +1277,21 @@ def _case_findings(raw, issues, notes) -> list:
             backs = n if backs in (None, "") else backs
             if not _clean(issue.get("claim")):
                 dropped += 1
+                continue
+            # FOLD, DO NOT DROP AND DO NOT REPEAT. An evidence row that
+            # restates a narrative row is the same event written twice — but
+            # it carries the ZD ref, which the narrative row does not. So its
+            # REF and its claim routing move onto the row already there, and
+            # no second row is written.
+            _hit = _first_repeat_index(_clean(e.get("text")), token_sets,
+                                       _EVIDENCE_FOLD_OVERLAP)
+            if _hit is not None:
+                _row = rows[_hit]
+                if not _row.get("ref") and _clean(e.get("ref")):
+                    _row["ref"] = _clean(e.get("ref"))
+                if _row.get("backs_claim") is None:
+                    _row["backs_claim"] = backs
+                folded += 1
                 continue
             before = len(rows)
             _add(e.get("text"), e.get("source"), e.get("time"), "evidence",
@@ -1230,6 +1305,10 @@ def _case_findings(raw, issues, notes) -> list:
         notes.append(f"{dropped} evidence row(s) backed no claim and were "
                      f"NOT rendered — evidence settles a claim, and a row "
                      f"citing none is a timeline entry")
+    if folded:
+        notes.append(f"{folded} evidence point(s) said what a case finding "
+                     f"already said; their ticket reference was added to that "
+                     f"finding rather than a second row being written")
     if collapsed:
         notes.append(f"{collapsed} case finding(s) repeated a point already "
                      f"in the list in different words and were collapsed")

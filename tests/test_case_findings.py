@@ -106,7 +106,12 @@ def test_a_reworded_repeat_of_a_narrative_point_is_collapsed():
                                              "was cancelled via API",
                                      "source": "zendesk", "ref": "ZD-33978941"}]}]))
     assert len(_findings(out)) == 1, [r["text"] for r in _findings(out)]
-    assert any("in different words and were collapsed" in n for n in notes), notes
+    # An EVIDENCE row that restates a narrative row takes the fold path, which
+    # keeps its ticket reference; the collapse note is for narrative-vs-
+    # narrative. One row either way — the difference is what is said about it.
+    assert any("ticket reference was added to that finding" in n
+               or "in different words and were collapsed" in n
+               for n in notes), notes
 
 
 def test_the_collapse_is_counted_not_silent():
@@ -122,7 +127,9 @@ def test_the_collapse_is_counted_not_silent():
                                              "15:36 regarding the vendor "
                                              "pickup time discrepancy",
                                      "source": "zendesk"}]}]))
-    assert any("1 case finding(s) repeated" in n for n in notes), notes
+    assert any("1 case finding(s) repeated" in n
+               or "1 evidence point(s) said what a case finding already said" in n
+               for n in notes), notes
 
 
 def test_two_genuinely_different_facts_both_survive():
@@ -220,3 +227,99 @@ def test_a_case_finding_the_model_wrote_still_orders_by_time():
         {"text": "Later", "source": "bms", "time": "05 Aug 10:00"},
         {"text": "Earlier", "source": "bms", "time": "01 Aug 10:00"}]))
     assert [r["text"] for r in _findings(out)] == ["Earlier", "Later"]
+
+
+# ── an evidence row that restates a narrative row folds INTO it ───────────
+#
+# MEASURED on tp_1785672694_664719 with scripts/trace_findings.py:
+#
+#   0.55  [ 6] x [14]  the NAR note, twice               DUPLICATE
+#   0.50  [ 7] x [13]  the agent closing the window      DUPLICATE
+#   0.45  [ 5] x [11]  the guest reporting 13:45         DUPLICATE
+#   0.45  [ 4] x [11]  our email vs the guest's report   DIFFERENT
+#   0.45  [ 1] x [ 9]  booking created vs cancelled      DIFFERENT
+#
+# There is NO GAP. 0.45 holds a duplicate and two non-duplicates, and
+# stripping digits does not separate them either — both land at 0.375. Every
+# row about one booking shares its times, its vendor and the word "guest".
+#
+# So the threshold does not decide whether a row SURVIVES. The evidence row's
+# ZD REF moves onto the narrative row it restates, and no second row is
+# written. A mis-attributed ticket link is far cheaper than a duplicated
+# finding — or than merging a booking's creation into its cancellation, which
+# is what any threshold low enough to catch [5]x[11] does to [1]x[9].
+
+# A restatement close enough that the collapse rule would fire on it anyway.
+# The threshold sits there deliberately — see _EVIDENCE_FOLD_OVERLAP.
+NARRATIVE = ("Agent confirmed the rescheduling window had closed and no time "
+             "change was possible")
+RESTATED  = ("Agent confirmed the rescheduling window was closed; no time "
+             "change was possible")
+
+
+def test_a_clear_restatement_folds_rather_than_repeating():
+    out, _ = validate(_wwr(
+        case_findings=[{"text": NARRATIVE, "source": "zendesk"}],
+        guest_issues=[{"issue": "A", "claim": "c", "claim_accuracy": "Accurate",
+                       "evidence": [{"text": RESTATED, "source": "zendesk",
+                                     "ref": "ZD-34335318"}]}]))
+    rows = _findings(out)
+    assert len(rows) == 1, [r["text"] for r in rows]
+
+
+def test_the_ticket_reference_survives_the_fold():
+    """The whole reason not to just drop it: the evidence row carries the ZD
+    ref and the narrative row does not."""
+    out, _ = validate(_wwr(
+        case_findings=[{"text": NARRATIVE, "source": "zendesk"}],
+        guest_issues=[{"issue": "A", "claim": "c", "claim_accuracy": "Accurate",
+                       "evidence": [{"text": RESTATED, "source": "zendesk",
+                                     "ref": "ZD-34335318"}]}]))
+    assert _findings(out)[0]["ref"] == "ZD-34335318", _findings(out)[0]
+
+
+def test_the_claim_routing_survives_the_fold():
+    out, _ = validate(_wwr(
+        case_findings=[{"text": NARRATIVE, "source": "zendesk"}],
+        guest_issues=[{"issue": "A", "claim": "first", "claim_accuracy": "Accurate"},
+                      {"issue": "B", "claim": "second", "claim_accuracy": "Accurate",
+                       "evidence": [{"text": RESTATED, "source": "zendesk"}]}]))
+    assert _findings(out)[0]["backs_claim"] == 1, _findings(out)[0]
+
+
+def test_the_fold_is_counted():
+    _, notes = validate(_wwr(
+        case_findings=[{"text": NARRATIVE, "source": "zendesk"}],
+        guest_issues=[{"issue": "A", "claim": "c", "claim_accuracy": "Accurate",
+                       "evidence": [{"text": RESTATED, "source": "zendesk",
+                                     "ref": "ZD-1"}]}]))
+    assert any("ticket reference was added to that finding" in n for n in notes), notes
+
+
+def test_an_existing_reference_is_not_overwritten():
+    """The narrative row's own ref is the one the model chose for it."""
+    out, _ = validate(_wwr(
+        case_findings=[{"text": NARRATIVE, "source": "zendesk", "ref": "ZD-999"}],
+        guest_issues=[{"issue": "A", "claim": "c", "claim_accuracy": "Accurate",
+                       "evidence": [{"text": RESTATED, "source": "zendesk",
+                                     "ref": "ZD-34335318"}]}]))
+    assert _findings(out)[0]["ref"] == "ZD-999", _findings(out)[0]
+
+
+def test_evidence_about_a_different_event_still_gets_its_own_row():
+    """[4] x [11] from the trace: our confirmation email showing 11:00 against
+    the guest reporting a 13:45 pickup. Same booking, same vocabulary, two
+    events, 0.50 containment — and the duplicate pair [7] x [13] is ALSO 0.50.
+
+    A fold REMOVES the row, so a false positive here deletes a real finding.
+    That is why the threshold sits at the collapse value and not below it:
+    some duplicates survive, and nothing is lost."""
+    out, _ = validate(_wwr(
+        case_findings=[{"text": "Updated confirmation email sent to guest "
+                                "showing 11:00 AM start", "source": "zendesk"}],
+        guest_issues=[{"issue": "A", "claim": "c", "claim_accuracy": "Accurate",
+                       "evidence": [{"text": "Guest reported the vendor sent a "
+                                             "message showing 13:45 pickup, not "
+                                             "11:00", "source": "zendesk",
+                                     "ref": "ZD-34335318"}]}]))
+    assert len(_findings(out)) == 2, [r["text"] for r in _findings(out)]
