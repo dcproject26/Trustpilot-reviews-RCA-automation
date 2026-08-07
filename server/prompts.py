@@ -1580,6 +1580,11 @@ that turned out fine is silence — never a line in the output.
    Three to five entries per issue is normal. More than six means context is
    being filed as evidence.
 
+   `time` IS REQUIRED WHERE THE RECORD SHOWS WHEN IT HAPPENED, in the same
+   "02 Aug 09:13" form the timeline uses — see the `time` rule under
+   `case_findings`, which governs these entries as well. Evidence is rendered
+   in that ordered list, so an entry without a time cannot be placed in it.
+
 3. DIAGNOSE, DON'T DESCRIBE. Name the concrete failing step. Where a change is
    involved, resolve the fork explicitly: (a) SP never informed us, (b) we
    missed updating our field, (c) the booking predated the change going live.
@@ -1912,6 +1917,7 @@ that turned out fine is silence — never a line in the output.
           {
             "text": "<what the record says, at its own grain — no source prefix, no URL>",
             "source": "<booking | bms | zendesk | insights | exp-page>",
+            "time": "<DD Mon HH:MM — when the thing this records HAPPENED | null>",
             "ref": "<record URL or ZD-xxxxx | null>",
             "backs_claim": "<Yes | No | null>"
           }
@@ -2100,6 +2106,13 @@ that turned out fine is silence — never a line in the output.
 
     THE TIME IS WHEN THE EVENT HAPPENED, not a time the finding mentions. "Booking created
     for the 03 Aug 08:30 slot" happened on 21 Jul; its `time` is 21 Jul, not 03 Aug.
+
+    THIS APPLIES TO `evidence[]` ENTRIES TOO, under the same rule. Evidence rows are
+    rendered in THIS list beside the narrative points, so an evidence row with `time: null`
+    sinks to the bottom of §1 no matter when the thing it records happened. On a real card
+    every evidence row came back without one and four findings sat under "cannot be placed"
+    while their own text read "reported at 15:36 on 02 Aug". If the time is in the text, it
+    goes in the field.
     ── `gaps` — WHAT IS STILL WRONG, AND WHO HAS TO FIX IT ────────────────────────
     An array on `what_went_wrong`: [{"gap": ..., "team": ..., "source_ref": ...}].
 

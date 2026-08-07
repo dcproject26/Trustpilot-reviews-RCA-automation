@@ -325,6 +325,117 @@ def test_evidence_about_a_different_event_still_gets_its_own_row():
     assert len(_findings(out)) == 2, [r["text"] for r in _findings(out)]
 
 
+# ── the clock does the work the wording could not ──────────────────────────
+#
+# The block above measured a threshold with NO GAP in it: 0.57 was a duplicate
+# and 0.50 was two different events, so no single number separates them on
+# wording alone. That is still true. What changed is that the rows now carry
+# times, and TWO ROWS AT THE SAME MINUTE ARE NOT A COINCIDENCE — the timestamp
+# is a second, independent signal, and once it agrees the wording only has to
+# corroborate rather than prove.
+#
+# MEASURED, on the pair from the trace:
+#   0.571  [ 7] x [11]  same minute, one event written twice   DUPLICATE
+#   0.100  [ 7] x [ 8]  same minute, guest writes / agent replies  DIFFERENT
+# A real gap, and _SAME_MINUTE_OVERLAP sits at 0.35 inside it.
+
+_MINUTE = "02 Aug 15:36"
+_CHAT_IN = ("Guest contacted support via chat: the operator had messaged a "
+            "13:45 pickup after the rescheduling window closed")
+_CHAT_IN_RESTATED = ("Guest reported at 15:36 on 02 Aug that the vendor had "
+                     "messaged a 13:45 pickup after the window closed")
+_AGENT_REPLY = ("Agent confirmed no further changes possible, provided "
+                "Krakville contact details for the guest")
+
+
+def _one_issue(evidence):
+    return [{"issue": "A", "claim": "c", "claim_accuracy": "Accurate",
+             "evidence": evidence}]
+
+
+def test_a_same_minute_restatement_folds_though_the_wording_alone_would_not():
+    """0.571 containment — UNDER the 0.60 fold, and it reached the card as a
+    second row. Both rows say 02 Aug 15:36."""
+    out, _ = validate(_wwr(
+        case_findings=[{"text": _CHAT_IN, "source": "zendesk",
+                        "time": _MINUTE}],
+        guest_issues=_one_issue([{"text": _CHAT_IN_RESTATED,
+                                  "source": "zendesk", "time": _MINUTE,
+                                  "ref": "ZD-34335318"}])))
+    rows = _findings(out)
+    assert len(rows) == 1, [r["text"] for r in rows]
+
+
+def test_the_ref_still_moves_across_on_a_same_minute_fold():
+    out, _ = validate(_wwr(
+        case_findings=[{"text": _CHAT_IN, "source": "zendesk",
+                        "time": _MINUTE}],
+        guest_issues=_one_issue([{"text": _CHAT_IN_RESTATED,
+                                  "source": "zendesk", "time": _MINUTE,
+                                  "ref": "ZD-34335318"}])))
+    assert _findings(out)[0]["ref"] == "ZD-34335318", _findings(out)[0]
+
+
+def test_two_different_things_in_one_minute_both_survive():
+    """The guest writing and the agent answering are both 02 Aug 15:36. A
+    minute is not an event, and folding on the clock alone would delete the
+    reply."""
+    out, _ = validate(_wwr(
+        case_findings=[{"text": _CHAT_IN, "source": "zendesk",
+                        "time": _MINUTE},
+                       {"text": _AGENT_REPLY, "source": "zendesk",
+                        "time": _MINUTE}],
+        guest_issues=_one_issue([])))
+    assert len(_findings(out)) == 2, [r["text"] for r in _findings(out)]
+
+
+def test_the_same_wording_at_a_different_minute_is_left_alone():
+    """0.571 is below the ordinary fold, and without the matching clock it
+    stays below it. The timestamp is what earns the lower bar, so an evidence
+    row an hour away from the narrative row keeps its own place."""
+    out, _ = validate(_wwr(
+        case_findings=[{"text": _CHAT_IN, "source": "zendesk",
+                        "time": _MINUTE}],
+        guest_issues=_one_issue([{"text": _CHAT_IN_RESTATED,
+                                  "source": "zendesk", "time": "02 Aug 16:36",
+                                  "ref": "ZD-34335318"}])))
+    assert len(_findings(out)) == 2, [r["text"] for r in _findings(out)]
+
+
+def test_an_undated_evidence_row_does_not_fold_into_a_dated_one():
+    """"No time" is not a minute, and two rows that both lack one have not
+    agreed on anything. This is the state the card was actually in — every
+    evidence row came back timeless — and it must fall back to the wording
+    threshold, not fold everything into the first row."""
+    out, _ = validate(_wwr(
+        case_findings=[{"text": _CHAT_IN, "source": "zendesk",
+                        "time": _MINUTE}],
+        guest_issues=_one_issue([{"text": _CHAT_IN_RESTATED,
+                                  "source": "zendesk",
+                                  "ref": "ZD-34335318"}])))
+    assert len(_findings(out)) == 2, [r["text"] for r in _findings(out)]
+
+
+def test_an_evidence_rows_own_time_places_it_in_the_order():
+    """THE DEFECT THIS CLOSES. `_case_findings` has always read `e["time"]`,
+    but `evidence[]` had no `time` in the prompt's schema — so the model never
+    sent one, every merged evidence row sorted as undated, and §1 put four of
+    them under "cannot be placed" while their own text read "at 15:36 on 02
+    Aug". A field the validator reads and the prompt never asks for looks
+    exactly like a model that had no time to give."""
+    out, notes = validate(_wwr(
+        case_findings=[{"text": "Booking created for the 03 Aug slot",
+                        "source": "booking", "time": "21 Jul 09:00"},
+                       {"text": "Refund settled and the case closed out",
+                        "source": "zendesk", "time": "03 Aug 11:00"}],
+        guest_issues=_one_issue([{"text": _CHAT_IN_RESTATED,
+                                  "source": "zendesk", "time": _MINUTE,
+                                  "ref": "ZD-34335318"}])))
+    assert [r["time"] for r in _findings(out)] == [
+        "21 Jul 09:00", "02 Aug 15:36", "03 Aug 11:00"], _findings(out)
+    assert not any("carry no time" in n for n in notes), notes
+
+
 # ── §1 is chronological, on a real date and not on the display string ─────
 
 from server.services.rca_v4_validate import _finding_order
@@ -419,3 +530,62 @@ def test_a_partly_dated_section_counts_only_what_it_could_not_place():
     said = " ".join(n for n in notes if "carry no time" in n)
     assert "1 of 2" in said, notes
     assert "NOT a chronology" not in said, notes
+
+
+# ── the prompt has to ASK for every field the validator reads ───────────────
+#
+# `_case_findings` read `e["time"]` off evidence rows from the day the fold was
+# written. `evidence[]` in the schema had four keys and `time` was not one of
+# them, so the model could not have sent one, and did not. §1 then filed four
+# evidence rows under "cannot be placed" — the sentence a genuinely undated
+# record gets. A field read but never asked for is indistinguishable from a
+# record with nothing to give.
+#
+# These drive `rca_v3_prompt()`, the string the model actually receives.
+# Asserting against RCA_V4_TEMPLATE would pass against a build where the
+# substitution is broken.
+
+def _assembled_prompt():
+    from server import prompts
+    return prompts.rca_v3_prompt(
+        review_text="the tickets never arrived", booking={}, timeline=[],
+        insights={}, dss_rec={}, l1="", l2="", sub_theme="",
+        support_summary="", checklist={}, review_id="r1")
+
+
+def _evidence_schema_block(text):
+    """The `"evidence": [ { ... } ]` object out of the assembled schema.
+
+    Located by brace-matching rather than a fixed window, because a
+    fixed-width slice silently stops covering the block it names as soon as
+    the schema grows."""
+    i = text.index('"evidence": [')
+    j = text.index("{", i)
+    depth, k = 0, j
+    while k < len(text):
+        if text[k] == "{":
+            depth += 1
+        elif text[k] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[j:k + 1]
+        k += 1
+    raise AssertionError("the evidence object in the schema is unclosed")
+
+
+def test_every_evidence_field_the_validator_reads_is_declared_to_the_model():
+    """The contract, named. `_case_findings` reads exactly these off an
+    evidence dict; each one has to appear as a key the model is asked for."""
+    block = _evidence_schema_block(_assembled_prompt())
+    for field in ("text", "source", "time", "ref", "backs_claim"):
+        assert f'"{field}"' in block, \
+            f"the validator reads evidence[].{field} and the prompt never " \
+            f"asks for it:\n{block}"
+
+
+def test_the_evidence_time_rule_reaches_the_model_with_its_reason():
+    """A rule with no reason attached is the first thing lost in an edit —
+    and this one has already been lost once, by never being written."""
+    out = " ".join(_assembled_prompt().split())
+    assert "THIS APPLIES TO `evidence[]` ENTRIES TOO" in out
+    assert "sinks to the bottom of §1" in out

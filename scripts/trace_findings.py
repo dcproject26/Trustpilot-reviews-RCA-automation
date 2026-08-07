@@ -32,6 +32,12 @@ def main(argv=None):
     from server.db import SessionLocal, RcaDraft
     from server.services.rca_v4_validate import _case_finding_key, _SAME_FACT_OVERLAP
     from server.services.rca_v4_validate import _tokens
+    # THE REAL PREDICATES, IMPORTED — not restated here. A tracer that rebuilds
+    # the rule it is checking reports on its own copy, and this has already
+    # cost a session once: trace_shaping.py rebuilt the shaping path and called
+    # a fixed bug broken. When the fold changes, these move with it.
+    from server.services.rca_v4_validate import (_finding_minute,
+                                                 _SAME_MINUTE_OVERLAP)
 
     s = SessionLocal()
     try:
@@ -67,7 +73,10 @@ def main(argv=None):
               + (" — this section is not a chronology, it is the order the "
                  "model wrote them in" if _undated == len(rows) else ""))
 
-        print(f"\n=== PAIRWISE OVERLAP (threshold now {_SAME_FACT_OVERLAP}) ===")
+        print(f"\n=== PAIRWISE OVERLAP ===")
+        print(f"  wording alone folds at {_SAME_FACT_OVERLAP}; two rows at the "
+              f"SAME MINUTE fold at {_SAME_MINUTE_OVERLAP}, because the clock "
+              f"has already done most of the work.")
         print("  containment = shared significant words / the shorter row's words\n")
         pairs = []
         for i in range(len(texts)):
@@ -80,16 +89,34 @@ def main(argv=None):
                     pairs.append((ov, i, j, sorted(a_ & b_)))
         if not pairs:
             print(f"  no pair reaches {a.floor}. Nothing here reads as a repeat.")
+        _minutes = [_finding_minute(r) if isinstance(r, dict) else ""
+                    for r in rows]
         for ov, i, j, shared in sorted(pairs, reverse=True):
-            state = "COLLAPSED" if ov >= _SAME_FACT_OVERLAP else "kept apart"
-            print(f"  {ov:.2f}  [{i:>2}] x [{j:>2}]  {state}")
+            # WHICH BAR APPLIES TO THIS PAIR, and say which one it was. The two
+            # rules give different answers on the same number, so a bare
+            # "kept apart" beside 0.57 is unreadable without knowing whether
+            # the minutes agreed.
+            _same_min = bool(_minutes[i]) and _minutes[i] == _minutes[j]
+            bar = _SAME_MINUTE_OVERLAP if _same_min else _SAME_FACT_OVERLAP
+            why = (f"same minute {_minutes[i]}, bar {bar}" if _same_min
+                   else (f"different minutes, bar {bar}"
+                         if _minutes[i] and _minutes[j]
+                         else f"one or both undated, bar {bar}"))
+            state = "FOLDS" if ov >= bar else "kept apart"
+            print(f"  {ov:.2f}  [{i:>2}] x [{j:>2}]  {state:<10}  ({why})")
             print(f"        shared: {', '.join(shared)}")
         print("\nWhat to read here:")
+        print("  These are the rows that SURVIVED. A pair marked FOLDS here is")
+        print("  one the rule would now catch — it is on screen because it was")
+        print("  written before the rule, or because the two rows entered by a")
+        print("  path the fold does not cover.")
         print("  A pair you consider a DUPLICATE that says 'kept apart' is the")
-        print("  threshold being too high — its number is the ceiling.")
-        print("  A pair you consider DIFFERENT that says 'COLLAPSED' is the")
-        print("  threshold being too low — its number is the floor.")
-        print("  The gap between those two is where the threshold belongs.")
+        print("  bar being too high — its number is the ceiling.")
+        print("  A pair you consider DIFFERENT that says 'FOLDS' is the bar")
+        print("  being too low — its number is the floor.")
+        print("  Check the reason in brackets first. A duplicate 'kept apart'")
+        print("  at 'one or both undated' is not a threshold problem: it is a")
+        print("  MISSING TIME, and the fix is upstream in the prompt.")
         return 0
     finally:
         s.close()

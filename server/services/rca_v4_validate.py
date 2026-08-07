@@ -1147,6 +1147,34 @@ _SAME_FACT_OVERLAP = 0.6
 _EVIDENCE_FOLD_OVERLAP = _SAME_FACT_OVERLAP
 
 
+# TWO ROWS AT THE SAME MINUTE, sharing this much wording, are one event.
+#
+# The key was never the wording. MEASURED on tp_1785672694_664719 once the
+# times landed:
+#
+#   [ 7] 02 Aug 15:36  Guest contacted support via chat: the operator had
+#                      messaged a 13:45 pickup…
+#   [11] 02 Aug 15:36  Guest reported at 15:36 on 02 Aug that the vendor had
+#                      messaged a 13:45 pickup after the window closed.
+#
+# 0.57 containment — under the 0.60 fold, and dropping the fold to catch it
+# would also fold [5] x [12] at 0.43 against genuinely different rows at the
+# same number. But those two share a MINUTE, and that is not a coincidence a
+# threshold has to guess at.
+#
+# 0.35 is the bar once the times agree. It is low because the timestamp has
+# already done most of the work, and not zero because two DIFFERENT things
+# happen in one minute all the time — [7] and [8] are both 02 Aug 15:36, the
+# guest writing and the agent answering, and they share under 0.25.
+_SAME_MINUTE_OVERLAP = 0.35
+
+
+def _finding_minute(row) -> str:
+    """The row's time normalised to a comparable minute, or "" if it has none."""
+    k = _finding_order(row)
+    return "" if k[0] else f"{k[1]:02d}-{k[2]:02d} {k[3]:02d}:{k[4]:02d}"
+
+
 def _first_repeat_index(text, existing_token_sets, threshold):
     """Index of the first row this restates, or None.
 
@@ -1283,8 +1311,22 @@ def _case_findings(raw, issues, notes) -> list:
             # it carries the ZD ref, which the narrative row does not. So its
             # REF and its claim routing move onto the row already there, and
             # no second row is written.
-            _hit = _first_repeat_index(_clean(e.get("text")), token_sets,
-                                       _EVIDENCE_FOLD_OVERLAP)
+            # SAME MINUTE FIRST. When the evidence row and a narrative row
+            # agree on the timestamp, the bar for calling them one event drops
+            # — the clock has already said they are the same moment.
+            _minute = _finding_minute(e)
+            _hit = None
+            if _minute:
+                _same = [i for i, r in enumerate(rows)
+                         if _finding_minute(r) == _minute]
+                if _same:
+                    _hit = _first_repeat_index(
+                        _clean(e.get("text")), [token_sets[i] for i in _same],
+                        _SAME_MINUTE_OVERLAP)
+                    _hit = _same[_hit] if _hit is not None else None
+            if _hit is None:
+                _hit = _first_repeat_index(_clean(e.get("text")), token_sets,
+                                           _EVIDENCE_FOLD_OVERLAP)
             if _hit is not None:
                 _row = rows[_hit]
                 if not _row.get("ref") and _clean(e.get("ref")):
