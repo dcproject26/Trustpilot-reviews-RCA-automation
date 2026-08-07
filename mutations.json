@@ -700,5 +700,17 @@
     "name": "internal notes: a dropped note is deleted rather than hidden",
     "find": "        if e.get(\"is_internal\") and id(e) in dropped_ids:\n            continue",
     "replace": "        if e.get(\"is_internal\"):\n            continue"
+  },
+  {
+    "file": "client/index.html",
+    "name": "candidate: the loading lie comes back",
+    "find": "                const zdOnly = c.narrowing_path === 'indicator_shortlist';",
+    "replace": "                const zdOnly = false;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "candidate: narrowing_path is dropped by the remap again",
+    "find": "          narrowing_path: c.narrowing_path || '',",
+    "replace": "          narrowing_path: '',"
   }
 ]

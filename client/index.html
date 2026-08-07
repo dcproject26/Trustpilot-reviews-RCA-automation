@@ -2327,6 +2327,14 @@ async function loadDraftOverlays() {
           guestName:      c.primary_guest_name || c.guestName || '',
           contactCount:   c.contact_count || 0,
           contactTags:    c.contact_tags || '',
+          // WHICH PATH FOUND THIS. Carried because the empty-details message
+          // is a different FACT per path: `indicator_shortlist` never queried
+          // the warehouse, so there is no row to be empty, while every other
+          // path queried it and got a row with nothing on it. This remap
+          // builds a fixed shape, so a field not named here is dropped — and
+          // a message branching on a dropped field is a branch that never
+          // fires.
+          narrowing_path: c.narrowing_path || '',
         }));
       }
 
@@ -3388,7 +3396,25 @@ function renderReviewCol() {
                 </div>` : ''}
               </div>
               <div class="candidate-exp">${c.experience || '—'}</div>
-              <div class="candidate-meta">${metaParts.length ? metaParts.join(' · ') : 'Booking details load on confirm'}</div>
+              <div class="candidate-meta">${metaParts.length ? metaParts.join(' · ') : (() => {
+                // NOTHING IS LOADING. This said "Booking details load on
+                // confirm", which reads as a spinner for a state that is
+                // permanent: no request is in flight and none will be until
+                // Confirm is pressed. A reader waits for something that is
+                // never coming — "we found nothing" rendered as "we have not
+                // finished yet", which is the one thing this card must not do.
+                //
+                // The two reasons are DIFFERENT FACTS and the candidate knows
+                // which: `indicator_shortlist` builds from Zendesk ticket
+                // signals alone and never queries the warehouse, so there is
+                // no row to be empty. Any other path did query it and got a
+                // row with nothing on it — that is a gap in the warehouse, and
+                // a reader should not open Zendesk looking for it.
+                const zdOnly = c.narrowing_path === 'indicator_shortlist';
+                return zdOnly
+                  ? 'No booking record was read for this id — it came from a Zendesk ticket. Confirm to fetch it.'
+                  : 'The booking record was read and carries no experience, date or vendor.';
+              })()}</div>
               <div class="candidate-reasons">
                 ${(c.matchReasons || []).map(r => `<span class="candidate-reason-pill">${r}</span>`).join('')}
               </div>
