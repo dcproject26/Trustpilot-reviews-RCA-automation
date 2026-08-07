@@ -168,3 +168,159 @@ def test_a_patch_rebuilds_the_tab_from_gaps_it_stored_earlier(live_db, client):
     got = r.json()["draft"]["actions_taken"]
     assert got["co"] == [GAP["gap"]], \
         f"the regroup rebuilt from gaps that were not stored: {got}"
+
+
+# ── source_ref is a reference, not a description of where to look ──────────
+#
+# SEEN ON A REAL CARD. The SP gap cited "booking record — escalationEmail
+# field is empty", which passes the not-empty gate and is the gap restated: a
+# reader cannot open it. The prompt names three shapes — a ZD ticket, a bare
+# booking id, or a case finding QUOTED — and the quoted case is checked
+# against the actual findings rather than guessed at.
+#
+# COUNTED, NOT DROPPED. That gap was real; it named a blank field on this
+# booking. Losing a true finding to a formatting rule is the expensive
+# direction. The count is how a prompt that stops producing openable refs
+# becomes visible.
+
+FINDING = {"text": "Escalation email field for this booking is blank; no SP "
+                   "escalation channel available", "source": "booking"}
+
+
+def _gap(ref):
+    return {"gap": "Krakville's escalation email is still unpopulated",
+            "team": "SP", "source_ref": ref}
+
+
+def _prose_note(notes):
+    return " ".join(n for n in notes if "DESCRIPTION rather than a" in n)
+
+
+def test_a_ticket_reference_is_accepted_quietly():
+    _, notes = validate(_wwr(guest_issues=[], fixes=[],
+                             gaps=[_gap("ZD-34335318")]))
+    assert not _prose_note(notes), notes
+
+
+def test_a_bare_booking_id_is_a_reference():
+    _, notes = validate(_wwr(guest_issues=[], fixes=[], gaps=[_gap("32885089")]))
+    assert not _prose_note(notes), notes
+
+
+def test_a_finding_quoted_from_this_card_is_a_reference():
+    _, notes = validate(_wwr(guest_issues=[], fixes=[],
+                             case_findings=[FINDING],
+                             gaps=[_gap("Escalation email field for this "
+                                        "booking is blank")]))
+    assert not _prose_note(notes), notes
+
+
+def test_a_description_of_where_to_look_is_counted():
+    """THE ROW FROM THE CARD, verbatim."""
+    out, notes = validate(_wwr(guest_issues=[], fixes=[],
+                               case_findings=[FINDING],
+                               gaps=[_gap("booking record — escalationEmail "
+                                          "field is empty")]))
+    assert "1 gap(s) cite a DESCRIPTION" in _prose_note(notes), notes
+    assert len(out["what_went_wrong"]["gaps"]) == 1, \
+        "a real gap was dropped for a formatting rule"
+
+
+def test_a_vague_pointer_is_counted_too():
+    _, notes = validate(_wwr(guest_issues=[], fixes=[],
+                             case_findings=[FINDING],
+                             gaps=[_gap("the chat transcript")]))
+    assert _prose_note(notes), notes
+
+
+def test_quoting_a_finding_this_card_does_not_have_is_not_a_reference():
+    """The check is against the findings that are HERE. Prose that matches
+    nothing is prose."""
+    _, notes = validate(_wwr(guest_issues=[], fixes=[], case_findings=[],
+                             gaps=[_gap("Escalation email field for this "
+                                        "booking is blank")]))
+    assert _prose_note(notes), notes
+
+
+def test_an_unsourced_gap_is_not_also_counted_as_a_description():
+    """It is already dropped and counted by the gate. Two notes for one row
+    reads as two problems."""
+    _, notes = validate(_wwr(guest_issues=[], fixes=[], gaps=[_gap("")]))
+    assert not _prose_note(notes), notes
+    assert any("cited no ticket" in n for n in notes), notes
+
+
+# ── both grains reach the model ────────────────────────────────────────────
+#
+# ON A REAL CARD ONLY THE PROCESS GRAIN CAME BACK. The gaps were "Krakville's
+# escalation email is unpopulated" and "No process requires RO to confirm the
+# new operator's pickup time" — both true, both process-level, and THIS
+# guest's unfinished business missing entirely. The chat miss is the prompt's
+# own worked example and it did not appear.
+#
+# A team reading only the process gap does not know a specific guest is still
+# waiting. These drive `rca_v3_prompt()`, the string the model receives —
+# asserting against RCA_V4_TEMPLATE would pass against broken substitution.
+
+def _assembled():
+    from server import prompts
+    return " ".join(prompts.rca_v3_prompt(
+        review_text="x", booking={}, timeline=[], insights={}, dss_rec={},
+        l1="", l2="", sub_theme="", support_summary="", checklist={},
+        review_id="r1").split())
+
+
+def test_the_prompt_asks_for_the_case_grain_and_names_it_first():
+    out = _assembled()
+    assert "GAPS COME AT TWO GRAINS AND YOU OWE BOTH" in out
+    assert "START WITH THE CASE GRAIN" in out
+
+
+def test_it_says_why_the_case_grain_is_the_one_that_gets_skipped():
+    """A rule with no reason is the first thing lost in an edit."""
+    assert "does not know a specific guest is still waiting" in _assembled()
+
+
+def test_being_answered_is_not_being_solved():
+    """The likely reason it was skipped: an agent DID reply, so the case reads
+    as handled. The guest was left exactly as stuck as before."""
+    out = _assembled()
+    assert "A GUEST PROBLEM UNSOLVED AT CASE CLOSE IS ALWAYS A GAP" in out
+    assert "Being answered is not being solved" in out
+
+
+def test_goodwill_paid_afterwards_does_not_close_it():
+    """This case issued a wallet credit the day after. That is compensation,
+    not the 08:30 slot the guest asked for."""
+    assert "compensation, not the thing the guest asked for" in _assembled()
+
+
+def test_the_prompt_shows_the_reference_shapes_with_the_row_that_failed():
+    out = _assembled()
+    assert "A REFERENCE, NOT A DESCRIPTION" in out
+    assert "booking record — escalationEmail field is empty" in out, \
+        "the NO example is the row from the card; a rule without its own " \
+        "counter-example is the one that gets re-broken"
+
+
+def test_prose_that_merely_contains_a_booking_id_is_still_prose():
+    """SURVIVED A MUTATION. The id test was `fullmatch`; loosening it to a
+    substring search passed the whole suite, because every prose example here
+    happened to carry no digits.
+
+    "the rebooking intimation sent on booking 32885089" names where to look
+    and is not something a reader can open. A bare id IS the record; a
+    sentence with an id in it is a description with a number in it."""
+    _, notes = validate(_wwr(guest_issues=[], fixes=[], case_findings=[FINDING],
+                             gaps=[_gap("the rebooking intimation sent on "
+                                        "booking 32885089")]))
+    assert _prose_note(notes), notes
+
+
+def test_an_id_with_a_hash_or_stray_space_is_still_the_record():
+    """The inverse. Tightening far enough to reject "#32885089 " would file a
+    real reference as prose, which is the noise that stops a count being
+    read."""
+    for ref in ("32885089", " 32885089 ", "#32885089", "32885089."):
+        _, notes = validate(_wwr(guest_issues=[], fixes=[], gaps=[_gap(ref)]))
+        assert not _prose_note(notes), (ref, notes)

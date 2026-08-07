@@ -2130,12 +2130,42 @@ that turned out fine is silence — never a line in the output.
     case finding), and NOT a recommendation ("Require an agent to contact the guest
     proactively" — that is a fix, and §3 holds those).
 
-    EVERY GAP CITES WHERE YOU READ IT. `source_ref` is the ticket, the contact or the
-    case finding that shows it — ZD-34335318, or the finding's own words. A gap with no
-    source is DROPPED and counted, and that is deliberate: a process improvement that is
-    generally true is not something this case surfaced. Do not raise a gap because it
-    would be good practice. Raise it because the data in front of you shows it happening
-    and shows nobody fixing it.
+    GAPS COME AT TWO GRAINS AND YOU OWE BOTH. On a real card only the process grain came
+    back and THIS GUEST'S unfinished business was missing entirely:
+
+      THIS CASE   what is still outstanding for THIS booking and THIS guest. "The guest
+                  asked to revert to 08:30, was told the window had closed, and the chat
+                  ended with the problem unsolved — nobody went back to them" → CO.
+      THE PROCESS the hole behind it. "No process requires RO to confirm the new
+                  operator's pickup time with the guest" → CO.
+
+    START WITH THE CASE GRAIN. It is the one that gets skipped, because the process
+    statement feels like the more serious finding — and a team reading only the process
+    gap does not know a specific guest is still waiting.
+
+    A GUEST PROBLEM UNSOLVED AT CASE CLOSE IS ALWAYS A GAP. Being answered is not being
+    solved: an agent explaining that nothing can be done leaves the guest exactly as
+    stuck as before, and a case closed in that state has something outstanding whatever
+    the disposition says. Goodwill paid afterwards does not close it either — a wallet
+    credit is compensation, not the thing the guest asked for.
+
+    EVERY GAP CITES WHERE YOU READ IT, AND `source_ref` IS A REFERENCE, NOT A DESCRIPTION
+    OF WHERE TO LOOK. One of these, and nothing else:
+
+      a ticket        ZD-34335318
+      a booking id    32885089
+      a case finding  quote its words, verbatim, from `case_findings`
+
+      NO   "booking record — escalationEmail field is empty"   (that is the gap restated,
+           not a reference; a reader cannot open it)
+      NO   "the chat transcript", "the support history", "the exp page"
+      YES  ZD-34335318
+      YES  "Escalation email field for this booking is blank"   (the finding's own words)
+
+    A gap with no source is DROPPED and counted, and that is deliberate: a process
+    improvement that is generally true is not something this case surfaced. Do not raise
+    a gap because it would be good practice. Raise it because the data in front of you
+    shows it happening and shows nobody fixing it.
 
     If the case shows no unsolved gap, return an empty array. That is a real answer and
     the card says so.

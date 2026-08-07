@@ -963,7 +963,7 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
         # read path — which is what emptied the tabs on `PATCH /draft-v2`.
         "what_went_wrong":   {"guest_issues": issues, "fixes": _fixes,
                               "case_findings": _findings,
-                              "gaps": _gap_rows(wwr.get("gaps"), notes)},
+                              "gaps": _gap_rows(wwr.get("gaps"), notes, _findings)},
         "issue_specific_answers": _answers(rca.get("issue_specific_answers"), notes),
         # INTERPRETATION, not facts. The rows the UI renders come from the
         # pipeline's Zendesk-derived frames - their time, channel and ticket id
@@ -1044,7 +1044,37 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
     }, notes
 
 
-def _gap_rows(raw, notes) -> list:
+def _looks_like_a_reference(ref: str, findings=None) -> bool:
+    """Whether `source_ref` points at a record or merely describes one.
+
+    THREE SHAPES ARE REFERENCES and nothing else is: a ZD ticket, a bare
+    booking id, or a case finding quoted. Anything else — "booking record —
+    escalationEmail field is empty", "the chat transcript" — tells a reader
+    where to go looking rather than what to open.
+
+    THE QUOTED FINDING IS CHECKED AGAINST THE ACTUAL FINDINGS, not guessed at.
+    A first version asked whether the ref merely restated its own gap, which
+    is a heuristic and a weak one: it passed "booking record — escalationEmail
+    field is empty" because the gap happened to be worded differently. The
+    prompt says "quote its words from `case_findings`", so the honest test is
+    whether a finding is there to have been quoted. `validate` has them in
+    hand at the call site; nothing has to be inferred.
+    """
+    r = _clean(ref) or ""
+    if not r:
+        return False
+    if re.search(r"\bZD-?\d{4,}\b", r, re.I):
+        return True
+    # A bare id — the whole ref is one run of digits, not a sentence with a
+    # number somewhere in it.
+    if re.fullmatch(r"[#\s]*\d{5,}[\s.]*", r):
+        return True
+    texts = [_clean(f.get("text")) for f in (findings or [])
+             if isinstance(f, dict) and _clean(f.get("text"))]
+    return bool(texts) and _is_repeat_of(r, [_tokens(t) for t in texts])
+
+
+def _gap_rows(raw, notes, findings=None) -> list:
     """§Actions Taken's source: [{gap, team, source_ref}], STORED.
 
     THE DEFECT THIS CLOSES, seen on a real card. `actions_from_gaps` consumed
@@ -1067,16 +1097,34 @@ def _gap_rows(raw, notes) -> list:
     dropped later by `actions_from_gaps`, which counts it. Filtering it out at
     this layer too would hide the count that makes the gate visible.
     """
-    rows = []
+    rows, prose_ref = [], 0
     for g in (raw if isinstance(raw, list) else []):
         if not isinstance(g, dict):
             continue
         text = _clean(g.get("gap"))
         if not text:
             continue
+        ref = _clean(g.get("source_ref"))
+        # A REFERENCE OR A DESCRIPTION OF WHERE TO LOOK. On a real card the
+        # SP gap cited "booking record — escalationEmail field is empty",
+        # which is the gap restated: it passes the not-empty gate and a reader
+        # still cannot open it.
+        #
+        # COUNTED, NOT DROPPED. The gate exists to stop the model raising
+        # things it believes in general, and this gap was real — it named a
+        # blank field on this booking. Dropping it would lose a true finding
+        # to a formatting rule, which is the expensive direction. The count is
+        # how a prompt that stops producing openable refs becomes visible.
+        if ref and not _looks_like_a_reference(ref, findings):
+            prose_ref += 1
         rows.append({"gap": text,
                      "team": _clean(g.get("team")),
-                     "source_ref": _clean(g.get("source_ref"))})
+                     "source_ref": ref})
+    if prose_ref:
+        notes.append(f"{prose_ref} gap(s) cite a DESCRIPTION rather than a "
+                     f"reference — raised, but the reader cannot open the "
+                     f"record. A source_ref is a ZD ticket, a booking id, or "
+                     f"a case finding quoted verbatim")
     if raw is not None and not isinstance(raw, list):
         notes.append("gaps came back as something other than a list and were "
                      "NOT read — Actions Taken has no source on this card")
