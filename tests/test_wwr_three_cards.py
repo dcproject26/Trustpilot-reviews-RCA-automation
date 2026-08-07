@@ -158,8 +158,7 @@ def test_unrouted_is_first_so_it_cannot_be_scrolled_past(page):
 def test_an_unowned_fix_shows_a_count_on_that_tab(page):
     """A row nobody owns must be countable from the tab strip without opening
     it, or the reader has no reason to look."""
-    _patch_and_reload(page, wwr={"guest_issues": [], "fixes": [
-        {"action": "Nobody owns this", "owner": None, "because": ""}]})
+    _patch_and_reload(page, wwr={"guest_issues": [], "fixes": [{"action": "Nobody owns this", "owner": None, "because": ""}], "gaps": [{"gap": "Nobody owns this", "source_ref": "ZD-1"}]})
     got = page.evaluate("""() => {
         const b = document.querySelector('.action-tab[data-tab="unrouted"]');
         return b ? {count: (b.querySelector('.count') || {}).textContent || '',

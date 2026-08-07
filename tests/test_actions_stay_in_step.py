@@ -30,7 +30,9 @@ def _seed(live_db, rid="tp_sync"):
     s.add(live_db.RcaDraft(id=f"d_{rid}", review_id=rid, rca_v3={
         "what_went_wrong": {"guest_issues": [],
                             "fixes": [{"action": "Resend the tickets",
-                                       "owner": "CO"}]},
+                                       "owner": "CO"}],
+                            "gaps": [{"gap": "Resend the tickets",
+                                      "team": "CO", "source_ref": "ZD-1"}]},
         "flags": []},
         actions_taken={"co": ["Resend the tickets"]}))
     s.commit(); s.close()
@@ -48,7 +50,9 @@ def test_changing_a_fix_owner_moves_the_action_row(live_db, client):
     draft = _patch(client, rid, {
         "what_went_wrong": {"guest_issues": [],
                             "fixes": [{"action": "Resend the tickets",
-                                       "owner": "TECH"}]},
+                                       "owner": "TECH"}],
+                            "gaps": [{"gap": "Resend the tickets",
+                                      "team": "TECH", "source_ref": "ZD-1"}]},
         "flags": []})
     assert draft["actions_taken"]["tech"] == ["Resend the tickets"], \
         draft["actions_taken"]
@@ -63,7 +67,9 @@ def test_the_column_the_slack_post_reads_is_the_one_that_moved(live_db, client):
     _patch(client, rid, {
         "what_went_wrong": {"guest_issues": [],
                             "fixes": [{"action": "Resend the tickets",
-                                       "owner": "TECH"}]},
+                                       "owner": "TECH"}],
+                            "gaps": [{"gap": "Resend the tickets",
+                                      "team": "TECH", "source_ref": "ZD-1"}]},
         "flags": []})
     s = live_db.SessionLocal()
     row = s.query(live_db.RcaDraft).filter_by(review_id=rid).first()
@@ -77,7 +83,7 @@ def test_removing_a_fix_empties_its_tab(live_db, client):
     is doing."""
     rid = _seed(live_db)
     draft = _patch(client, rid, {"what_went_wrong": {"guest_issues": [],
-                                                     "fixes": []},
+                                                     "fixes": [], "gaps": []},
                                  "flags": []})
     assert all(v == [] for v in draft["actions_taken"].values()), \
         draft["actions_taken"]
@@ -87,7 +93,9 @@ def test_an_unowned_fix_lands_on_the_unrouted_tab(live_db, client):
     rid = _seed(live_db)
     draft = _patch(client, rid, {
         "what_went_wrong": {"guest_issues": [],
-                            "fixes": [{"action": "Someone should look at this"}]},
+                            "fixes": [{"action": "Someone should look at this"}],
+                            "gaps": [{"gap": "Someone should look at this",
+                                      "source_ref": "ZD-1"}]},
         "flags": []})
     assert draft["actions_taken"]["unrouted"] == ["Someone should look at this"]
 
@@ -103,7 +111,7 @@ def test_a_flag_does_not_reach_a_team_tab(live_db, client):
     and does not need a second home."""
     rid = _seed(live_db)
     draft = _patch(client, rid, {
-        "what_went_wrong": {"guest_issues": [], "fixes": []},
+        "what_went_wrong": {"guest_issues": [], "fixes": [], "gaps": []},
         "flags": [{"team": "TECH", "flag": "No alert on failed fulfilment"}]})
     assert draft["actions_taken"]["tech"] == [], draft["actions_taken"]
 
@@ -113,9 +121,10 @@ def test_the_client_cannot_write_the_column_behind_the_fixes(live_db, client):
     actions_taken in the same request is overwritten by the regroup."""
     rid = _seed(live_db)
     r = client.patch(f"/api/reviews/{rid}/draft-v2", json={
-        "rca_v3": {"what_went_wrong": {"guest_issues": [],
-                                       "fixes": [{"action": "Resend the tickets",
-                                                  "owner": "TECH"}]},
+        "rca_v3": {"what_went_wrong": {"guest_issues": [], "fixes": [],
+                                       "gaps": [{"gap": "Resend the tickets",
+                                                 "team": "TECH",
+                                                 "source_ref": "ZD-1"}]},
                    "flags": []},
         "actions_taken": {"finance": ["a row the client invented"]}})
     assert r.status_code == 200, r.text

@@ -323,3 +323,65 @@ def test_evidence_about_a_different_event_still_gets_its_own_row():
                                              "11:00", "source": "zendesk",
                                      "ref": "ZD-34335318"}]}]))
     assert len(_findings(out)) == 2, [r["text"] for r in _findings(out)]
+
+
+# ── §1 is chronological, on a real date and not on the display string ─────
+
+from server.services.rca_v4_validate import _finding_order
+
+
+def test_july_sorts_before_august():
+    """THE DEFECT. The key was `(time is None, time or "")` — the DISPLAY
+    STRING — so "21 Jul" sorted after "03 Aug" because "2" > "0". §1 opened
+    with an August payment and put the booking's own creation ninth:
+
+        [ 0] BNPL payment charged successfully on 01 Aug
+        ...
+        [ 9] Booking created for 08:30 on 03 Aug with Krakville
+
+    A lexical sort on a day-month string is not an ordering of anything."""
+    rows = [{"time": "01 Aug 12:03"}, {"time": "21 Jul 15:28"},
+            {"time": "03 Aug 08:30"}]
+    assert [r["time"] for r in sorted(rows, key=_finding_order)] == [
+        "21 Jul 15:28", "01 Aug 12:03", "03 Aug 08:30"]
+
+
+def test_the_clock_orders_two_findings_on_one_day():
+    rows = [{"time": "02 Aug 15:36"}, {"time": "02 Aug 09:13"}]
+    assert [r["time"] for r in sorted(rows, key=_finding_order)][0] == "02 Aug 09:13"
+
+
+def test_an_iso_time_sorts_beside_a_day_month_one():
+    """The model writes both shapes. Two formats in one list must still be one
+    chronology."""
+    rows = [{"time": "03 Aug 08:30"}, {"time": "2026-08-02 15:36"},
+            {"time": "21 Jul 15:28"}]
+    assert [r["time"] for r in sorted(rows, key=_finding_order)] == [
+        "21 Jul 15:28", "2026-08-02 15:36", "03 Aug 08:30"]
+
+
+def test_an_undated_finding_sinks_rather_than_floating():
+    """An undated row at the top reads as the first thing that happened, which
+    is a claim nobody made."""
+    rows = [{"time": None}, {"time": "21 Jul 15:28"}]
+    assert sorted(rows, key=_finding_order)[-1]["time"] is None
+
+
+def test_an_unreadable_time_is_treated_as_no_time():
+    """"sometime in June" is not a time. Pretending to order it would put a
+    row where the records do not support it."""
+    rows = [{"time": "sometime in June"}, {"time": "21 Jul 15:28"}]
+    assert sorted(rows, key=_finding_order)[-1]["time"] == "sometime in June"
+
+
+def test_findings_come_out_of_validate_in_order():
+    """Driven end to end, not through the key alone."""
+    out, _ = validate(_wwr(case_findings=[
+        {"text": "BNPL payment charged successfully", "source": "booking",
+         "time": "01 Aug 12:03"},
+        {"text": "Booking created with Krakville for the 08:30 slot",
+         "source": "booking", "time": "21 Jul 15:28"},
+        {"text": "Wallet credit issued the day after the visit",
+         "source": "booking", "time": "03 Aug 12:44"}]))
+    assert [r["text"][:12] for r in _findings(out)] == [
+        "Booking crea", "BNPL payment", "Wallet credi"], _findings(out)

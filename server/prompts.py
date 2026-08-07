@@ -2088,6 +2088,28 @@ that turned out fine is silence — never a line in the output.
           we promised.
     One line each, with the `source` that shows it. `time` where the record carries one; null
     where it does not, and do not invent one to force an order.
+    ── `gaps` — WHAT IS STILL WRONG, AND WHO HAS TO FIX IT ────────────────────────
+    An array on `what_went_wrong`: [{"gap": ..., "team": ..., "source_ref": ...}].
+
+    A gap is something UNSOLVED that needs raising with a team. "Chat miss — the guest
+    asked to revert to 08:30 and nobody followed up" → CO. "Krakville's escalation email
+    is not populated" → SP. Present tense, because a gap that has been closed is not
+    something anyone has to pick up.
+
+    IT IS NOT what happened ("No one was aware of the vendor's time change" — that is a
+    case finding), and NOT a recommendation ("Require an agent to contact the guest
+    proactively" — that is a fix, and §3 holds those).
+
+    EVERY GAP CITES WHERE YOU READ IT. `source_ref` is the ticket, the contact or the
+    case finding that shows it — ZD-34335318, or the finding's own words. A gap with no
+    source is DROPPED and counted, and that is deliberate: a process improvement that is
+    generally true is not something this case surfaced. Do not raise a gap because it
+    would be good practice. Raise it because the data in front of you shows it happening
+    and shows nobody fixing it.
+
+    If the case shows no unsolved gap, return an empty array. That is a real answer and
+    the card says so.
+
     THIS SECTION CARRIES TWO KINDS OF POINT AND THEY DO DIFFERENT JOBS. Keeping them
     separate is what stops this section repeating itself:
 

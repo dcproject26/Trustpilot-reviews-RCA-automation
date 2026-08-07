@@ -86,8 +86,8 @@ def test_every_tab_key_is_present_even_when_empty():
 def test_a_fix_lands_on_its_owners_tab_and_no_playbook_row_lands_anywhere():
     """The section is the fixes, grouped by owner."""
     rca = _rca()
-    rca["what_went_wrong"]["fixes"] = [
-        {"action": "Alert on failed fulfilment", "owner": "TECH"}]
+    rca["what_went_wrong"]["gaps"] = [
+            {"gap": "Alert on failed fulfilment", "team": "TECH", "source_ref": "ZD-1"}]
     out, _ = validate(rca, [SCENARIO])
     assert "Alert on failed fulfilment" in out["actions_taken"]["tech"]
 
@@ -133,7 +133,8 @@ def test_a_finding_that_names_no_team_is_reported_rather_than_parked():
                       {"team": "SP", "flag": "b", "evidence": "e"}])
     rca["what_went_wrong"]["guest_issues"][0]["operational_failure"] = \
         "Nobody watched the fulfilment queue"
-    rca["what_went_wrong"]["fixes"] = [{"action": "Someone should look at this"}]
+    rca["what_went_wrong"]["gaps"] = [{"gap": "Someone should look at this",
+                                      "source_ref": "ZD-1"}]
     out, notes = validate(rca, [SCENARIO])
     assert "Someone should look at this" in out["actions_taken"]["unrouted"], \
         "an unowned fix belongs on a tab a reader can see, not in a footnote"
@@ -147,7 +148,7 @@ def test_nothing_found_says_so_rather_than_reporting_a_bare_zero():
     _, notes = validate(_rca(flags=[], what_went_wrong={"guest_issues": []}),
                         [SCENARIO])
     said = " ".join(n for n in notes if "actions taken" in n)
-    assert "no fix" in said, notes
+    assert "no unsolved gap" in said, notes
 
 
 def test_two_fixes_worded_differently_are_not_two_rows():
@@ -158,9 +159,10 @@ def test_two_fixes_worded_differently_are_not_two_rows():
     Checked between FIXES now rather than between a fix and a flag: flags no
     longer reach this column at all."""
     rca = _rca()
-    rca["what_went_wrong"]["fixes"] = [
-        {"action": "Watch the fulfilment queue", "owner": "CO"},
-        {"action": "Watch the fulfilment queue closely", "owner": "CO"}]
+    rca["what_went_wrong"]["gaps"] = [
+        {"gap": "Watch the fulfilment queue", "team": "CO", "source_ref": "ZD-1"},
+        {"gap": "Watch the fulfilment queue closely", "team": "CO",
+         "source_ref": "ZD-1"}]
     out, notes = validate(rca, [SCENARIO])
     assert len(out["actions_taken"]["co"]) == 1, out["actions_taken"]["co"]
     assert any("already said" in n for n in notes), notes
@@ -171,8 +173,8 @@ def test_the_fix_claims_the_slot_and_the_flag_merges_into_it():
     went wrong. When they collide the fix is the row worth keeping."""
     rca = _rca(flags=[{"team": "SP", "flag": "Chase the vendor for a reply",
                        "evidence": "ZD-1"}])
-    rca["what_went_wrong"]["fixes"] = [
-        {"action": "Chase the vendor for a reply", "owner": "TECH"}]
+    rca["what_went_wrong"]["gaps"] = [
+            {"gap": "Chase the vendor for a reply", "team": "TECH", "source_ref": "ZD-1"}]
     out, _ = validate(rca, [SCENARIO])
     assert out["actions_taken"]["tech"] == ["Chase the vendor for a reply"]
     assert out["actions_taken"]["sp"] == [], \
@@ -201,8 +203,8 @@ def test_a_clean_run_puts_nothing_on_the_trail():
     rca = _rca(flags=[{"team": "CO", "flag": "No follow-up after the first "
                                              "reply", "evidence": "ZD-1"}])
     rca["what_went_wrong"]["guest_issues"][0].pop("operational_failure", None)
-    rca["what_went_wrong"]["fixes"] = [
-        {"action": "Follow up within the promised window", "owner": "CO"}]
+    rca["what_went_wrong"]["gaps"] = [
+            {"gap": "Follow up within the promised window", "team": "CO", "source_ref": "ZD-1"}]
     _, notes = validate(rca, [SCENARIO])
     assert not [n for n in notes if "actions taken" in n], notes
 
@@ -219,8 +221,8 @@ def test_the_computed_section_survives_the_projection():
     appears in pipeline.py, which passes just as happily when that line is
     unreachable."""
     rca = _rca()
-    rca["what_went_wrong"]["fixes"] = [
-        {"action": "Alert on failed fulfilment", "owner": "TECH"}]
+    rca["what_went_wrong"]["gaps"] = [
+            {"gap": "Alert on failed fulfilment", "team": "TECH", "source_ref": "ZD-1"}]
     out, _ = validate(rca, [SCENARIO])
     col = project_v4(out)["actions_taken"]
     assert col == out["actions_taken"]

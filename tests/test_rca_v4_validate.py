@@ -371,7 +371,9 @@ def test_a_pre_restructure_fix_is_migrated_into_the_fixes_array():
     fixes = out["what_went_wrong"]["fixes"]
     assert [f["action"] for f in fixes] == ["Watch the fulfilment queue"], fixes
     assert fixes[0]["owner"] == "TECH", fixes
-    assert out["actions_taken"]["tech"] == ["Watch the fulfilment queue"]
+    # NOT asserted here any more: actions_taken is built from the case's
+    # unsolved GAPS, not from §3's fixes. This test is about the pre-restructure
+    # MIGRATION — issue.fix being read into the fixes array — which is unchanged.
     assert any("old per-issue shape" in n for n in notes), \
         "a rewrite of what was stored must be reported"
 

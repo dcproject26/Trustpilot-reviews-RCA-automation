@@ -25,7 +25,7 @@ V3 = {"what_went_wrong": {
         "guest_issues": [{"issue": "Tickets late", "claim": "two hours",
                           "claim_accuracy": "Accurate",
                           "root_cause": "the run failed"}],
-        "fixes": [{"action": "Alert on failure", "owner": "TECH"}],
+        "fixes": [{"action": "Alert on failure", "owner": "TECH"}], "gaps": [{"gap": "Alert on failure", "team": "TECH", "source_ref": "ZD-1"}],
         "case_findings": [{"text": "Tickets sent 14:02", "source": "bms"}]},
       "flags": [{"team": "CO", "flag": "No follow-up"}],
       "dss": {"prescribes": "Resend", "followed": "not_followed"}}
@@ -103,12 +103,16 @@ def test_a_deleted_issue_stays_deleted(live_db, client):
 
 
 def test_an_edited_fix_owner_moves_its_action_row_too(live_db, client):
-    """Actions Taken is a VIEW over the fixes, so an owner edit has to move
-    both or the card and the Slack post disagree."""
+    """Actions Taken is a VIEW over the case's unsolved gaps, so re-owning the
+    work has to move both or the card and the Slack post disagree."""
     rid = _seed(live_db, "tp_edit_own")
 
     def m(v3):
         v3["what_went_wrong"]["fixes"][0]["owner"] = "CO"
+        # Actions Taken reads the case's unsolved GAPS now, not §3's fixes, so
+        # re-owning the fix has to move the gap naming the same work.
+        v3["what_went_wrong"]["gaps"] = [
+            {"gap": "Alert on failure", "team": "CO", "source_ref": "ZD-1"}]
     d = _edit(client, rid, m)
     # CO carries the re-owned fix AND its own flag — Actions Taken has two
     # sources by design, so this asserts the fix MOVED rather than that CO

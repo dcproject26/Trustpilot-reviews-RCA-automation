@@ -1246,6 +1246,91 @@ def actions_from_findings(issues, flags, improvements=None, dss_miss=None,
     return tabs, report
 
 
+def actions_from_gaps(gaps, keep=None) -> tuple:
+    """Actions Taken as UNSOLVED GAPS, each raised with the team that owns it.
+
+    The section was built from §3's fixes, which is why it carried findings,
+    SOP gaps and recommendations in one undifferentiated list — 32 rows on a
+    CO tab, among them "No one at Headout was aware of the vendor's time
+    change" (a finding) and "No requirement exists to notify the guest" (a
+    gap), sitting beside three wordings of one instruction.
+
+    A row here is now one thing: something that is STILL WRONG and needs
+    raising. "Chat miss — raise with CO". Present tense, because a gap that
+    has been closed is not an action anybody has to take.
+
+    NOTHING IS RAISED THAT THE DATA DOES NOT SHOW. Every gap must cite the
+    ticket, contact or finding it was read from; one that cites nothing is a
+    plausible process improvement rather than something this case surfaced,
+    and it is dropped and counted. That is the whole guard against filling
+    this tab with things a model thinks are generally true.
+
+    Hand-typed rows are carried through a re-run exactly as before: a row
+    somebody wrote is not model output and a rebuild must not eat it.
+    """
+    tabs = {t: [] for t in ACTION_TAB_ORDER}
+    seen = {"exact": set(), "tokens": {}}
+    counts = {"gap": 0, "repeat": 0, "unsourced": 0, UNROUTED: 0}
+
+    for g in (gaps or []):
+        if not isinstance(g, dict):
+            continue
+        text = str(g.get("gap") or "").strip()
+        if not text:
+            continue
+        # THE ANTI-HALLUCINATION GATE. A gap with no source is not something
+        # this case showed; it is something the model believes about cases in
+        # general. Counted, so a run that raises nothing because nothing was
+        # sourced is distinguishable from a case with no gaps.
+        if not str(g.get("source_ref") or "").strip():
+            counts["unsourced"] += 1
+            continue
+        if _is_repeat(text, seen, "action"):
+            counts["repeat"] += 1
+            continue
+        _remember(text, seen, "action")
+        team = str(g.get("team") or "").strip().lower()
+        team = FLAG_TEAM_ALIASES.get(team, team)
+        tab = team if team in ACTION_TEAMS else UNROUTED
+        tabs[tab].append(text)
+        counts["gap"] += 1
+        if tab == UNROUTED:
+            counts[UNROUTED] += 1
+
+    kept = 0
+    for t, items in (keep or {}).items():
+        if t not in tabs:
+            continue
+        for row in (items or []):
+            txt = str(row or "").strip()
+            if txt and not _is_repeat(txt, seen, "action"):
+                _remember(txt, seen, "action")
+                tabs[t].append(txt)
+                kept += 1
+
+    notes = []
+    if kept:
+        notes.append(f"actions taken: {kept} hand-added row(s) carried forward "
+                     f"through this re-run")
+    if counts["unsourced"]:
+        notes.append(f"actions taken: {counts['unsourced']} gap(s) cited no "
+                     f"ticket, contact or finding and were NOT raised — a gap "
+                     f"this case did not show is not this case's gap")
+    if counts["repeat"]:
+        notes.append(f"actions taken: {counts['repeat']} gap(s) said what "
+                     f"another gap already said and were merged")
+    if counts[UNROUTED]:
+        notes.append(f"actions taken: {counts[UNROUTED]} gap(s) name no team "
+                     f"and sit on the Unrouted tab — nobody picks those up "
+                     f"until someone assigns them")
+    if not counts["gap"] and not kept:
+        notes.append("actions taken: no unsolved gap was found in this case, "
+                     "so there is nothing for any team to pick up")
+
+    return tabs, {"counts": counts, "kept": kept, "notes": notes,
+                  "unrouted": counts[UNROUTED]}
+
+
 def actions_from_fixes(fixes, keep=None) -> tuple:
     """Actions Taken as a VIEW over §3's fixes. Returns (tabs, report).
 

@@ -1604,10 +1604,10 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
     # nothing a human typed into a fix is re-judged.
     if patch.rca_v3 is not None or _v4_sent:
         try:
-            from server.checklist import actions_from_fixes
+            from server.checklist import actions_from_gaps
             _blob = d.rca_v3 or {}
             _wwr = _blob.get("what_went_wrong") or {}
-            _tabs, _rep = actions_from_fixes(_wwr.get("fixes"))
+            _tabs, _rep = actions_from_gaps(_wwr.get("gaps"))
             d.actions_taken = _tabs
             flag_modified(d, "actions_taken")
         except Exception as e:

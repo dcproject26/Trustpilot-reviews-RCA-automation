@@ -221,9 +221,9 @@ def test_actions_taken_is_computed_by_the_run_not_left_empty(live_db,
         "claim": "I was never told", "claim_accuracy": "Accurate",
         "root_cause": "nobody resent the tickets",
         "evidence": [{"text": "no resend", "source": "zendesk", "ref": None}]}]
-    rca["what_went_wrong"]["fixes"] = [
-        {"action": "resend tickets when the delay is detected", "owner": "CO",
-         "because": "the guest had nothing to enter with"}]
+    rca["what_went_wrong"]["gaps"] = [
+        {"gap": "resend tickets when the delay is detected", "team": "CO",
+         "source_ref": "ZD-1"}]
     _stub(monkeypatch, rca)
     _seed(live_db, "tp_actions")
     _, trail, actions = _run(live_db, "tp_actions")
@@ -266,8 +266,9 @@ def test_an_unroutable_finding_reaches_the_confidence_trail(live_db, monkeypatch
         "operational_failure": "Nobody watched the fulfilment queue",
         "root_cause": "nobody resent the tickets",
         "evidence": [{"text": "no resend", "source": "zendesk", "ref": None}]}]
-    rca["what_went_wrong"]["fixes"] = [
-        {"action": "Someone should watch the fulfilment queue"}]
+    rca["what_went_wrong"]["gaps"] = [
+        {"gap": "Someone should watch the fulfilment queue",
+         "source_ref": "ZD-1"}]
     _stub(monkeypatch, rca)
     _seed(live_db, "tp_unrouted")
     _, trail, actions = _run(live_db, "tp_unrouted")

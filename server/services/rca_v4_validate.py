@@ -18,7 +18,7 @@ import re
 from server import dss_check, price_check
 from server.checklist import (ACTION_TEAMS, FLAG_TEAM_ALIASES, ACTION_TABS,
                               actions_raised, findings_text,
-                              actions_from_fixes)
+                              actions_from_fixes, actions_from_gaps)
 from server.taxonomy import L1_CATEGORIES, L2_OPTIONS
 
 # Four. "Unknown" carries both "we checked and nothing can settle it" and "we
@@ -931,7 +931,7 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
     # remediation on a card twice.
     _findings = _case_findings(wwr.get("case_findings"), issues, notes)
     _fixes = _fix_rows(wwr.get("fixes"), issues, notes)
-    _actions, _ar = actions_from_fixes(_fixes, keep=keep_actions)
+    _actions, _ar = actions_from_gaps(wwr.get("gaps"), keep=keep_actions)
     notes.extend(_ar["notes"])
 
     return {
@@ -1320,5 +1320,45 @@ def _case_findings(raw, issues, notes) -> list:
     # timeline is the record with the clock on it. It is kept because it is
     # the only thing that can order these rows, and an order the records
     # support beats the order the model happened to write them in.
-    rows.sort(key=lambda r: (r["time"] is None, r["time"] or ""))
+    rows.sort(key=_finding_order)
     return rows
+
+
+_MONTHS = {m: i for i, m in enumerate(
+    ["jan", "feb", "mar", "apr", "may", "jun",
+     "jul", "aug", "sep", "oct", "nov", "dec"], start=1)}
+
+
+def _finding_order(row):
+    """(undated, month, day, hour, minute) — a real chronology.
+
+    The key was `(time is None, time or "")`, which compares the DISPLAY
+    STRING. "21 Jul" sorts after "03 Aug" because "2" > "0", so §1 opened with
+    an August payment and put the booking's own creation ninth:
+
+        [ 0] BNPL payment charged successfully on 01 Aug
+        ...
+        [ 9] Booking created for 08:30 on 03 Aug with Krakville
+
+    A lexical sort on a day-month string is not an ordering of anything. The
+    same defect the timeline had, in the section whose whole job is to say
+    what happened in what order.
+
+    An undated row still sinks to the end rather than floating to the top: an
+    undated row at the top reads as the first thing that happened, which is a
+    claim nobody made. Ties keep their arrival order — `sorted` is stable.
+    """
+    t = " ".join(str(row.get("time") or "").split())
+    if not t:
+        return (1, 0, 0, 0, 0)
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{1,2}):(\d{2}))?", t)
+    if m:
+        y, mo, d, hh, mm = m.groups()
+        return (0, int(mo), int(d), int(hh or 0), int(mm or 0))
+    m = re.match(r"^(\d{1,2})\s+([A-Za-z]{3})[a-z]*(?:\s+(\d{1,2}):(\d{2}))?", t)
+    if m and m.group(2).lower() in _MONTHS:
+        return (0, _MONTHS[m.group(2).lower()], int(m.group(1)),
+                int(m.group(3) or 0), int(m.group(4) or 0))
+    # A time we cannot read is not a time. Sinking it is the same judgement as
+    # an absent one, and pretending to order it would be worse.
+    return (1, 0, 0, 0, 0)

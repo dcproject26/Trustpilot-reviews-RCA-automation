@@ -26,7 +26,12 @@ def _rca(**kw):
              "fix": {"action": "Add an alert on failed fulfilment",
                      "owner": "TECH"}}
     issue.update(kw)
-    return {"what_went_wrong": {"guest_issues": [issue]},
+    return {"what_went_wrong": {"guest_issues": [issue],
+                                # Actions Taken is built from the case's
+                                # unsolved GAPS now, not from §3's fixes.
+                                "gaps": [{"gap": "Add an alert on failed "
+                                                 "fulfilment", "team": "TECH",
+                                          "source_ref": "ZD-1"}]},
             "flags": [{"team": "TECH", "flag": "No alert on failed fulfilment"}],
             "dss": {"prescribes": "Resend or refund"}}
 
@@ -70,7 +75,7 @@ def test_the_guest_issues_projection_actually_carries_the_issue():
 
 def test_a_fix_reaches_its_team_tab():
     """Driven through validate, which is what actually builds the section —
-    §3's fixes grouped by owner."""
+    the case's unsolved gaps, routed to the team that owns each."""
     out, _ = validate(_rca())
     assert "Add an alert on failed fulfilment" in out["actions_taken"]["tech"], \
         out["actions_taken"]

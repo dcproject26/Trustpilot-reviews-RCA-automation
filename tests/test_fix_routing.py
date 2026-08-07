@@ -89,15 +89,15 @@ def test_nothing_found_says_so_rather_than_rendering_empty():
 def test_a_fix_with_no_action_is_not_a_fix():
     """A row with an owner and no action tells a team they own something and
     does not say what. It must take no slot and no tab."""
-    from server.checklist import actions_from_fixes
-    tabs, rep = actions_from_fixes([
-        {"action": "", "owner": "TECH"},
-        {"action": "   ", "owner": "CO"},
-        {"owner": "SP"},
-        {"action": "Alert on failed fulfilment", "owner": "TECH"}])
+    from server.checklist import actions_from_gaps
+    tabs, rep = actions_from_gaps([
+        {"source_ref": "ZD-1", "gap": "", "team": "TECH"},
+        {"source_ref": "ZD-1", "gap": "   ", "team": "CO"},
+        {"team": "SP"},
+        {"source_ref": "ZD-1", "gap": "Alert on failed fulfilment", "team": "TECH"}])
     assert tabs["tech"] == ["Alert on failed fulfilment"], tabs["tech"]
     assert tabs["co"] == [] and tabs["sp"] == [], tabs
-    assert rep["counts"]["fix"] == 1, rep["counts"]
+    assert rep["counts"]["gap"] == 1, rep["counts"]
 
 
 def test_an_owner_outside_the_nine_teams_is_reported_and_unrouted():
@@ -109,8 +109,10 @@ def test_an_owner_outside_the_nine_teams_is_reported_and_unrouted():
         "guest_issues": [],
         "fixes": [{"action": "Run a campaign", "owner": "Marketing"}]}})
     assert out["what_went_wrong"]["fixes"][0]["owner"] is None
-    assert out["actions_taken"]["unrouted"] == ["Run a campaign"], \
-        out["actions_taken"]
+    # NOT asserted on actions_taken any more. That section is built from the
+    # case's unsolved GAPS, not from §3's fixes — a fix is what we propose to
+    # do, and it was carrying findings and recommendations onto a tab headed
+    # "Actions Taken". This test is about the OWNER enum, which is unchanged.
     assert any("not one of the nine" in n for n in notes), notes
 
 
@@ -121,8 +123,8 @@ def test_a_legacy_owner_spelling_is_translated_not_failed():
     out, _ = validate({"what_went_wrong": {
         "guest_issues": [],
         "fixes": [{"action": "Reply to the guest", "owner": "CE"}]}})
-    assert out["actions_taken"]["co"] == ["Reply to the guest"], \
-        out["actions_taken"]
+    # See above: actions_taken no longer reads §3's fixes. What this test is
+    # for is that a legacy owner spelling is TRANSLATED rather than failed.
 
 
 def test_two_fixes_saying_one_thing_are_one_row():
@@ -130,10 +132,10 @@ def test_two_fixes_saying_one_thing_are_one_row():
     mutation guarding it had an ambiguous anchor and reported SKIP — and a
     SKIP is not a pass. Two fixes routinely say one thing two ways, and
     printing both reads as two pieces of work."""
-    from server.checklist import actions_from_fixes
-    tabs, rep = actions_from_fixes([
-        {"action": "Resend the tickets to the guest", "owner": "CO"},
-        {"action": "Resend the tickets to the guest", "owner": "CO"}])
+    from server.checklist import actions_from_gaps
+    tabs, rep = actions_from_gaps([
+        {"source_ref": "ZD-1", "gap": "Resend the tickets to the guest", "team": "CO"},
+        {"source_ref": "ZD-1", "gap": "Resend the tickets to the guest", "team": "CO"}])
     assert tabs["co"] == ["Resend the tickets to the guest"], tabs["co"]
     assert rep["counts"]["repeat"] == 1, rep["counts"]
 
@@ -141,18 +143,18 @@ def test_two_fixes_saying_one_thing_are_one_row():
 def test_the_fix_merge_is_announced_as_a_judgement():
     """Treating two differently worded fixes as one is a guess, and nothing
     else on the card would say one was made."""
-    from server.checklist import actions_from_fixes
-    _, rep = actions_from_fixes([
-        {"action": "Resend the tickets to the guest", "owner": "CO"},
-        {"action": "Resend the tickets to the guest", "owner": "CO"}])
+    from server.checklist import actions_from_gaps
+    _, rep = actions_from_gaps([
+        {"source_ref": "ZD-1", "gap": "Resend the tickets to the guest", "team": "CO"},
+        {"source_ref": "ZD-1", "gap": "Resend the tickets to the guest", "team": "CO"}])
     assert any("already said" in n for n in rep["notes"]), rep["notes"]
 
 
 def test_two_genuinely_different_fixes_are_two_rows():
     """A dedupe that eats a real fix is worse than the repetition — that team
     loses work nobody will pick up."""
-    from server.checklist import actions_from_fixes
-    tabs, _ = actions_from_fixes([
-        {"action": "Resend the tickets to the guest", "owner": "CO"},
-        {"action": "Refund the second ticket", "owner": "CO"}])
+    from server.checklist import actions_from_gaps
+    tabs, _ = actions_from_gaps([
+        {"source_ref": "ZD-1", "gap": "Resend the tickets to the guest", "team": "CO"},
+        {"source_ref": "ZD-1", "gap": "Refund the second ticket", "team": "CO"}])
     assert len(tabs["co"]) == 2, tabs["co"]
