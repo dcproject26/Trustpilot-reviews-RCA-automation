@@ -174,3 +174,95 @@ def test_state_the_server_sends_is_read_by_the_client(field):
     _draft_dict without a consumer is how it happens."""
     assert f'"{field}"' in API, f"{field} is no longer sent"
     assert field in CLIENT, f"the client never reads {field} — is it rendered?"
+
+
+# ── a prescription written three ways is one piece of work ────────────────
+#
+# The reported CO tab carried 32 rows. Among them:
+#
+#   "Require an agent to contact the guest proactively whenever a
+#    system-initiated reschedule changes the start time…"
+#   "Require a proactive notification to the guest whenever a vendor
+#    reassignment changes the confirmed start time."
+#   "Notify the guest proactively whenever a reschedule results in a vendor or
+#    time change that differs from what was confirmed."
+#
+# One instruction, three times. They survived because an ACTION is a
+# prescription — the same instruction written twice shares its subject and its
+# object and little else — while the threshold was set for FINDINGS, where two
+# facts sharing half their words are usually two facts.
+
+from server.checklist import _is_repeat, _remember, _dedup_key
+
+RESTATEMENTS = [
+    "Require an agent to contact the guest proactively whenever a "
+    "system-initiated reschedule changes the start time, before the "
+    "rescheduling window closes.",
+    "Require a proactive notification to the guest whenever a vendor "
+    "reassignment changes the confirmed start time.",
+    "Notify the guest proactively whenever a reschedule results in a vendor "
+    "or time change that differs from what was confirmed.",
+]
+DISTINCT = ("Require RO to verify the new operator confirmed pickup time "
+            "against the rescheduled slot before sending any confirmation.")
+
+
+def _keep(rows, group="action"):
+    seen, out = {"exact": set(), "tokens": {}}, []
+    for r in rows:
+        if _is_repeat(r, seen, group):
+            continue
+        _remember(r, seen, group)
+        out.append(r)
+    return out
+
+
+def test_three_wordings_of_one_instruction_become_one_row():
+    assert len(_keep(RESTATEMENTS)) == 1, _keep(RESTATEMENTS)
+
+
+def test_a_genuinely_different_action_is_not_swallowed():
+    """The threshold has to keep real work. This one names a different team
+    doing a different check at a different moment."""
+    assert len(_keep(RESTATEMENTS + [DISTINCT])) == 2, _keep(RESTATEMENTS + [DISTINCT])
+
+
+def test_the_threshold_sits_in_a_measured_gap():
+    """NOT a picked number. The restatements sit at 0.50 containment with each
+    other and the distinct action at 0.20-0.30 against all three, so the
+    threshold falls in daylight rather than through a cluster. If this gap
+    ever closes, the dial is guessing again and this says so."""
+    ks = [_dedup_key(r) for r in RESTATEMENTS]
+    kd = _dedup_key(DISTINCT)
+
+    def _ov(a, b):
+        return len(a & b) / max(1, min(len(a), len(b)))
+
+    same = [_ov(ks[i], ks[j]) for i in range(3) for j in range(i + 1, 3)]
+    diff = [_ov(k, kd) for k in ks]
+    assert min(same) >= 0.5, same
+    assert max(diff) < 0.5, diff
+    assert min(same) - max(diff) >= 0.15, (same, diff)
+
+
+def test_findings_keep_the_stricter_threshold():
+    """A fact sharing half its words with another fact is usually a second
+    fact. Loosening actions must not loosen findings."""
+    assert len(_keep(RESTATEMENTS, group="finding")) == 3
+
+
+def test_a_short_row_does_not_swallow_a_longer_one():
+    """Containment over a two-word set measures nothing. "Resend the tickets
+    to the guest" reduces to {resend, ticket}; against {refund, second,
+    ticket} the shared word "ticket" is 1/2 = 0.5 containment, so a refund got
+    absorbed into a resend.
+
+    The min-token guard checked the INCOMING row and not the one it was
+    compared against."""
+    rows = ["Resend the tickets to the guest", "Refund the second ticket"]
+    assert len(_keep(rows)) == 2, _keep(rows)
+
+
+def test_the_guard_applies_to_findings_too():
+    rows = ["Tickets were resent", "Refund of the second ticket"]
+    assert len(_keep(rows, group="finding")) == 2, _keep(rows, group="finding")

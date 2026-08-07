@@ -932,6 +932,38 @@ def issue_questions_for(scenario_names) -> list:
 # point, and printing all three reads as three pieces of work.
 _DEDUP_MIN_TOKENS = 3
 _DEDUP_OVERLAP = 0.7
+# ACTIONS ARE LOOSER THAN FINDINGS, and they have to be.
+#
+# A finding is a fact and two facts sharing half their words are usually two
+# facts. An action is a PRESCRIPTION — "Require an agent to…", "Notify the
+# guest whenever…", "Define a checklist requiring…" — and the same instruction
+# written twice shares its subject and its object and almost nothing else:
+#
+#   "Require an agent to contact the guest proactively whenever a
+#    system-initiated reschedule changes the start time"
+#   "Require a proactive notification to the guest whenever a vendor
+#    reassignment changes the confirmed start time"
+#   "Notify the guest proactively whenever a reschedule results in a vendor or
+#    time change that differs from what was confirmed"
+#
+# One instruction, three times, ~0.5 containment. At 0.7 all three printed,
+# and a CO tab carried 32 rows that were perhaps eight pieces of work.
+#
+# 0.5 is MEASURED, not picked. On the reported CO tab the three restatements
+# above sit at exactly 0.50 containment with each other, and the genuinely
+# different action beside them —
+#
+#   "Require RO to verify the new operator's confirmed pickup time against the
+#    rescheduled slot before sending any confirmation"
+#
+# — sits at 0.20-0.30 against all three. There is real daylight between the
+# two groups, so the threshold falls in a gap rather than through a cluster.
+#
+# Every merge is still counted on the notes: a dial set too tight shows up as
+# a tab full of restatements, one set too loose as a count that does not match
+# the work. Findings keep 0.7 — nothing about them changed, and a fact sharing
+# half its words with another fact is usually a second fact.
+_DEDUP_OVERLAP_ACTION = 0.5
 
 # A PROBLEM AND ITS REMEDY ARE NOT THE SAME ROW. "No alert exists for a
 # stalled fulfilment run" and "Add an alert on a stalled fulfilment run" share
@@ -963,10 +995,18 @@ def _is_repeat(text, seen, group="finding") -> bool:
     if len(toks) < _DEDUP_MIN_TOKENS:
         return False
     for prev in seen["tokens"].get(group, []):
-        if not prev:
+        # BOTH SIDES need enough words. The guard above checks the incoming
+        # row and not the one it is compared against, so a two-token row
+        # already on the list made ANY single shared word a 0.5 containment:
+        # "Resend the tickets to the guest" {resend, ticket} swallowed "Refund
+        # the second ticket" {refund, second, ticket} on the word "ticket".
+        #
+        # Containment over a two-word set is not a measurement of anything.
+        if not prev or len(prev) < _DEDUP_MIN_TOKENS:
             continue
         overlap = len(toks & prev) / max(1, min(len(toks), len(prev)))
-        if overlap >= _DEDUP_OVERLAP:
+        if overlap >= (_DEDUP_OVERLAP_ACTION if group == "action"
+                       else _DEDUP_OVERLAP):
             return True
     return False
 

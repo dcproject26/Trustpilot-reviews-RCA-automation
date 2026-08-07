@@ -775,6 +775,54 @@ _BOOKKEEPING_MAX_CHARS = 400
 _LENGTH_SENSITIVE = {"chat-bookkeeping", "bot-tagging"}
 
 
+# How many events one timeline may carry. The shaping call is sized for this.
+_TIMELINE_CAP = 40
+
+
+def _event_rank(ev: dict) -> int:
+    """How much this event earns its place. Higher survives the cap.
+
+    A guest contact is why the case exists. A note recording a booking fact —
+    a reschedule, a cancellation, a refund — is what the reader is scanning
+    for. Confirmation mail and payment reminders are the booking working
+    normally, and pure machinery is the noise the toggle exists to hide.
+    """
+    from server.ticket_notes import note_disposition
+    actor = str(ev.get("actor") or "").lower()
+    body = ev.get("raw_body") or ev.get("summary") or ""
+    if actor in ("guest", "co", "sp"):
+        return 3
+    if note_disposition(body)[0] == "keep":
+        return 2
+    if not ev.get("is_internal"):
+        return 1
+    return 0
+
+
+def _trim_to_cap(events: list, cap: int) -> tuple:
+    """(kept, note) — the cap applied by significance, order preserved.
+
+    `events` is the (sort_key, dict, body) tuple list the fetch builds. What
+    is dropped is REPORTED, because a timeline silently missing its middle is
+    indistinguishable from a booking that quietly went well.
+    """
+    if len(events) <= cap:
+        return events, ""
+    ranked = sorted(range(len(events)),
+                    key=lambda i: (-_event_rank(events[i][1]), i))
+    keep_idx = sorted(ranked[:cap])
+    dropped = len(events) - len(keep_idx)
+    by_rank = {}
+    for i in ranked[cap:]:
+        by_rank[_event_rank(events[i][1])] = by_rank.get(_event_rank(events[i][1]), 0) + 1
+    detail = ", ".join(f"{n} {'machinery' if r == 0 else 'routine'}"
+                       for r, n in sorted(by_rank.items()))
+    return ([events[i] for i in keep_idx],
+            f"{dropped} of {len(events)} events did not fit the {cap}-event "
+            f"cap and were left off ({detail}); the ones kept are the guest "
+            f"contacts and the notes recording booking facts")
+
+
 def _machine_body_reason(body: str) -> str:
     """Which machine pattern this body matches, or '' if it reads as human."""
     text = _html.unescape(_TAG_RE.sub(" ", body or ""))[:4000]
@@ -1179,27 +1227,28 @@ def _get_timeline_sync(_z, booking_id: str):
 
     events.sort(key=lambda e: e[0])
 
-    # ── Truncation: keep first 20 + last 20 if >40 comments ─────────────────
-    if len(events) > 40:
-        elided = len(events) - 40
-        placeholder = (
-            events[19][0],
-            {
-                "time":      "",
-                "time_sort": "",
-                "thread":    "email",
-                "actor":     "system",
-                "ticket_id": "",
-                # The placeholder is the timeline telling the reader that
-                # something was left out. Marking it internal would hide the
-                # very fact it exists to report, so it is never machinery.
-                "is_internal":     False,
-                "internal_reason": "",
-                "raw_body":  f"[{elided} comments elided]",
-            },
-            "",
-        )
-        events = events[:20] + [placeholder] + events[-20:]
+    # ── Truncation: drop the LEAST significant, never the middle ────────────
+    #
+    # This was `events[:20] + marker + events[-20:]`, which elides the MIDDLE.
+    # The middle of a booking's life is where the booking's life happens — the
+    # reschedule, the cancellation, the failed automation. The first twenty are
+    # confirmation mail and payment reminders and the last twenty are the
+    # aftermath, so a busy booking kept its two quiet ends and threw away its
+    # story.
+    #
+    # It only started biting when the private notes came in and pushed real
+    # cases past forty. Position was never the right axis; it was just never
+    # tested by a long enough case.
+    #
+    # Significance, not position: a guest contact and a note recording a
+    # booking fact are what the reader is here for. Pure machinery goes first.
+    # Whatever survives is re-sorted into time order, so the chronology is
+    # never what pays for the cap.
+    if len(events) > _TIMELINE_CAP:
+        events, _elided_note = _trim_to_cap(events, _TIMELINE_CAP)
+        log.info("[zendesk] %s", _elided_note)
+    else:
+        _elided_note = ""
 
     # ── Assign sequential idx ─────────────────────────────────────────────────
     raw_events = []
@@ -1219,6 +1268,7 @@ def _get_timeline_sync(_z, booking_id: str):
         # say it: "one contact" is only honest when all three searched.
         "search_tally": _search_tally,
         "internal_notes": {"kept": _private_kept, "dropped": _private_dropped},
+        "elided_note": _elided_note,
     }
 
 
