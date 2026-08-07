@@ -90,56 +90,43 @@ def test_every_editable_field_saves(page):
         + json.dumps(bad, indent=2))
 
 
-# ── area of improvement: add, edit, delete ──────────────────────────────────
+# ── area of improvement: NOT on the card any more ──────────────────────────
+#
+# Four tests lived here that clicked [data-aoi-add], [data-aoi-idx] and
+# [data-aoi-del] and asserted the write reached `area_of_improving`. The card
+# was removed from the dashboard — the BACKEND was deliberately left alone, so
+# the column, the validator and the Slack section all still work and are
+# covered by tests/test_area_of_improvement.py (18 tests, including the
+# emptied-list case this file used to own).
+#
+# Clicking a control that no longer renders is not a failing guarantee, it is
+# a test with no subject. What replaces them is the negative: if the card
+# comes back, it comes back without any test driving it, and the control
+# census in tests/test_controls_actually_work.py is what should catch that —
+# so this asserts the controls are genuinely absent rather than merely
+# unclicked.
 
-def test_adding_an_area_of_improvement_point_reaches_the_server(page):
-    before = _draft(page)["area_of_improving"] or []
-    page.click("[data-aoi-add]")
-    page.wait_for_timeout(600)
-    after = _draft(page)["area_of_improving"] or []
-    assert len(after) == len(before) + 1, (
-        f"the point was not saved: {before} -> {after}. The write went to a "
-        f"store the reader does not consult.")
-
-
-def test_editing_an_area_of_improvement_point_reaches_the_server(page):
-    page.click("#rca-col [data-aoi-idx]")
-    page.keyboard.type(" EDITED")
-    page.click("#rca-flags-section .section-label")     # move focus, fire blur
-    page.wait_for_timeout(600)
-    after = _draft(page)["area_of_improving"] or []
-    assert any("EDITED" in str(x) for x in after), \
-        f"the edit was not saved: {after}"
-
-
-def test_deleting_an_area_of_improvement_point_reaches_the_server(page):
-    before = _draft(page)["area_of_improving"] or []
-    if not before:
-        page.click("[data-aoi-add]")
-        page.wait_for_timeout(600)
-        before = _draft(page)["area_of_improving"] or []
-    page.click("#rca-col [data-aoi-del]")
-    page.wait_for_timeout(600)
-    after = _draft(page)["area_of_improving"] or []
-    assert len(after) == len(before) - 1, f"{before} -> {after}"
+def test_the_area_of_improvement_card_is_not_on_the_dashboard(page):
+    """Removed from the card, kept in the backend. Asserted as an ABSENCE so
+    a build that renders the controls but wires them to nothing cannot pass
+    it, and so the day it returns this fails and asks for tests."""
+    got = page.evaluate("""() => ({
+        add: document.querySelectorAll('[data-aoi-add]').length,
+        idx: document.querySelectorAll('[data-aoi-idx]').length,
+        del: document.querySelectorAll('[data-aoi-del]').length})""")
+    assert got == {"add": 0, "idx": 0, "del": 0}, (
+        f"the Area of improvement controls are rendering again: {got}. They "
+        f"have no tests driving them — restore them from git history if the "
+        f"card is coming back.")
 
 
-def test_an_emptied_list_stays_empty(page):
-    """The dangerous case. Deleting the last point sends [], and a truthiness
-    fallback would let the populated column win — so the delete would appear
-    to work and undo itself on the next load."""
-    for _ in range(6):
-        if not (_draft(page)["area_of_improving"] or []):
-            break
-        page.click("#rca-col [data-aoi-del]")
-        page.wait_for_timeout(400)
-    assert (_draft(page)["area_of_improving"] or []) == []
-    page.reload(wait_until="load")
-    page.wait_for_timeout(1000)
-    page.locator(".review-item").first.click()
-    page.wait_for_timeout(1200)
-    assert (_draft(page)["area_of_improving"] or []) == [], \
-        "the deleted points came back — the column resurrected them"
+def test_the_backend_still_holds_the_points_the_card_stopped_showing(page):
+    """The removal was a RENDER change. A draft whose column has points must
+    still serve them, or "not shown" has quietly become "not stored"."""
+    d = _draft(page)
+    assert "area_of_improving" in d, (
+        "the draft no longer carries area_of_improving at all — the card was "
+        "removed and the field went with it")
 
 
 # ── the Slack post carries only the chosen sections ─────────────────────────

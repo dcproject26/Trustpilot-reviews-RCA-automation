@@ -341,7 +341,13 @@ def test_confirming_a_candidate_unlocks_the_column_and_fills_the_panel(page):
         "the gate lifted but Booking details never rendered — the column "
         "unlocked onto nothing, which is the report exactly")
     assert after["bid"], "the Booking details panel rendered with no booking id"
-    for heading in ("WHAT WENT WRONG", "FLAGS", "AREA OF IMPROVEMENT"):
+    # AREA OF IMPROVEMENT was the third heading here and is no longer on the
+    # card — the section was removed from the dashboard (the backend keeps it;
+    # see tests/test_area_of_improvement.py). What this test is actually for
+    # is that the column populated rather than unlocking onto nothing, so the
+    # heading is replaced by another one that still renders rather than the
+    # check being dropped to two.
+    for heading in ("WHAT WENT WRONG", "FLAGS", "ACTIONS TAKEN"):
         assert heading in after["rca"], (
             f"{heading} is missing after confirming — the RCA did not populate")
 

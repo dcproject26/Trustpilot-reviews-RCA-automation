@@ -105,12 +105,32 @@ def test_state_the_server_sends_is_read_by_the_client(field):
     assert field in CLIENT, f"the client never reads {field}"
 
 
+def _candidate_mapping() -> str:
+    """The client's candidate remap, sliced to where it actually ENDS.
+
+    It was sliced to `i + 1200` — a character count, which is not a boundary
+    of anything. Three explanatory lines were added inside the mapping and
+    `experienceDate` fell off the end of the window, so a test named "the
+    picker no longer reads experienceDate" failed against a build where the
+    picker reads it on the line after the cut. A source assertion is only
+    worth having if it is anchored to the construct rather than to its
+    length.
+
+    CLIENT-SIDE JAVASCRIPT, which has no test harness here — the exception
+    CLAUDE.md names for a positive source assertion.
+    """
+    i = CLIENT.find("r.candidatesList = draft.candidates_list.map")
+    assert i > 0, "the candidate remap is gone from the client"
+    end = CLIENT.find("}))", i)
+    assert end > i, "the candidate remap has no closing }))"
+    return CLIENT[i:end]
+
+
 def test_candidate_fields_the_picker_needs_are_all_produced():
     """The picker reads these off each candidate. A path that builds a
     candidate without them renders a card with blanks in the fields an
     associate chooses between bookings on."""
-    i = CLIENT.find("r.candidatesList = draft.candidates_list.map")
-    mapping = CLIENT[i:i + 1200]
+    mapping = _candidate_mapping()
     for key in ("experienceDate", "guestName", "matchReasons", "experience"):
         assert key in mapping, f"the picker no longer reads {key}"
     # Every server-side candidate builder must feed that mapping.

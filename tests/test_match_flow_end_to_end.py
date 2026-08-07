@@ -95,10 +95,18 @@ def test_support_candidates_bridge_the_naming_difference():
 
 
 def test_every_candidate_reaches_the_browser_and_is_read():
-    assert '"candidates_list":    d.candidates_list or []' in API
+    # THE NAMES, not the whitespace. This matched the exact spacing of one
+    # line, so wrapping the value in `_scrub_candidate_names(...)` — which
+    # still sends every candidate, and sends them with the PII hashes taken
+    # out — read as "the candidates no longer reach the browser".
+    i = API.find('"candidates_list":')
+    assert i > 0, "candidates_list is no longer sent to the browser"
+    assert "d.candidates_list" in API[i:i + 200], API[i:i + 200]
     assert "r.candidatesList = draft.candidates_list.map" in CLIENT
-    i = CLIENT.find("r.candidatesList = draft.candidates_list.map")
-    mapping = CLIENT[i:i + 1300]
+    # Sliced to the end of the remap rather than to a character count; see
+    # tests/test_io_contracts.py::_candidate_mapping for what that cost.
+    j = CLIENT.find("r.candidatesList = draft.candidates_list.map")
+    mapping = CLIENT[j:CLIENT.find("}))", j)]
     for key in ("experience", "experienceDate", "guestName", "matchReasons", "bid"):
         assert key in mapping, f"the picker no longer reads {key}"
 

@@ -1,5 +1,29 @@
 [
   {
+    "file": "tests/conftest.py",
+    "name": "ordering: the browser partition is dropped, so asyncio.run dies again",
+    "find": "    browser = [i for i in items if _needs_browser(i)]\n    if not browser:\n        return\n    rest = [i for i in items if not _needs_browser(i)]\n    items[:] = rest + browser",
+    "replace": "    browser = [i for i in items if _needs_browser(i)]\n    if not browser:\n        return\n    rest = [i for i in items if not _needs_browser(i)]"
+  },
+  {
+    "file": "tests/conftest.py",
+    "name": "ordering: the partition is INVERTED — browser tests run first",
+    "find": "    items[:] = rest + browser",
+    "replace": "    items[:] = browser + rest"
+  },
+  {
+    "file": "tests/conftest.py",
+    "name": "ordering: ui_server no longer counts as a browser fixture",
+    "find": "BROWSER_FIXTURES = {\"page\", \"ui_browser\", \"ui_server\"}",
+    "replace": "BROWSER_FIXTURES = {\"page\", \"ui_browser\"}"
+  },
+  {
+    "file": "tests/conftest.py",
+    "name": "ordering: the reseed between browser modules stops happening",
+    "find": "        from tests.test_rca_ui_rendered import seed_db\n        seed_db(self.url)",
+    "replace": "        pass"
+  },
+  {
     "file": "server/pipeline.py",
     "name": "step3: the venue-mismatched shortlist ends the cascade again (the original bug)",
     "find": "    return bool(tgids) and not venue_signal",

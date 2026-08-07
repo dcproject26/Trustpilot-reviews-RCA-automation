@@ -13,6 +13,60 @@ import time
 import pytest
 
 
+# ── the browser tests run LAST, and it is not tidiness ─────────────────────
+#
+# Playwright's SYNC api runs its asyncio loop IN THE MAIN THREAD, driven by
+# greenlets. While `sync_playwright().start()` is alive,
+# `asyncio.get_running_loop()` returns that loop from ordinary test code, so
+# every `asyncio.run(...)` raises:
+#
+#     RuntimeError: asyncio.run() cannot be called from a running event loop
+#
+# `ui_browser` is session-scoped — deliberately, because per-module browsers
+# meant 28 Chromium launches and wedged the run at 31% — so the loop stays
+# running from the first browser test to the end of the session. Every
+# `asyncio.run` test collected after ANY browser test therefore died, and the
+# random collection order decided which ones. That is 141 call sites across
+# 33 modules, and it is why the full suite reported 263 failures that every
+# one of those modules passes on its own.
+#
+# Moving them apart is the whole fix. No module both drives the browser and
+# calls `asyncio.run`, so a single partition separates them cleanly — the
+# alternative was rewriting 141 call sites to hop onto a worker thread, which
+# would then have handed SQLite sessions across threads to fix a problem that
+# is really about ordering.
+#
+# trylast, because pytest-randomly shuffles in this same hook and a shuffle
+# after this partition puts the browser tests back in the middle.
+BROWSER_FIXTURES = {"page", "ui_browser", "ui_server"}
+
+
+def _needs_browser(item) -> bool:
+    return bool(BROWSER_FIXTURES & set(getattr(item, "fixturenames", ()) or ()))
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(session, config, items):
+    browser = [i for i in items if _needs_browser(i)]
+    if not browser:
+        return
+    rest = [i for i in items if not _needs_browser(i)]
+    items[:] = rest + browser
+    # ANNOUNCED, not silent. A reordering that changes which tests can pass is
+    # a judgement about the suite, and a run that quietly sorts itself gives a
+    # reader no way to tell this from a suite that happened to be green.
+    config._browser_last = (len(browser), len(rest))
+
+
+def pytest_report_collectionfinish(config, items):
+    n = getattr(config, "_browser_last", None)
+    if not n:
+        return []
+    return [f"browser tests moved to the end: {n[0]} of {n[0] + n[1]} — "
+            f"playwright's sync loop runs in the main thread and breaks "
+            f"asyncio.run() for everything collected after it"]
+
+
 @pytest.fixture()
 def live_db(monkeypatch):
     """A throwaway SQLite database carrying the real schema."""
@@ -95,13 +149,24 @@ class _UiServer:
         self.port, self.url, self.env = port, url, env
 
     def reseed(self):
-        # NOT called per module. Doing so spawned a fresh interpreter that
-        # re-imported the whole server stack 28 times AND fought the live
-        # uvicorn for the SQLite write lock, which wedged the run at 62%.
-        # A module that mutates shared rows restores them itself instead.
-        from tests.test_rca_ui_rendered import seed_script
-        subprocess.run([sys.executable, "-c", seed_script(self.url)],
-                       check=True, capture_output=True, env=self.env)
+        """Put the fixture rows back. Called BY THE `page` FIXTURE, per module.
+
+        It did not used to be, and the reason it now can is that it no longer
+        spawns an interpreter: `seed_db` writes through an engine in this
+        process. The old version shelled out, re-importing the whole server
+        stack 28 times while the live uvicorn held the SQLite file, and wedged
+        the run at 62%. The cost was the interpreter, not the write.
+
+        Per-module reseeding became necessary the moment the browser tests
+        were moved into one contiguous block. Before that they were scattered
+        between non-browser modules and a mutation usually had somebody else's
+        run in between; now they follow each other directly, so
+        test_rca_edits' added contact was still on the card when
+        test_rca_ui_rendered counted the unverified ones, and nine tests
+        failed for a reason that had nothing to do with what they assert.
+        """
+        from tests.test_rca_ui_rendered import seed_db
+        seed_db(self.url)
 
     def __int__(self):        # so f"...:{ui_server}" style uses still work
         return self.port

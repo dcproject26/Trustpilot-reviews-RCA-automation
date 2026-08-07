@@ -87,3 +87,100 @@ def test_the_scan_would_actually_catch_one():
     sample = 'page.evaluate("() => refreshAfterScenarioChange(state.selected)")'
     m = re.search(r'evaluate\(\s*"\(\)\s*=>\s*([A-Za-z_$][\w$]*)\(', sample)
     assert m and m.group(1) in async_fns, "the matcher would not have caught it"
+
+
+# ── the third way: a browser test in the wrong PLACE ────────────────────────
+#
+# Playwright's sync API runs its asyncio loop in the MAIN THREAD. While the
+# session-scoped browser is alive, `asyncio.get_running_loop()` returns that
+# loop from ordinary test code, so every `asyncio.run(...)` raises
+# "cannot be called from a running event loop". 263 tests across 33 modules
+# died that way in a full run and passed one file at a time — the same shape
+# as the two hangs above: it reads as a broken machine, not a bug.
+#
+# conftest partitions the collection so browser tests run last. These drive
+# that partition rather than reading it: `_needs_browser` is a pure predicate
+# and the ordering hook is three lines on top of it.
+
+def test_a_page_test_is_recognised_as_a_browser_test():
+    from tests.conftest import _needs_browser
+    from types import SimpleNamespace
+    assert _needs_browser(SimpleNamespace(fixturenames=("page", "tmp_path")))
+
+
+def test_a_test_that_drives_the_browser_directly_is_recognised_too():
+    """`page` is a convenience over `ui_browser`. A test that takes the
+    browser without it starts playwright just the same, so the partition must
+    not key on the helper."""
+    from tests.conftest import _needs_browser
+    from types import SimpleNamespace
+    assert _needs_browser(SimpleNamespace(fixturenames=("ui_browser",)))
+
+
+def test_a_test_that_takes_only_the_seeded_server_is_recognised_too():
+    """`ui_server` does not start playwright — but it OWNS the shared fixture
+    database, and `reseed()` only runs between the modules inside the browser
+    block. A test that mutates those rows from outside the block has nothing
+    putting them back, and the module that reads them next fails for a reason
+    that has nothing to do with what it asserts."""
+    from tests.conftest import _needs_browser
+    from types import SimpleNamespace
+    assert _needs_browser(SimpleNamespace(fixturenames=("ui_server",)))
+
+
+def test_an_ordinary_test_is_left_where_it_is():
+    """The inverse. If everything counted as a browser test the partition
+    would be a no-op that still reported itself as having run."""
+    from tests.conftest import _needs_browser
+    from types import SimpleNamespace
+    assert not _needs_browser(SimpleNamespace(fixturenames=("live_db", "monkeypatch")))
+    assert not _needs_browser(SimpleNamespace(fixturenames=()))
+    assert not _needs_browser(SimpleNamespace())
+
+
+def test_the_partition_puts_every_browser_test_after_every_other_one():
+    """Drives the hook itself. Ordering is the whole guarantee, so a hook that
+    partitions into the wrong halves — or drops one — has to fail here."""
+    from tests.conftest import pytest_collection_modifyitems
+    from types import SimpleNamespace
+
+    def _item(name, fixtures):
+        return SimpleNamespace(name=name, fixturenames=fixtures)
+
+    a, b = _item("unit_a", ("live_db",)), _item("unit_b", ())
+    x, y = _item("ui_x", ("page",)), _item("ui_y", ("ui_browser",))
+    items = [x, a, y, b]
+    cfg = SimpleNamespace()
+    pytest_collection_modifyitems(None, cfg, items)
+    names = [i.name for i in items]
+    assert names == ["unit_a", "unit_b", "ui_x", "ui_y"], names
+    assert len(items) == 4, "the partition dropped an item"
+    assert cfg._browser_last == (2, 2), cfg._browser_last
+
+
+def test_a_run_with_no_browser_tests_is_left_completely_alone():
+    """`items[:] = rest + browser` on an all-unit run is a no-op, but the
+    ANNOUNCEMENT is not: reporting "0 moved" on every unit run is the noise
+    that makes a reader stop reading the counts that matter."""
+    from tests.conftest import pytest_collection_modifyitems, pytest_report_collectionfinish
+    from types import SimpleNamespace
+    items = [SimpleNamespace(name="a", fixturenames=()),
+             SimpleNamespace(name="b", fixturenames=("live_db",))]
+    cfg = SimpleNamespace()
+    pytest_collection_modifyitems(None, cfg, list(items) and items)
+    assert [i.name for i in items] == ["a", "b"]
+    assert pytest_report_collectionfinish(cfg, items) == []
+
+
+def test_the_reordering_announces_itself():
+    """A run that quietly sorts itself gives a reader no way to tell this from
+    a suite that happened to be green in the order it was collected."""
+    from tests.conftest import pytest_collection_modifyitems, pytest_report_collectionfinish
+    from types import SimpleNamespace
+    items = [SimpleNamespace(name="ui", fixturenames=("page",)),
+             SimpleNamespace(name="unit", fixturenames=())]
+    cfg = SimpleNamespace()
+    pytest_collection_modifyitems(None, cfg, items)
+    line = pytest_report_collectionfinish(cfg, items)
+    assert line and "1 of 2" in line[0], line
+    assert "asyncio.run" in line[0], "the line does not say what it is for"

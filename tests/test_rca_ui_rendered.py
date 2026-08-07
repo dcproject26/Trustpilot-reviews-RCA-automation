@@ -94,6 +94,61 @@ FRAMES = [{"ticket_id": "34011401", "time": "22 Jul 15:41", "time_sort": "2026-0
            "thread": "chat", "guestSaid": "Still nothing.", "weDid": ""}]
 
 
+def seed_db(url: str) -> None:
+    """Put the fixture rows back, IN THIS PROCESS.
+
+    The same seed as `seed_script`, without the interpreter. That difference
+    is what makes it affordable to run between modules: the subprocess version
+    re-imports the whole server stack every time, and doing that 28 times
+    while a live uvicorn held the SQLite file is what wedged an earlier
+    attempt at per-module reseeding — not the writing itself.
+
+    The server is NOT restarted and does not need to be. It opens a session
+    per request against this same file, so it reads whatever is here on the
+    next request.
+
+    Bound to an explicit engine rather than through `DATABASE_URL`, because
+    the test process has its own `server.db` pointing somewhere else and
+    reloading it to move a fixture is how live_db poisons later modules.
+    """
+    import json as _json
+    from datetime import datetime
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    import server.db as db
+    from server.services.rca_v4_validate import validate, project_v4
+    from server.prompts import RCA_PROMPT_VERSION
+
+    eng = create_engine(url)
+    try:
+        db.Base.metadata.create_all(eng)
+        s = sessionmaker(autocommit=False, autoflush=False, bind=eng)()
+        try:
+            v, _ = validate(_json.loads(_json.dumps(RCA)), ["Tickets sent late"])
+            s.query(db.RcaDraft).delete()
+            s.query(db.Review).delete()
+            s.add(db.Review(id="tp_ui", slack_ts="1", slack_channel="C1", rating=1,
+                            author="David", body_original="late tickets",
+                            status="draft", received_at=datetime.utcnow()))
+            s.add(db.RcaDraft(id="d_ui", review_id="tp_ui", rca_v3=v,
+                              booking={"id": "32908218"},
+                              match_tier=1, rca_prompt_version=RCA_PROMPT_VERSION,
+                              zendesk_ticket_ids=["34125496", "34256902"],
+                              confidence_trail=[
+                                {"mark": "pass", "text": "<strong>BID extracted</strong> via attachment"},
+                                {"mark": "warn", "text": "<strong>RCA</strong> — a coercion fired"}],
+                              generated_at=datetime.utcnow(),
+                              support_interaction_frames=_json.loads(_json.dumps(FRAMES)),
+                              l1=v["l1"], l2=v["l2"], sub_theme="C. Ticket Delayed",
+                              **dict(project_v4(v))))
+            s.commit()
+        finally:
+            s.close()
+    finally:
+        eng.dispose()
+
+
 def seed_script(url: str) -> str:
     """The seed program, as text, for whoever is standing the server up.
 
@@ -139,6 +194,13 @@ def page(ui_browser, ui_server):
     because this fixture is imported into 27 other modules and an imported
     fixture is a separate definition in each of them.
     """
+    # THE ROWS GO BACK BEFORE THE PAGE OPENS. A fresh page was never the whole
+    # of "one module's clicks must not reach the next" — the clicks that
+    # matter (add a contact, edit an improvement point, confirm a candidate)
+    # are writes to the shared database, and a new tab does not undo those.
+    # It only looked sufficient while the browser modules were spread out
+    # among the rest of the suite.
+    ui_server.reseed()
     pg = ui_browser.new_page(viewport={"width": 1600, "height": 1200})
     # A HANG MUST NOT BE ABLE TO LOOK LIKE A SLOW RUN. Playwright's default is
     # 30s per operation, but a fixture that never resolves takes the other 463

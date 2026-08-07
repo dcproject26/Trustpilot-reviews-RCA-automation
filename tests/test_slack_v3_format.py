@@ -70,12 +70,17 @@ REVIEW = SimpleNamespace(rating=1, author="David")
 
 
 def test_the_sections_still_frame_the_post():
-    """The section structure and the include-picker keys, minus the two that
-    were removed from the RCA."""
+    """The section structure and the include-picker keys that remain.
+
+    Booking logs went with the section — the post carried a numbered dump of
+    every booking event, which is the timeline's job and not something the
+    team reads in a thread. The two rows this used to require were rows of
+    that dump, so requiring them here asserted a section that is deliberately
+    gone; the removal is asserted below instead, where unreachability cannot
+    defeat it.
+    """
     out = format_rca_slack(REVIEW, _draft())
-    for must in ("*What went wrong*", "1. 22 Jul 15:22 — Booking-in-progress email sent",
-                 "2. 22 Jul 15:50 — Tickets issued",
-                 "*Booking logs*", "*Flags*",
+    for must in ("*What went wrong*", "*Flags*",
                  "*Review takedown*", "*Experience insights*"):
         assert must in out, f"missing: {must!r}"
 
@@ -86,6 +91,10 @@ def test_the_removed_sections_are_not_posted():
     out = format_rca_slack(REVIEW, _draft())
     assert "*TL;DR*" not in out
     assert "*SOP compliance*" not in out
+    # Booking logs, removed from the response draft. NEGATIVE, so a build
+    # where the composer still holds the code but never reaches it cannot
+    # pass this by accident.
+    assert "*Booking logs*" not in out
 
 
 def test_pointer_lists_never_print_as_python_reprs():

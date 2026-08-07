@@ -45,10 +45,23 @@ def test_the_case_findings_card_renders(page):
     assert got, "§1 did not render at all"
 
 
-def test_it_carries_the_evidence_merged_out_of_the_issues(page):
+def test_the_evidence_is_not_merged_into_the_findings_twice(page):
+    """§1 used to receive the per-issue evidence AS WELL AS the case findings,
+    so the same point appeared under both — the duplicate run that the merge
+    was switched off to stop.
+
+    This replaces a test that REQUIRED the merge (`assert got, "§1 rendered
+    with no findings"` — it read the merged evidence and nothing else, so
+    turning the merge off left it asserting a feature that is deliberately
+    gone). Stated negatively now: the evidence rows, which are the ones
+    carrying a Zendesk link, must not be in §1. That the card renders at all
+    is `test_the_case_findings_card_renders` above.
+    """
     got = _q(page, """() => [...document.querySelectorAll(
         '#rca-casefindings-section .cf-text')].map(e => e.textContent.trim())""")
-    assert got, "§1 rendered with no findings"
+    refs = _q(page, """() => document.querySelectorAll(
+        '#rca-casefindings-section .ev-row, #rca-casefindings-section .ev-src').length""")
+    assert refs == 0, f"the evidence rows are back in §1: {got}"
 
 
 def test_no_source_chip_or_time_column_is_drawn(page):
