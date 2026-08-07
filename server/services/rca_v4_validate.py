@@ -1321,6 +1321,18 @@ def _case_findings(raw, issues, notes) -> list:
     # the only thing that can order these rows, and an order the records
     # support beats the order the model happened to write them in.
     rows.sort(key=_finding_order)
+    # HOW MANY COULD NOT BE PLACED. An undated finding sinks to the end, and a
+    # section where EVERY row is undated is not a chronology at all — it is the
+    # order the model happened to write them in, wearing a chronology's
+    # clothes. Measured on a real card: 14 findings, 0 with a time, "Booking
+    # created" eighth.
+    _undated = sum(1 for r in rows if _finding_order(r)[0])
+    if _undated:
+        notes.append(
+            f"{_undated} of {len(rows)} case finding(s) carry no time, so they "
+            f"sit at the end in the order they were written rather than in the "
+            f"order they happened"
+            + (" — this section is NOT a chronology" if _undated == len(rows) else ""))
     return rows
 
 

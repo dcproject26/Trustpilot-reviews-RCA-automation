@@ -2086,8 +2086,20 @@ that turned out fine is silence — never a line in the output.
       (c) WHAT WE DID about it. The action, not the transcript.
       (d) THE GAP, where there were several interactions — how long they waited against what
           we promised.
-    One line each, with the `source` that shows it. `time` where the record carries one; null
-    where it does not, and do not invent one to force an order.
+    One line each, with the `source` that shows it.
+
+    `time` IS REQUIRED WHERE THE RECORD SHOWS WHEN IT HAPPENED, in the same "02 Aug 09:13"
+    form the timeline uses. This section is ordered BY IT, and a finding without one cannot
+    be placed — on a real card every finding came back with `time: null`, so §1 opened with
+    an August payment and put the booking's own creation eighth. If you can write "sent 02
+    Aug 09:13" inside the text, you know the time: put it in the field.
+
+    Null ONLY where the record genuinely does not say when — a standing fact like an
+    experience-page setting. Do not invent one to force an order; an undated finding sinks
+    and the card says how many did.
+
+    THE TIME IS WHEN THE EVENT HAPPENED, not a time the finding mentions. "Booking created
+    for the 03 Aug 08:30 slot" happened on 21 Jul; its `time` is 21 Jul, not 03 Aug.
     ── `gaps` — WHAT IS STILL WRONG, AND WHO HAS TO FIX IT ────────────────────────
     An array on `what_went_wrong`: [{"gap": ..., "team": ..., "source_ref": ...}].
 

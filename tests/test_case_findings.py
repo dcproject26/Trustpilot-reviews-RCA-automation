@@ -385,3 +385,37 @@ def test_findings_come_out_of_validate_in_order():
          "source": "booking", "time": "03 Aug 12:44"}]))
     assert [r["text"][:12] for r in _findings(out)] == [
         "Booking crea", "BNPL payment", "Wallet credi"], _findings(out)
+
+
+def test_undated_findings_are_counted_so_the_order_is_not_believed():
+    """MEASURED on a real card: 14 findings, not one carrying a time, so §1
+    opened with an August payment and put the booking's own creation eighth.
+
+    The sort was correct. Every row sank equally, and the section was the
+    model's writing order wearing a chronology's clothes — with nothing on the
+    card to say so."""
+    _, notes = validate(_wwr(case_findings=[
+        {"text": "Booking created for the 03 Aug slot", "source": "booking"},
+        {"text": "BNPL payment charged successfully", "source": "booking"}]))
+    said = " ".join(n for n in notes if "carry no time" in n)
+    assert "2 of 2" in said, notes
+    assert "NOT a chronology" in said, notes
+
+
+def test_a_fully_dated_section_says_nothing():
+    """A count on every healthy card is the noise that makes a reader stop
+    reading the ones that mean something."""
+    _, notes = validate(_wwr(case_findings=[
+        {"text": "Booking created", "source": "booking", "time": "21 Jul 15:28"},
+        {"text": "Payment charged", "source": "booking", "time": "01 Aug 12:03"}]))
+    assert not any("carry no time" in n for n in notes), notes
+
+
+def test_a_partly_dated_section_counts_only_what_it_could_not_place():
+    _, notes = validate(_wwr(case_findings=[
+        {"text": "Booking created", "source": "booking", "time": "21 Jul 15:28"},
+        {"text": "The product is reschedulable up to 1440 minutes before start",
+         "source": "exp-page"}]))
+    said = " ".join(n for n in notes if "carry no time" in n)
+    assert "1 of 2" in said, notes
+    assert "NOT a chronology" not in said, notes

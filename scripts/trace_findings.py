@@ -52,8 +52,20 @@ def main(argv=None):
             ref = (r or {}).get("ref") if isinstance(r, dict) else None
             texts.append(t or "")
             tag = "narrative" if backs is None else f"backs claim {backs}"
-            print(f"\n  [{i:>2}] {tag}{'  ' + str(ref) if ref else ''}")
+            _t = (r or {}).get("time") if isinstance(r, dict) else None
+            # THE FIELD THE ORDER COMES FROM. Every finding on a real card came
+            # back with time: null, so §1 was the model's writing order wearing
+            # a chronology's clothes. Printed first because it is the thing to
+            # look at.
+            _tt = str(_t) if _t else "NO TIME — cannot be placed"
+            print(f"\n  [{i:>2}] {_tt:<28} {tag}{'  ' + str(ref) if ref else ''}")
             print(f"       {' '.join(str(t or '').split())}")
+
+        _undated = sum(1 for r in rows
+                       if isinstance(r, dict) and not (r or {}).get("time"))
+        print(f"\n  {_undated} of {len(rows)} carry NO TIME"
+              + (" — this section is not a chronology, it is the order the "
+                 "model wrote them in" if _undated == len(rows) else ""))
 
         print(f"\n=== PAIRWISE OVERLAP (threshold now {_SAME_FACT_OVERLAP}) ===")
         print("  containment = shared significant words / the shorter row's words\n")
