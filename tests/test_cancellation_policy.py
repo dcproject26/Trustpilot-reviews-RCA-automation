@@ -104,3 +104,31 @@ def test_the_pipeline_stores_both_the_policy_and_the_reason():
     assert 'cancellation_policy_note' in src, (
         "the reason there is no policy is no longer carried, so a blank field "
         "cannot say whether the ticket was silent")
+
+
+# ── the row is off the card, the computation is not ────────────────────────
+
+def test_the_cancellation_row_is_not_rendered_for_now():
+    """Removed BY REQUEST, to be brought back later.
+
+    A NEGATIVE source assertion — the form CLAUDE.md allows, because
+    unreachability cannot defeat "this string appears nowhere" — and this is
+    client-side JavaScript with no harness besides.
+    """
+    src = open("client/index.html").read()
+    assert 'Cancellation</span>' not in src, \
+        "the Cancellation row is back on the booking card"
+
+
+def test_the_value_is_still_computed_and_still_reaches_the_client():
+    """"Remove the row" is not "delete the feature". Everything that produces
+    the value still runs, so restoring it later is putting one row back rather
+    than rebuilding this file — and a computation with no consumer would
+    otherwise rot silently until someone tried."""
+    src = open("client/index.html").read()
+    assert "cancellationPolicy" in src, \
+        "the client stopped carrying the value, so restoring the row would " \
+        "mean rebuilding the pipeline for it"
+    import server.ticket_notes as tn
+    assert callable(tn.cancellation_policy)
+    assert callable(tn.policy_from_events)

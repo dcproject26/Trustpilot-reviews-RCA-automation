@@ -3471,14 +3471,16 @@ function renderReviewCol() {
         <div class="detail-row"><span class="k">Vendor ID</span><span class="v">${b.vid || "—"}</span></div>
         <div class="detail-row"><span class="k">Vendor name</span><span class="v">${b.vendorName || "—"}</span></div>
         <div class="detail-row"><span class="k">Fulfilment type</span><span class="v">${b.fulfilmentType || '—'}</span></div>
-        <!-- Stated ONCE, here, because it is a property of the booking and
-             not an event. It used to be repeated on every timeline row. An
-             absent value says WHY rather than showing a dash, because a dash
-             reads as a lookup that failed. -->
-        <div class="detail-row"><span class="k">Cancellation</span><span class="v${
-          b.cancellationPolicy ? '' : ' v-absent'}">${b.cancellationPolicy
-            ? esc(b.cancellationPolicy)
-            : esc(b.cancellationPolicyNote || 'not stated on any ticket event')}</span></div>
+        <!-- CANCELLATION IS NOT RENDERED FOR NOW, by request, to be brought
+             back later. The ROW is gone; nothing that produces the value is.
+             ticket_notes.cancellation_policy and policy_from_events still run,
+             and b.cancellationPolicy / b.cancellationPolicyNote still reach
+             the client, so restoring this is putting the row back and nothing
+             else. Deleting the computation too would make "later" mean
+             rebuilding it.
+             NO BACKTICKS IN HERE: this comment sits inside a JS template
+             literal, so one would end the string. The first version of this
+             comment did exactly that and broke the parse. -->
         <!-- The placeholder is stripped HERE, not only where the name is
              resolved: drafts written before this change hold the literal
              string in primaryGuestName, so guarding the ingest path alone
