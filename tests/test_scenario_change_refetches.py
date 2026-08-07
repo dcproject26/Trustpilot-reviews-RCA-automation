@@ -19,6 +19,8 @@ Two paths reach this, and before now each did half the job:
 Driven in a browser with the network watched, because "it re-fetches" is a
 claim about requests and nothing else can check it.
 """
+import contextlib
+
 import pytest
 
 pytest.importorskip("playwright.sync_api")
@@ -51,24 +53,24 @@ def _kick_refresh(page):
     page.evaluate("() => { refreshAfterScenarioChange(state.selected); }")
 
 
+@contextlib.contextmanager
 def _watch(page):
-    """Record every request the page makes from now on.
+    """Record every request the page makes inside this block.
 
-    The listener is REMOVED by the caller. `page.on` accumulates, and with a
-    page shared across a module every later test paid for every earlier
-    test's handler on every request.
+    A CONTEXT MANAGER so the listener CANNOT outlive the test. The previous
+    version returned an `off()` hook and trusted the caller to call it —
+    nothing did, so `page.on` accumulated across the module and every later
+    test paid for every earlier test's handler on every single request. An
+    un-listen you have to remember is an un-listen that does not happen.
     """
     page.evaluate("() => { window.__reqs = []; }")
-    # A plain list takes no attributes, so the un-listen hook needs somewhere
-    # to live. Subclass rather than returning a tuple: every call site here
-    # already treats the return value as the list of urls.
-    class _Seen(list):
-        pass
-    seen = _Seen()
+    seen = []
     handler = lambda r: seen.append(r.url)      # noqa: E731
     page.on("request", handler)
-    seen.off = lambda: page.remove_listener("request", handler)
-    return seen
+    try:
+        yield seen
+    finally:
+        page.remove_listener("request", handler)
 
 
 def _inject(page, routing=None):
@@ -102,10 +104,10 @@ def test_the_refresh_helper_is_reachable(page):
 
 
 def test_the_refresh_asks_for_the_draft_and_the_insights(page):
-    seen = _watch(page)
-    _kick_refresh(page)
-    page.wait_for_timeout(1500)
-    rid = page.evaluate("() => state.selected")
+    with _watch(page) as seen:
+        _kick_refresh(page)
+        page.wait_for_timeout(1500)
+        rid = page.evaluate("() => state.selected")
     assert any(u.endswith(f"/api/reviews/{rid}") for u in seen), \
         f"the draft was not re-read: {seen}"
     assert any("/insights?window=" in u for u in seen), \
@@ -116,10 +118,10 @@ def test_the_refresh_sends_the_window_the_picker_is_showing(page):
     """Refetching on the server's default while the picker highlights another
     window is how the panel showed one window's figures under another's
     button — a defect this dashboard already had."""
-    seen = _watch(page)
-    _kick_refresh(page)
-    page.wait_for_timeout(1500)
-    want = page.evaluate("() => state.insightsWindow")
+    with _watch(page) as seen:
+        _kick_refresh(page)
+        page.wait_for_timeout(1500)
+        want = page.evaluate("() => state.insightsWindow")
     ins = [u for u in seen if "/insights?window=" in u]
     assert ins, "no insights request at all"
     assert any(f"window={want}" in u for u in ins), (want, ins)
@@ -164,9 +166,9 @@ def test_reverting_re_runs_the_rca(page):
     overridden one — the state the uncovered flag exists to report."""
     try:
         _inject(page, DIVERGED)
-        seen = _watch(page)
-        page.locator("[data-scenario-revert]").click()
-        page.wait_for_timeout(2500)
+        with _watch(page) as seen:
+            page.locator("[data-scenario-revert]").click()
+            page.wait_for_timeout(2500)
         assert any("/regenerate-rca" in u for u in seen), (
             f"revert saved the scenario without re-running the RCA: {seen}")
     finally:
@@ -180,9 +182,9 @@ def test_reverting_re_runs_the_rca(page):
 def test_reverting_also_refreshes_the_insights(page):
     try:
         _inject(page, DIVERGED)
-        seen = _watch(page)
-        page.locator("[data-scenario-revert]").click()
-        page.wait_for_timeout(2500)
+        with _watch(page) as seen:
+            page.locator("[data-scenario-revert]").click()
+            page.wait_for_timeout(2500)
         assert any("/insights?window=" in u for u in seen), (
             f"the insights were not refreshed after a revert: {seen}")
     finally:
