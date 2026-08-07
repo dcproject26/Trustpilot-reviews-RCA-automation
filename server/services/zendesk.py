@@ -987,15 +987,40 @@ def _get_timeline_sync(_z, booking_id: str):
                 continue
 
         for c in comments:
-            # Internal notes are Headout talking to itself — agent macros,
-            # fulfilment bookkeeping, system bookkeeping. They are not part of
-            # what happened to the guest, and summarising them produced timeline
-            # entries like "Fulfilment attempted across multiple tries via the
-            # vendor portal" that read as guest-facing events but are not.
-            # Zendesk marks them public=False. SP side conversations are handled
-            # separately and are NOT affected by this.
-            if getattr(c, "public", True) is False:
-                continue
+            # PRIVATE COMMENTS ARE KEPT, AND MARKED. This read:
+            #
+            #     if getattr(c, "public", True) is False:
+            #         continue
+            #
+            # so a Zendesk internal note never became a raw event, and the
+            # note recording that the guest rescheduled was absent from the
+            # timeline and from case findings alike.
+            #
+            # Everything downstream then ran correctly on nothing, which is
+            # why it looked like a prompt failure. The shaping prompt says
+            # "KEEP EVERY EVENT … do NOT drop machinery" and the model kept
+            # every event it was shown. `select_internal_notes` — with
+            # `note_disposition`, `collapse_repeats` and `ping_summary` behind
+            # it, all written to sort exactly these notes into keep/drop/judge
+            # — opens with `if not internal: return rows` and returned
+            # unchanged. A whole subsystem for handling internal notes, fed by
+            # a filter that removed them first.
+            #
+            # It also hid itself: the toggle counts what it withheld, and with
+            # nothing marked internal there was no toggle and no count. Some
+            # machinery still rendered — automated senders post PUBLIC
+            # comments — so the timeline looked like it carried internal rows
+            # while the private ones were gone.
+            #
+            # The original reasoning ("summarising them produced entries that
+            # read as guest-facing events but are not") was written before
+            # `is_internal` and the toggle existed. Both do now, and marking
+            # is what they are for: `_internal_reason` below already computes
+            # it, and `select_internal_notes` promotes a booking fact inline
+            # while leaving ticket housekeeping behind the toggle.
+            #
+            # SP side conversations are handled separately and are unaffected.
+            _is_private = getattr(c, "public", True) is False
             body = getattr(c, "body", "") or getattr(c, "html_body", "") or ""
             via_ch = getattr(getattr(c, "via", None), "channel", "") or ""
             author_id = getattr(c, "author_id", None)
@@ -1003,6 +1028,13 @@ def _get_timeline_sync(_z, booking_id: str):
                                   body=body, via_channel=via_ch)
             thread = "sp" if is_sp else _map_channel(via_ch)
             reason = _internal_reason(body, via_ch, _role(author_id))
+            # A private comment IS internal, whatever its text looks like.
+            # `_internal_reason` reads the body for machinery patterns and a
+            # hand-typed agent note has none of them — so without this, an
+            # internal note would render inline as though the guest could see
+            # it, which is the failure the old `continue` was avoiding.
+            if _is_private and not reason:
+                reason = "Zendesk internal note — not visible to the guest"
             created = getattr(c, "created_at", None)
             events.append((
                 _sort_key(created),
