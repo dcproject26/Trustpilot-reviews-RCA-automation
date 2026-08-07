@@ -801,7 +801,8 @@ def _booking_logs(raw, booking_confirmed, notes):
 
 def validate(rca: dict, scenarios_routed=None, keep_actions=None,
              booking_confirmed: bool = True, events=None,
-             booking=None, review_at=None) -> tuple[dict, list]:
+             booking=None, review_at=None,
+             keep_unattributed: int = 0) -> tuple[dict, list]:
     """Return (coerced rca, notes). Never raises."""
     notes: list[str] = []
     if not isinstance(rca, dict):
@@ -933,6 +934,18 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
     _fixes = _fix_rows(wwr.get("fixes"), issues, notes)
     _actions, _ar = actions_from_gaps(wwr.get("gaps"), keep=keep_actions)
     notes.extend(_ar["notes"])
+    # A ROW CARRIED ON A GUESS IS NOT A ROW SOMEBODY OWNS. `keep` rows are
+    # normally the residue after the previous gaps are subtracted, which makes
+    # them a person's. On a draft stored before gaps were persisted there is
+    # nothing to subtract, so the caller carries them and says how many it
+    # could not attribute — rather than reporting them as "hand-added", which
+    # is what the note used to claim about model output.
+    if keep_unattributed:
+        notes.append(f"actions taken: {keep_unattributed} row(s) could not be "
+                     f"traced to a gap OR to a person — this draft predates "
+                     f"gaps being stored, so they are carried forward "
+                     f"UNVERIFIED. Regenerate to rebuild the tab from this "
+                     f"case's gaps")
 
     return {
         "stated_issue":      _clean(rca.get("stated_issue")),
@@ -944,8 +957,13 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
         # Taken is a VIEW over it, and a view whose source lives only in a
         # local would be rebuilt differently by each read path. That is the
         # two-stores-for-one-fact defect, arrived at from the other direction.
+        # `gaps` IS STORED, not just consumed. Actions Taken is a VIEW over it
+        # exactly as Actions Taken used to be a view over `fixes`, and a view
+        # whose source is not persisted is rebuilt from nothing by every later
+        # read path — which is what emptied the tabs on `PATCH /draft-v2`.
         "what_went_wrong":   {"guest_issues": issues, "fixes": _fixes,
-                              "case_findings": _findings},
+                              "case_findings": _findings,
+                              "gaps": _gap_rows(wwr.get("gaps"), notes)},
         "issue_specific_answers": _answers(rca.get("issue_specific_answers"), notes),
         # INTERPRETATION, not facts. The rows the UI renders come from the
         # pipeline's Zendesk-derived frames - their time, channel and ticket id
@@ -1024,6 +1042,45 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
                 # shows the guest wrote in first — see `dss_check`.
                 "followed":   _dss_followed},
     }, notes
+
+
+def _gap_rows(raw, notes) -> list:
+    """§Actions Taken's source: [{gap, team, source_ref}], STORED.
+
+    THE DEFECT THIS CLOSES, seen on a real card. `actions_from_gaps` consumed
+    `wwr["gaps"]` to build the tabs and then this function's absence dropped
+    the key on the way out — the returned `what_went_wrong` carried
+    guest_issues, fixes and case_findings, and nothing else. So:
+
+      * the model returned gaps, the tabs were built, and the gaps vanished
+      * `PATCH /draft-v2` rebuilds the column from the STORED gaps, read back
+        as None, and regrouped every card to empty tabs
+      * `trace_actions.py` reported `gaps` ABSENT on a card generated minutes
+        earlier with a prompt that demands them
+
+    A section built from a key that is never persisted is the "ran and found
+    nothing" failure with an extra step: the model complied, the code read
+    the answer, and the answer was thrown away — leaving a tab whose contents
+    no current gap explains and nothing saying why.
+
+    A gap with no text is dropped; one with no `source_ref` is KEPT here and
+    dropped later by `actions_from_gaps`, which counts it. Filtering it out at
+    this layer too would hide the count that makes the gate visible.
+    """
+    rows = []
+    for g in (raw if isinstance(raw, list) else []):
+        if not isinstance(g, dict):
+            continue
+        text = _clean(g.get("gap"))
+        if not text:
+            continue
+        rows.append({"gap": text,
+                     "team": _clean(g.get("team")),
+                     "source_ref": _clean(g.get("source_ref"))})
+    if raw is not None and not isinstance(raw, list):
+        notes.append("gaps came back as something other than a list and were "
+                     "NOT read — Actions Taken has no source on this card")
+    return rows
 
 
 def _fix_rows(raw, issues, notes) -> list:

@@ -2193,10 +2193,20 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
         # survives a regenerate. Read here because the projection below
         # overwrites the column a few lines later.
         _confirmed = bool((d.booking or {}).get("id") and not d.candidate_state)
+        # ONLY THE ROWS A PERSON TYPED. Passing the whole column carried every
+        # model row the previous run produced forward forever — four
+        # recommendation-shaped rows sat on a CO tab that no current gap
+        # explained. `d.rca_v3` is still the PREVIOUS blob here; the projection
+        # below overwrites it.
+        from server.checklist import hand_typed_actions
+        _keep, _unattributed = hand_typed_actions(
+            d.actions_taken,
+            ((d.rca_v3 or {}).get("what_went_wrong") or {}).get("gaps"))
         rca_v3, rca_notes = _validate_rca(rca_v3, scenarios,
-                                          keep_actions=(d.actions_taken or None),
+                                          keep_actions=(_keep or None),
                                           booking_confirmed=_confirmed,
-                                          events=(d.timeline or []))
+                                          events=(d.timeline or []),
+                                          keep_unattributed=_unattributed)
         for _n in rca_notes:
             log.warning(f"[regenerate-rca] {review_id}: {_n}")
     except Exception as e:

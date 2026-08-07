@@ -139,12 +139,27 @@ def main(argv=None):
 
         # ── the three counts that must not read as zero-because-broken ─────
         print("\n=== WHAT IS IN HERE ===")
-        print(f"  {internal} internal note(s). These are the reschedule and "
-              f"cancellation records.")
+        # ZERO HERE IS THE GOOD OUTCOME, and saying otherwise is the inverse
+        # bug. `note_disposition` CLEARS `is_internal` on every note it keeps
+        # — that is what promotes a booking fact out from behind the toggle
+        # and onto the timeline. So a healthy card has no rows left marked
+        # internal: the reschedule and cancellation records are here, rendered
+        # inline, indistinguishable in this field from rows that were never
+        # internal at all.
+        #
+        # An earlier version of this line read zero as "the fetch gate ate
+        # them" and would have called a working card broken. What is still
+        # marked internal is what was DROPPED as ticket administration, and
+        # that is the only thing this count can honestly report.
+        print(f"  {internal} row(s) are still marked internal — these are the "
+              f"ones dropped as ticket administration and kept behind the "
+              f"toggle.")
         if not internal:
-            print("    NONE. Check trace_notes.py before reading this as a "
-                  "case with no internal notes — the fetch gate drops "
-                  "furniture, and a gate too wide drops these too.")
+            print("    Zero is the EXPECTED state, not a warning: a kept note "
+                  "has `is_internal` cleared so it renders inline. The "
+                  "reschedule and cancellation records are in the rows above.")
+        print("    This count cannot see promoted notes — run trace_notes.py "
+              "to check what the fetch gate dropped before it got here.")
         print(f"  {contacts} row(s) pass `is_conversation` and reach the "
               f"Guest <-> Support panel.")
         if not contacts:

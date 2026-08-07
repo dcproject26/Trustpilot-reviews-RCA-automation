@@ -1246,6 +1246,52 @@ def actions_from_findings(issues, flags, improvements=None, dss_miss=None,
     return tabs, report
 
 
+def hand_typed_actions(stored, prev_gaps) -> tuple:
+    """The Actions Taken rows a PERSON put there, and the ones we cannot tell.
+
+    THE DEFECT THIS CLOSES. Both re-run paths passed the WHOLE previous
+    `actions_taken` column as `keep`. `keep` exists so a row an associate
+    typed survives a regenerate — but the column is mostly model output, so
+    every row the old fixes-derived section ever produced was carried forward
+    forever, immune to the rebuild.
+
+    On a real card that showed as four rows on the CO tab, each of them a
+    recommendation — "Require RO to verify the slot time…", "Require proactive
+    outreach…" — which is precisely what the gaps rule says a gap is NOT. No
+    current gap produced them. Nothing said they were stale. The tab looked
+    like a section that had run.
+
+    THE ATTRIBUTION. Rebuild the previous gaps and subtract: what the previous
+    gaps explain is model output and is dropped, and the remainder is a
+    person's. That is only possible where the previous gaps were STORED —
+    before they were, there is no way to tell the two apart, and this returns
+    the leftovers as UNATTRIBUTABLE rather than silently calling them
+    hand-typed. The caller says so; a row carried forward on a guess must not
+    read like a row someone owns.
+    """
+    stored = stored if isinstance(stored, dict) else {}
+    known = set()
+    if isinstance(prev_gaps, list):
+        prior, _ = actions_from_gaps(prev_gaps, keep=None)
+        for rows in prior.values():
+            known.update(str(r).strip() for r in (rows or []))
+    keep, unattributable = {}, 0
+    for tab, rows in stored.items():
+        for row in (rows or []):
+            txt = str(row or "").strip()
+            if not txt or txt in known:
+                continue
+            keep.setdefault(tab, []).append(txt)
+            # NO STORED GAPS MEANS NO ATTRIBUTION, not "everything is
+            # hand-typed". The row is still carried — deleting a person's work
+            # on a guess is the expensive direction — but it is COUNTED, so a
+            # tab full of unattributable rows is distinguishable from a tab
+            # somebody filled in.
+            if not isinstance(prev_gaps, list):
+                unattributable += 1
+    return keep, unattributable
+
+
 def actions_from_gaps(gaps, keep=None) -> tuple:
     """Actions Taken as UNSOLVED GAPS, each raised with the team that owns it.
 

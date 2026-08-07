@@ -350,12 +350,17 @@ def test_the_document_level_v3_fields_are_not_carried_forward():
     — true then, false now: §3 is its own section and Actions Taken is a view
     over exactly this array, so a fix here is neither inert nor hidden. The
     per-issue `fix` is still read, and migrated, for drafts written before the
-    section existed."""
+    section existed.
+
+    `gaps` IS HERE FOR THE SAME REASON, and its absence was a real defect:
+    Actions Taken is a view over it, `PATCH /draft-v2` rebuilds the column
+    from the STORED value, and the key was being consumed and dropped. Every
+    card edit regrouped the tab from nothing."""
     out, _ = validate(_ok(what_went_wrong={
         "what_happened": "old shape", "root_causes": ["old"],
         "guest_issues": [{"issue": "x", "root_cause": "y", "fix": {"action": "do the thing", "owner": "CE"}}]}))
     assert set(out["what_went_wrong"]) == {"guest_issues", "fixes",
-                                           "case_findings"}
+                                           "case_findings", "gaps"}
     assert "what_happened" not in out["what_went_wrong"]
     assert "root_causes" not in out["what_went_wrong"]
 

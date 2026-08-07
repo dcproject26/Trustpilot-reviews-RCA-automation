@@ -3474,7 +3474,19 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 # query is the honest way to reach the previous Actions Taken.
                 _prev_row = (db.query(RcaDraft)
                              .filter(RcaDraft.review_id == review_id).first())
-                _prev_actions = (_prev_row.actions_taken if _prev_row else None) or None
+                # ONLY THE ROWS A PERSON TYPED. The whole column is mostly
+                # model output, so passing it as `keep` made every row the old
+                # fixes-derived section ever produced immune to the rebuild.
+                # Subtracting what the PREVIOUS gaps explain leaves a person's
+                # rows; where those gaps were never stored nothing can be
+                # subtracted, and the leftovers are counted as unattributable
+                # rather than reported as hand-added.
+                from server.checklist import hand_typed_actions
+                _prev_actions, _prev_unattributed = hand_typed_actions(
+                    _prev_row.actions_taken if _prev_row else None,
+                    (((_prev_row.rca_v3 or {}) if _prev_row else {})
+                     .get("what_went_wrong") or {}).get("gaps"))
+                _prev_actions = _prev_actions or None
                 # A booking is confirmed when one was actually matched and
                 # the picker is not still open. Both halves matter: a candidate
                 # list means the associate has not chosen yet, so the timeline
@@ -3490,7 +3502,8 @@ async def process_review(review_id: str, force_candidates: bool = False):
                                                   # For the DSS-followed gate:
                                                   # decides whether the guest
                                                   # wrote in BEFORE the review.
-                                                  review_at=review.received_at)
+                                                  review_at=review.received_at,
+                                                  keep_unattributed=_prev_unattributed)
                 # A coercion the reader cannot see is a silent edit. The trail
                 # is where this build already puts "we changed what the model
                 # said, and here is why", so each note goes there verbatim.

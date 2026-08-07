@@ -147,14 +147,31 @@ def test_a_row_with_no_sort_key_is_counted_rather_than_trusted(live_db, capsys):
     assert "1 row(s) carry NO sort key" in out
 
 
-def test_no_internal_note_is_flagged_rather_than_counted_as_zero(live_db,
-                                                                 capsys):
-    """Zero internal notes is either a case with none or the fetch gate eating
-    them. The gate has been too wide twice."""
+def test_zero_internal_rows_is_reported_as_expected_not_as_a_warning(live_db,
+                                                                     capsys):
+    """THE INVERSE BUG, caught on real data. This line used to read zero as
+    "the fetch gate ate them" and told the reader to go checking — on a card
+    where every internal note had been correctly PROMOTED.
+
+    `note_disposition` clears `is_internal` on each note it keeps, which is
+    what moves a booking fact out from behind the toggle. Zero left marked is
+    the healthy state. Making a working card look faulty is as bad as the
+    reverse, and costs the same afternoon."""
     _seed(live_db, "tp_tl_noint", timeline=[_row()])
     out = _timeline(live_db, "tp_tl_noint", capsys)
-    assert "0 internal note(s)" in out
-    assert "Check trace_notes.py" in out
+    assert "Zero is the EXPECTED state" in out
+    assert "gate ate" not in out and "too wide" not in out
+
+
+def test_a_row_still_marked_internal_is_named_as_dropped_administration(
+        live_db, capsys):
+    """What stays marked is what was DROPPED, and that is the only thing this
+    count can honestly report."""
+    _seed(live_db, "tp_tl_dropped", timeline=[
+        _row(is_internal=True, internal_reason="ticket admin")])
+    out = _timeline(live_db, "tp_tl_dropped", capsys)
+    assert "1 row(s) are still marked internal" in out
+    assert "Zero is the EXPECTED state" not in out
 
 
 def test_an_internal_note_is_shown_with_the_reason_it_was_marked(live_db,

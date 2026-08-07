@@ -2846,6 +2846,19 @@ async def _shape_via_claude(
         if not time_sort and thread == "booking":
             time_sort = _to_iso((booking or {}).get("date_of_booking")
                                 or (booking or {}).get("creationDate") or "")
+        # THE REVIEW BOOKEND NEEDS THE SAME RESCUE, and had none. The stamp
+        # above only fires when the display string has NO digits — a guard
+        # added so a good model time is never overwritten. "02 Aug 17:36 IST"
+        # has digits and no year, so it passes that guard and yields no
+        # sortable value: the row rendered with a perfectly readable time and
+        # NO SORT KEY, landing wherever the list happened to put it.
+        #
+        # On a real card it landed correctly, which is the dangerous version —
+        # a placement nothing in the record supports, that happens to look
+        # right. The publication date is in hand, exactly as the booking date
+        # is for the row above.
+        if not time_sort and thread == "review":
+            time_sort = _to_iso(review_pub_date or "")
         actor = ev.get("actor", "system")
         if actor not in _ACTORS:
             log.info(f"[zendesk] unknown shaped actor {actor!r} -> raw actor")
