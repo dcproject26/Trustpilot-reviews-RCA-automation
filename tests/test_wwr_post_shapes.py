@@ -135,3 +135,62 @@ def test_a_card_with_only_machinery_does_not_claim_a_conversation():
     i = text.index("Customer / CE interactions")
     block = text[i:i + 400]
     assert "vendor API" not in block, block
+
+
+# ── what the post carries, and what it deliberately does not ───────────────
+
+def _post(**over):
+    import server.services.slack as sl
+    d = _Draft([])
+    d.rca_v3 = {"what_went_wrong": {"guest_issues": [ISSUE]},
+                "booking_logs": [{"time": "03 Aug", "what": "Booking created"}],
+                "dss": {"prescribes": "Refund", "followed": over.get("followed")},
+                "takedown": {"verdict": "No"}}
+    for k, v in over.items():
+        if k != "followed":
+            setattr(d, k, v)
+    return sl.format_rca_slack({"id": "r1"}, d)
+
+
+@pytest.mark.parametrize("value,phrase", [
+    ("followed",      "we took it"),
+    ("not_followed",  "did not take it"),
+    ("unestablished", "does not show what we did"),
+    (None,            "does not apply"),
+])
+def test_the_dss_verdict_reaches_the_post(value, phrase):
+    """`null` must read as neither a pass nor a miss, so it gets a sentence
+    rather than a blank — the same rule the card renders it under."""
+    text = _post(followed=value)
+    assert "DSS followed" in text, text
+    i = text.index("DSS followed")
+    assert phrase in text[i:i + 200], text[i:i + 200]
+
+
+def test_booking_logs_are_not_posted():
+    """Removed BY REQUEST. NEGATIVE assertion — unreachability cannot defeat
+    it — and the data is untouched: v3["booking_logs"] is still produced,
+    still stored and still on the card."""
+    text = _post(followed=None)
+    assert "Booking logs" not in text, text
+    assert "Booking created" not in text, text
+
+
+def test_area_of_improvement_is_off_the_card_but_still_in_the_post():
+    """Removed from the DASHBOARD only. The backend is untouched, which is the
+    whole instruction: `_improvements` still runs in validate and the points
+    still go out on the Slack post, so restoring the card is putting one block
+    back rather than rebuilding the path that fills it.
+
+    The card half is a NEGATIVE source assertion — client-side JS with no
+    harness, CLAUDE.md's stated exception.
+    """
+    src = open("client/index.html").read()
+    assert '<span>Area of improvement</span>' not in src, \
+        "the Area of improvement card is back"
+    import inspect
+    import server.services.rca_v4_validate as v
+    assert "_improvements(" in inspect.getsource(v.validate), \
+        "the backend stopped deriving improvement points"
+    assert "area_of_improving" in open("server/services/slack.py").read(), \
+        "the points stopped reaching the Slack post"

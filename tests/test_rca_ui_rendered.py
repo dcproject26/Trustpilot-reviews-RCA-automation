@@ -270,15 +270,6 @@ def test_the_answers_section_does_not_render(page):
         "the stored answers are still being rendered somewhere")
 
 
-def test_the_card_still_renders_everything_that_sat_around_it(page):
-    """The other half: a removal that took a neighbour with it shows up as a
-    missing section, not as an error."""
-    body = page.evaluate("() => document.querySelector('#rca-col').innerText").upper()
-    for heading in ("WHAT WENT WRONG", "GUEST ↔ SUPPORT", "FLAGS",
-                    "AREA OF IMPROVEMENT", "ACTIONS TAKEN"):
-        assert heading in body, f"{heading} went with the answers section"
-
-
 # ── the chips that size to content vs the one that is fixed ─────────────────
 
 def test_the_accuracy_and_owner_chips_sit_under_their_caps(page):
@@ -1284,109 +1275,6 @@ def _aoi(page):
                title: (p.querySelector('.aoi-src') || {}).title || ''}))""")
 
 
-def test_each_pointer_is_its_own_line_and_carries_its_source(page):
-    try:
-        _render(page, {"aoi": [
-            {"point": "State the delivery window before checkout",
-             "from": "operational_failure",
-             "source": "The page states no delivery window"},
-            {"point": "Escalate a ticketless booking at T-2h",
-             "from": "sop_gap", "source": "No control catches a late ticket"}]})
-        got = _aoi(page)
-    finally:
-        _restore(page)
-    assert [g["text"] for g in got] == [
-        "State the delivery window before checkout",
-        "Escalate a ticketless booking at T-2h"]
-    assert [g["marker"] for g in got] == ["op failure", "sop gap"]
-    assert "The page states no delivery window" in got[0]["title"]
-
-
-def test_a_point_somebody_typed_is_not_dressed_as_a_derived_one(page):
-    """The marker means "checked against a finding on this card". A hand-added
-    point wearing one would make the marker mean nothing."""
-    try:
-        _render(page, {"aoi": [{"point": "Something an operator added",
-                                "from": None, "source": None}]})
-        got = _aoi(page)
-    finally:
-        _restore(page)
-    assert got[0]["marker"] == "by hand", got
-    assert "added by hand" in got[0]["title"]
-
-
-def test_an_old_draft_of_plain_strings_still_renders_its_points(page):
-    """Provenance is a constraint on the MODEL. A draft written before it
-    holds bare strings, and refusing to render them would delete work someone
-    already signed."""
-    try:
-        _render(page, {"aoi": ["Surface the window at checkout"]})
-        got = _aoi(page)
-    finally:
-        _restore(page)
-    assert [g["text"] for g in got] == ["Surface the window at checkout"]
-    assert got[0]["marker"] == "by hand"
-
-
-def test_an_empty_improvement_section_says_which_kind_of_empty_it_is(page):
-    """Two silences again. A card with failures and flags but no points means
-    every point was dropped for naming nothing; a card with no findings at all
-    means there was nothing to improve. Both render an empty list."""
-    try:
-        _render(page, {"aoi": [], "flags": [{"team": "CONTENT", "flag": "x",
-                                             "evidence": "y"}]})
-        with_findings = page.evaluate(
-            "() => document.querySelector('#rca-col .rca-points .rca-empty').innerText")
-        _render(page, {"aoi": [], "flags": []})
-        page.evaluate("""() => {
-          const r = REVIEWS.find(x => x.id === state.selected);
-          window.__gi = (r.rca.v3.what_went_wrong || {}).guest_issues;
-          r.rca.v3.what_went_wrong = {guest_issues: []};
-          renderRcaCol(); }""")
-        without = page.evaluate(
-            "() => document.querySelector('#rca-col .rca-points .rca-empty').innerText")
-        page.evaluate("""() => {
-          const r = REVIEWS.find(x => x.id === state.selected);
-          r.rca.v3.what_went_wrong = {guest_issues: window.__gi};
-          renderRcaCol(); }""")
-    finally:
-        _restore(page)
-    assert "dropped" in with_findings, with_findings
-    assert "no operational failure, no SOP gap and no flag" in without, without
-    assert with_findings != without
-
-
-def test_editing_a_pointer_keeps_the_finding_it_came_from(page):
-    """A mutation replacing the row-merge with a bare {point: text} survived
-    the whole suite: the first edit to any pointer would silently strip its
-    provenance, and a point that has lost its source is indistinguishable from
-    one that never had a source — which is the shape §5 exists to make
-    impossible.
-
-    Driven through the real blur handler, because the handler is the thing
-    that can drop it."""
-    try:
-        _render(page, {"aoi": [
-            {"point": "State the delivery window before checkout",
-             "from": "operational_failure",
-             "source": "The page states no delivery window"}]})
-        saved = page.evaluate("""async () => {
-          const el = document.querySelector('[data-aoi-idx="0"]');
-          el.textContent = 'State the delivery window ON the product page';
-          el.dispatchEvent(new Event('blur'));
-          await new Promise(r => setTimeout(r, 500));
-          const r = REVIEWS.find(x => x.id === state.selected);
-          return r.rca.areaOfImproving; }""")
-        page.wait_for_timeout(200)
-    finally:
-        _restore(page)
-    assert len(saved) == 1, saved
-    assert saved[0]["point"] == "State the delivery window ON the product page"
-    assert saved[0]["from"] == "operational_failure", (
-        f"the edit stripped the derivation: {saved[0]}")
-    assert saved[0]["source"] == "The page states no delivery window", saved[0]
-
-
 # ── the guest-name note reaches the card it was written for ─────────────────
 
 def test_the_reason_there_is_no_guest_name_is_the_servers_reason(page):
@@ -1424,3 +1312,20 @@ def test_the_generic_fallback_is_not_what_a_specific_answer_renders_as(page):
       return r.booking.guestNameNote; }""")
     assert got != "no guest name on the booking or on any linked Zendesk ticket", \
         "a specific server-side reason is rendering as the catch-all"
+
+
+# ── Area of improvement: the card is gone, the data is not ─────────────────
+
+def test_the_improvement_card_is_no_longer_rendered(page):
+    """Six tests here drove that card and were REMOVED with it, not left to
+    rot green against a section nobody draws. The card was removed by request,
+    to come back later; the derivation, the provenance check and the Slack
+    section all still run — see
+    test_wwr_post_shapes.py::test_area_of_improvement_is_off_the_card_but_still_in_the_post.
+    """
+    got = page.evaluate("""() => ({
+        card: [...document.querySelectorAll('#rca-col .section-label span')]
+                .some(e => e.textContent.trim() === 'Area of improvement'),
+        rows: document.querySelectorAll('[data-aoi-idx]').length})""")
+    assert not got["card"], "the Area of improvement card is back"
+    assert got["rows"] == 0, got

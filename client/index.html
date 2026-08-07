@@ -5811,34 +5811,14 @@ function renderRcaCol() {
 
     ${_flagsHtml}
 
-    <div class="section">
-      <div class="section-label"><span>Area of improvement</span><span class="section-chev">▾</span></div>
-      <!-- One pointer per line, editable in place. A single textarea invited
-           the paragraph this section kept coming back as. -->
-      <div class="field-block rca-points">
-        ${aoiRows(rca.areaOfImproving).length
-          ? aoiRows(rca.areaOfImproving).map((a, i) => `
-            <div class="rca-point">
-              <span class="rca-bullet">•</span>
-              <span class="editable-text rca-ptext" contenteditable="true" spellcheck="false"
-                    role="textbox" aria-label="Area of improvement point ${i + 1}"
-                    data-aoi-idx="${i}">${esc(a.point)}</span>
-              ${a.source
-                ? `<span class="aoi-src" data-aoi-src="${i}" title="${esc(a.from === 'flag' ? 'from the flag: ' : a.from === 'sop_gap' ? 'from the SOP gap: ' : 'from the operational failure: ')}${esc(a.source)}">${
-                     esc(a.from === 'flag' ? 'flag' : a.from === 'sop_gap' ? 'sop gap' : 'op failure')}</span>`
-                : `<span class="aoi-src none" data-aoi-src="${i}" title="added by hand — not derived from a finding on this card">by hand</span>`}
-              <button class="row-del" data-aoi-del="${i}" title="Remove">×</button>
-            </div>`).join('')
-          : `<div class="rca-empty">${
-              ((v3d.what_went_wrong || {}).guest_issues || []).some(g => g && (g.operational_failure || g.sop_gap)) || (v3d.flags || []).length
-                ? 'No improvement point was derived from the failures, gaps and flags on this card. Points that could not name one are dropped — see the confidence trail.'
-                : 'Nothing to improve was found: this card records no operational failure, no SOP gap and no flag. Add a point, or re-run the RCA.'}</div>`}
-        <button class="row-add" data-aoi-add>+ Add point</button>
-      </div>
-    </div>
-
-    ${evidenceBlock}
-
+    <!-- AREA OF IMPROVEMENT IS NOT RENDERED FOR NOW, by request, to be
+         brought back later. Nothing behind it is removed: _improvements still
+         runs in validate, the provenance check still drops points that name
+         no finding, and areaOfImproving still reaches the client and still
+         goes out on the Slack post. Only this card is gone, so restoring it
+         is putting this block back.
+         NO BACKTICKS IN HERE - this sits inside a JS template literal and one
+         would end the string. Third time this session. -->
     <div class="section">
       <div class="section-label"><span>Actions taken</span><span class="section-chev">▾</span></div>
       <div class="action-block">

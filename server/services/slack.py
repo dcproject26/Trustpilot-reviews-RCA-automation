@@ -1009,17 +1009,10 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
     if _wwr:
         sections.append(("What went wrong", _wwr))
 
-    logs = v3.get("booking_logs") or []
-    if logs:
-        lines = []
-        for i, l in enumerate(logs, 1):
-            if isinstance(l, str):
-                lines.append(f"{i}. " + l.lstrip("0123456789.) ").strip())
-            else:
-                t = f"{l.get('time')} — " if l.get("time") else ""
-                d = f"; {l.get('detail')}" if l.get("detail") else ""
-                lines.append(f"{i}. {t}{l.get('what', '')}{d}")
-        sections.append(("Booking logs", nl.join(lines)))
+    # BOOKING LOGS ARE NOT POSTED, by request. `v3["booking_logs"]` is still
+    # produced, still stored and still rendered on the card — only this
+    # section is gone, so bringing it back is restoring this block and nothing
+    # upstream of it.
 
     flags = v3.get("flags") or []
     sections.append(("Flags", nl.join(
@@ -1169,6 +1162,22 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
         # New shape is one word; old drafts carry {recommended, reason}.
         verdict = td.get("verdict") or ("Yes" if td.get("recommended") else "No")
         sections.append(("Review takedown", f"• {verdict}"))
+
+    # WAS THE PRESCRIBED PATH TAKEN. Only meaningful where the guest contacted
+    # support BEFORE the review, which `dss_check` decides from the timeline —
+    # so null here is "the check did not apply", NOT a pass and NOT a miss,
+    # and it gets a sentence rather than a blank for exactly that reason.
+    _followed = (v3.get("dss") or {}).get("followed")
+    _FOLLOWED_TEXT = {
+        "followed":      "Yes — the prescribed path was open and we took it",
+        "not_followed":  "No — the path was open and we did not take it",
+        "unestablished": "Unestablished — the guest wrote in, but the record "
+                         "does not show what we did",
+    }
+    sections.append(("DSS followed", "• " + _FOLLOWED_TEXT.get(
+        _followed,
+        "Not applicable — no path was open on this case, so the check does "
+        "not apply")))
 
     ins = draft.insights or {}
     wd = ins.get("_window_days")
