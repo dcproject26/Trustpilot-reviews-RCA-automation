@@ -324,3 +324,108 @@ def test_an_id_with_a_hash_or_stray_space_is_still_the_record():
     for ref in ("32885089", " 32885089 ", "#32885089", "32885089."):
         _, notes = validate(_wwr(guest_issues=[], fixes=[], gaps=[_gap(ref)]))
         assert not _prose_note(notes), (ref, notes)
+
+
+# ── a card edit must not delete a row somebody typed ───────────────────────
+#
+# `PATCH /draft-v2` regroups `actions_taken` from the stored gaps on every
+# save, and passed no `keep`. That was harmless while `gaps` was never stored:
+# the tab was empty either way. The moment gaps started working it became live
+# data loss — editing the resolution field would delete an associate's row,
+# silently.
+#
+# The keep is computed from the gaps as they were BEFORE the request wrote
+# anything. Reading them after would compare the new gaps against themselves,
+# which resurrects the pre-edit row whenever a gap is edited.
+
+def _seed_with(live_db, rid, gaps, actions):
+    s = live_db.SessionLocal()
+    s.add(live_db.Review(id=rid, rating=1, author="A", body_original="b",
+                         status="draft"))
+    stored, _ = validate(_wwr(guest_issues=[], fixes=[], gaps=gaps))
+    s.add(live_db.RcaDraft(id=f"d_{rid}", review_id=rid, rca_v3=stored,
+                           actions_taken=actions))
+    s.commit(); s.close()
+
+
+def test_editing_something_else_does_not_delete_a_hand_typed_row(live_db,
+                                                                 client):
+    """SURVIVED A MUTATION. The first version patched `{"resolution": ...}`,
+    and the regroup only runs when `rca_v3` or a v4 section is sent — so the
+    column was never touched and the row survived whether `keep` was passed or
+    not. It proved nothing.
+
+    The patch has to be one that ACTUALLY REGROUPS. Sending rca_v3 unchanged
+    is the real shape of the bug: an associate edits a finding, the gaps are
+    identical, and their typed row disappears."""
+    _seed_with(live_db, "tp_keep", [GAP],
+               {"co": [GAP["gap"], "Ring the guest on Monday"]})
+    r = client.patch("/api/reviews/tp_keep/draft-v2", json={
+        "rca_v3": {"what_went_wrong": {"guest_issues": [], "fixes": [],
+                                       "gaps": [GAP]}, "flags": []}})
+    assert r.status_code == 200, r.text
+    got = r.json()["draft"]["actions_taken"]
+    assert "Ring the guest on Monday" in got["co"], \
+        f"the regroup deleted a row somebody typed: {got}"
+    assert GAP["gap"] in got["co"], got
+
+
+def test_a_hand_typed_row_survives_a_gap_being_edited_too(live_db, client):
+    """The keep and the rebuild have to work at the same time: the derived row
+    moves with its gap, and the typed row stays put."""
+    _seed_with(live_db, "tp_keep2", [GAP],
+               {"co": [GAP["gap"], "Ring the guest on Monday"]})
+    moved = dict(GAP, team="TECH")
+    r = client.patch("/api/reviews/tp_keep2/draft-v2", json={
+        "rca_v3": {"what_went_wrong": {"guest_issues": [], "fixes": [],
+                                       "gaps": [moved]}, "flags": []}})
+    assert r.status_code == 200, r.text
+    got = r.json()["draft"]["actions_taken"]
+    assert got["tech"] == [GAP["gap"]], got
+    assert got["co"] == ["Ring the guest on Monday"], got
+
+
+def test_the_derived_row_still_follows_the_gap_when_it_is_edited(live_db,
+                                                                 client):
+    """THE RESURRECTION THIS AVOIDS. Change a gap's team and the old CO row
+    must MOVE, not be preserved as though a person had typed it."""
+    _seed_with(live_db, "tp_move", [GAP], {"co": [GAP["gap"]]})
+    moved = dict(GAP, team="TECH")
+    r = client.patch("/api/reviews/tp_move/draft-v2", json={
+        "rca_v3": {"what_went_wrong": {"guest_issues": [], "fixes": [],
+                                       "gaps": [moved]}, "flags": []}})
+    assert r.status_code == 200, r.text
+    got = r.json()["draft"]["actions_taken"]
+    assert got["tech"] == [GAP["gap"]], got
+    assert got["co"] == [], f"the pre-edit row came back as hand-typed: {got}"
+
+
+def test_a_deleted_gap_takes_its_row_with_it(live_db, client):
+    _seed_with(live_db, "tp_del", [GAP], {"co": [GAP["gap"]]})
+    r = client.patch("/api/reviews/tp_del/draft-v2", json={
+        "rca_v3": {"what_went_wrong": {"guest_issues": [], "fixes": [],
+                                       "gaps": []}, "flags": []}})
+    assert r.status_code == 200, r.text
+    got = r.json()["draft"]["actions_taken"]
+    assert all(v == [] for v in got.values()), got
+
+
+def test_a_client_invented_row_is_still_discarded(live_db, client):
+    """THE TWO RULES MEET HERE. "The server owns this column" and "a row
+    somebody typed survives" only hold together if the keep is read from what
+    was ALREADY STORED.
+
+    A first version took it off `d.actions_taken` after the field loop, which
+    let the client's own write back in through the door marked hand-typed —
+    reopening exactly the drift
+    test_the_client_cannot_write_the_column_behind_the_fixes exists to close.
+    Both snapshots are taken before anything is written."""
+    _seed_with(live_db, "tp_invent", [GAP], {"co": [GAP["gap"]]})
+    r = client.patch("/api/reviews/tp_invent/draft-v2", json={
+        "rca_v3": {"what_went_wrong": {"guest_issues": [], "fixes": [],
+                                       "gaps": [GAP]}, "flags": []},
+        "actions_taken": {"finance": ["a row the client invented"]}})
+    assert r.status_code == 200, r.text
+    got = r.json()["draft"]["actions_taken"]
+    assert got["finance"] == [], f"the client's array survived: {got}"
+    assert got["co"] == [GAP["gap"]], got

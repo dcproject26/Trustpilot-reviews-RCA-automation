@@ -1484,6 +1484,25 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
     if not d:
         raise HTTPException(404, "Draft not found")
 
+    # THE GAPS AS THEY WERE BEFORE THIS REQUEST WROTE ANYTHING. The regroup at
+    # the bottom needs them to tell a row somebody TYPED from a row the
+    # previous rebuild derived, and by then `d.rca_v3` holds the new blob —
+    # reading it there would compare the new gaps against themselves and
+    # resurrect the pre-edit row whenever a gap was edited.
+    #
+    # THE COLUMN AS IT WAS, TOO, and for a second reason. Whatever the client
+    # sends for `actions_taken` in this request is discarded — a second writer
+    # is how the column and the card drift, which is what
+    # test_the_client_cannot_write_the_column_behind_the_fixes guards. Reading
+    # the keep off `d.actions_taken` after the field loop would let a
+    # client-invented row in through the back door as "hand-typed".
+    #
+    # Both snapshots taken here, before anything is written. The two rules —
+    # the server owns this column, and a row somebody typed survives — only
+    # hold together if "somebody typed it" means it was ALREADY STORED.
+    _gaps_before = ((d.rca_v3 or {}).get("what_went_wrong") or {}).get("gaps")
+    _actions_before = dict(d.actions_taken or {})
+
     edits = 0
     for field in (
         "stated_issue", "l1", "l2", "sub_theme", "l1_reasoning",
@@ -1604,10 +1623,17 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
     # nothing a human typed into a fix is re-judged.
     if patch.rca_v3 is not None or _v4_sent:
         try:
-            from server.checklist import actions_from_gaps
+            from server.checklist import actions_from_gaps, hand_typed_actions
             _blob = d.rca_v3 or {}
             _wwr = _blob.get("what_went_wrong") or {}
-            _tabs, _rep = actions_from_gaps(_wwr.get("gaps"))
+            # A ROW SOMEBODY TYPED SURVIVES A CARD EDIT. This path passed no
+            # `keep` at all, so the regroup wiped hand-typed rows on every
+            # save — harmless while `gaps` was never stored and the tab was
+            # always empty, and a live data-loss bug the moment gaps started
+            # working. Editing the resolution field would delete a row an
+            # associate had written, with nothing said.
+            _keep, _ = hand_typed_actions(_actions_before, _gaps_before)
+            _tabs, _rep = actions_from_gaps(_wwr.get("gaps"), keep=_keep)
             d.actions_taken = _tabs
             flag_modified(d, "actions_taken")
         except Exception as e:
