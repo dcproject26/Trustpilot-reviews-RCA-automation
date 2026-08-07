@@ -41,33 +41,53 @@ async def _run(bid):
         print(f"  [{e.get('idx'):>3}] {e.get('time','?'):<16} "
               f"{e.get('actor','?'):<7} {mark}  {_snip(e.get('raw_body'))}")
 
-    prompt = _prompts.zendesk_timeline_shape_prompt(
-        {}, "", "", raw)
-    print(f"\n  prompt is {len(prompt):,} chars")
-    text = await _claude.shape_timeline_events(prompt)
-    shaped = zd._safe_parse_events(text)
-    print(f"  model returned {len(text):,} chars -> {len(shaped)} parsed row(s)")
+    # DRIVE `_shape_via_claude`, DO NOT REBUILD IT.
+    #
+    # This assembled the prompt itself with an empty booking and an empty
+    # review date, then parsed the answer itself — so it exercised a path the
+    # pipeline does not run. It reported the bookends as "unknown" long after
+    # the pipeline had learned to stamp them, because the stamp lives inside
+    # `_shape_via_claude` and this never called it. A diagnostic that copies
+    # the code it is diagnosing can only ever confirm its own copy.
+    from server.db import SessionLocal, RcaDraft
+    _s = SessionLocal()
+    try:
+        _d = next((r for r in _s.query(RcaDraft).all()
+                   if str((r.booking or {}).get("id") or "") == str(bid)), None)
+        booking = dict(_d.booking or {}) if _d else {}
+        review = getattr(_d, "review", None) if _d else None
+        pub = ""
+        if review is not None and getattr(review, "received_at", None):
+            pub = review.received_at.strftime("%Y-%m-%d %H:%M")
+        body = (getattr(review, "body_english", "") or
+                getattr(review, "body_original", "") or "") if review else ""
+    finally:
+        _s.close()
+    print(f"\n  booking creationDate = {booking.get('creationDate') or booking.get('bookedOn') or '(none)'}")
+    print(f"  review published     = {pub or '(none)'}")
+    if not booking and not pub:
+        print("  NOTE: no draft found for this booking id, so the bookends have")
+        print("        nothing to be stamped from — that is this script's own")
+        print("        lookup failing, not the pipeline's.")
+
+    shaped = await zd._shape_via_claude(raw, booking, body, pub)
+    print(f"  {len(shaped)} shaped row(s)")
     if not shaped:
-        print("\n  PARSED NOTHING. The timeline would fall back to raw bodies.")
-        print(f"  first 300 chars of the answer:\n  {_snip(text, 300)}")
+        print("\n  NOTHING SHAPED. The timeline would fall back to raw bodies.")
         return 0
+    if any(r.get("shaping_failed") for r in shaped):
+        print("\n  SHAPING FAILED — these rows are the RAW bodies, not summaries.")
 
     print(f"\n=== SHAPED ROWS: {len(shaped)} ===")
-    claimed = set()
+    # NO idx_range HERE, and that is correct. `_shape_via_claude` strips it —
+    # it is scaffolding the model uses to point back at raw events, not
+    # something the card ever sees. Reporting it would mean rebuilding the
+    # call to keep it, which is exactly what made this script report a fixed
+    # bug as broken.
     for r in shaped:
-        idxs = r.get("idx_range") or []
-        claimed.update(i for i in idxs if isinstance(i, int))
-        keep = "" if r.get("keep", True) else "  <-- keep:false, DROPPED"
-        print(f"  idx_range={str(idxs):<18} {_snip(r.get('label'), 46):<46}{keep}")
-
-    missing = [e for e in raw if e.get("idx") not in claimed]
-    print(f"\n=== RAW EVENTS NO ROW CLAIMS: {len(missing)} ===")
-    if not missing:
-        print("  none — every comment is accounted for in some row.")
-    for e in missing:
-        mark = "INTERNAL" if e.get("is_internal") else "public"
-        print(f"  [{e.get('idx'):>3}] {e.get('time','?'):<16} {mark:<9} "
-              f"{_snip(e.get('raw_body'))}")
+        mark = " INTERNAL" if r.get("is_internal") else ""
+        print(f"  {str(r.get('time') or '(none)'):<20}{mark:<10} "
+              f"{_snip(r.get('label'), 52)}")
 
     # THE ORDER THE CARD WILL RENDER, and the value it sorts on. The client
     # sorts on the DISPLAYED time (one timezone frame for every row), falling
@@ -88,7 +108,7 @@ async def _run(bid):
 
     print(f"\n=== ORDER AS THE CARD SORTS IT ===")
     print("  the client sorts on the DISPLAYED time; an unparseable one sinks\n")
-    rows = [(r, _sv(r)) for r in shaped if r.get("keep", True)]
+    rows = [(r, _sv(r)) for r in shaped]
     unparsed = [r for r, v in rows if v is None]
     ordered = sorted([x for x in rows if x[1] is not None], key=lambda x: x[1])
     prev = None
@@ -102,14 +122,6 @@ async def _run(bid):
         print(f"  {str(r.get('time') or '(none)'):<20} {_snip(r.get('label'), 44)}"
               f"   <-- NO READABLE TIME, sinks to the end")
 
-    merged = [r for r in shaped if len(r.get("idx_range") or []) > 1]
-    print(f"\n=== ROWS THAT MERGED MORE THAN ONE COMMENT: {len(merged)} ===")
-    for r in merged:
-        idxs = [i for i in (r.get("idx_range") or []) if isinstance(i, int)]
-        kinds = ["INTERNAL" if any(e.get("idx") == i and e.get("is_internal")
-                                   for e in raw) else "public" for i in idxs]
-        mixed = "  <-- MIXED, rule 3 forbids this" if len(set(kinds)) > 1 else ""
-        print(f"  {_snip(r.get('label'), 46):<46} {idxs} {kinds}{mixed}")
     return 0
 
 
