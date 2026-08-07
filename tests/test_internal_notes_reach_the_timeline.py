@@ -332,3 +332,35 @@ def test_a_bare_booking_id_is_not_a_booking_fact():
     everything. A booking id is a label; the verbs are the events."""
     assert note_disposition("Reference Booking ID: 32885089")[0] != "keep"
     assert note_disposition("Booking 32885089 was cancelled")[0] == "keep"
+
+
+# ── furniture that names a booking verb is still furniture ────────────────
+
+@_pytest.mark.parametrize("body,want", [
+    # A FIELD SNAPSHOT, not an event. It matched `reschedul` on the word
+    # "Reschedulable" and rendered as "Booking status snapshot posted".
+    ("📋 **Booking Details** **Cancellation & Rescheduling** • Is Cancellable: "
+     "No • Is Reschedulable: Yes", "drop"),
+    ("------------------------------ -- Booking Info ------ Itinerary Id", "drop"),
+    ("━━━━ 📋 Overall Support Summary ━━━━ Last contact", "drop"),
+    # An event that names a verb IS an event, and is not shaped like a form.
+    ("[RESCHEDULE] Reschedule was requested for 2026-08-03 but failed", "keep"),
+    ("🔺 **Escalated Conversation** Escalation Reason: the confirmed booking "
+     "was rescheduled without consent", "keep"),
+])
+def test_administration_is_judged_before_the_booking_verbs(body, want):
+    """`_BOOKING_FACT` was checked FIRST, so furniture kept its place the
+    moment it happened to contain a booking verb."""
+    assert note_disposition(body)[0] == want, note_disposition(body)
+
+
+def test_the_gate_asks_whether_a_comment_is_internal_not_whether_it_is_private():
+    """The Booking Info dump, the ITINERARY MARGIN dump and the Overall
+    Support Summary are PUBLIC comments that `_internal_reason` marks as
+    machinery. Gated on `_is_private`, the furniture rule never saw them.
+
+    Whether Zendesk marked a comment private is a fact about who can SEE it.
+    Whether it is machinery is a fact about what it IS."""
+    src = open("server/services/zendesk.py", encoding="utf-8").read()
+    assert "if _is_private or reason:" in src, \
+        "the furniture rule only sees private comments again"

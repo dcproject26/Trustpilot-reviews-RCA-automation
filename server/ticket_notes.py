@@ -34,21 +34,24 @@ import re
 
 # Pure ticket administration. Every one of these is an instruction about the
 # TICKET, and none of them records anything about the booking.
-_ADMIN = [
-    # THE TICKET'S OWN BOOKKEEPING, which is not a booking event.
-    #
-    # Measured on booking 32885089: "Support history thread opened for Booking
-    # ID: 32885089", an ITINERARY ID / ITINERARY MARGIN dump, and a "Booking
-    # Details" field snapshot all reached the timeline as rows —
-    # "Support history thread opened", "Booking details posted", "Booking
-    # status snapshot posted". None of them is something that happened to the
-    # guest's booking; they are the ticket recording its own furniture.
+# STRUCTURAL FURNITURE: a form, a dump, a header. Checked BEFORE the booking
+# verbs, because these are shaped like a record of the ticket and routinely
+# contain the words "cancellable" and "reschedulable" as FIELD NAMES.
+#
+# Measured on booking 32885089: a "**Booking Details**" snapshot listing
+# "Is Cancellable: No / Is Reschedulable: Yes" matched `reschedul` and rendered
+# as "Booking status snapshot posted"; a Booking Info dump rendered as
+# "Booking details posted to ticket".
+_FURNITURE = [
     (re.compile(r"\bsupport\s+history\s+thread\s+opened\b"
                 r"|\bitinerary\s+(?:id|margin)\s*:"
                 r"|--\s*booking\s+info\s*--"
                 r"|\*\*booking\s+details\*\*"
                 r"|\boverall\s+support\s+summary\b"
                 r"|\bconversation\s+with\s+ios\s+user\b", re.I), "ticket furniture"),
+]
+
+_ADMIN = [
     # Disposition: what to do with the ticket.
     (re.compile(r"\b(?:please\s+)?close\s+(?:this\s+)?ticket\b"
                 r"|\bmark(?:ing)?\s+(?:this\s+)?(?:as\s+)?solved\b"
@@ -121,6 +124,26 @@ def note_disposition(body: str) -> tuple[str, str]:
     text = str(body or "").strip()
     if not text:
         return "drop", "empty comment"
+    # THREE TESTS, AND THE ORDER IS THE WHOLE RULE.
+    #
+    # Neither plain order works, and both failures are real:
+    #
+    #   facts first  — furniture keeps its place the moment it contains a
+    #                  booking verb. A "**Booking Details**" snapshot listing
+    #                  "Is Cancellable: No / Is Reschedulable: Yes" matched
+    #                  `reschedul` and rendered as a timeline row.
+    #   admin first  — a real event wrapped in an instruction is dropped.
+    #                  "[RESCHEDULE] Automation has failed … Assigning to the
+    #                  supply team" is what happened, and the instruction
+    #                  around it must not take it down.
+    #
+    # So the split is by SHAPE, not by order alone. Structural furniture — a
+    # form, a dump, a header — is furniture whatever words it contains, and it
+    # goes first. Instruction-style administration goes AFTER the booking
+    # verbs, because an instruction can wrap an event.
+    for rx, why in _FURNITURE:
+        if rx.search(text):
+            return "drop", f"ticket furniture ({why})"
     if _BOOKING_FACT.search(text):
         return "keep", "records something that happened to the booking"
     for rx, why in _ADMIN:

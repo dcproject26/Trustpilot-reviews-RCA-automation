@@ -1154,7 +1154,21 @@ def _get_timeline_sync(_z, booking_id: str):
             # payload sane.
             #
             # "judge" is KEPT, per its own contract: unsure means show it.
-            if _is_private:
+            reason = _internal_reason(body, via_ch, _role(author_id))
+            # THE GATE IS "IS THIS INTERNAL", NOT "IS THIS PRIVATE".
+            #
+            # It read `if _is_private`, and the Booking Info dump, the
+            # ITINERARY MARGIN dump and the Overall Support Summary are PUBLIC
+            # comments that `_internal_reason` marks as machinery. So the
+            # furniture rule never saw them and they kept rendering as
+            # "Booking details posted to ticket" and "Booking status snapshot
+            # posted" — measured on 32885089 after the private half was
+            # already fixed.
+            #
+            # Whether Zendesk marked a comment private is a fact about who can
+            # SEE it. Whether it is machinery is a fact about what it IS, and
+            # that is the question this rule answers.
+            if _is_private or reason:
                 from server.ticket_notes import note_disposition
                 _verdict, _why_note = note_disposition(body)
                 if _verdict == "drop":
@@ -1162,7 +1176,6 @@ def _get_timeline_sync(_z, booking_id: str):
                     continue
                 _private_kept += 1
 
-            reason = _internal_reason(body, via_ch, _role(author_id))
             # A private comment IS internal, whatever its text looks like.
             # `_internal_reason` reads the body for machinery patterns and a
             # hand-typed agent note has none of them — so without this, an
