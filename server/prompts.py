@@ -1895,6 +1895,11 @@ that turned out fine is silence — never a line in the output.
        "owner": "<one of the nine team codes — the team that must DO it>",
        "because": "<the gap it closes>"}
     ],
+    "gaps": [
+      {"gap": "<something STILL WRONG that needs raising — present tense>",
+       "team": "<one of the nine team codes — the team that must pick it up>",
+       "source_ref": "<the ticket, contact or case finding you read it from — REQUIRED>"}
+    ],
     "guest_issues": [
       {
         "issue": "<one-line title, max 12 words, plain words, no trailing period>",

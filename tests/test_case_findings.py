@@ -634,3 +634,89 @@ def test_the_evidence_time_rule_reaches_the_model_with_its_reason():
     out = " ".join(_assembled_prompt().split())
     assert "THIS APPLIES TO `evidence[]` ENTRIES TOO" in out
     assert "sinks to the bottom of §1" in out
+
+
+# ── the skeleton must declare every key the validator reads ────────────────
+#
+# THREE TIMES IN ONE SESSION, the same defect:
+#
+#   evidence[].time   read by `_case_findings`, absent from the schema. Every
+#                     evidence row came back timeless and §1 filed four under
+#                     "cannot be placed" while their own text read
+#                     "reported at 15:36 on 02 Aug".
+#   what_went_wrong.gaps
+#                     read by `actions_from_gaps` to build Actions Taken,
+#                     specified at length in PROSE, and missing from the JSON
+#                     skeleton. The model filled every key it was shown and
+#                     returned no gaps at all — on a case with an unfollowed
+#                     chat miss and a blank SP escalation field.
+#   (and the storage half of the same bug, in test_gaps_survive_storage.py)
+#
+# Prose is not a schema. The model fills the skeleton, so a field that is
+# argued for in a paragraph and absent from the JSON is a field that does not
+# get sent — and an empty answer from a question never asked is indis-
+# tinguishable from an empty answer to a question that was.
+#
+# This is written against the KEYS THE VALIDATOR READS rather than a fixed
+# list, so the next field added to `validate` fails here until the skeleton
+# catches up.
+
+def _wwr_schema_block(text):
+    """The `"what_went_wrong": { ... }` object out of the assembled schema."""
+    i = text.index('"what_went_wrong": {')
+    j = text.index("{", i + len('"what_went_wrong"'))
+    depth, k = 0, j
+    while k < len(text):
+        if text[k] == "{":
+            depth += 1
+        elif text[k] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[j:k + 1]
+        k += 1
+    raise AssertionError("what_went_wrong in the schema is unclosed")
+
+
+def _keys_validate_reads():
+    """Every `wwr.get("...")` in the validator, found by parsing it."""
+    import ast
+    import inspect
+    from server.services import rca_v4_validate as mod
+    tree = ast.parse(inspect.getsource(mod.validate))
+    out = set()
+    for n in ast.walk(tree):
+        if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "get"
+                and isinstance(n.func.value, ast.Name)
+                and n.func.value.id == "wwr"
+                and n.args and isinstance(n.args[0], ast.Constant)):
+            out.add(n.args[0].value)
+    return out
+
+
+def test_the_validator_reads_at_least_the_keys_we_think_it_does():
+    """The parse is the load-bearing part of the guard below. If it silently
+    found nothing, that guard would pass against any schema at all."""
+    found = _keys_validate_reads()
+    assert {"case_findings", "fixes", "gaps", "guest_issues"} <= found, found
+
+
+def test_every_what_went_wrong_key_the_validator_reads_is_in_the_skeleton():
+    block = _wwr_schema_block(_assembled_prompt())
+    missing = [k for k in sorted(_keys_validate_reads())
+               if f'"{k}"' not in block]
+    assert not missing, (
+        f"the validator reads what_went_wrong{missing} and the JSON skeleton "
+        f"never asks for it. The model fills the skeleton; a key argued for "
+        f"in prose alone comes back empty and looks like an honest empty "
+        f"answer.\n\n{block}")
+
+
+def test_the_gaps_skeleton_names_source_ref_as_required():
+    """The anti-hallucination gate drops an unsourced gap. A skeleton that
+    does not mark the field required produces gaps the gate then silently
+    eats — a tab empty for a reason nobody chose."""
+    block = _wwr_schema_block(_assembled_prompt())
+    i = block.index('"gaps"')
+    gaps_block = block[i:i + 400]
+    assert '"source_ref"' in gaps_block and "REQUIRED" in gaps_block, gaps_block
