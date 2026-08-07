@@ -1524,6 +1524,34 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
     if patch.rca_v3 is not None or _v4_sent:
         d.rca_v3_edited_at = datetime.utcnow()
 
+    # ── Actions Taken is a VIEW, so it is recomputed here, not sent ──────────
+    #
+    # THE DRIFT THIS CLOSES. §3's fixes live in `rca_v3`; `actions_taken` is a
+    # COLUMN, and Slack reads that column (slack.py:772, :1128). This endpoint
+    # writes `rca_v3` raw and never re-runs validate, so changing a fix's owner
+    # on the card moved the fix and left the column — and the Slack post — on
+    # the old routing. Two stores for one fact, reached from the other side.
+    #
+    # The server owns it: whatever the client sent for `actions_taken` in the
+    # same request is overwritten, because a second writer is how the two
+    # drift in the first place. Only the grouping is redone — no model call, so
+    # nothing a human typed into a fix is re-judged.
+    if patch.rca_v3 is not None or _v4_sent:
+        try:
+            from server.checklist import actions_from_fixes
+            _blob = d.rca_v3 or {}
+            _wwr = _blob.get("what_went_wrong") or {}
+            _tabs, _rep = actions_from_fixes(_wwr.get("fixes"),
+                                             _blob.get("flags"))
+            d.actions_taken = _tabs
+            flag_modified(d, "actions_taken")
+        except Exception as e:
+            # NOT silent. A failure here leaves the column on its previous
+            # value, which is stale rather than wrong-shaped — the reader has
+            # to be able to find out that the regroup did not run.
+            log.exception(f"[draft-v2] {review_id}: actions_taken regroup "
+                          f"failed, column left on its previous value: {e}")
+
     m = db.query(ReviewMetric).filter(ReviewMetric.review_id == review_id).first()
     if m and edits:
         m.edit_count = (m.edit_count or 0) + edits

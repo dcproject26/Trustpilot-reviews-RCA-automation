@@ -354,7 +354,8 @@ def test_the_document_level_v3_fields_are_not_carried_forward():
     out, _ = validate(_ok(what_went_wrong={
         "what_happened": "old shape", "root_causes": ["old"],
         "guest_issues": [{"issue": "x", "root_cause": "y", "fix": {"action": "do the thing", "owner": "CE"}}]}))
-    assert set(out["what_went_wrong"]) == {"guest_issues", "fixes"}
+    assert set(out["what_went_wrong"]) == {"guest_issues", "fixes",
+                                           "case_findings"}
     assert "what_happened" not in out["what_went_wrong"]
     assert "root_causes" not in out["what_went_wrong"]
 

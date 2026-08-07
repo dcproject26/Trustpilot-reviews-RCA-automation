@@ -92,14 +92,14 @@ def test_a_fix_lands_on_its_owners_tab_and_no_playbook_row_lands_anywhere():
     assert "Alert on failed fulfilment" in out["actions_taken"]["tech"]
 
 
-def test_a_flag_with_no_fix_reaches_no_tab():
-    """It used to. A flag already names the team that must act and renders in
-    the Flags section; putting it here as well said it twice, which is the
-    repetition this restructure exists to remove."""
+def test_a_flag_with_no_fix_still_reaches_its_team_tab():
+    """A FLAG IS ACTIONABLE. It names the team that must act and what they are
+    handed, which is exactly what a tab is for. This briefly excluded them, on
+    the reasoning that a flag and its fix would say the same thing twice — but
+    the answer to that is the dedupe below, not dropping a real hand-off."""
     out, _ = validate(_rca(), [SCENARIO])          # fixture has a CO flag
-    assert out["actions_taken"]["co"] == [], out["actions_taken"]["co"]
-    assert out["flags"][0]["flag"] == "No follow-up after the first reply", \
-        "the flag itself must still render — it moved, it did not vanish"
+    assert out["actions_taken"]["co"] == ["No follow-up after the first reply"], \
+        out["actions_taken"]["co"]
 
 
 def test_no_guideline_row_reaches_the_card():
@@ -151,13 +151,26 @@ def test_the_same_finding_worded_twice_is_not_two_rows():
     """A root cause, a flag and an improvement point routinely say one thing
     three ways. Printing all three reads as three pieces of work — and the
     merge is a JUDGEMENT, so the run says it made one."""
-    rca = _rca()
+    rca = _rca(flags=[{"team": "CO", "flag": "Watch the fulfilment queue",
+                       "evidence": "ZD-1"}])
     rca["what_went_wrong"]["fixes"] = [
-        {"action": "Watch the fulfilment queue", "owner": "CO"},
         {"action": "Watch the fulfilment queue", "owner": "CO"}]
     out, notes = validate(rca, [SCENARIO])
     assert len(out["actions_taken"]["co"]) == 1, out["actions_taken"]["co"]
     assert any("already said" in n for n in notes), notes
+
+
+def test_the_fix_claims_the_slot_and_the_flag_merges_into_it():
+    """A fix states what will be done and names its owner; a flag states what
+    went wrong. When they collide the fix is the row worth keeping."""
+    rca = _rca(flags=[{"team": "SP", "flag": "Chase the vendor for a reply",
+                       "evidence": "ZD-1"}])
+    rca["what_went_wrong"]["fixes"] = [
+        {"action": "Chase the vendor for a reply", "owner": "TECH"}]
+    out, _ = validate(rca, [SCENARIO])
+    assert out["actions_taken"]["tech"] == ["Chase the vendor for a reply"]
+    assert out["actions_taken"]["sp"] == [], \
+        "the flag re-stated the fix on another tab"
 
 
 def test_dss_contributes_no_rows_of_its_own():

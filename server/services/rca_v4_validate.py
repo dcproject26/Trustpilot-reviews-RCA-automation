@@ -299,7 +299,7 @@ def _evidence_rows(raw, notes=None):
                     demoted += 1
             if txt:
                 out.append({"text": txt, "source": src, "ref": None,
-                            "backs_claim": None})
+                            "backs_claim": None, "time": None})
             continue
         if not isinstance(e, dict):
             continue
@@ -316,6 +316,11 @@ def _evidence_rows(raw, notes=None):
             "source": _enum(e.get("source"), EVIDENCE_SOURCES, None),
             "ref":    _clean(e.get("ref")),
             "backs_claim": _enum(e.get("backs_claim"), ("Yes", "No"), None),
+            # CARRIED, because §1 orders by event and these rows are §1's
+            # content. Dropping it here left every merged finding undated, so
+            # the section fell back to write-order and the chronology the
+            # records DO support was thrown away in validation.
+            "time":   _clean(e.get("time")),
         })
     if demoted:
         notes.append(
@@ -924,8 +929,9 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
     # SOP gaps, improvements, DSS misses — are NOT lost. Each already renders
     # in its own section, and routing them here as well is what put one
     # remediation on a card twice.
+    _findings = _case_findings(wwr.get("case_findings"), issues, notes)
     _fixes = _fix_rows(wwr.get("fixes"), issues, notes)
-    _actions, _ar = actions_from_fixes(_fixes, keep=keep_actions)
+    _actions, _ar = actions_from_fixes(_fixes, _flags, keep=keep_actions)
     notes.extend(_ar["notes"])
 
     return {
@@ -938,7 +944,8 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
         # Taken is a VIEW over it, and a view whose source lives only in a
         # local would be rebuilt differently by each read path. That is the
         # two-stores-for-one-fact defect, arrived at from the other direction.
-        "what_went_wrong":   {"guest_issues": issues, "fixes": _fixes},
+        "what_went_wrong":   {"guest_issues": issues, "fixes": _fixes,
+                              "case_findings": _findings},
         "issue_specific_answers": _answers(rca.get("issue_specific_answers"), notes),
         # INTERPRETATION, not facts. The rows the UI renders come from the
         # pipeline's Zendesk-derived frames - their time, channel and ticket id
@@ -1060,4 +1067,72 @@ def _fix_rows(raw, issues, notes) -> list:
         rows.append({"action": action,
                      "owner": owner.upper() if owner else None,
                      "because": _clean(f.get("because"))})
+    return rows
+
+
+def _case_finding_key(text) -> str:
+    """What makes two case findings the same finding.
+
+    Wording, normalised — not identity. Two claims citing one fact routinely
+    word it differently ("tickets sent 14:02, two hours after the slot" vs
+    "the tickets arrived two hours late"), and a key on the exact string would
+    keep both. Stop words and punctuation go, because they are where the
+    variation lives.
+    """
+    return " ".join(sorted(_tokens(text)))
+
+
+def _case_findings(raw, issues, notes) -> list:
+    """§1: the booking's story, evidenced — one ordered, deduplicated list.
+
+    THE EVIDENCE ROWS MOVE HERE. They were per-issue, so a fact cited by two
+    claims rendered twice, which is the single biggest source of repeated text
+    on the card. They keep their claim association in the data — nothing is
+    deleted — and are merged into this list for rendering, once each.
+
+    ORDERED BY EVENT where a row carries a time, and stable otherwise: a plain
+    list is the honest rendering of rows that carry no order, and inventing one
+    would put a sequence on screen that the records do not support.
+
+    An empty list is a legitimate answer and the card says so in words. What
+    must not happen is a case nobody read looking like a case that was read and
+    was clean.
+    """
+    rows, seen = [], set()
+
+    def _add(text, source, time, why):
+        text = _clean(text)
+        if not text:
+            return
+        key = _case_finding_key(text)
+        if not key or key in seen:
+            return
+        seen.add(key)
+        rows.append({"text": text,
+                     "source": _enum(source, EVIDENCE_SOURCES, None),
+                     "time": _clean(time)})
+
+    for r in (raw if isinstance(raw, list) else []):
+        if isinstance(r, str):
+            _add(r, None, None, "string")
+        elif isinstance(r, dict):
+            _add(r.get("text"), r.get("source"), r.get("time"), "row")
+
+    merged = 0
+    for i in (issues or []):
+        for e in (i.get("evidence") or []):
+            if not isinstance(e, dict):
+                continue
+            before = len(rows)
+            _add(e.get("text"), e.get("source"), e.get("time"), "evidence")
+            merged += len(rows) - before
+
+    if merged:
+        notes.append(f"case findings: {merged} evidence row(s) merged in from "
+                     f"the issues — they render here once rather than under "
+                     f"every claim that cites them")
+
+    # Rows carrying a time lead, in time order; the rest keep the order they
+    # were written in. `sorted` is stable, so an undated row never jumps.
+    rows.sort(key=lambda r: (r["time"] is None, r["time"] or ""))
     return rows

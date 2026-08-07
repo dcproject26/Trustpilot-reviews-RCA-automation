@@ -1821,6 +1821,16 @@ that turned out fine is silence — never a line in the output.
   "scenarios": ["<scenario from SCENARIOS_ROUTED>"],
   "overlay_scenarios": ["<secondary scenario, not already in scenarios | omit if none>"],
   "what_went_wrong": {
+    "case_findings": [
+      {"text": "<one line — a thing the RECORDS show happened on this booking>",
+       "source": "<booking | bms | zendesk | insights | exp-page>",
+       "time": "<DD Mon HH:MM | DD Mon | null>"}
+    ],
+    "fixes": [
+      {"action": "<what gets done>",
+       "owner": "<one of the nine team codes — the team that must DO it>",
+       "because": "<the gap it closes>"}
+    ],
     "guest_issues": [
       {
         "issue": "<one-line title, max 12 words, plain words, no trailing period>",
@@ -2004,6 +2014,30 @@ that turned out fine is silence — never a line in the output.
    Do not repeat the SAME SENTENCE in both. A guest issue may describe what the guest asked
    for and did not get, while a flag names our failure to do it — those are two statements
    about one event and both belong. What must not happen is the same wording twice.
+9-case-findings. `case_findings` IS THE BOOKING'S WHOLE STORY, EVIDENCED — and it is NOT a
+    summary of the support chat. `support_interaction_notes` already covers contact by contact:
+    who, when, on which channel, what was said. If a line could sit in either, it belongs
+    there and not here. This section is what the RECORDS show happened, and it starts at the
+    booking, not at the first contact.
+    COVER THESE, IN THIS ORDER:
+      (a) WAS THE BOOKING FULFILLED AS EXPECTED? Tickets sent, on time, right date, pax and
+          variant — or not. This has nothing to do with support and is the part most often
+          missing.
+      (b) WHY THE GUEST REACHED OUT, and with what. Their ask, not the channel.
+      (c) WHAT WE DID about it. The action, not the transcript.
+      (d) THE GAP, where there were several interactions — how long they waited against what
+          we promised.
+    One line each, with the `source` that shows it. `time` where the record carries one; null
+    where it does not, and do not invent one to force an order.
+    THIS IS WHERE EVIDENCE LIVES NOW. Do not repeat a case finding inside an issue's
+    `root_cause` — §1 is the record and §2 is the diagnosis. A fact stated in both is the
+    repetition this structure exists to remove.
+    AN EMPTY LIST IS A REAL ANSWER and the card says so in words. What must never happen is a
+    case nobody read coming back looking like a case that was read and was clean.
+9-fixes. `fixes` IS ITS OWN SECTION, one row per remediation, each naming the ONE team that
+    must do it. Actions Taken is built from exactly this array, so a fix with no owner reaches
+    the Unrouted tab and nobody picks it up. The team is whoever DOES the work — a refund that
+    has to move is FINANCE even when the failure that caused it was CONTENT's.
 10. `flags` contains failures only — things a named team must act on. An empty array means
     everything was checked and nothing needed raising; return `[]`, not a placeholder entry.
 10-source. FLAGS AND FIXES COME FROM THE CASE HISTORY AS WELL AS THE REVIEW, and the case is

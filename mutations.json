@@ -518,7 +518,7 @@
   {
     "file": "server/checklist.py",
     "name": "fixes: an empty section stops saying so",
-    "find": "    if not counts[\"fix\"] and not kept:",
+    "find": "    if not counts[\"fix\"] and not counts.get(\"flag\") and not kept:",
     "replace": "    if False:"
   },
   {
@@ -548,7 +548,67 @@
   {
     "file": "server/services/rca_v4_validate.py",
     "name": "fixes: actions taken is wired to nothing",
-    "find": "    _actions, _ar = actions_from_fixes(_fixes, keep=keep_actions)",
+    "find": "    _actions, _ar = actions_from_fixes(_fixes, _flags, keep=keep_actions)",
     "replace": "    _actions, _ar = ({}, {'notes': []})"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "actions: a flag no longer reaches its team tab",
+    "find": "        counts[\"flag\"] = counts.get(\"flag\", 0) + 1",
+    "replace": "        tabs[tab].pop()\n        counts[\"flag\"] = counts.get(\"flag\", 0) + 1"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "actions: a flag repeating a fix becomes a second row",
+    "find": "        if _is_repeat(text, seen, \"action\"):\n            counts[\"repeat\"] += 1\n            continue\n        _remember(text, seen, \"action\")\n        team = str(f.get(\"team\")",
+    "replace": "        if False:\n            counts[\"repeat\"] += 1\n            continue\n        _remember(text, seen, \"action\")\n        team = str(f.get(\"team\")"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "case findings: the evidence merge stops running",
+    "find": "    for i in (issues or []):\n        for e in (i.get(\"evidence\") or []):",
+    "replace": "    for i in []:\n        for e in (i.get(\"evidence\") or []):"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "case findings: duplicates are kept",
+    "find": "        if not key or key in seen:\n            return",
+    "replace": "        if not key:\n            return"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "case findings: the merge stops being reported",
+    "find": "    if merged:\n        notes.append(",
+    "replace": "    if False:\n        notes.append("
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "case findings: event order is thrown away",
+    "find": "    rows.sort(key=lambda r: (r[\"time\"] is None, r[\"time\"] or \"\"))",
+    "replace": "    pass"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "case findings: the evidence time is dropped again",
+    "find": "            \"time\":   _clean(e.get(\"time\")),",
+    "replace": "            \"time\":   None,"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "case findings: moved off the issue instead of merged",
+    "find": "        \"evidence\":             _evidence_rows(raw.get(\"evidence\"), notes),",
+    "replace": "        \"evidence\":             [],"
+  },
+  {
+    "file": "server/api.py",
+    "name": "saver: actions_taken is no longer regrouped on save",
+    "find": "            d.actions_taken = _tabs",
+    "replace": "            pass"
+  },
+  {
+    "file": "server/api.py",
+    "name": "saver: the client's actions_taken wins over the regroup",
+    "find": "        try:\n            from server.checklist import actions_from_fixes",
+    "replace": "        try:\n            return {\"ok\": True, \"draft\": _draft_dict(d)}\n            from server.checklist import actions_from_fixes"
   }
 ]

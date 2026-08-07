@@ -1206,15 +1206,24 @@ def actions_from_findings(issues, flags, improvements=None, dss_miss=None,
     return tabs, report
 
 
-def actions_from_fixes(fixes, keep=None) -> tuple:
+def actions_from_fixes(fixes, flags=None, keep=None) -> tuple:
     """Actions Taken as a VIEW over §3's fixes. Returns (tabs, report).
 
-    ONE ARRAY, NOT TWO. Actions Taken used to be built by merging six sources
-    — flags, operational failures, SOP gaps, fixes, improvements and DSS
-    misses — into its own store. That is how the same remediation reached a
-    card twice: once as the fix that closes a gap and again as the flag that
-    raised it, worded differently enough to survive the repeat check. The
-    fixes ARE the actions; this groups them by owner and adds nothing.
+    TWO SOURCES: the fixes, and the flags. Not six — operational failures,
+    SOP gaps, improvement points and the DSS missed step are each already a
+    finding in their own section, and routing them here as well is how one
+    finding reached a card three ways.
+
+    A FLAG IS ACTIONABLE. It names the team that must act and what they are
+    handed, which is exactly what a tab is for; dropping it left a real
+    hand-off with nowhere to be picked up. Where a flag and a fix say the same
+    thing, `_is_repeat` merges them and the run says it did — that is what
+    stops the duplication, not excluding one of them.
+
+    FIXES ARE ADDED FIRST, deliberately. A fix states what will be done and
+    names its owner; a flag states what went wrong. When the two collide the
+    fix is the row worth keeping, so it claims the slot and the flag merges
+    into it rather than the other way round.
 
     AN UNOWNED FIX IS ON THE UNROUTED TAB, not in a footnote. The previous
     behaviour reported it in `notes` and left the tab strip looking complete,
@@ -1245,6 +1254,24 @@ def actions_from_fixes(fixes, keep=None) -> tuple:
         if tab == UNROUTED:
             counts[UNROUTED] += 1
 
+    for f in (flags or []):
+        if not isinstance(f, dict):
+            continue
+        text = str(f.get("flag") or "").strip()
+        if not text:
+            continue
+        if _is_repeat(text, seen, "action"):
+            counts["repeat"] += 1
+            continue
+        _remember(text, seen, "action")
+        team = str(f.get("team") or "").strip().lower()
+        team = FLAG_TEAM_ALIASES.get(team, team)
+        tab = team if team in ACTION_TEAMS else UNROUTED
+        tabs[tab].append(text)
+        counts["flag"] = counts.get("flag", 0) + 1
+        if tab == UNROUTED:
+            counts[UNROUTED] += 1
+
     kept = 0
     for t, items in (keep or {}).items():
         if t not in tabs:
@@ -1269,11 +1296,11 @@ def actions_from_fixes(fixes, keep=None) -> tuple:
         notes.append(f"actions taken: {counts[UNROUTED]} fix(es) name no team "
                      f"and sit on the Unrouted tab — nobody picks those up "
                      f"until someone assigns them")
-    if not counts["fix"] and not kept:
-        # Distinguishable from a run that never looked: there were no fixes to
+    if not counts["fix"] and not counts.get("flag") and not kept:
+        # Distinguishable from a run that never looked: there was nothing to
         # route, which is a legitimate answer for a case needing no action.
-        notes.append("actions taken: §3 lists no fix, so there is nothing for "
-                     "any team to pick up")
+        notes.append("actions taken: no fix in §3 and no flag raised, so there "
+                     "is nothing for any team to pick up")
 
     return tabs, {"counts": counts, "kept": kept, "notes": notes,
                   "unrouted": counts[UNROUTED]}
