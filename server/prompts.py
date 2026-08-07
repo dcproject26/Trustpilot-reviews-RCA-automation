@@ -2472,6 +2472,30 @@ RCA_PROMPT_FAMILY  = "rca_v4"
 RCA_PROMPT_VERSION = f"{RCA_PROMPT_FAMILY}+{_prompt_digest(RCA_V4_TEMPLATE)}"
 
 
+def prompt_stamp_state(stamped) -> str:
+    """"current" | "stale" | "unstamped", for a draft's rca_prompt_version.
+
+    WHY THIS IS NOT A ONE-LINE COMPARISON AT EACH CALL SITE. Every diagnostic
+    reads a STORED draft and reports it against the rules in the code running
+    now. When the two disagree the report is about a card that no longer
+    exists, and it looks exactly like a report about a card that does.
+
+    That cost three round trips on one review. `gaps` came back `[]` and the
+    trace said "the model was asked and found no unsolved gap" — a sentence
+    that is true of a clean case and false of a draft written before `gaps`
+    was in the schema at all. Same two words on screen, opposite meanings, and
+    the only thing separating them is this stamp.
+
+    Content-addressed, so it moves whenever the prompt body moves. That is
+    what makes "stale" mean something narrower than "old": the model was asked
+    different questions, so its answers cannot be read against these rules.
+    """
+    s = str(stamped or "").strip()
+    if not s:
+        return "unstamped"
+    return "current" if s == RCA_PROMPT_VERSION else "stale"
+
+
 # ─── 9b. WWR analysis — stacked scenario blocks (Task #13 §3) ───────────────
 def wwr_analysis_prompt(
     review_text: str,

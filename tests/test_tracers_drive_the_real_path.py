@@ -52,10 +52,18 @@ def test_a_clean_case_and_a_dropped_gap_do_not_print_the_same_thing(live_db,
                                                                     capsys):
     """THE WHOLE POINT OF THE SECTION. Both leave the CO tab empty. One is a
     case with nothing outstanding; the other is the anti-hallucination gate
-    firing. A card cannot tell them apart, which is why this exists."""
-    _seed(live_db, "tp_clean", rca_v3=_gaps(), actions_taken={})
+    firing. A card cannot tell them apart, which is why this exists.
+
+    BOTH DRAFTS CARRY THE CURRENT STAMP, deliberately. "The case was clean" is
+    a claim about what THIS prompt asked and got back; on a draft from an
+    older build the same empty list means "not asked", and the tracer now says
+    so instead. Seeding without a stamp would be testing the wrong branch."""
+    from server.prompts import RCA_PROMPT_VERSION
+    _seed(live_db, "tp_clean", rca_v3=_gaps(), actions_taken={},
+          rca_prompt_version=RCA_PROMPT_VERSION)
     clean = _actions(live_db, "tp_clean", capsys)
-    _seed(live_db, "tp_dropped", rca_v3=_gaps(UNSOURCED), actions_taken={})
+    _seed(live_db, "tp_dropped", rca_v3=_gaps(UNSOURCED), actions_taken={},
+          rca_prompt_version=RCA_PROMPT_VERSION)
     dropped = _actions(live_db, "tp_dropped", capsys)
 
     assert "found no unsolved gap" in clean
@@ -344,7 +352,178 @@ def test_a_stored_empty_list_is_not_reported_as_absent(live_db, capsys):
     """The inverse. [] is the model answering "nothing outstanding", and
     sending the reader to regenerate a correct card is the same waste in the
     other direction."""
-    _seed(live_db, "tp_emptygaps", rca_v3=_gaps(), actions_taken={})
+    from server.prompts import RCA_PROMPT_VERSION
+    _seed(live_db, "tp_emptygaps", rca_v3=_gaps(), actions_taken={},
+          rca_prompt_version=RCA_PROMPT_VERSION)
     out = _actions(live_db, "tp_emptygaps", capsys)
     assert "found no unsolved gap" in out
     assert "ABSENT" not in out
+
+
+# ── a stored draft read against rules it was never generated under ─────────
+#
+# THE LOOP THIS ENDS. `gaps: []` was printed three runs running as "the model
+# was asked and found no unsolved gap". Twice that was false: the draft came
+# from a prompt whose JSON skeleton had no `gaps` in it at all, so the model
+# answered a question nobody put to it. A clean case and an unasked one wrote
+# the same sentence, which is rule 1 of CLAUDE.md with the stakes reversed —
+# the healthy-looking output was the broken one.
+#
+# The stamp is content-addressed, so it moves whenever the prompt body moves.
+# That makes "stale" mean something narrower and more useful than "old": the
+# model was asked DIFFERENT QUESTIONS, so its answers cannot be read here.
+
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize("mod,cols", [
+    ("trace_actions", {"rca_v3": {"what_went_wrong": {"gaps": []}}}),
+    ("trace_findings", {"rca_v3": {"what_went_wrong": {"case_findings": []}}}),
+    ("trace_timeline", {"timeline": []}),
+])
+def test_every_tracer_banners_a_draft_from_an_older_prompt(live_db, capsys,
+                                                           mod, cols):
+    import importlib
+    from server.prompts import RCA_PROMPT_VERSION
+    _seed(live_db, f"tp_stale_{mod}", rca_prompt_version="rca_v4+0ldbu1ld",
+          **cols)
+    importlib.import_module(f"scripts.{mod}").main([f"tp_stale_{mod}"])
+    out = capsys.readouterr().out
+    assert "PREDATES THE RUNNING PROMPT" in out, out
+    assert "rca_v4+0ldbu1ld" in out and RCA_PROMPT_VERSION in out, \
+        "a verdict the reader cannot check is one they have to take on trust"
+    assert "REGENERATE THE RCA" in out
+
+
+@_pytest.mark.parametrize("mod,cols", [
+    ("trace_actions", {"rca_v3": {"what_went_wrong": {"gaps": []}}}),
+    ("trace_findings", {"rca_v3": {"what_went_wrong": {"case_findings": []}}}),
+    ("trace_timeline", {"timeline": []}),
+])
+def test_no_tracer_banners_a_current_draft(live_db, capsys, mod, cols):
+    """THE INVERSE. A banner on every card is a banner nobody reads, and it
+    would make a correct run look suspect."""
+    import importlib
+    from server.prompts import RCA_PROMPT_VERSION
+    _seed(live_db, f"tp_cur_{mod}", rca_prompt_version=RCA_PROMPT_VERSION,
+          **cols)
+    importlib.import_module(f"scripts.{mod}").main([f"tp_cur_{mod}"])
+    out = capsys.readouterr().out
+    assert "PREDATES" not in out and "NO PROMPT STAMP" not in out, out
+
+
+def test_an_unstamped_draft_gets_its_own_banner(live_db, capsys):
+    import importlib
+    _seed(live_db, "tp_nostamp_banner", timeline=[])
+    importlib.import_module("scripts.trace_timeline").main(["tp_nostamp_banner"])
+    out = capsys.readouterr().out
+    assert "NO PROMPT STAMP" in out
+    assert "PREDATES" not in out, "two different states, two different words"
+
+
+def test_an_empty_gap_list_on_a_stale_draft_is_not_called_a_real_answer(
+        live_db, capsys):
+    """THE SENTENCE THAT WAS WRONG. Verbatim: "The model was asked and found
+    no unsolved gap. That is a real answer." It was neither.
+
+    ASSERTED ON THE BRANCH'S OWN WORDS. The first version of this test looked
+    for "'not asked', not 'nothing found'" — which the BANNER also prints, so
+    it matched there and passed with the branch inverted. A mutation flipping
+    the condition to `if True` survived the whole suite. Both branches now
+    carry a phrase the other does not."""
+    _seed(live_db, "tp_stale_empty", rca_v3=_gaps(),
+          rca_prompt_version="rca_v4+0ldbu1ld", actions_taken={})
+    out = _actions(live_db, "tp_stale_empty", capsys)
+    assert "see the banner above" in out, out
+    assert "from THIS prompt build" not in out
+    assert "found no unsolved gap — a real answer" not in out
+
+
+def test_an_empty_gap_list_on_a_current_draft_still_is_one(live_db, capsys):
+    from server.prompts import RCA_PROMPT_VERSION
+    _seed(live_db, "tp_cur_empty", rca_v3=_gaps(),
+          rca_prompt_version=RCA_PROMPT_VERSION, actions_taken={})
+    out = _actions(live_db, "tp_cur_empty", capsys)
+    assert "from THIS prompt build" in out
+    assert "not asked" not in out
+
+
+# ── the state function itself ──────────────────────────────────────────────
+
+def test_the_stamp_states_are_three_and_distinct():
+    from server.prompts import prompt_stamp_state, RCA_PROMPT_VERSION
+    assert prompt_stamp_state(RCA_PROMPT_VERSION) == "current"
+    assert prompt_stamp_state("rca_v4+something_else") == "stale"
+    assert prompt_stamp_state("") == "unstamped"
+    assert prompt_stamp_state(None) == "unstamped"
+    assert prompt_stamp_state("   ") == "unstamped", \
+        "whitespace is not a stamp — it would read as a version nobody wrote"
+
+
+# ── clearing rows no gap explains ──────────────────────────────────────────
+#
+# I TOLD THE USER THESE WOULD CLEAR THEMSELVES. They will not, and the reason
+# is worth writing down. `hand_typed_actions` subtracts what the PREVIOUS gaps
+# explain and treats the remainder as a person's. Once gaps are stored that is
+# right. It does not reach BACKWARDS: rows written before gaps existed are
+# neither derived-from-current-gaps nor hand-typed — they are model output
+# from the old fixes-derived section — and from the run after gaps first land
+# they are carried forward as hand-typed, confidently and forever.
+#
+# Nothing in the data separates them from a row somebody typed that afternoon.
+# So the code does not choose; this prints what it would remove and removes
+# nothing until told.
+
+def _clear(db, rid, capsys, *flags):
+    from scripts.clear_unattributed_actions import main
+    rc = main([rid, *flags])
+    return rc, capsys.readouterr().out
+
+
+def test_a_dry_run_names_every_row_and_writes_nothing(live_db, capsys):
+    _seed(live_db, "tp_cl", rca_v3=_gaps(SOURCED),
+          actions_taken={"co": [SOURCED["gap"], "a stale recommendation"]})
+    rc, out = _clear(live_db, "tp_cl", capsys)
+    assert rc == 0
+    assert "a stale recommendation" in out
+    assert "DRY RUN" in out
+    s = live_db.SessionLocal()
+    row = s.query(live_db.RcaDraft).filter_by(review_id="tp_cl").first()
+    still = dict(row.actions_taken or {}); s.close()
+    assert "a stale recommendation" in still["co"], still
+
+
+def test_apply_removes_exactly_those_rows_and_keeps_the_explained_one(live_db,
+                                                                      capsys):
+    _seed(live_db, "tp_cl2", rca_v3=_gaps(SOURCED),
+          actions_taken={"co": [SOURCED["gap"], "a stale recommendation"]})
+    rc, out = _clear(live_db, "tp_cl2", capsys, "--apply")
+    assert rc == 0 and "Removed 1 row(s)" in out
+    s = live_db.SessionLocal()
+    row = s.query(live_db.RcaDraft).filter_by(review_id="tp_cl2").first()
+    left = dict(row.actions_taken or {}); s.close()
+    assert left["co"] == [SOURCED["gap"]], left
+
+
+def test_it_refuses_when_there_are_no_stored_gaps(live_db, capsys):
+    """THE DANGEROUS CASE. With no gaps every row looks unexplained, so this
+    would clear the whole column — including a row somebody typed. Refusing
+    and naming the fix beats a --apply that empties the tab."""
+    _seed(live_db, "tp_cl3",
+          rca_v3={"what_went_wrong": {"guest_issues": [], "fixes": []}},
+          actions_taken={"co": ["something a person typed"]})
+    rc, out = _clear(live_db, "tp_cl3", capsys, "--apply")
+    assert rc == 1
+    assert "Regenerate the RCA first" in out
+    s = live_db.SessionLocal()
+    row = s.query(live_db.RcaDraft).filter_by(review_id="tp_cl3").first()
+    left = dict(row.actions_taken or {}); s.close()
+    assert left["co"] == ["something a person typed"], left
+
+
+def test_a_clean_column_says_so_rather_than_printing_an_empty_list(live_db,
+                                                                   capsys):
+    _seed(live_db, "tp_cl4", rca_v3=_gaps(SOURCED),
+          actions_taken={"co": [SOURCED["gap"]]})
+    rc, out = _clear(live_db, "tp_cl4", capsys)
+    assert rc == 0 and "Nothing to clear" in out
