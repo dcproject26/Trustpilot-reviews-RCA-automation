@@ -106,6 +106,29 @@ async def _run(bid):
                     int(m.group(3) or 0), int(m.group(4) or 0))
         return None
 
+    # WHAT COLLAPSED. `collapse_repeats` keys on the system's own text, so a
+    # line that fired five times is one row carrying its count and span. Five
+    # separate rows here means the key is falling back to the model's summary
+    # again, which is the regression this section exists to make visible.
+    _collapsed = [r for r in shaped
+                  if "pings collapsed" in str(r.get("internal_reason") or "")]
+    print(f"\n=== REPEATED PINGS COLLAPSED: {len(_collapsed)} group(s) ===")
+    if not _collapsed:
+        print("  none — either nothing repeated, or the collapse is not firing.")
+    for r in _collapsed:
+        print(f"  {str(r.get('time') or '?'):<20} {_snip(r.get('summary'), 60)}")
+    _susp = {}
+    for r in shaped:
+        lab = " ".join(str(r.get("label") or "").split()).lower()[:40]
+        _susp[lab] = _susp.get(lab, 0) + 1
+    _dupe = {k: v for k, v in _susp.items() if v > 1 and k}
+    if _dupe:
+        print("\n  STILL REPEATING — same label on more than one row:")
+        for k, v in sorted(_dupe.items(), key=lambda x: -x[1]):
+            print(f"    {v} x  {k}")
+    else:
+        print("\n  no label appears on more than one row.")
+
     print(f"\n=== ORDER AS THE CARD SORTS IT ===")
     print("  the client sorts on the DISPLAYED time; an unparseable one sinks\n")
     rows = [(r, _sv(r)) for r in shaped]

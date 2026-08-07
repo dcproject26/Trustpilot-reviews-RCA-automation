@@ -2853,6 +2853,24 @@ async def _shape_via_claude(
             # scissors here, which only ever produces an incomplete one.
             **clip_shaped_text(ev),
             "ticket_id": next((s.get("ticket_id") for s in srcs if s.get("ticket_id")), ""),
+            # THE ORIGINAL TEXT, carried for `collapse_repeats` to key on.
+            #
+            # It keys on `raw_body or summary`, and a shaped row had no
+            # raw_body — so it fell back to the model's SUMMARY. The model
+            # writes each repeat slightly differently ("SP confirmation
+            # pending", "SP confirmation pending, 2 further"), so five
+            # identical automated pings produced five different keys and none
+            # of them collapsed. Five rows of "Reschedule blocked" on one
+            # card, from one automated line firing five times.
+            #
+            # The raw body is identical every time by construction — it is the
+            # same automation writing the same sentence. Keying on what the
+            # SYSTEM wrote instead of on what the model wrote about it is the
+            # difference between a deterministic collapse and one that depends
+            # on the model phrasing two rows the same way twice.
+            #
+            # Not rendered: the card reads `summary`. This is a join key.
+            "raw_body": (srcs[0].get("raw_body", "") if srcs else ""),
             "is_internal":     is_internal,
             "internal_reason": internal[0].get("internal_reason", "") if is_internal else "",
         })

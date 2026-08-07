@@ -364,3 +364,78 @@ def test_the_gate_asks_whether_a_comment_is_internal_not_whether_it_is_private()
     src = open("server/services/zendesk.py", encoding="utf-8").read()
     assert "if _is_private or reason:" in src, \
         "the furniture rule only sees private comments again"
+
+
+# ── the repeated automated ping collapses on what the SYSTEM wrote ────────
+
+from server.services.zendesk import select_internal_notes
+
+_PING = ("Customer Reschedule Request can't be pushed to Pending until it's "
+         "pending on SP.")
+
+
+def _ping_rows(n=5):
+    """n firings of one automated line, each summarised slightly differently
+    by the model — which is exactly what the trace showed."""
+    return [{"time": f"0{i+1} Aug 09:1{i}", "label": "Reschedule blocked",
+             "summary": ("Reschedule blocked — SP confirmation pending"
+                         + (f", {i} further" if i else "")),
+             "raw_body": _PING, "is_internal": True,
+             "internal_reason": "via:rule"} for i in range(n)]
+
+
+def test_five_firings_of_one_ping_become_one_row():
+    """THE REGRESSION. `collapse_repeats` keys on `raw_body or summary`, and a
+    shaped row carried no raw_body — so it fell back to the model's SUMMARY.
+    The model words each repeat differently, so five identical pings produced
+    five different keys and none collapsed: five "Reschedule blocked" rows on
+    one card, from one automated line firing five times."""
+    out = select_internal_notes(_ping_rows())
+    assert len(out) == 1, [r["summary"] for r in out]
+
+
+def test_the_collapsed_row_says_how_many_and_over_what_span():
+    """With four identical rows hidden, the repetition IS the signal. A row
+    that collapses without saying so has deleted four events."""
+    out = select_internal_notes(_ping_rows())
+    assert "5 system pings" in out[0]["summary"], out[0]
+    assert "identical pings collapsed" in out[0]["internal_reason"], out[0]
+
+
+def test_a_real_note_beside_the_pings_survives():
+    rows = _ping_rows() + [{
+        "time": "02 Aug 15:28", "label": "Agent note",
+        "summary": "Agent noted reschedule already applied at +45 mins",
+        "raw_body": "NAR , tix are already rescheduled for +45 mins",
+        "is_internal": True, "internal_reason": ""}]
+    out = select_internal_notes(rows)
+    assert len(out) == 2, [r["summary"] for r in out]
+    assert any("NAR" in r["raw_body"] for r in out), out
+
+
+def test_two_different_pings_do_not_collapse_together():
+    """The key is the system's own text. Two different automated lines are
+    two events however alike the model's wording of them is."""
+    a = _ping_rows(2)
+    b = _ping_rows(2)
+    for r in b:
+        r["raw_body"] = "Refund automation could not reach the vendor."
+    out = select_internal_notes(a + b)
+    assert len(out) == 2, [r["summary"] for r in out]
+
+
+def test_a_single_firing_is_not_collapsed():
+    """One is an event; two is a repetition. Collapsing a single ping would
+    put a count on a row that never repeated."""
+    out = select_internal_notes(_ping_rows(1))
+    assert len(out) == 1
+    assert "system pings" not in out[0]["summary"], out[0]
+
+
+def test_the_shaped_row_carries_the_raw_body_to_key_on():
+    """WIRING, and the half the function above cannot show: `_shape_via_claude`
+    has to put the source text on the row, or `collapse_repeats` falls back to
+    the model's summary and the whole thing stops working silently."""
+    src = open("server/services/zendesk.py", encoding="utf-8").read()
+    assert '"raw_body": (srcs[0].get("raw_body", "") if srcs else "")' in src, \
+        "the shaped row no longer carries the source text to collapse on"
