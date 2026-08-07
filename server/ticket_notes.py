@@ -35,6 +35,20 @@ import re
 # Pure ticket administration. Every one of these is an instruction about the
 # TICKET, and none of them records anything about the booking.
 _ADMIN = [
+    # THE TICKET'S OWN BOOKKEEPING, which is not a booking event.
+    #
+    # Measured on booking 32885089: "Support history thread opened for Booking
+    # ID: 32885089", an ITINERARY ID / ITINERARY MARGIN dump, and a "Booking
+    # Details" field snapshot all reached the timeline as rows —
+    # "Support history thread opened", "Booking details posted", "Booking
+    # status snapshot posted". None of them is something that happened to the
+    # guest's booking; they are the ticket recording its own furniture.
+    (re.compile(r"\bsupport\s+history\s+thread\s+opened\b"
+                r"|\bitinerary\s+(?:id|margin)\s*:"
+                r"|--\s*booking\s+info\s*--"
+                r"|\*\*booking\s+details\*\*"
+                r"|\boverall\s+support\s+summary\b"
+                r"|\bconversation\s+with\s+ios\s+user\b", re.I), "ticket furniture"),
     # Disposition: what to do with the ticket.
     (re.compile(r"\b(?:please\s+)?close\s+(?:this\s+)?ticket\b"
                 r"|\bmark(?:ing)?\s+(?:this\s+)?(?:as\s+)?solved\b"
@@ -76,8 +90,19 @@ _BOOKING_FACT = re.compile(
     r"|\bvoucher\w*"
     r"|\bautomation\s+(?:has\s+)?failed\b"
     r"|\bfail(?:ed|ure)\b"
-    r"|\bbooking\s*(?:id)?\s*[:#]?\s*\d{6,}"
-    r"|\bHEA-\d+"
+    # A BOOKING ID IS NOT AN EVENT. `booking\s*id\s*\d{6,}` and `HEA-\d+`
+    # were here, and every internal note on a booking cites the booking — so
+    # an itinerary-margin dump and "Support history thread opened for Booking
+    # ID: 32885089" both came back "keep" and rendered as timeline rows.
+    #
+    # Measured on booking 32885089: 29 raw events, 28 rows, of which
+    # "Booking details posted", "Booking status snapshot posted", "Support
+    # history thread opened" and "Credit refund comment logged" are the
+    # ticket's own bookkeeping. The pattern that was supposed to find booking
+    # FACTS was matching the reference number instead.
+    #
+    # What stays is the verbs: rescheduled, cancelled, refunded, tickets sent,
+    # charged, confirmed. Those are things that happened. An id is a label.
     r"|\bpickup\b|\btimeslot\b|\bdeparture\b"
     r"|\bcharged\b|\bpayment\b|\bpaid\b"
     r"|\bconfirm(?:ed|ation)\b"

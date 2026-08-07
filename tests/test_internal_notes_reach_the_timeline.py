@@ -257,11 +257,29 @@ def test_the_prompt_forbids_collapsing_a_note_into_a_public_event():
     assert "NEVER COLLAPSE AN EVENT WITH is_internal" in _prompt()
 
 
-def test_the_prompt_forbids_dropping_a_note():
-    """Rule 2 already says keep everything. This restates it for the rows most
-    often lost, because they read like machinery and they are the record of
-    what we did about the problem."""
-    assert "AN INTERNAL NOTE IS NEVER keep: false" in _prompt()
+def test_the_prompt_keeps_notes_that_record_something_that_happened():
+    """A reschedule, a refund, a credit, an agent's own note — the record of
+    what we DID about the problem."""
+    assert "AN INTERNAL NOTE THAT RECORDS SOMETHING THAT HAPPENED" in _prompt()
+
+
+def test_the_prompt_drops_the_tickets_own_furniture():
+    """"AN INTERNAL NOTE IS NEVER keep: false" was my rule and it manufactured
+    the noise: 29 raw events became 28 rows, among them "Booking details
+    posted", "Booking status snapshot posted", "Support history thread opened"
+    and "Credit refund comment logged". Those describe the TICKET, not the
+    booking."""
+    t = _prompt()
+    assert "THE TICKET'S OWN FURNITURE IS NOT AN EVENT" in t
+    assert "AN INTERNAL NOTE IS NEVER keep: false" not in t, \
+        "the blanket keep rule is back, and it forces the furniture onto the card"
+
+
+def test_the_prompt_says_the_label_examples_are_not_words_to_copy():
+    """A run returned "Booking intimation sent to the supply partner" copied
+    verbatim out of the example table, beside four mechanism names the table
+    exists to replace."""
+    assert "THESE ARE THE SHAPE, NOT THE WORDS" in _prompt()
 
 
 def test_repeated_automated_notes_may_still_collapse_together():
@@ -277,3 +295,40 @@ def test_the_rules_are_numbered_once_each():
     nums = re.findall(r"^(\d)\. [A-Z]", _prompt(), re.M)
     assert nums == sorted(nums), nums
     assert len(nums) == len(set(nums)), nums
+
+
+# ── which notes are furniture, measured on booking 32885089 ───────────────
+
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize("body", [
+    "Support history thread opened for Booking ID: 32885089.",
+    "ITINERARY ID: 28219098 ITINERARY MARGIN: 0.0% Booking ID: 32885089",
+    "------------------------------ -- Booking Info ------ Itinerary Id",
+    "Conversation with ios User 6a6f11e92c9f1009e9cdf6df",
+])
+def test_the_tickets_own_furniture_is_dropped(body):
+    """These four became timeline rows. Each describes the ticket, not the
+    booking."""
+    assert note_disposition(body)[0] == "drop", note_disposition(body)
+
+
+@_pytest.mark.parametrize("body", [
+    "[RESCHEDULE] Automation has failed for booking 32885089",
+    "[RESCHEDULE] Reschedule was requested for 2026-08-03 date, 10:15 but failed",
+    "NAR , tix are already rescheduled for +45 mins",
+    '"<h4> Credit refund comment : </h4> ORM Escalation"',
+    "Customer Reschedule Request can't be pushed to Pending until it's pending on SP.",
+])
+def test_what_actually_happened_is_kept(body):
+    assert note_disposition(body)[0] == "keep", note_disposition(body)
+
+
+def test_a_bare_booking_id_is_not_a_booking_fact():
+    """`booking\\s*id\\s*\\d{6,}` was in the keep pattern, and EVERY internal
+    note on a booking cites the booking — so the rule that was supposed to
+    find booking facts was matching the reference number instead, and kept
+    everything. A booking id is a label; the verbs are the events."""
+    assert note_disposition("Reference Booking ID: 32885089")[0] != "keep"
+    assert note_disposition("Booking 32885089 was cancelled")[0] == "keep"

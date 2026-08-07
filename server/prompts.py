@@ -2663,9 +2663,19 @@ findable; one you quietly corrected is not.
    Two internal notes MAY collapse together when they are the same automated
    line repeating - that is what "one action at one moment" means for them.
 
-4. AN INTERNAL NOTE IS NEVER keep: false. Rule 2 already says keep everything;
-   this restates it for the rows most often lost, because they read like
-   machinery and they are the record of what we did about the problem.
+4. AN INTERNAL NOTE THAT RECORDS SOMETHING THAT HAPPENED is never keep: false.
+   A reschedule, a cancellation, a refund, a credit, an escalation, an agent's
+   own note about the booking — those are the record of what we DID about the
+   problem, and they are the rows most often lost because they read like
+   machinery.
+
+   THE TICKET'S OWN FURNITURE IS NOT AN EVENT and does not belong on a
+   timeline: "Support history thread opened", a Booking Info or ITINERARY
+   MARGIN dump, a Booking Details field snapshot, a chat-session header. They
+   describe the ticket, not the booking. Set keep: false on those.
+
+   The distinction is what happened to the GUEST'S BOOKING, not what happened
+   to the ticket about it.
 
 5. LABELS - a DESCRIPTIVE line saying what this event actually was, written
    from its own body. Not a category.
@@ -2675,6 +2685,14 @@ findable; one you quietly corrected is not.
    not what they said or what changed. "Booking details posted" is the name of
    a mechanism, not of an event. The reader is scanning for the moment the
    booking went wrong, and a column of ten repeating nouns hides it.
+   THESE ARE THE SHAPE, NOT THE WORDS. A run came back with "Booking
+   intimation sent to the supply partner" copied verbatim from this table, and
+   with "Booking details posted", "Booking status snapshot posted", "Support
+   history thread opened", "Credit refund comment logged" — mechanism names,
+   which is exactly what the table exists to replace. Write the label from
+   THIS event's own body. If it could sit unchanged on another booking's
+   timeline, it is a category and not a label.
+
      INSTEAD OF          WRITE
      SP response         Booking intimation sent to the supply partner
      Tickets sent        Confirmation email sent to guest
