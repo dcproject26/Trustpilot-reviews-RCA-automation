@@ -1758,6 +1758,29 @@ function stampDetail(v) {
   return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute} IST`;
 }
 
+function _candScore(c) {
+  // EVERY NON-ZERO TERM, or none of them. This printed "venue X + date Y" for
+  // a ranking that sums FIVE — venue, date, ticket-text, name+venue and name
+  // (pipeline._score) — so a reader compared two terms, saw 0.02 above 0.33,
+  // and concluded the sort was inverted. It was not: the two terms shown were
+  // not the ones deciding it.
+  //
+  // Zero terms are omitted rather than printed as "+ 0", which is noise on a
+  // card where most terms are zero most of the time. When every term is zero
+  // the total is shown on its own, because "score 0" is a fact and an empty
+  // label is not.
+  if (c.scoreVenue == null) return `score ${c.score}`;
+  const parts = [
+    ['venue',  c.scoreVenue],
+    ['date',   c.scoreDate],
+    ['ticket', c.scoreTicket],
+    ['name+venue', c.scoreBoth],
+    ['name',   c.scoreName],
+  ].filter(([, v]) => typeof v === 'number' && v > 0)
+   .map(([k, v]) => `${k} ${v}`);
+  return parts.length ? parts.join(' + ') : `score ${c.score}`;
+}
+
 function stampText(v) {
   const s = normaliseStamp(v);
   if (!/^\d{4}-\d{2}-\d{2}T/.test(s)) return String(s || '').replace(/ IST$/, '');
@@ -2311,6 +2334,14 @@ async function loadDraftOverlays() {
           score:          c.score != null ? c.score : null,
           scoreVenue:     c.score_venue != null ? c.score_venue : null,
           scoreDate:      c.score_date  != null ? c.score_date  : null,
+          // THE OTHER THREE TERMS. The ranking is
+          // venue + date + ticket + both + name (pipeline._score), and this
+          // remap carried two of them — so the card printed "venue 0 + date
+          // 0.02" for a sort those two do not decide, and the order looked
+          // inverted because the terms doing the deciding were not on screen.
+          scoreTicket:    c.score_ticket != null ? c.score_ticket : null,
+          scoreBoth:      c.score_both   != null ? c.score_both   : null,
+          scoreName:      c.score_name   != null ? c.score_name   : null,
           venueSignal:    c.venue_signal === true,
           matchReasons:   c.matchReasons || c.match_reasons || [],
           experience:     c.experience || c.experienceName || '',
@@ -3380,7 +3411,7 @@ function renderReviewCol() {
           ${r.candidatesList.some(c => c.scoreVenue != null) && !r.candidatesList.some(c => c.venueSignal) ? `
           <div class="candidates-picker-label" style="color:var(--amber);text-transform:none;letter-spacing:0">
             ⚠ No venue agreement — none of these match the venue in the review.
-            Ranked by visit-date proximity only; treat as weak.
+            Ranked on the whole match score, not on the venue; treat as weak.
           </div>` : ''}
           ${r.candidatesList.map((c, i) => {
             const hasScore = typeof c.score === 'number' && c.score > 0;
@@ -3399,11 +3430,9 @@ function renderReviewCol() {
               <div class="candidate-top">
                 <div class="candidate-bid">#${c.bid}</div>
                 ${hasScore ? `
-                <div class="candidate-score" title="${c.scoreVenue != null ? `venue ${c.scoreVenue} + date ${c.scoreDate}` : ''}">
+                <div class="candidate-score" title="${_candScore(c)}">
                   <span class="candidate-score-bar"><span class="candidate-score-fill" style="width: ${pct}%"></span></span>
-                  ${c.scoreVenue != null
-                    ? `venue ${c.scoreVenue} + date ${c.scoreDate}`
-                    : `score ${c.score}`}
+                  ${_candScore(c)}
                 </div>` : ''}
               </div>
               <div class="candidate-exp">${c.experience || '—'}</div>

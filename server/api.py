@@ -186,13 +186,55 @@ class FlagToBiz(BaseModel):
 # renders a taxonomy-driven Sub-theme row (options from /api/taxonomy
 # sub_theme_frameworks) in the Issue Classification block.
 
+def _scrub_candidate_names(cands):
+    """Candidates with any unreadable guest name replaced or removed.
+
+    Uses the SAME `_looks_like_hash` the booking card uses — one rule, so the
+    picker and the card can never disagree about whether a name is readable.
+    """
+    out = []
+    for c in (cands or []):
+        if not isinstance(c, dict):
+            continue
+        c = dict(c)
+        for key in ("primary_guest_name", "guestName", "guest_name"):
+            v = (c.get(key) or "").strip()
+            if v and _looks_like_hash(v):
+                # The Zendesk copy is a real name where the warehouse holds a
+                # digest — that is why the shortlist carries it separately.
+                zd = (c.get("zendesk_guest_name") or "").strip()
+                c[key] = zd if zd and not _looks_like_hash(zd) else ""
+        out.append(c)
+    return out
+
+
 def _looks_like_hash(s: str) -> bool:
-    """True for opaque tokens we should never show as a guest name
-    (long hex strings, no spaces)."""
+    """True for opaque tokens we should never show as a guest name.
+
+    HEX WAS NOT ENOUGH. The warehouse also stores BASE64 digests —
+    "jVwe+fjfm48WSok1xEK+I/8fnIoV+kY8P8z7xxk+NM8=" — and this returned False
+    for every one of them, so they rendered as the guest's name on the
+    candidate picker: the one field an associate recognises the right booking
+    by, showing a digest. Base64 was never hex, so no amount of widening the
+    hex alphabet would have caught it.
+
+    A name is still a name: anything with a space is left alone, and so is
+    anything short. The test is "long, unspaced, and drawn only from an
+    encoding alphabet", which no person's name is.
+    """
     s = (s or "").strip()
     if not s or " " in s:
         return False
-    return len(s) >= 16 and all(c in "0123456789abcdefABCDEF-" for c in s)
+    if len(s) < 16:
+        return False
+    if all(c in "0123456789abcdefABCDEF-" for c in s):
+        return True
+    # base64 / base64url, with or without padding. Requires at least one
+    # character a name could not contain, so "Christopherson" — long and
+    # unspaced — is not mistaken for a digest.
+    _B64 = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+               "0123456789+/-_=")
+    return all(c in _B64 for c in s) and any(c in "+/=_" for c in s)
 
 
 _ABSENT = object()
@@ -562,7 +604,14 @@ def _draft_dict(d: RcaDraft) -> dict:
         "match_tier":         d.match_tier,
         "match_confidence":   d.match_confidence,
         "match_method":       d.match_method,
-        "candidates_list":    d.candidates_list or [],
+        # SCRUBBED HERE, in the one place the picker reads. A digest in the
+        # guest-name slot is worse on this card than anywhere else: it is the
+        # field an associate recognises the right booking by, and there is no
+        # other. `zendesk_guest_name` is the readable copy the shortlist
+        # already carries for exactly this case; when neither is readable the
+        # slot is left EMPTY rather than filled with the digest, because a
+        # blank says "we have no name" and a digest says nothing at all.
+        "candidates_list":    _scrub_candidate_names(d.candidates_list or []),
         "candidate_state":    d.candidate_state,
         "confidence_trail":   d.confidence_trail or [],
         # SCRUBBED AT RENDER, not by instruction. The prompt tells the model

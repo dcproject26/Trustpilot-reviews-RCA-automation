@@ -718,5 +718,29 @@
     "name": "timeline: an epoch row sorts as undated again",
     "find": "  t = normaliseStamp(t) || t;",
     "replace": "  t = t;"
+  },
+  {
+    "file": "server/api.py",
+    "name": "picker: base64 digests render as guest names again",
+    "find": "    return all(c in _B64 for c in s) and any(c in \"+/=_\" for c in s)",
+    "replace": "    return False"
+  },
+  {
+    "file": "server/api.py",
+    "name": "picker: candidates are served unscrubbed",
+    "find": "        \"candidates_list\":    _scrub_candidate_names(d.candidates_list or []),",
+    "replace": "        \"candidates_list\":    d.candidates_list or [],"
+  },
+  {
+    "file": "server/api.py",
+    "name": "picker: an unrecoverable digest is kept instead of blanked",
+    "find": "                c[key] = zd if zd and not _looks_like_hash(zd) else \"\"",
+    "replace": "                c[key] = zd if zd else v"
+  },
+  {
+    "file": "client/index.html",
+    "name": "picker: the score label drops back to two of five terms",
+    "find": "    ['ticket', c.scoreTicket],",
+    "replace": ""
   }
 ]

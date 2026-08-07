@@ -126,7 +126,11 @@ def test_the_ingest_remap_names_the_field():
     have rendered however correct the branch was."""
     src = open("client/index.html").read()
     i = src.index("r.candidatesList = draft.candidates_list.map(c => ({")
-    remap = src[i:i + 1800]
+    # Bounded by the END OF THE BLOCK, not a character count. A fixed slice
+    # broke the moment three score fields were added ahead of this one —
+    # a test that fails when the code around it grows is measuring the wrong
+    # thing.
+    remap = src[i:src.index("}));", i)]
     assert "narrowing_path: c.narrowing_path" in remap, \
         "the ingest remap drops narrowing_path, so the empty-details message " \
         "cannot tell the two reasons apart"
