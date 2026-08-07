@@ -300,37 +300,49 @@ def test_every_delete_control_is_the_same_grey(page):
 
 # ── evidence rows ───────────────────────────────────────────────────────────
 
-def test_evidence_renders_as_the_three_column_grid(page):
-    got = page.evaluate("""() => [...document.querySelectorAll('#rca-col .ev-row')].map(r => ({
-        cols: getComputedStyle(r).gridTemplateColumns,
-        rail: r.querySelector('.ev-src').textContent.trim()}))""")
-    assert got, "no evidence rows rendered"
-    assert got[0]["cols"].startswith("62px "), got[0]["cols"]
-    assert got[0]["rail"] == "exp-page"
+def test_the_evidence_rows_render_as_case_findings(page):
+    """THE BLOCK MOVED. Evidence was per-issue, so a fact cited by two claims
+    rendered twice — the biggest source of repeated text on the card. It is
+    §1 now, one list, deduplicated. `source` and `time` are carried in the
+    data and deliberately not rendered: no rail, no chip, no time column."""
+    got = page.evaluate("""() => ({
+        findings: [...document.querySelectorAll('#rca-casefindings-section .cf-text')]
+                    .map(e => e.textContent.trim()),
+        oldRows:  document.querySelectorAll('#rca-col .wwr-issue .ev-row').length})""")
+    assert got["findings"], "no case findings rendered"
+    assert got["oldRows"] == 0, \
+        "evidence is still rendering inside the issues as well as in §1"
 
 
 # "where is this evidence coming from" — the rail names a SYSTEM; without the
 # ref the reader has been told where to look and not what to open.
 
-def test_a_zendesk_reference_becomes_a_working_ticket_link(page):
-    """It went into href= verbatim. `ZD-34011333` is not a URL, so the browser
-    resolved it against the dashboard's own path and produced a link to a page
-    that does not exist — a reference the model DID supply looked exactly like
-    one it had not."""
-    got = page.evaluate("""() => [...document.querySelectorAll('#rca-col .ev-row a')]
-        .map(a => a.getAttribute('href'))""")
-    zd = [h for h in got if "34011333" in (h or "")]
-    assert zd, f"no link to the ZD reference in the evidence rows: {got}"
-    assert zd[0].startswith("https://") and "zendesk.com/agent/tickets/34011333" in zd[0], \
-        f"the ZD reference is not a real ticket url: {zd[0]!r}"
+def test_the_source_and_ref_survive_in_the_data_though_they_are_not_drawn(page):
+    """§1 renders text only — that is the design. But "not rendered" must not
+    become "not stored": `source` and `time` are what order the section and
+    what an export reads, and a ref dropped in validation would be gone for
+    good. Read from the draft, not from the DOM."""
+    got = page.evaluate("""async () => {
+        const d = (await (await fetch('/api/reviews/tp_ui')).json()).draft;
+        const w = (d.rca_v3 || {}).what_went_wrong || {};
+        const ev = ((w.guest_issues || [])[0] || {}).evidence || [];
+        return {findings: (w.case_findings || []).length,
+                sources: (w.case_findings || []).map(f => f.source),
+                evidenceKept: ev.length};
+    }""")
+    assert got["findings"], "case_findings is empty in the draft"
+    assert any(got["sources"]), f"every finding lost its source: {got['sources']}"
+    assert got["evidenceKept"], \
+        "the rows were MOVED off the issuerather than merged — the claim lost its evidence"
 
 
-def test_a_reference_that_is_not_a_url_is_still_shown(page):
+def test_a_finding_carrying_a_window_keeps_its_words(page):
     """The insights window a count covers is the thing that changes underneath
-    it, and dropping it left a number with no range attached."""
-    got = page.evaluate("""() => [...document.querySelectorAll('#rca-col .ev-ref')]
+    it. The rail is gone from §1 by design; the SENTENCE must not be, or the
+    number is left with no range attached."""
+    got = page.evaluate("""() => [...document.querySelectorAll('#rca-casefindings-section .cf-text')]
         .map(e => e.textContent.trim())""")
-    assert any("90 days before" in t for t in got), \
+    assert any("90 days" in t for t in got), \
         f"the insights window was dropped rather than shown: {got}"
 
 

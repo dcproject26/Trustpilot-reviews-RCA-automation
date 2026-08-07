@@ -1100,7 +1100,7 @@ def _case_findings(raw, issues, notes) -> list:
     """
     rows, seen = [], set()
 
-    def _add(text, source, time, why):
+    def _add(text, source, time, why, ref=None):
         text = _clean(text)
         if not text:
             return
@@ -1110,13 +1110,20 @@ def _case_findings(raw, issues, notes) -> list:
         seen.add(key)
         rows.append({"text": text,
                      "source": _enum(source, EVIDENCE_SOURCES, None),
-                     "time": _clean(time)})
+                     "time": _clean(time),
+                     # `ref` IS RENDERED, unlike source and time. The handoff
+                     # withholds those two by name; it says nothing about ref,
+                     # and ref is what turns "41 negative reviews in the
+                     # window" into a number with a range attached, and a
+                     # ticket id into something you can open.
+                     "ref": _clean(ref)})
 
     for r in (raw if isinstance(raw, list) else []):
         if isinstance(r, str):
             _add(r, None, None, "string")
         elif isinstance(r, dict):
-            _add(r.get("text"), r.get("source"), r.get("time"), "row")
+            _add(r.get("text"), r.get("source"), r.get("time"), "row",
+                 r.get("ref"))
 
     merged = 0
     for i in (issues or []):
@@ -1124,7 +1131,8 @@ def _case_findings(raw, issues, notes) -> list:
             if not isinstance(e, dict):
                 continue
             before = len(rows)
-            _add(e.get("text"), e.get("source"), e.get("time"), "evidence")
+            _add(e.get("text"), e.get("source"), e.get("time"), "evidence",
+                 e.get("ref"))
             merged += len(rows) - before
 
     if merged:

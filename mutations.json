@@ -610,5 +610,35 @@
     "name": "saver: the client's actions_taken wins over the regroup",
     "find": "        try:\n            from server.checklist import actions_from_fixes",
     "replace": "        try:\n            return {\"ok\": True, \"draft\": _draft_dict(d)}\n            from server.checklist import actions_from_fixes"
+  },
+  {
+    "file": "server/api.py",
+    "name": "guest name: the warehouse field is dropped again",
+    "find": "        _bk.get(\"primary_guest_name\"),\n        _bk.get(\"primaryGuestName\"),",
+    "replace": "        None, None,"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "case findings: ref stops being carried",
+    "find": "                     \"ref\": _clean(ref)})",
+    "replace": "                     \"ref\": None})"
+  },
+  {
+    "file": "scripts/backfill_received_at.py",
+    "name": "backfill: a real publish date is overwritten",
+    "find": "    if received_at < st:",
+    "replace": "    if False:"
+  },
+  {
+    "file": "scripts/backfill_received_at.py",
+    "name": "backfill: an unusable slack_ts is silently kept",
+    "find": "        return \"skip\", \"slack_ts is not a usable timestamp",
+    "replace": "        return \"keep\", \"slack_ts is not a usable timestamp"
+  },
+  {
+    "file": "scripts/backfill_received_at.py",
+    "name": "backfill: an out-of-range ts becomes a 1970 date",
+    "find": "    if not (1e9 < ts < 4e9):\n        return None",
+    "replace": "    if False:\n        return None"
   }
 ]

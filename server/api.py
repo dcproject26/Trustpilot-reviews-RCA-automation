@@ -512,6 +512,16 @@ def _draft_dict(d: RcaDraft) -> dict:
     guest_name = _first_guest_name(
         _tf.get("guest_full_name"),
         _bk.get("guestName"),
+        # `primary_guest_name` IS THE FIELD THE WAREHOUSE WRITES.
+        # `bigquery_patch.verify_bid` builds the booking dict with
+        # `primary_guest_name`; `guestName` and `guest_full_name` are the
+        # other two spellings, and neither is on a booking that came from a
+        # BID lookup. So this read every key except the one that was there and
+        # returned "", and the card said no guest name was found on a booking
+        # that had one. `_internal_label_on`, five lines above, checks the real
+        # field — one function in this file knew and the other did not.
+        _bk.get("primary_guest_name"),
+        _bk.get("primaryGuestName"),
         _bk.get("zendesk_requester_name"),
     )
     # When there is no name, say WHICH source failed. "[Guest name in Zendesk
@@ -521,7 +531,8 @@ def _draft_dict(d: RcaDraft) -> dict:
     if guest_name:
         guest_name_note = ""
     elif any(_looks_like_hash((c or "").strip()) for c in
-             (_tf.get("guest_full_name"), _bk.get("guestName"))):
+             (_tf.get("guest_full_name"), _bk.get("guestName"),
+              _bk.get("primary_guest_name"), _bk.get("primaryGuestName"))):
         guest_name_note = ("the warehouse stores this as a hash — check the "
                            "Zendesk ticket")
     elif _internal_label_on(_tf, _bk):

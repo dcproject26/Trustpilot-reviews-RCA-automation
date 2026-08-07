@@ -134,3 +134,21 @@ def test_an_empty_text_takes_no_row():
     out, _ = validate(_wwr(case_findings=[{"text": "  ", "source": "bms"},
                                           {"text": "Real", "source": "bms"}]))
     assert [r["text"] for r in _findings(out)] == ["Real"]
+
+
+def test_a_ref_survives_onto_the_finding():
+    """`source` and `time` are carried unrendered by design; `ref` is RENDERED,
+    and it is what turns "41 negative reviews in the window" into a number
+    with a range attached and a ticket id into something you can open. Dropped
+    in validation, it is gone for good."""
+    out, _ = validate(_wwr(guest_issues=[
+        {"issue": "A", "claim": "c", "claim_accuracy": "Accurate",
+         "evidence": [{"text": "41 negative reviews", "source": "insights",
+                       "ref": "90 days before the review"}]}]))
+    assert _findings(out)[0]["ref"] == "90 days before the review", _findings(out)
+
+
+def test_a_ref_written_directly_on_a_case_finding_survives_too():
+    out, _ = validate(_wwr(case_findings=[
+        {"text": "Ticket raised", "source": "zendesk", "ref": "ZD-34011333"}]))
+    assert _findings(out)[0]["ref"] == "ZD-34011333", _findings(out)

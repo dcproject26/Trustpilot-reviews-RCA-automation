@@ -1192,6 +1192,29 @@
   }
   .x-del:hover { color: var(--red); }
 
+  /* §1 case findings, §3 fixes, and the DSS followed row. Every value here
+     is an existing :root token - no new colours. `min-width:0` on the text
+     cell and `overflow-wrap:anywhere` on the text, because every one of these
+     renders model-sourced strings of unknown length. */
+  .cf-row { display:grid; grid-template-columns:1fr 16px; gap:8px;
+            align-items:baseline; padding:3px 0; }
+  .cf-text { font-size:12px; color:var(--body); line-height:1.55;
+             min-width:0; overflow-wrap:anywhere; }
+  .cf-ref { font-size:11px; color:var(--muted); white-space:nowrap; }
+  .fx-row { padding:8px 0; border-bottom:1px solid var(--hairline); }
+  .fx-row:last-of-type { border-bottom:none; }
+  .fx-head { display:flex; align-items:center; gap:8px; }
+  .fx-action { font-size:12px; color:var(--body); flex:1; min-width:0;
+               overflow-wrap:anywhere; }
+  .fx-because { font-size:11.5px; color:var(--muted); margin-top:3px;
+                min-width:0; overflow-wrap:anywhere; }
+  .fx-unrouted { font-size:11.5px; color:var(--amber);
+                 background:var(--amber-bg); border-radius:6px;
+                 padding:4px 8px; margin-top:5px; }
+  .dss-followed { margin-top:8px; display:flex; align-items:baseline;
+                  gap:8px; flex-wrap:wrap; }
+  .dss-followed-note { font-size:11.5px; color:var(--muted); flex-basis:100%;
+                       min-width:0; overflow-wrap:anywhere; }
   /* §2b evidence as a 3-column grid; the source rail is the row marker, so
      there is no leading em-dash - two markers for one row was the defect. */
   .ev-row {
@@ -2419,14 +2442,20 @@ async function loadDraftOverlays() {
         // holds a hash, the linked ticket carries no requester, and no ticket
         // was ever matched. The first two are worth opening Zendesk for; the
         // third is not. The server works out which and sends the reason.
-        const rawGuest    = db.primary_guest_name || r.booking.primaryGuestName || '';
-        const zdRequester = r.booking.zendesk_requester_name || db.zendesk_requester_name || '';
-        if (rawGuest && rawGuest !== '[Guest name in Zendesk ticket]'
-            && (rawGuest.length <= 20 || /\s/.test(rawGuest))) {
-          r.booking.primaryGuestName = rawGuest;
-          r.booking.guestNameNote = '';
-        } else if (zdRequester) {
-          r.booking.primaryGuestName = zdRequester;
+        // ONE RULE, ON THE SERVER. This used to re-derive the name here with
+        // its own guess at what a warehouse hash looks like —
+        // `length <= 20 || contains a space` — beside `_first_guest_name`,
+        // `_looks_like_hash` and `is_internal_booking_name` on the server.
+        // Four copies of one rule, and they disagreed: a hash with a space in
+        // it passed here, and a real single-word name was rejected. That is
+        // why the name looked intermittent rather than simply wrong.
+        //
+        // `draft.guest_name` is the server's answer, already checked against
+        // every source and against the internal-label list. An empty string
+        // there means no guest name was found, and `guest_name_note` says
+        // which source failed.
+        if (draft.guest_name) {
+          r.booking.primaryGuestName = draft.guest_name;
           r.booking.guestNameNote = '';
         } else {
           r.booking.primaryGuestName = '';
@@ -5277,12 +5306,10 @@ function renderRcaCol() {
             : `<div class="rca-empty">The review does not state this in the guest's own words.</div>
                <button class="row-add wwr-add" data-claim-add="${i}">+ Claim</button>`}
           </div>
-          <div class="wwr-blk">
-            <span class="wwr-blk-label">Evidence
-              <button class="row-add wwr-add" data-wwr-ev-add="${i}">+ add</button></span>
-            ${evidence.length ? evidence.map((e, j) => evRow(i, j, e)).join('')
-              : '<div class="rca-empty">No evidence recorded.</div>'}
-          </div>
+          <!-- EVIDENCE MOVED TO §1 CASE FINDINGS. It was per-issue, so a fact
+               cited by two claims rendered twice — the single biggest source
+               of repeated text on this card. The rows keep their claim
+               association in the data; only the rendering moved. -->
           <div class="wwr-blk">
             <span class="wwr-blk-label">Analysis — what actually happened?</span>
             <div class="wwr-analysis">
@@ -5474,13 +5501,82 @@ function renderRcaCol() {
       <button class="row-add" data-flag-add>+ Add flag</button>
     </div>`;
 
+    // ── §1 CASE FINDINGS — the booking's story, evidenced ─────────────────
+    // NOT a support-chat summary: "Support interactions" already covers
+    // contact by contact. This is what the RECORDS show happened, starting at
+    // the booking rather than at the first contact. `source` and `time` are
+    // carried for ordering and export and are deliberately NOT rendered.
+    const cfRows = Array.isArray(w.case_findings) ? w.case_findings : [];
+    const cfHtml = `
+    <div class="section" id="rca-casefindings-section">
+      <div class="section-label">
+        <span>Case findings</span>
+        <span class="hint">${cfRows.length} finding${cfRows.length === 1 ? '' : 's'}</span>
+        <span class="section-chev">▾</span>
+      </div>
+      ${cfRows.length ? cfRows.map((f, i) => `
+        <div class="cf-row">
+          <span class="cf-text">${edSpan(`what_went_wrong.case_findings.${i}.text`,
+            (f && f.text) || '', 'click to write what the record shows')}${
+            /* ref, not source or time. A bare ZD-nnnn went into href verbatim
+               and resolved against the dashboard's own path, so a reference
+               the model DID supply looked exactly like one it had not. */
+            (() => {
+              const ref = (f && f.ref) ? String(f.ref).trim() : '';
+              if (!ref) return '';
+              const zd = /^ZD-?(\d+)$/i.exec(ref);
+              if (zd) return ` <a class="cf-ref" target="_blank" rel="noopener" href="https://${
+                (r.zendeskSubdomain || 'headout')}.zendesk.com/agent/tickets/${zd[1]}">${esc(ref)}</a>`;
+              if (/^https?:\/\//i.test(ref)) return ` <a class="cf-ref" target="_blank" rel="noopener" href="${esc(ref)}">source</a>`;
+              return ` <span class="cf-ref">${esc(ref)}</span>`;
+            })()}</span>
+          <button class="x-del" data-cf-del="${i}" title="remove this finding">×</button>
+        </div>`).join('')
+        /* "We read the case and it showed nothing beyond the review" is a
+           RESULT. A blank block reads as a case nobody opened. */
+        : '<div class="rca-empty">The case history was read and shows nothing beyond the review.</div>'}
+      <button class="row-add" data-cf-add>+ Add finding</button>
+    </div>`;
+
+    // ── §3 FIXES — each naming the one team that must do it ───────────────
+    const fxRows = Array.isArray(w.fixes) ? w.fixes : [];
+    const fxUnrouted = fxRows.filter(f => !(f && f.owner)).length;
+    const fxHtml = `
+    <div class="section" id="rca-fixes-section">
+      <div class="section-label">
+        <span>Fixes</span>
+        <span class="hint">${fxRows.length} fix${fxRows.length === 1 ? '' : 'es'}${
+          fxUnrouted ? ` · ${fxUnrouted} unrouted` : ''}</span>
+        <span class="section-chev">▾</span>
+      </div>
+      ${fxRows.length ? fxRows.map((f, i) => {
+        const fo = (f && f.owner) || '';
+        return `
+        <div class="fx-row">
+          <div class="fx-head">
+            <span class="fx-action">${edSpan(`what_went_wrong.fixes.${i}.action`,
+              (f && f.action) || '', 'click to write what gets done')}</span>
+            ${chipSel(`what_went_wrong.fixes.${i}.owner`, fo, OWNS,
+                      fo ? 'chip-owner' : 'warn', 'chip-owner-sel',
+                      fo || 'Unrouted')}
+            <button class="x-del" data-fx-del="${i}" title="remove this fix">×</button>
+          </div>
+          ${(f && f.because) ? `<div class="fx-because">${edSpan(
+              `what_went_wrong.fixes.${i}.because`, f.because)}</div>` : ''}
+          ${!fo ? `<div class="fx-unrouted">Unrouted — no team owns this yet, so nobody will pick it up.</div>` : ''}
+        </div>`;
+      }).join('')
+        : '<div class="rca-empty">Nothing to fix — the findings above need no action from us.</div>'}
+      <button class="row-add" data-fx-add>+ Add fix</button>
+    </div>`;
+
     _flagsHtml = flagsHtml;
     // The events timeline no longer renders here. It merged into "Booking
     // timeline" in the facts column, which is where the booking's own story
     // already lived — two lists of one story, in two columns, each missing
     // what the other had. Nothing is lost: the actor, the channel pill and
     // the ZD link all moved with it.
-    return wwrHtml;
+    return cfHtml + wwrHtml + fxHtml;
   })() : '';
 
   // ── v3 sections (legacy shape) ─────────────────────────────────────────
@@ -5712,6 +5808,30 @@ function renderRcaCol() {
                   : `<span class="rca-empty">No DSS row was matched for this classification.</span>`)
           }${dss.by_hand ? `<span class="dss-hand" title="Corrected by hand — this is not the row the lookup matched">by hand</span>` : ''}</div>`
           : `<div class="dss-panel"><span class="rca-empty">The review is not classified yet — there is no DSS row to look up.</span></div>`}
+          ${(() => {
+            // ── FOLLOWED: did we take the prescribed path? ────────────────
+            // Only meaningful where the guest contacted support BEFORE the
+            // review. `null` is NOT a pass and NOT a miss, so it gets a
+            // neutral chip AND a sentence rather than a blank or a dash: the
+            // reader has to be able to tell "the check did not apply" from
+            // "we did not run it".
+            const FOLLOWED = {
+              followed:      ['Yes', 'ok',
+                'The prescribed path was open and we took it.'],
+              not_followed:  ['No', 'bad',
+                'The path was open and we did not take it — this is a finding, not a note.'],
+              unestablished: ['Unestablished', 'warn',
+                'The guest wrote in, but the record does not show what we did.'],
+            };
+            const [txt, cls, sentence] = FOLLOWED[dss.followed] ||
+              ['Not applicable', 'unk',
+               'No path was open on this case, so the check does not apply.'];
+            return `<div class="dss-followed">
+              <span class="k">Followed:</span>
+              <span class="chip chip-${cls}">${esc(txt)}</span>
+              <div class="dss-followed-note">${esc(sentence)}</div>
+            </div>`;
+          })()}
         </div>`;
       })()}
 
@@ -6159,6 +6279,49 @@ function renderRcaCol() {
        root_cause: 'Click to write the failing step',
        evidence: [{text: 'New evidence — click to edit', source: null, ref: null}]}];
     await persistV3(); renderRcaCol();
+  });
+
+  // ── §1 case findings, §3 fixes ────────────────────────────────────────
+  // AT THE SAME LEVEL as the handler above, not nested inside it. A handler
+  // spliced into another handler's body is syntactically valid, parses clean,
+  // and never binds — the fourth such failure in this file, and the reason
+  // the parse check alone is not enough.
+  const cfAdd = col.querySelector('[data-cf-add]');
+  if (cfAdd) cfAdd.addEventListener('click', async () => {
+    const w = rca.v3.what_went_wrong = rca.v3.what_went_wrong || {};
+    // A full row, not a stub: `source` and `time` are carried unrendered, and
+    // an added finding must round-trip the same shape the model writes.
+    w.case_findings = [...(w.case_findings || []),
+      {text: 'New finding — click to write what the record shows',
+       source: null, time: null}];
+    await persistV3(); renderRcaCol();
+  });
+  col.querySelectorAll('[data-cf-del]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const i = +btn.dataset.cfDel;
+      const w = rca.v3.what_went_wrong = rca.v3.what_went_wrong || {};
+      w.case_findings = (w.case_findings || []).filter((_, n) => n !== i);
+      await persistV3(); renderRcaCol();
+    });
+  });
+  const fxAdd = col.querySelector('[data-fx-add]');
+  if (fxAdd) fxAdd.addEventListener('click', async () => {
+    const w = rca.v3.what_went_wrong = rca.v3.what_went_wrong || {};
+    // owner null ON PURPOSE. A new fix pre-assigned to a plausible team is a
+    // row attributed to people who never agreed to it; unrouted is visible,
+    // and the Unrouted tab is where it waits.
+    w.fixes = [...(w.fixes || []),
+      {action: 'New fix — click to write what gets done',
+       owner: null, because: ''}];
+    await persistV3(); renderRcaCol();
+  });
+  col.querySelectorAll('[data-fx-del]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const i = +btn.dataset.fxDel;
+      const w = rca.v3.what_went_wrong = rca.v3.what_went_wrong || {};
+      w.fixes = (w.fixes || []).filter((_, n) => n !== i);
+      await persistV3(); renderRcaCol();
+    });
   });
 
   // ── Guest <-> support: per-contact expand ──────────────────────────────

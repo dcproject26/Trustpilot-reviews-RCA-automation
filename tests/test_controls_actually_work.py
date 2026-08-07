@@ -510,6 +510,12 @@ def test_a_drafted_reply_keeps_the_normal_editing_prompt(page):
 
 # Driven by a test somewhere in this suite. The comment names where.
 DRIVEN = {
+    # §1 case findings and §3 fixes — add and delete for each, all four
+    # driven in tests/test_wwr_three_cards.py by clicking them and counting
+    # rows, and the fix delete is additionally checked to SURVIVE A RELOAD:
+    # a splice that only edits the DOM comes back on the next render, which
+    # reads as the delete having failed silently.
+    "data-cf-add", "data-cf-del", "data-fx-add", "data-fx-del",
     # The "How we built this match" header, which opens and shuts the section.
     # Driven in tests/test_match_trail_collapsed.py — it starts shut, and a
     # click opens it and shuts it again.

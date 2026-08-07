@@ -2594,20 +2594,32 @@ findable; one you quietly corrected is not.
    one error here that can end up quoted back to a customer. A guest event
    describes what the GUEST did; a CE event what WE did; an SP event what the
    PARTNER did. Descriptive does not mean re-attributed.
-   THE LABEL MUST MATCH THE ACTOR. This is not a style preference - a label
-   naming someone who did not act is a false statement about a person, and it
-   is the one error here that can end up quoted back to a customer.
-     actor "guest"   -> and ONLY then: "Guest reached out" (first contact) or
-                        "Guest reply" (any later message). Never write that the
-                        guest contacted, asked, replied or complained unless
-                        this event IS the guest's own words.
-     actor "co"      -> "CE response"
-     actor "sp"      -> "SP response"
+   THE LABEL MUST MATCH THE ACTOR. This is a CONSTRAINT ON WHO THE LABEL MAY
+   SAY ACTED, not a list of words to use. A label naming someone who did not
+   act is a false statement about a person, and it is the one error here that
+   can end up quoted back to a customer.
+
+   THIS USED TO BE A CLOSED VOCABULARY — "CE response", "SP response",
+   "Tickets sent", "Guest reached out" — introduced as an ANTI-attribution
+   rule and prefaced "outranks all of this". It therefore cancelled the whole
+   descriptive-labels rule twenty lines above it: the model obeyed the
+   outranking rule and every card came back with the same six nouns the table
+   above tells you not to write. Say what happened, and obey the attribution
+   constraint while you do it.
+     actor "guest"   -> what the GUEST did, in their terms: "Guest asked to
+                        move the tour to 14 Aug", "Guest chased for tickets".
+                        Never write that the guest contacted, asked, replied or
+                        complained unless this event IS the guest's own words.
+     actor "co"      -> what WE did: "Apology and refund promised to guest",
+                        "Guest told tickets would arrive by 18:00".
+     actor "sp"      -> what the PARTNER did or was told: "Booking intimation
+                        sent to the supply partner", "Partner confirmed pickup
+                        time".
      actor "system" / "ai" -> the machine action AND ITS OUTCOME: "Fulfilment
-                        run failed", "Tickets sent", "Booking-in-progress email
-                        sent", "Credentials generated". Name the specific
-                        machine that ran: a fulfilment attempt is "Fulfilment
-                        run ...", never the name of the email beside it.
+                        run failed", "Confirmation email sent to guest",
+                        "Credentials generated". Name the specific machine that
+                        ran: a fulfilment attempt is "Fulfilment run ...",
+                        never the name of the email beside it.
                         internal_reason "booking-info" is NOT a run. It is the
                         booking dump Zendesk posts onto the ticket - pax,
                         price, vendor, instructions. Label it "Booking details
@@ -2723,8 +2735,13 @@ findable; one you quietly corrected is not.
    not state. Strip HTML and signatures. Never quote raw JSON. Never adopt
    the guest's emotional wording.
 
-6. ORDER - Booking created first, events as given, Review posted last. The
-   input is already in order; do not re-sort it.
+6. ORDER - Booking created first, then the events as given. The input is
+   already in order; do not re-sort it.
+   REVIEW POSTED IS NOT LAST. It carries its own timestamp and the card sorts
+   on it. This rule used to say "Review posted last", which contradicted the
+   bookend rule above outright and put a review published BEFORE a later CE
+   reply after that reply — a false order, and the reason the publish date is
+   read from the Trustpilot payload at all.
 
 Return ONLY valid JSON - a list of shaped event objects, nothing else:
 [
