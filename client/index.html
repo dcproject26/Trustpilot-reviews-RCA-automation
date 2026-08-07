@@ -5377,6 +5377,14 @@ function renderRcaCol() {
           <span class="wwr-n" data-wwr-toggle="${i}">${String(i + 1).padStart(2, '0')}</span>
           <span class="wwr-issue-title">${edSpan(`${bp}.issue`, title, 'click to name the issue')}</span>
           ${chipSel(`${bp}.claim_accuracy`, acc, ACC, accCls(acc), 'chip-acc-sel', rawAcc)}
+          <!-- Deletes the WHOLE issue, not just its claim text: the x-del on
+               the claim row does that and leaves the numbered block behind.
+               An "Untitled issue" with an empty claim and an empty analysis
+               had no way off the card at all.
+               NO BACKTICKS IN HERE - this comment is inside a JS template
+               literal and one would end the string. -->
+          <button class="x-del" data-wwr-issue-del="${i}"
+                  title="delete this issue and everything under it">×</button>
           <span class="wwr-issue-chev" data-wwr-toggle="${i}">${open ? '▾' : '▸'}</span>
         </div>
         ${open ? `
@@ -6371,6 +6379,27 @@ function renderRcaCol() {
        root_cause: 'Click to write the failing step',
        evidence: [{text: 'New evidence — click to edit', source: null, ref: null}]}];
     await persistV3(); renderRcaCol();
+  });
+
+  col.querySelectorAll('[data-wwr-issue-del]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const i = +btn.dataset.wwrIssueDel;
+      const w = rca.v3.what_went_wrong = rca.v3.what_went_wrong || {};
+      const gone = (w.guest_issues || [])[i];
+      // CONFIRM, because this is the one control on the card that destroys
+      // analysis rather than a field. Everything else here is a value someone
+      // can retype; an issue carries its claim, its verdict, its root cause
+      // and its evidence, and a mis-click loses all of it with no undo.
+      const name = (gone && gone.issue) || 'this issue';
+      if (!window.confirm(`Delete ${name}? Its claim, verdict, root cause and evidence go with it.`))
+        return;
+      w.guest_issues = (w.guest_issues || []).filter((_, n) => n !== i);
+      // The open/shut state is keyed by INDEX, so every issue after the
+      // deleted one would inherit the wrong one. Rebuilt rather than patched:
+      // an off-by-one here silently collapses the wrong block.
+      state.wwrOpen = {};
+      await persistV3(); renderRcaCol();
+    });
   });
 
   // ── §1 case findings, §3 fixes ────────────────────────────────────────

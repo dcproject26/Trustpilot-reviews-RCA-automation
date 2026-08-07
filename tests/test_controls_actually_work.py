@@ -516,6 +516,10 @@ DRIVEN = {
     # a splice that only edits the DOM comes back on the next render, which
     # reads as the delete having failed silently.
     "data-cf-add", "data-cf-del", "data-fx-add", "data-fx-del",
+    # Deletes a whole issue, not just its claim text. Driven in
+    # tests/test_wwr_three_cards.py: the count drops, declining the confirm
+    # leaves it, the RIGHT one goes, and the delete survives a reload.
+    "data-wwr-issue-del",
     # The "How we built this match" header, which opens and shuts the section.
     # Driven in tests/test_match_trail_collapsed.py — it starts shut, and a
     # click opens it and shuts it again.

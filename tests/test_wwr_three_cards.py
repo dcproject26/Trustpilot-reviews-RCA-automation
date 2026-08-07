@@ -239,3 +239,74 @@ def test_unrouted_is_not_offered_as_a_fix_owner(page):
         return s ? [...s.options].map(o => o.value) : [];
     }""")
     assert "unrouted" not in [o.lower() for o in opts], opts
+
+
+# ── deleting a whole issue ─────────────────────────────────────────────────
+
+def _seed_issues(page, n=3):
+    _patch_and_reload(page, wwr={"guest_issues": [
+        {"issue": f"Issue {k}", "claim": f"claim {k}",
+         "claim_accuracy": "Accurate", "root_cause": f"cause {k}"}
+        for k in range(n)], "fixes": []})
+
+
+def test_an_issue_can_be_deleted_entirely(page):
+    """The x-del on the claim row removes the claim TEXT and leaves the
+    numbered block behind, so an "Untitled issue" with an empty claim and an
+    empty analysis had no way off the card at all."""
+    _seed_issues(page)
+    got = page.evaluate("""async () => {
+        window.confirm = () => true;
+        const before = document.querySelectorAll('.wwr-issue').length;
+        document.querySelector('[data-wwr-issue-del]').click();
+        await new Promise(r => setTimeout(r, 900));
+        return {before, after: document.querySelectorAll('.wwr-issue').length};
+    }""")
+    assert got["after"] == got["before"] - 1, got
+
+
+def test_it_asks_first(page):
+    """The one control here that destroys ANALYSIS rather than a field: a
+    claim, a verdict, a root cause and its evidence, with no undo."""
+    _seed_issues(page)
+    got = page.evaluate("""async () => {
+        window.confirm = () => false;          // the operator says no
+        const before = document.querySelectorAll('.wwr-issue').length;
+        document.querySelector('[data-wwr-issue-del]').click();
+        await new Promise(r => setTimeout(r, 700));
+        return {before, after: document.querySelectorAll('.wwr-issue').length};
+    }""")
+    assert got["after"] == got["before"], "declining the prompt deleted it anyway"
+
+
+def test_the_right_issue_goes(page):
+    """Off by one here deletes somebody's analysis and keeps the empty block."""
+    _seed_issues(page)
+    got = page.evaluate("""async () => {
+        window.confirm = () => true;
+        const dels = [...document.querySelectorAll('[data-wwr-issue-del]')];
+        dels[1].click();                        // the middle one
+        await new Promise(r => setTimeout(r, 900));
+        return [...document.querySelectorAll('.wwr-issue-title')]
+                 .map(e => e.textContent.trim());
+    }""")
+    assert "Issue 1" not in got, got
+    assert "Issue 0" in got and "Issue 2" in got, got
+
+
+def test_the_delete_survives_a_reload(page):
+    """A splice that only edits the DOM comes back on the next render, which
+    reads as the delete having failed silently."""
+    _seed_issues(page)
+    page.evaluate("""async () => {
+        window.confirm = () => true;
+        document.querySelector('[data-wwr-issue-del]').click();
+        await new Promise(r => setTimeout(r, 900));
+    }""")
+    page.reload(wait_until="load")
+    page.wait_for_selector(".review-item", timeout=15000)
+    page.locator(".review-item").first.click()
+    page.wait_for_selector("#rca-fixes-section", timeout=15000)
+    got = page.evaluate("""() => [...document.querySelectorAll('.wwr-issue-title')]
+        .map(e => e.textContent.trim())""")
+    assert "Issue 0" not in got, got

@@ -742,5 +742,17 @@
     "name": "picker: the score label drops back to two of five terms",
     "find": "    ['ticket', c.scoreTicket],",
     "replace": ""
+  },
+  {
+    "file": "client/index.html",
+    "name": "wwr: deleting an issue skips the confirm",
+    "find": "      if (!window.confirm(",
+    "replace": "      if (false && window.confirm("
+  },
+  {
+    "file": "client/index.html",
+    "name": "wwr: the wrong issue is deleted",
+    "find": "      w.guest_issues = (w.guest_issues || []).filter((_, n) => n !== i);",
+    "replace": "      w.guest_issues = (w.guest_issues || []).filter((_, n) => n !== i + 1);"
   }
 ]
