@@ -389,6 +389,51 @@ def test_two_different_things_in_one_minute_both_survive():
     assert len(_findings(out)) == 2, [r["text"] for r in _findings(out)]
 
 
+def test_a_different_event_arriving_as_evidence_survives_its_own_minute():
+    """SURVIVOR. `_SAME_MINUTE_OVERLAP = 0.0` passed the whole suite.
+
+    The test above puts both rows in `case_findings`, so they meet at `_add`
+    and never reach the same-minute bar at all — it proved nothing about the
+    number. This one sends the different event in as EVIDENCE, which is the
+    only path that bar governs. At 0.0 the clock folds alone and the agent's
+    reply is deleted; the wording has to corroborate, and at 0.100 it does
+    not."""
+    out, _ = validate(_wwr(
+        case_findings=[{"text": _AGENT_REPLY, "source": "zendesk",
+                        "time": _MINUTE}],
+        guest_issues=_one_issue([{"text": _CHAT_IN_RESTATED,
+                                  "source": "zendesk", "time": _MINUTE,
+                                  "ref": "ZD-34335318"}])))
+    assert len(_findings(out)) == 2, [r["text"] for r in _findings(out)]
+
+
+def test_the_fold_lands_on_the_row_that_matched_not_the_first_one():
+    """SURVIVOR. Dropping the `_same[_hit]` mapping passed the whole suite.
+
+    `_first_repeat_index` searches a SUBLIST — the same-minute rows — so it
+    returns a position in that sublist, not in `rows`. Every test until now had
+    the matching row at index 0 and only one candidate, where the two indices
+    are identical and the bug is invisible.
+
+    Here the match is the second row. Unmapped, the ref lands on the booking's
+    creation: a ticket link on a finding that has nothing to do with it, and
+    the finding it belonged to left bare. Nothing crashes and no count
+    changes — the card just quietly cites the wrong record."""
+    out, _ = validate(_wwr(
+        case_findings=[{"text": "Booking created for the 03 Aug slot",
+                        "source": "booking", "time": "21 Jul 09:00"},
+                       {"text": _CHAT_IN, "source": "zendesk",
+                        "time": _MINUTE}],
+        guest_issues=_one_issue([{"text": _CHAT_IN_RESTATED,
+                                  "source": "zendesk", "time": _MINUTE,
+                                  "ref": "ZD-34335318"}])))
+    by_text = {r["text"]: r for r in _findings(out)}
+    assert by_text[_CHAT_IN]["ref"] == "ZD-34335318", _findings(out)
+    assert not by_text["Booking created for the 03 Aug slot"]["ref"], \
+        "the ticket landed on the booking's creation — a sublist index used " \
+        "as a row index"
+
+
 def test_the_same_wording_at_a_different_minute_is_left_alone():
     """0.571 is below the ordinary fold, and without the matching clock it
     stays below it. The timestamp is what earns the lower bar, so an evidence
