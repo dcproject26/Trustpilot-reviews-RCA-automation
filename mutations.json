@@ -784,5 +784,11 @@
     "name": "edits: the inline saver stops persisting",
     "find": "  col.querySelectorAll('[data-v3p]').forEach(el => {",
     "replace": "  [].forEach(el => {"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "case findings: the evidence merge comes back on",
+    "find": "    # THE EVIDENCE MERGE IS OFF, by request, to be settled later.",
+    "replace": "    for i in (issues or []):\n        for e in (i.get('evidence') or []):\n            if isinstance(e, dict):\n                _add(e.get('text'), e.get('source'), e.get('time'), 'ev', e.get('ref'))\n    # THE EVIDENCE MERGE IS OFF, by request, to be settled later."
   }
 ]

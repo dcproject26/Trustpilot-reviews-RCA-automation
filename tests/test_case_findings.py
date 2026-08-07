@@ -16,65 +16,7 @@ def _findings(out):
     return out["what_went_wrong"]["case_findings"]
 
 
-def test_one_fact_cited_by_two_claims_renders_once():
-    """The repetition this section exists to remove."""
-    out, notes = validate(_wwr(guest_issues=[
-        {"issue": "A", "claim": "c", "claim_accuracy": "Accurate",
-         "evidence": [{"text": "Tickets sent at 14:02", "source": "bms"}]},
-        {"issue": "B", "claim": "d", "claim_accuracy": "Accurate",
-         "evidence": [{"text": "Tickets sent at 14:02", "source": "bms"}]}]))
-    texts = [r["text"] for r in _findings(out)]
-    assert texts == ["Tickets sent at 14:02"], texts
-    assert any("merged in from the issues" in n for n in notes), notes
-
-
-def test_the_same_fact_worded_differently_is_still_one_row():
-    """Two claims citing one fact routinely word it differently; an exact-string
-    key would keep both, which is the repetition arriving by another route."""
-    out, _ = validate(_wwr(guest_issues=[
-        {"issue": "A", "claim": "c", "claim_accuracy": "Accurate",
-         "evidence": [{"text": "Tickets sent 14:02, two hours after the slot",
-                       "source": "bms"}]},
-        {"issue": "B", "claim": "d", "claim_accuracy": "Accurate",
-         "evidence": [{"text": "The tickets were sent two hours after the "
-                               "slot, at 14:02", "source": "bms"}]}]))
-    assert len(_findings(out)) == 1, [r["text"] for r in _findings(out)]
-
-
-def test_two_genuinely_different_facts_both_survive():
-    """Dedupe that eats a real finding is worse than the repetition."""
-    out, _ = validate(_wwr(guest_issues=[
-        {"issue": "A", "claim": "c", "claim_accuracy": "Accurate",
-         "evidence": [{"text": "Tickets sent at 14:02", "source": "bms"},
-                      {"text": "Guest first wrote in on 14 July",
-                       "source": "zendesk"}]}]))
-    assert len(_findings(out)) == 2, [r["text"] for r in _findings(out)]
-
-
-def test_the_evidence_stays_on_its_issue():
-    """It keeps its claim association in the data — only the rendering moves."""
-    out, _ = validate(_wwr(guest_issues=[
-        {"issue": "A", "claim": "c", "claim_accuracy": "Accurate",
-         "evidence": [{"text": "Tickets sent at 14:02", "source": "bms"}]}]))
-    assert out["what_went_wrong"]["guest_issues"][0]["evidence"], \
-        "the row was moved instead of merged — the claim lost its evidence"
-
-
 # ── ordering ───────────────────────────────────────────────────────────────
-
-def test_dated_rows_lead_in_event_order():
-    out, _ = validate(_wwr(
-        case_findings=[{"text": "Booking confirmed", "source": "booking",
-                        "time": "01 Jul 10:00"}],
-        guest_issues=[{"issue": "A", "claim": "c", "claim_accuracy": "Accurate",
-                       "evidence": [
-                           {"text": "Tickets sent late", "source": "bms",
-                            "time": "14 Jul 14:02"},
-                           {"text": "Guest wrote in", "source": "zendesk",
-                            "time": "14 Jul 09:10"}]}]))
-    assert [r["time"] for r in _findings(out)] == \
-        ["01 Jul 10:00", "14 Jul 09:10", "14 Jul 14:02"], _findings(out)
-
 
 def test_an_undated_row_sinks_rather_than_leading():
     """A plain list is the honest rendering of rows carrying no order.
@@ -85,28 +27,11 @@ def test_an_undated_row_sinks_rather_than_leading():
     assert [r["text"] for r in _findings(out)] == ["Dated", "No time on this one"]
 
 
-def test_a_time_survives_validation_of_the_evidence_row():
-    """It was dropped in `_evidence_rows`, so every merged finding arrived
-    undated and the section fell back to write-order — the chronology the
-    records DO support, thrown away in validation."""
-    out, _ = validate(_wwr(guest_issues=[
-        {"issue": "A", "claim": "c", "claim_accuracy": "Accurate",
-         "evidence": [{"text": "Tickets sent late", "source": "bms",
-                       "time": "14 Jul 14:02"}]}]))
-    assert _findings(out)[0]["time"] == "14 Jul 14:02", _findings(out)
-
-
 # ── the empty state, and what it must not look like ────────────────────────
 
 def test_an_empty_section_is_a_list_the_renderer_can_iterate():
     out, _ = validate(_wwr(guest_issues=[]))
     assert _findings(out) == []
-
-
-def test_nothing_merged_says_nothing_rather_than_reporting_a_zero():
-    """A note on every clean run is how a trail stops being read."""
-    _, notes = validate(_wwr(guest_issues=[]))
-    assert not [n for n in notes if "case findings" in n], notes
 
 
 # ── the row shape ──────────────────────────────────────────────────────────
@@ -136,19 +61,52 @@ def test_an_empty_text_takes_no_row():
     assert [r["text"] for r in _findings(out)] == ["Real"]
 
 
-def test_a_ref_survives_onto_the_finding():
-    """`source` and `time` are carried unrendered by design; `ref` is RENDERED,
-    and it is what turns "41 negative reviews in the window" into a number
-    with a range attached and a ticket id into something you can open. Dropped
-    in validation, it is gone for good."""
-    out, _ = validate(_wwr(guest_issues=[
-        {"issue": "A", "claim": "c", "claim_accuracy": "Accurate",
-         "evidence": [{"text": "41 negative reviews", "source": "insights",
-                       "ref": "90 days before the review"}]}]))
-    assert _findings(out)[0]["ref"] == "90 days before the review", _findings(out)
-
-
 def test_a_ref_written_directly_on_a_case_finding_survives_too():
     out, _ = validate(_wwr(case_findings=[
         {"text": "Ticket raised", "source": "zendesk", "ref": "ZD-34011333"}]))
     assert _findings(out)[0]["ref"] == "ZD-34011333", _findings(out)
+
+
+# ── the evidence merge is off ──────────────────────────────────────────────
+
+def test_evidence_is_not_merged_into_case_findings():
+    """TURNED OFF BY REQUEST after it produced duplicates on real cards.
+
+    The dedupe keys on normalised wording, and the model writes one fact two
+    ways — as a case finding and again as evidence — so both survived and the
+    section showed the same event twice, once with a ZD ref and once without.
+    No wording threshold separates that from two genuinely different facts.
+
+    Eight tests drove the merge and were removed WITH it rather than left
+    asserting behaviour nobody wants.
+    """
+    out, notes = validate(_wwr(
+        case_findings=[{"text": "Confirmation emailed to guest",
+                        "source": "zendesk"}],
+        guest_issues=[{"issue": "A", "claim": "c",
+                       "claim_accuracy": "Accurate",
+                       "evidence": [{"text": "Confirmation email sent 09:13",
+                                     "source": "zendesk",
+                                     "ref": "ZD-33978941"}]}]))
+    rows = _findings(out)
+    assert len(rows) == 1, [r["text"] for r in rows]
+    assert rows[0]["ref"] is None, rows[0]
+    assert not any("merged in from the issues" in n for n in notes), notes
+
+
+def test_the_evidence_is_still_stored_on_its_issue():
+    """Off the section, not deleted — restoring the merge is re-enabling a
+    loop rather than rebuilding the data."""
+    out, _ = validate(_wwr(guest_issues=[
+        {"issue": "A", "claim": "c", "claim_accuracy": "Accurate",
+         "evidence": [{"text": "Confirmation email sent 09:13",
+                       "source": "zendesk", "ref": "ZD-33978941"}]}]))
+    ev = out["what_went_wrong"]["guest_issues"][0]["evidence"]
+    assert ev and ev[0]["ref"] == "ZD-33978941", ev
+
+
+def test_a_case_finding_the_model_wrote_still_orders_by_time():
+    out, _ = validate(_wwr(case_findings=[
+        {"text": "Later", "source": "bms", "time": "05 Aug 10:00"},
+        {"text": "Earlier", "source": "bms", "time": "01 Aug 10:00"}]))
+    assert [r["text"] for r in _findings(out)] == ["Earlier", "Later"]

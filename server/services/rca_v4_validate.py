@@ -1125,20 +1125,20 @@ def _case_findings(raw, issues, notes) -> list:
             _add(r.get("text"), r.get("source"), r.get("time"), "row",
                  r.get("ref"))
 
-    merged = 0
-    for i in (issues or []):
-        for e in (i.get("evidence") or []):
-            if not isinstance(e, dict):
-                continue
-            before = len(rows)
-            _add(e.get("text"), e.get("source"), e.get("time"), "evidence",
-                 e.get("ref"))
-            merged += len(rows) - before
-
-    if merged:
-        notes.append(f"case findings: {merged} evidence row(s) merged in from "
-                     f"the issues — they render here once rather than under "
-                     f"every claim that cites them")
+    # THE EVIDENCE MERGE IS OFF, by request, to be settled later.
+    #
+    # It produced DUPLICATES on real cards. The dedupe keys on normalised
+    # wording, and the model writes the same fact two ways — "Updated
+    # confirmation emailed to guest: new start time 11:00 AM" as a case
+    # finding and "Updated confirmation email sent at 09:13 on 02 Aug" as
+    # evidence. Different words, same event, both kept. No wording threshold
+    # separates that from two genuinely different facts, which is the same
+    # wall the timeline merge hit.
+    #
+    # So §1 renders the model's own case_findings only. The evidence rows are
+    # NOT deleted: they are still validated and still stored on their issue,
+    # so bringing the merge back is re-enabling this loop rather than
+    # rebuilding the data.
 
     # Rows carrying a time lead, in time order; the rest keep the order they
     # were written in. `sorted` is stable, so an undated row never jumps.
