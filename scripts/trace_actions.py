@@ -1,0 +1,162 @@
+"""Actions Taken as stored, beside the gaps it was built from.
+
+WHAT THIS SECTION IS NOW. A row is one thing: something STILL WRONG that needs
+raising with the team that owns it. It used to be a view over §3's fixes,
+which is why a CO tab carried 32 rows — findings, SOP gaps and recommendations
+in one undifferentiated list, among them "No one at Headout was aware of the
+vendor's time change", which is a finding, and "No requirement exists to
+notify the guest", which is not an action anybody takes.
+
+WHAT THIS PRINTS, AND WHY EACH LINE IS HERE. Three things can make a tab
+empty, and on the card they look identical:
+
+  the case had no unsolved gap          — a real answer
+  every gap cited no source and was dropped — the anti-hallucination gate
+                                            firing, which is the gate working
+  the section was never rebuilt          — a broken path
+
+So the gaps are printed BESIDE the tabs, each one showing where it went or why
+it did not go anywhere. A tab that is empty because six gaps were dropped
+unsourced is not the same card as a tab that is empty because the case was
+clean, and this is the only place that difference is visible.
+
+IT REBUILDS FROM THE STORED GAPS AND COMPARES. `actions_from_gaps` is
+imported and driven, never restated. Where the rebuild disagrees with the
+stored column, the column has drifted — that is the exact defect
+test_actions_stay_in_step.py guards, seen on real data.
+
+    python3 scripts/trace_actions.py tp_abc123
+    python3 scripts/trace_actions.py --bid 32885089
+
+Read-only: reads the stored draft, rebuilds in memory, prints. Nothing
+written.
+"""
+import argparse
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("review_id", nargs="?", help="review id (tp_...)")
+    ap.add_argument("--bid", help="booking id, if you do not have the review id")
+    a = ap.parse_args(argv)
+    if not a.review_id and not a.bid:
+        ap.error("give a review id or --bid")
+
+    from server.db import SessionLocal, RcaDraft
+    from server.checklist import actions_from_gaps, ACTION_TEAMS, UNROUTED
+
+    s = SessionLocal()
+    try:
+        q = s.query(RcaDraft)
+        d = (q.filter(RcaDraft.review_id == a.review_id).first() if a.review_id
+             else next((r for r in q.all()
+                        if str((r.booking or {}).get("id") or "") == str(a.bid)),
+                       None))
+        if not d:
+            ids = [r.review_id for r in q.limit(8).all()]
+            print("No draft found for that id.")
+            if ids:
+                print("Drafts that are here: " + ", ".join(ids))
+            return 1
+
+        v3 = d.rca_v3 if isinstance(d.rca_v3, dict) else {}
+        wwr = v3.get("what_went_wrong") or {}
+        gaps = wwr.get("gaps")
+        stored = d.actions_taken if isinstance(d.actions_taken, dict) else {}
+
+        # ── the gaps, and what happened to each ────────────────────────────
+        print(f"\n=== GAPS THE MODEL RETURNED ON {d.review_id} ===")
+        if gaps is None:
+            print("  The `gaps` key is ABSENT from rca_v3.what_went_wrong.")
+            print("  That is not an empty case — it is a draft generated "
+                  "before gaps existed, or a model that ignored the field. "
+                  "Regenerate before reading the tabs below as this case's "
+                  "answer.")
+        elif not gaps:
+            print("  Empty array. The model was asked and found no unsolved "
+                  "gap. That is a real answer.")
+        for i, g in enumerate(gaps or []):
+            g = g if isinstance(g, dict) else {"gap": str(g)}
+            text = str(g.get("gap") or "").strip()
+            team = str(g.get("team") or "").strip()
+            src = str(g.get("source_ref") or "").strip()
+            # THE GATE, NAMED. A gap citing nothing is dropped — it is a
+            # process improvement the model believes in generally, not
+            # something this case surfaced. Saying so is the whole point.
+            if not text:
+                verdict = "DROPPED — no text"
+            elif not src:
+                verdict = "DROPPED — cites no ticket, contact or finding"
+            elif team.lower() in ACTION_TEAMS:
+                verdict = f"-> {team.upper()} tab"
+            else:
+                verdict = f"-> UNROUTED tab (team {team or 'absent'!r})"
+            print(f"\n  [{i:>2}] {verdict}")
+            print(f"       source_ref: {src or '(none)'}")
+            print(f"       {' '.join(text.split()) or '(empty)'}")
+
+        # ── the rebuild, driven through the real function ──────────────────
+        tabs, report = actions_from_gaps(gaps, keep=None)
+        print("\n=== REBUILD (actions_from_gaps, driven) ===")
+        any_row = False
+        for t in (UNROUTED,) + tuple(ACTION_TEAMS):
+            rows = tabs.get(t) or []
+            if not rows:
+                continue
+            any_row = True
+            print(f"\n  {t.upper()} ({len(rows)})")
+            for r in rows:
+                print(f"    - {' '.join(str(r).split())}")
+        if not any_row:
+            print("  Every tab is empty.")
+        for n in report.get("notes") or []:
+            print(f"  note: {n}")
+
+        # ── has the stored column drifted from the gaps? ───────────────────
+        #
+        # `actions_taken` is a COLUMN and Slack reads it. Editing a gap on the
+        # card writes rca_v3 raw; if the regroup did not run, the card shows
+        # one routing and the Slack post carries another, with nothing saying
+        # they disagree.
+        print("\n=== STORED COLUMN vs REBUILD ===")
+        drift = []
+        for t in (UNROUTED,) + tuple(ACTION_TEAMS):
+            was = [str(x).strip() for x in (stored.get(t) or [])]
+            now = [str(x).strip() for x in (tabs.get(t) or [])]
+            if was != now:
+                drift.append((t, was, now))
+        if not drift:
+            print("  In step. The column Slack reads matches the gaps on the "
+                  "card.")
+        else:
+            print(f"  DRIFTED on {len(drift)} tab(s). The card and the Slack "
+                  f"post disagree:")
+            for t, was, now in drift:
+                print(f"\n    {t.upper()}")
+                for r in was:
+                    if r not in now:
+                        print(f"      stored only: {r}")
+                for r in now:
+                    if r not in was:
+                        print(f"      gaps only:   {r}")
+            print("\n  A hand-typed row shows as 'stored only' and is NOT "
+                  "drift — this rebuild passes keep=None, so it cannot see "
+                  "them. Anything else here is the regroup not having run.")
+
+        print("\nWhat to read here:")
+        print("  A row that states what HAPPENED is in the wrong section — it")
+        print("  is a case finding. A row that recommends something is a fix,")
+        print("  and §3 holds those. This tab is only what is STILL WRONG.")
+        print("  Every row must trace to a source_ref above. One that does not")
+        print("  is the model raising something it believes in general.")
+        return 0
+    finally:
+        s.close()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
