@@ -48,7 +48,13 @@ _FURNITURE = [
                 r"|--\s*booking\s+info\s*--"
                 r"|\*\*booking\s+details\*\*"
                 r"|\boverall\s+support\s+summary\b"
-                r"|\bconversation\s+with\s+ios\s+user\b", re.I), "ticket furniture"),
+                r"|\bconversation\s+with\s+ios\s+user\b"
+                # A rules card auto-attached to every BNPL ticket. It explains
+                # how BNPL works; it is not something that happened to this
+                # booking, and it rendered as "BNPL handling rules posted to
+                # ticket".
+                r"|book\s+now,?\s+pay\s+later\b"
+                r"|\btickets?\s+visibility\b", re.I), "ticket furniture"),
 ]
 
 _ADMIN = [

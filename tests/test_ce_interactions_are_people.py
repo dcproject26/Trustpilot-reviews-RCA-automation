@@ -108,3 +108,60 @@ def test_a_booking_nobody_contacted_reads_as_that_and_not_as_empty():
     convos, moved = split_contact_frames([THE_ROW])
     assert convos == []
     assert "1 system event moved" in moved_frames_note(moved)
+
+
+# ── the guest's own chat was not in the support interaction ───────────────
+#
+# MEASURED on booking 32885089. Raw event [15] is the real transcript —
+# "(15:16:19) Headout: Hi, I'm Skyler 👋 …" — and its actor came out "system",
+# so `is_conversation` excluded it. The section reported "2 contacts", and
+# both were AGENT INTERNAL NOTES (actor "co"): "NAR, tix are already
+# rescheduled" and "ORM Escakation! 25% HOC max processed".
+#
+# The one real conversation on the booking sat in "22 system events moved to
+# the timeline".
+
+from server.services.zendesk import _detect_actor
+
+
+class _Ticket:
+    requester_id = 999
+
+
+TRANSCRIPT = ("(15:16:19) Headout: Hi, I'm Skyler. (15:18:32) Guest: the "
+              "vendor says 13:45, I need 08:30.")
+
+
+def test_a_chat_transcript_is_attributed_to_the_guest():
+    """Zendesk posts a transcript under its own system account — author_id -1,
+    which `_role` correctly refuses to look up — so it fell past every branch
+    into "system"."""
+    assert _detect_actor(-1, _Ticket(), "", False, [],
+                         body=TRANSCRIPT, via_channel="chat_transcript") == "guest"
+
+
+def test_the_whole_messaging_family_counts():
+    """`_map_channel` has already resolved chat, native_messaging, whatsapp
+    and sms to "chat". Nothing but a person produces one."""
+    for ch in ("chat", "native_messaging", "whatsapp", "sms"):
+        assert _detect_actor(-1, _Ticket(), "", False, [],
+                             body=TRANSCRIPT, via_channel=ch) == "guest", ch
+
+
+def test_the_transcript_then_counts_as_a_contact():
+    """The consequence, which is the whole point: it reaches the Guest ↔
+    Support section instead of the moved-to-timeline count."""
+    assert is_conversation({"thread": "chat", "actor": "guest",
+                            "is_internal": False}) is True
+
+
+def test_an_api_mail_from_a_staff_account_is_still_machinery():
+    """The channel rule must not reopen the door this file closed. A booking
+    confirmation posted via api by an admin is a template, not a person."""
+    assert _detect_actor(5, _Ticket(), "agent", False, [],
+                         body="Booking confirmed", via_channel="api") == "system"
+
+
+def test_a_rule_fired_note_is_still_machinery():
+    assert _detect_actor(-1, _Ticket(), "", False, [],
+                         body="Reschedule blocked", via_channel="rule") == "system"

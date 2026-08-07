@@ -899,6 +899,23 @@ def _detect_actor(comment_author_id, ticket, author_role: str,
     # in it.
     if author_role == "end-user":
         return "guest"
+    # A CHAT TRANSCRIPT IS A CONVERSATION, whoever Zendesk files it under.
+    #
+    # Zendesk posts a transcript under its own system account — author_id -1,
+    # which `_role` correctly refuses to look up — so the guest's live chat
+    # fell past every branch above into "system". `is_conversation` then
+    # excluded it, and the Guest ↔ Support section reported "2 contacts" that
+    # were two AGENT INTERNAL NOTES (actor "co"), while the one real
+    # conversation on the booking sat in "22 system events moved to the
+    # timeline".
+    #
+    # The channel is the evidence: nothing but a person produces a chat, and
+    # `_map_channel` has already resolved the whole messaging family — chat,
+    # native_messaging, whatsapp, sms — to "chat". Attributed to the guest
+    # because a transcript is the guest's conversation; both sides are in the
+    # body, and the row exists to say the guest talked to us.
+    if _map_channel(via_channel) == "chat":
+        return "guest"
     return "system"
 
 
