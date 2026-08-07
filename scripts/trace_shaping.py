@@ -69,6 +69,39 @@ async def _run(bid):
         print(f"  [{e.get('idx'):>3}] {e.get('time','?'):<16} {mark:<9} "
               f"{_snip(e.get('raw_body'))}")
 
+    # THE ORDER THE CARD WILL RENDER, and the value it sorts on. The client
+    # sorts on the DISPLAYED time (one timezone frame for every row), falling
+    # back to time_sort. A row whose `time` the parser cannot read sinks to the
+    # end — which looks exactly like an event that happened last.
+    import re as _re
+    _M = {m: i for i, m in enumerate(
+        ["jan", "feb", "mar", "apr", "may", "jun",
+         "jul", "aug", "sep", "oct", "nov", "dec"])}
+
+    def _sv(row):
+        t = " ".join(str(row.get("time") or "").split())
+        m = _re.match(r"^(\d{1,2})\s+([A-Za-z]{3})[a-z]*(?:\s+(\d{1,2}):(\d{2}))?", t)
+        if m and m.group(2).lower() in _M:
+            return (_M[m.group(2).lower()], int(m.group(1)),
+                    int(m.group(3) or 0), int(m.group(4) or 0))
+        return None
+
+    print(f"\n=== ORDER AS THE CARD SORTS IT ===")
+    print("  the client sorts on the DISPLAYED time; an unparseable one sinks\n")
+    rows = [(r, _sv(r)) for r in shaped if r.get("keep", True)]
+    unparsed = [r for r, v in rows if v is None]
+    ordered = sorted([x for x in rows if x[1] is not None], key=lambda x: x[1])
+    prev = None
+    for r, v in ordered:
+        back = ""
+        if prev is not None and v < prev:
+            back = "   <-- OUT OF ORDER, earlier than the row above"
+        prev = v
+        print(f"  {str(r.get('time') or '(none)'):<20} {_snip(r.get('label'), 44)}{back}")
+    for r in unparsed:
+        print(f"  {str(r.get('time') or '(none)'):<20} {_snip(r.get('label'), 44)}"
+              f"   <-- NO READABLE TIME, sinks to the end")
+
     merged = [r for r in shaped if len(r.get("idx_range") or []) > 1]
     print(f"\n=== ROWS THAT MERGED MORE THAN ONE COMMENT: {len(merged)} ===")
     for r in merged:
