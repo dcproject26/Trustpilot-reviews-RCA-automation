@@ -500,6 +500,30 @@ def _scrub_timeline(rows, booking):
     return out
 
 
+def _override_is_stale(d) -> bool:
+    """Whether the hand-written Slack post predates the analysis it describes.
+
+    THE TRAP THIS OPENS UP. `slack_thread_override` wins over the composer
+    everywhere the post is read — the preview, the post-to-thread call, the
+    send. That is right: a person's edit must survive a re-render. But nothing
+    said when it was written, so one edit made every LATER fix invisible in the
+    only text that actually goes out. A card showing corrected contacts and a
+    thread carrying the old ones, with no way to tell from either.
+
+    Stale means the RCA moved after the override was saved. An override with
+    no timestamp is one written before this column existed: reported stale,
+    because "we cannot tell" and "it is current" must not read the same, and
+    the cost of the wrong guess here is a re-press of a button.
+    """
+    if not str(getattr(d, "slack_thread_override", "") or "").strip():
+        return False
+    when = getattr(d, "slack_override_at", None)
+    if not when:
+        return True
+    return any(t and t > when for t in (getattr(d, "generated_at", None),
+                                        getattr(d, "rca_v3_edited_at", None)))
+
+
 def _marked_frames(frames) -> list:
     """The support frames, each carrying `is_contact` — the server's verdict.
 
@@ -788,6 +812,15 @@ def _draft_dict(d: RcaDraft) -> dict:
 
         "ticket_facts":        d.ticket_facts or {},
         "slack_thread_override": d.slack_thread_override or "",
+        # The two dates the card compares to decide whether the hand-written
+        # post predates the analysis it claims to describe.
+        # getattr, like `_override_is_stale` beside it. Half this file's
+        # callers pass a real row and half pass a stand-in; reading the
+        # attribute directly broke eight tests that had every field the
+        # composer needs and not this one.
+        "slack_override_at":     (getattr(d, "slack_override_at", None).isoformat()
+                                  if getattr(d, "slack_override_at", None) else None),
+        "slack_override_stale":  _override_is_stale(d),
         "slack_mentions":        d.slack_mentions or [],
         # The what-went-wrong section of the Slack post, composed HERE and
         # rendered verbatim by the dashboard. The dashboard used to build this
@@ -1550,6 +1583,15 @@ def patch_draft_v2(review_id: str, patch: DraftPatchV2,
         val = getattr(patch, field, None)
         if val is not None:
             setattr(d, field, val)
+            # WHEN THE POST WAS HAND-WRITTEN, so a later RCA fix can be seen to
+            # postdate it. An override with no timestamp shadows every
+            # subsequent correction in silence, and the override is what gets
+            # SENT — the card shows the fixed analysis, the thread carries the
+            # old one. Cleared when the override is cleared: a stale stamp on
+            # an empty override would report a hand edit nobody made.
+            if field == "slack_thread_override":
+                d.slack_override_at = (datetime.utcnow()
+                                       if str(val).strip() else None)
             # JSON columns do not track in-place mutation; a dict assigned with
             # the same identity as the old one would not be written at all.
             try:

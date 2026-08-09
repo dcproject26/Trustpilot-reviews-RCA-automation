@@ -145,6 +145,12 @@ class RcaDraft(Base):
 
     # ── Editable Slack thread post ──
     slack_thread_override       = Column(Text, nullable=True)
+    # WHEN THAT OVERRIDE WAS WRITTEN. Without it a hand-edited post shadows
+    # every later RCA fix silently: the card shows the corrected analysis and
+    # the box still holds text composed from an older one, and the box is what
+    # gets sent. Comparing this against generated_at / rca_v3_edited_at is the
+    # only way to tell a deliberate edit from a forgotten one.
+    slack_override_at           = Column(DateTime, nullable=True)
 
     # ── Slack pings mentioning this BID (RCA context, not matching) ──
     slack_mentions              = Column(JSON, default=list)
@@ -343,6 +349,7 @@ def _WANTED_DRAFT_COLUMNS(is_pg: bool) -> dict:
         "wwr_scenarios":          "JSONB" if is_pg else "JSON",
         "ticket_facts":           "JSONB" if is_pg else "JSON",
         "slack_thread_override":  "TEXT",
+        "slack_override_at":      "TIMESTAMP",
         "slack_mentions":         "JSONB" if is_pg else "JSON",
         "rca_v3":                 "JSONB" if is_pg else "JSON",
         "template_name":          "VARCHAR",

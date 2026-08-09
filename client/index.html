@@ -691,6 +691,9 @@
 
   /* guest ↔ support, SP records */
   .interactions { display: flex; flex-direction: column; }
+  .slack-stale-warn { margin: 6px 0 0; padding: 7px 10px; font-size: 12px;
+    line-height: 1.45; border-radius: 6px; color: var(--warn-fg, #7a4a00);
+    background: var(--warn-bg, #fff6e5); border: 1px solid var(--warn-br, #f0d9a8); }
   .convo-frame { border-bottom: 1px solid var(--hairline); min-width: 0; }
   .convo-frame:last-of-type { border-bottom: none; }
   .convo-frame-head {
@@ -2334,6 +2337,7 @@ async function loadDraftOverlays() {
 
       r.rca.checklistAnswers     = draft.checklist_answers      || [];
       r.rca.slackThreadOverride  = draft.slack_thread_override  || '';
+      r.rca.slackOverrideStale   = !!draft.slack_override_stale;
       // The what-went-wrong section, composed by the SERVER. This page used to
       // build it here in JS from the same rca_v3, which made two composers for
       // one block of text and let the client print "Fix: [object Object]" into
@@ -5238,6 +5242,17 @@ function renderRcaCol() {
         <button class="slack-regen-btn" data-slack-regen style="margin-left:auto">↻ Regenerate from RCA</button>
         <span class="section-chev">▾</span>
       </div>
+      <!-- THE HAND-WRITTEN POST WINS EVERYWHERE, including the send. That is
+           right — an edit must survive a re-render — but it meant one edit
+           made every LATER fix invisible in the only text that goes out. This
+           says so; the server decides it (api.py::_override_is_stale) by
+           comparing when the override was saved against when the RCA last
+           moved. -->
+      ${r.rca.slackOverrideStale ? `
+      <div class="slack-stale-warn">This post was written by hand and the RCA
+        has changed since. It is what will be sent — press
+        <b>↻ Regenerate from RCA</b> to rebuild it, or keep it if the edit was
+        deliberate.</div>` : ''}
       <!-- §6 twelve checkboxes were a wall of clutter above the post itself.
            Default is one quiet line stating the current count; customize
            reveals the chips as toggle pills, done collapses them. Persistence
