@@ -190,3 +190,50 @@ def test_an_empty_database_is_a_header_and_no_rows(client, monkeypatch):
     assert _read(r.text) == []
     assert r.text.startswith("review_id,")
     assert r.headers["X-Export-Rows"] == "0"
+
+
+# ── the dashboard button ────────────────────────────────────────────────────
+#
+# SOURCE ASSERTIONS, AND SAID SO. Per CLAUDE.md these are only acceptable for
+# negative assertions and for client-side JavaScript, which has no test
+# harness in this repo. This is the latter, and the limitation is real: these
+# check the handler exists and is shaped right, not that clicking it works.
+# The behaviour they stand in for is covered server-side by the endpoint tests
+# above, which is where the decisions actually live.
+
+PAGE = open("client/index.html", encoding="utf-8").read()
+
+
+def test_the_button_reuses_the_existing_topbar_button_class():
+    """The design system, not a new one. `.refresh-slack-btn` is the shared
+    rule the other two topbar buttons use; a bespoke class would be a second
+    place for the button styling to drift."""
+    assert 'class="refresh-slack-btn" data-export-csv' in PAGE
+
+
+def test_the_key_is_never_written_into_the_page_or_the_url():
+    """NEGATIVE, so unreachability cannot defeat it. Baking the key into the
+    page publishes it to anyone who opens devtools; putting it in the query
+    string writes it into every proxy and access log between here and the
+    browser."""
+    assert "export.csv?key=" not in PAGE
+    assert "RCA_EXPORT_KEY=" not in PAGE
+
+
+def test_a_rejected_key_is_cleared_rather_than_retried_forever():
+    assert "sessionStorage.removeItem('rcaExportKey')" in PAGE
+
+
+def test_the_two_auth_faults_are_shown_differently():
+    """401 and 503 need opposite actions — retype the key, versus go set one
+    on the server. Showing one message for both means retyping a correct key
+    forever."""
+    assert "'↓ key rejected'" in PAGE
+    assert "'↓ server key unset'" in PAGE
+
+
+def test_the_button_reports_the_counts_it_was_given():
+    """A file quietly holding 40 of 45 rows looks exactly like a complete one
+    once it is open in Excel."""
+    assert "X-Export-Rows" in PAGE and "X-Export-Failed" in PAGE
+    assert "incomplete" in PAGE

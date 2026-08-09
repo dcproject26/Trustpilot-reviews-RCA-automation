@@ -1383,6 +1383,8 @@
               title="Pull Trustpilot reviews from Slack that aren't here yet">↻ Refresh from Slack</button>
       <button class="refresh-slack-btn" data-rerun-all
               title="Re-run every review missing a match or an RCA">⟳ Fix incomplete</button>
+      <button class="refresh-slack-btn" data-export-csv
+              title="Download every review and its RCA as a CSV">↓ CSV</button>
     </div>
   </header>
 
@@ -7944,6 +7946,66 @@ document.addEventListener('click', async (ev) => {
   } catch (e) {
     btn.textContent = '↻ failed — retry';
   }
+  setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 4000);
+});
+
+// ↓ CSV — every review and its RCA as a file.
+//
+// WHY IT PROMPTS. /api/export.csv wants an X-Export-Key header, and a browser
+// cannot put a header on a plain <a download>. Baking the key into the page
+// would publish it to anyone who opens devtools, and putting it in the query
+// string would write it into every proxy and access log. So it is asked for
+// once and kept in sessionStorage — gone when the tab closes.
+//
+// THE COUNTS ARE READ BACK AND SHOWN. The response carries X-Export-Rows and
+// X-Export-Failed, and a file that quietly holds 40 of 45 rows looks exactly
+// like a complete one once it is open in Excel. A row that could not be built
+// is in the file with export_error set, so the number tells you whether to go
+// looking for that column.
+document.addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('[data-export-csv]');
+  if (!btn || btn.disabled) return;
+  let key = sessionStorage.getItem('rcaExportKey');
+  if (!key) {
+    key = (prompt('Export key (RCA_EXPORT_KEY):') || '').trim();
+    if (!key) return;                      // cancelled — say nothing, do nothing
+  }
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '↓ building…';
+  try {
+    const resp = await fetch('/api/export.csv', {headers: {'X-Export-Key': key}});
+    if (resp.status === 401) {
+      // Clear it, or every later click retries the same rejected key and the
+      // prompt never comes back.
+      sessionStorage.removeItem('rcaExportKey');
+      btn.textContent = '↓ key rejected';
+      throw new Error('bad key');
+    }
+    if (resp.status === 503) {
+      // A DIFFERENT FAULT AND A DIFFERENT FIX: the server has no key set, so
+      // no key the person types can ever work. Keeping it distinct from 401
+      // is the whole point — otherwise they retype a correct key forever.
+      btn.textContent = '↓ server key unset';
+      throw new Error('RCA_EXPORT_KEY not set on the server');
+    }
+    if (!resp.ok) { btn.textContent = '↓ failed'; throw new Error(resp.status); }
+    sessionStorage.setItem('rcaExportKey', key);
+    const rows   = resp.headers.get('X-Export-Rows') || '?';
+    const failed = parseInt(resp.headers.get('X-Export-Failed') || '0', 10);
+    const blob = await resp.blob();
+    const url  = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'rca_export.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    btn.textContent = failed
+      ? `↓ ${rows} rows · ${failed} incomplete`
+      : `↓ ${rows} rows`;
+  } catch (e) { /* the button already says which fault it was */ }
   setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 4000);
 });
 

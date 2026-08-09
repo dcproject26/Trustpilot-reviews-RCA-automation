@@ -516,6 +516,12 @@ def test_a_drafted_reply_keeps_the_normal_editing_prompt(page):
 
 # Driven by a test somewhere in this suite. The comment names where.
 DRIVEN = {
+    # ↓ CSV in the topbar. Clicked at the bottom of this file, prompt and all:
+    # once for what the server says when it holds no RCA_EXPORT_KEY — which
+    # must not read like a rejected key, since the two need opposite actions —
+    # and once for a dismissed prompt, which must leave the button unchanged
+    # rather than dressed as a failure.
+    "data-export-csv",
     # §1 case findings and §3 fixes — add and delete for each, all four
     # driven in tests/test_wwr_three_cards.py by clicking them and counting
     # rows, and the fix delete is additionally checked to SURVIVE A RELOAD:
@@ -1239,3 +1245,43 @@ def test_the_button_is_bound_at_all(page):
     # last and the test would fail against a working button.
     assert any("set-booking-id" in u for u in (got or [])), \
         f"clicking Set called {got!r} — the button is not wired"
+
+
+# ── ↓ CSV, driven ───────────────────────────────────────────────────────────
+
+def test_the_csv_button_asks_for_a_key_and_reports_the_servers_answer(page):
+    """Clicks it for real, dialog and all.
+
+    The server under this fixture has no RCA_EXPORT_KEY, so the honest answer
+    from /api/export.csv is a 503 — and 503 must NOT read like 401. They need
+    opposite actions: one means go set a key on the server, the other means
+    retype yours. A button showing one message for both leaves someone
+    retyping a correct key forever, which is this file's failure in its
+    talkative form — the control is alive, and what it says is wrong.
+    """
+    page.on("dialog", lambda d: d.accept("any-key-at-all"))
+    page.click("[data-export-csv]")
+    page.wait_for_function(
+        "() => !document.querySelector('[data-export-csv]').textContent"
+        ".includes('building')", timeout=6000)
+    said = page.evaluate(
+        "() => document.querySelector('[data-export-csv]').textContent")
+    assert "server key unset" in said, (
+        f"the button said {said!r}. With no RCA_EXPORT_KEY on the server the "
+        f"only correct answer is that the SERVER has no key — anything about "
+        f"the typed key sends the reader to fix the wrong end.")
+
+
+def test_a_cancelled_prompt_leaves_the_csv_button_alone(page):
+    """Dismissing the prompt is not a failure and must not be dressed as one.
+    A button left reading "failed" after someone changed their mind is the
+    inverse of the bug above: a healthy run that looks broken."""
+    page.on("dialog", lambda d: d.dismiss())
+    before = page.evaluate(
+        "() => document.querySelector('[data-export-csv]').textContent")
+    page.evaluate("() => sessionStorage.removeItem('rcaExportKey')")
+    page.click("[data-export-csv]")
+    page.wait_for_timeout(400)
+    after = page.evaluate(
+        "() => document.querySelector('[data-export-csv]').textContent")
+    assert after == before, f"cancelling changed the button to {after!r}"
