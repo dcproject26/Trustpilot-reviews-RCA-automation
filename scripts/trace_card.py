@@ -284,6 +284,45 @@ def main(argv=None):
             return ""
 
         rows = [t for t in trail if isinstance(t, dict)]
+        # DOES THIS TRAIL STILL CARRY A SUPERSEDED RUN? The prompt-stamp
+        # banner cannot answer that: the cut landed in pipeline.py, and
+        # `rca_prompt_version` only moves when the PROMPT body moves. So a
+        # code-level fix is invisible to it, and this card printed the same
+        # four contradictory lines twice in a row while the reader was told to
+        # regenerate — advice that is useless to someone who just did.
+        #
+        # The trail's own SHAPE answers it. `matching_history` is imported and
+        # run against the stored rows: if it would cut anything, the cut has
+        # not been applied to this draft yet.
+        # AND THE SHAPE ALONE IS NOT ENOUGH. Every healthy single run is also
+        # matching-then-Zendesk-then-RCA, so "matching_history would cut
+        # something" is true of a perfectly ordinary card and flagging it
+        # would cry wolf on all of them. A first version did exactly that and
+        # its own test caught it.
+        #
+        # TWO RUNS STACKED leave a fingerprint one run cannot: a MATCHING-phase
+        # line sitting AFTER the first re-derived one. `Associate confirmed` is
+        # appended at the moment the prior trail is adopted, so finding it
+        # below the Zendesk block means a superseded run is underneath.
+        from server.pipeline import matching_history
+        _kept, _would_cut = matching_history(rows)
+        _tail = rows[len(_kept):]
+        _stacked = any("Associate confirmed" in
+                       re.sub(r"<[^>]+>", "", str(t.get("text") or ""))
+                       for t in _tail)
+        if _would_cut and _stacked:
+            print(f"\n  !! THIS TRAIL STILL CARRIES {_would_cut} STEP(S) FROM "
+                  f"A SUPERSEDED RUN.")
+            print(f"     The cut keeps the {len(_kept)} matching step(s) and "
+                  f"drops the rest, and it")
+            print("     runs in the PIPELINE — so it applies on the next "
+                  "regenerate, not on")
+            print("     a pull. Until then the lines below describe two "
+                  "different runs, and")
+            print("     the older one's are false of this card.")
+            print("     First superseded line: "
+                  + re.sub(r"<[^>]+>", "",
+                           str(rows[len(_kept)].get("text") or ""))[:60])
         warns = [t for t in rows if _mark(t) == "warn"]
         fails = [t for t in rows if _mark(t) == "fail"]
         unread = [t for t in rows if _mark(t) is None]

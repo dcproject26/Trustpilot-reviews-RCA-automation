@@ -220,3 +220,103 @@ def test_the_bigquery_live_branch_cuts_too(live_db, monkeypatch):
     assert "lookup that never ran" not in said, \
         "a superseded Zendesk line survived on the verified-BID path"
     assert "step(s) from the earlier run were removed" in said
+
+
+# ── the tracer says whether the cut has run on THIS draft ──────────────────
+#
+# THE PROMPT STAMP CANNOT ANSWER THIS. The cut landed in pipeline.py, and
+# `rca_prompt_version` only moves when the prompt BODY moves — so a code-level
+# fix is invisible to the staleness banner. A real card printed the same four
+# contradictory lines twice in a row while the reader was told to regenerate,
+# which is useless advice to someone who just did.
+#
+# The trail's own shape answers it, and `matching_history` is the thing that
+# knows: if it would still cut, the cut has not been applied here.
+
+def _card(db, rid, capsys):
+    from scripts.trace_card import main
+    assert main([rid]) == 0
+    return capsys.readouterr().out
+
+
+def _seed_trail(db, rid, trail):
+    from server.prompts import RCA_PROMPT_VERSION
+    s = db.SessionLocal()
+    s.add(db.Review(id=rid, rating=1, author="A", body_original="b",
+                    status="draft"))
+    s.add(db.RcaDraft(id=f"d_{rid}", review_id=rid, confidence_trail=trail,
+                      rca_prompt_version=RCA_PROMPT_VERSION,
+                      rca_v3={"what_went_wrong": {"guest_issues": [],
+                                                  "fixes": [], "gaps": []}}))
+    s.commit(); s.close()
+
+
+def test_an_uncut_trail_is_named_as_such(live_db, capsys):
+    """The stamp says "current" — only the trail's shape can tell you the cut
+    has not reached this draft.
+
+    THE FINGERPRINT IS `Associate confirmed` BELOW THE ZENDESK BLOCK. That is
+    where the prior trail was adopted, so a matching-phase line under the
+    re-derived one means a superseded run is underneath."""
+    _seed_trail(live_db, "tp_uncut", MATCHING + SUPERSEDED + [
+        _row("<strong>Associate confirmed</strong> BID 32885089"),
+        _row("<strong>Zendesk contacts for 32885089:</strong> 4 found")])
+    out = _card(live_db, "tp_uncut", capsys)
+    assert "STILL CARRIES" in out, out
+    assert "applies on the next regenerate, not on" in out
+    # ASSERTED ON THE LABEL. "Zendesk was not searched" also appears in the
+    # trail listing further down, so a bare `in out` matched THAT and passed
+    # with the naming line deleted. Third time this session a fixture matched
+    # a string somewhere else in the output.
+    named = [l for l in out.splitlines() if "First superseded line:" in l]
+    assert named and "Zendesk was not searched" in named[0], \
+        f"the first superseded line must be named, not just counted: {named}"
+
+
+def test_a_cut_trail_says_nothing(live_db, capsys):
+    """A warning on every healthy card is one nobody reads."""
+    _seed_trail(live_db, "tp_cut", MATCHING + [
+        _row("<strong>Associate confirmed</strong> BID 32885089"),
+        _row("<strong>4 step(s) from the earlier run were removed</strong>"),
+    ])
+    out = _card(live_db, "tp_cut", capsys)
+    assert "STILL CARRIES" not in out, out
+
+
+def test_a_trail_with_no_matching_history_is_not_flagged(live_db, capsys):
+    """A first run has no prior trail to supersede. Its own Zendesk and RCA
+    lines are current, and flagging them would cry wolf on every fresh card."""
+    _seed_trail(live_db, "tp_first", SUPERSEDED)
+    out = _card(live_db, "tp_first", capsys)
+    assert "STILL CARRIES" not in out, \
+        "a first run's own lines were read as a superseded run's"
+
+
+def test_an_ordinary_single_run_is_not_flagged(live_db, capsys):
+    """CAUGHT BY ITS OWN TEST. Every healthy run is matching, then Zendesk,
+    then RCA — so "the cut would remove something" is true of all of them. The
+    first version of this check flagged every card in the system."""
+    _seed_trail(live_db, "tp_normal", MATCHING + SUPERSEDED)
+    out = _card(live_db, "tp_normal", capsys)
+    assert "STILL CARRIES" not in out, \
+        "an ordinary single run was reported as carrying a superseded one"
+
+
+def test_a_confirmation_inside_the_matching_block_is_not_a_stack(live_db,
+                                                                 capsys):
+    """SURVIVED A MUTATION. Searching the WHOLE trail for `Associate
+    confirmed` instead of the tail passed every test here, because no fixture
+    put one in the matching block.
+
+    It is the ordinary shape of a confirmed card: the associate picks a
+    booking, the re-run carries the matching steps WITH that line, then does
+    its own Zendesk and RCA. Searching the whole trail flags every one of
+    those as a stacked run — the cry-wolf failure, arrived at from the other
+    side."""
+    _seed_trail(live_db, "tp_conf_first",
+                MATCHING + [_row("<strong>Associate confirmed</strong> BID "
+                                 "32885089 — the steps above are from the run "
+                                 "that found it")] + SUPERSEDED)
+    out = _card(live_db, "tp_conf_first", capsys)
+    assert "STILL CARRIES" not in out, \
+        "a normal confirmed card was reported as carrying a superseded run"
