@@ -257,3 +257,36 @@ def test_the_button_reports_the_counts_it_was_given():
     once it is open in Excel."""
     assert "X-Export-Rows" in PAGE and "X-Export-Failed" in PAGE
     assert "incomplete" in PAGE
+
+
+def test_an_open_serve_is_announced_in_the_log(client, monkeypatch, caplog):
+    """SURVIVED A MUTATION: deleting the warning killed nothing.
+
+    That warning is the entire justification for serving without a key. The
+    argument was never "an open export is fine" — it was "open, but ANNOUNCED
+    rather than silent", which is what separates this from the _vs_auth
+    pattern it deliberately does not copy. With the log gone, an unguarded
+    export leaves no trace anywhere except a response header nobody reads, and
+    a deployment that quietly lost its key looks exactly like one that never
+    had it configured. Nothing was holding it.
+    """
+    import logging
+    monkeypatch.delenv("RCA_EXPORT_KEY", raising=False)
+    with caplog.at_level(logging.WARNING, logger="server.api"):
+        assert client.get("/api/export.csv").status_code == 200
+    said = " ".join(r.message % r.args if r.args else r.message
+                    for r in caplog.records)
+    assert "NO key" in said, f"an open serve logged nothing: {said!r}"
+    assert "RCA_EXPORT_KEY" in said, "it did not name what would close it"
+
+
+def test_a_guarded_serve_does_not_cry_wolf(client, monkeypatch, caplog):
+    """The converse. A warning on every download regardless of mode is noise,
+    and noise is how a real one gets scrolled past."""
+    import logging
+    monkeypatch.setenv("RCA_EXPORT_KEY", "s3cret")
+    with caplog.at_level(logging.WARNING, logger="server.api"):
+        assert client.get("/api/export.csv",
+                          headers={"X-Export-Key": "s3cret"}).status_code == 200
+    said = " ".join(r.message for r in caplog.records)
+    assert "NO key" not in said, f"a guarded serve warned anyway: {said!r}"
