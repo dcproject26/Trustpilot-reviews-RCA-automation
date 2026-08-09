@@ -628,20 +628,27 @@ def test_the_trail_warnings_are_surfaced_not_buried(live_db, capsys):
     from server.prompts import RCA_PROMPT_VERSION
     _seed(live_db, "tp_card_warn", rca_v3=_full_v3(),
           rca_prompt_version=RCA_PROMPT_VERSION,
-          confidence_trail=[{"step": "gaps", "status": "warn",
-                             "detail": "1 gap cited a description"},
-                            {"step": "match", "status": "pass",
-                             "detail": "booking confirmed"}])
+          # THE REAL SHAPE, read off api.py rather than invented. The first
+          # version of this test seeded {"status", "detail"} — keys nothing
+          # writes — so the tracer's own wrong key list matched it and the
+          # pair passed together. On a live card carrying nine warnings it
+          # printed "No warnings."
+          confidence_trail=[{"mark": "warn",
+                             "text": "<strong>RCA</strong> — 1 gap cited a "
+                                     "description"},
+                            {"mark": "pass", "text": "booking confirmed"}])
     out = _card(live_db, "tp_card_warn", capsys)
-    assert "2 entries, 1 warn" in out
+    assert "2 entries, 0 fail, 1 warn" in out
     assert "1 gap cited a description" in out
     assert "booking confirmed" not in out, "a pass is not a warning"
+    assert "<strong>" not in out, "markup belongs in the card, not the trace"
 
 
 def test_no_warnings_says_so_rather_than_printing_nothing(live_db, capsys):
     from server.prompts import RCA_PROMPT_VERSION
     _seed(live_db, "tp_card_nowarn", rca_v3=_full_v3(),
-          rca_prompt_version=RCA_PROMPT_VERSION, confidence_trail=[])
+          rca_prompt_version=RCA_PROMPT_VERSION,
+          confidence_trail=[{"mark": "pass", "text": "booking confirmed"}])
     out = _card(live_db, "tp_card_nowarn", capsys)
     assert "No warnings" in out
 
@@ -655,3 +662,65 @@ def test_verbose_prints_the_values_and_the_default_does_not(live_db, capsys):
     assert "--verbose" in plain
     rich = _card(live_db, "tp_card_v", capsys, "--verbose")
     assert "Booking created for 08:30" in rich
+
+
+def test_a_trail_entry_whose_mark_is_unreadable_is_counted_not_swallowed(
+        live_db, capsys):
+    """THE BUG THIS FILE SHIPPED. trace_card read `status`; the trail is
+    written with `mark`. So it printed "No warnings. Nothing was coerced and
+    nothing was reported as undone." on a card carrying NINE warnings, one of
+    them "the lookup never ran".
+
+    The tests passed because they seeded the invented shape — a closed loop
+    validating the fiction. The fix is not just the right key: an entry the
+    file cannot classify is named, so the next shape change says so instead of
+    reporting a clean trail."""
+    from server.prompts import RCA_PROMPT_VERSION
+    _seed(live_db, "tp_card_odd", rca_v3=_full_v3(),
+          rca_prompt_version=RCA_PROMPT_VERSION,
+          confidence_trail=[{"verdict": "warn", "message": "a new shape"}])
+    out = _card(live_db, "tp_card_odd", capsys)
+    assert "carry no mark this file recognises" in out
+    assert "No warnings" not in out, \
+        "an unreadable trail must never read as a clean one"
+
+
+def test_the_real_production_shape_is_the_one_that_is_read(live_db, capsys):
+    """`mark` is what api.py appends. Asserted here so a rename breaks this
+    rather than silently emptying the section."""
+    from server.prompts import RCA_PROMPT_VERSION
+    _seed(live_db, "tp_card_mark", rca_v3=_full_v3(),
+          rca_prompt_version=RCA_PROMPT_VERSION,
+          confidence_trail=[
+              {"mark": "fail", "text": "BID — no 7–12 digit number found"},
+              {"mark": "warn", "text": "Zendesk was not searched"},
+              {"mark": "pass", "text": "Author parsed"}])
+    out = _card(live_db, "tp_card_mark", capsys)
+    assert "3 entries, 1 fail, 1 warn" in out
+    assert "Zendesk was not searched" in out
+    assert "BID — no 7–12 digit number found" in out, \
+        "a fail is louder than a warn and must not be dropped"
+    assert "Author parsed" not in out
+
+
+def test_api_writes_the_key_this_file_reads():
+    """Parsed, not asserted from memory. Every trail dict api.py appends is
+    checked for the mark key trace_card looks for — the two drifting apart is
+    exactly how this broke."""
+    import ast
+    import inspect
+    from server import api
+    tree = ast.parse(inspect.getsource(api))
+    marks = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Dict):
+            keys = {k.value for k in n.keys
+                    if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+            if "mark" in keys or "status" in keys:
+                marks |= keys & {"mark", "status"}
+    assert marks, "no trail-shaped dict found in api.py — the parse is broken"
+    from scripts.trace_card import main  # noqa: F401  (import must not fail)
+    src = open("scripts/trace_card.py", encoding="utf-8").read()
+    for m in marks:
+        assert f'"{m}"' in src, \
+            f"api.py writes {m!r} on trail entries and trace_card never reads it"

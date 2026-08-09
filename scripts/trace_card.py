@@ -255,17 +255,53 @@ def main(argv=None):
 
         # ── the trail, which is where every judgement was recorded ─────────
         trail = proj.get("confidence_trail") or []
-        warns = [t for t in trail if isinstance(t, dict)
-                 and str(t.get("status") or "").lower() == "warn"]
+        # THE KEY IS `mark`, AND THIS FILE READ `status`.
+        #
+        # I invented the entry shape instead of reading one, and the tests
+        # passed because they seeded the shape I invented — a closed loop that
+        # validated the fiction. On a real card with NINE warnings, one of
+        # them "the lookup never ran", this printed "No warnings. Nothing was
+        # coerced and nothing was reported as undone."
+        #
+        # That is the defect this whole file exists to catch, written into the
+        # file itself. So it no longer trusts its own key list: an entry whose
+        # mark it cannot read is COUNTED AND NAMED, never folded into the
+        # quiet majority. If the shape moves again, this says so instead of
+        # reporting a clean card.
+        _MARK_KEYS = ("mark", "status")
+        _TEXT_KEYS = ("text", "detail", "note")
+
+        def _mark(t):
+            for k in _MARK_KEYS:
+                if k in t:
+                    return str(t.get(k) or "").strip().lower()
+            return None
+
+        def _text(t):
+            for k in _TEXT_KEYS:
+                if t.get(k):
+                    return re.sub(r"<[^>]+>", "", str(t[k]))
+            return ""
+
+        rows = [t for t in trail if isinstance(t, dict)]
+        warns = [t for t in rows if _mark(t) == "warn"]
+        fails = [t for t in rows if _mark(t) == "fail"]
+        unread = [t for t in rows if _mark(t) is None]
         print(f"\n=== CONFIDENCE TRAIL: {len(trail)} entries, "
-              f"{len(warns)} warn ===")
+              f"{len(fails)} fail, {len(warns)} warn ===")
         print("  A `warn` is where the code CHANGED what the model said, or "
               "could not do\n  something and said so. These are the lines "
               "that explain a thin section.")
-        for t in warns:
-            print(f"\n  warn  {t.get('step') or t.get('label') or '?'}")
-            print(f"        {' '.join(str(t.get('detail') or t.get('note') or '').split())}")
-        if not warns:
+        for t in fails + warns:
+            print(f"\n  {_mark(t):<5} {' '.join(_text(t).split())}")
+        if unread:
+            print(f"\n  !! {len(unread)} entry/ies carry no mark this file "
+                  f"recognises — it looked for {list(_MARK_KEYS)}. They are "
+                  f"NOT counted above, and this line exists so that cannot "
+                  f"pass as a clean trail.")
+            for t in unread[:3]:
+                print(f"     keys: {sorted(t)}")
+        if not warns and not fails and not unread:
             print("  No warnings. Nothing was coerced and nothing was "
                   "reported as undone.")
 
