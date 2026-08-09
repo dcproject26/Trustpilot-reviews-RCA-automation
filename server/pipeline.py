@@ -440,6 +440,68 @@ def classify_extraction(parsed, raw, failure=None, ai_live=True,
         f"truncated")
 
 
+# The steps a re-run DERIVES AGAIN. Everything from the Zendesk fetch onward
+# is rebuilt from scratch on every run, so the previous run's version of it is
+# superseded the moment this one starts.
+#
+# Only the FIRST of these has to be recognised. The prior trail is written in
+# order — matching, then Zendesk, then the RCA, then the reply — so the first
+# re-derived entry is the boundary and everything after it goes with it,
+# whatever it says. That is why this list does not have to enumerate every
+# line type: a new RCA-phase line added later is dropped positionally.
+_REDERIVED_LEADS = (
+    "Zendesk", "Events timeline", "Internal notes", "RCA", "Reply",
+    "The reply", "No approved macro", "Contact-note join", "DSS",
+    "Classification failed", "The stated-issue step", "This re-run replaced",
+)
+
+
+def matching_history(trail) -> tuple[list, int]:
+    """(the matching steps worth carrying, how many superseded ones were cut).
+
+    THE TRAIL WAS CONTRADICTING ITS OWN CARD. On a confirmed-BID re-run the
+    whole previous trail is carried forward and this run appends to it — so a
+    card with 20 timeline rows, 12 dated findings and 2 routed gaps still
+    carried, from the run before the booking was confirmed:
+
+        "Zendesk was not searched — the empty events timeline is a lookup
+         that never ran"
+        "The reply is an approved macro — no booking was matched"
+        "4 of 4 case finding(s) carry no time"
+        "actions taken: no unsolved gap was found in this case"
+
+    Every one false of the card it sat on. A reader opening the trail to find
+    out why a section looked thin was told the lookup never ran, on a run that
+    found four tickets. That is this project's first rule inverted: a healthy
+    run wearing a broken run's report.
+
+    THE MATCHING STEPS STAY. They are the reason a human had to confirm the
+    booking, they are not re-derived on a re-run, and deleting them would make
+    the confirmation impossible to revisit — which is exactly what carrying
+    the trail forward was for.
+
+    THE CUT IS COUNTED, never silent. A trail that quietly shrinks is
+    indistinguishable from a run that recorded less.
+    """
+    rows = [t for t in (trail or []) if isinstance(t, dict)]
+    for i, t in enumerate(rows):
+        text = re.sub(r"<[^>]+>", "", str(t.get("text") or "")).strip()
+        if any(text.startswith(lead) for lead in _REDERIVED_LEADS):
+            return rows[:i], len(rows) - i
+    return rows, 0
+
+
+def superseded_trail_row(n: int) -> dict | None:
+    """The line that says the cut happened, or None when nothing was cut."""
+    if not n:
+        return None
+    return {"mark": "pass",
+            "text": f"<strong>{n} step(s) from the earlier run were removed"
+                    f"</strong> — they described a Zendesk read and an RCA "
+                    f"that this run has replaced, and they contradicted the "
+                    f"card they sat on. The matching steps above are kept."}
+
+
 def record_validation(notes, confidence_trail, log_fn=None) -> list:
     """Log each validator note and put it on the trail. Returns the trail.
 
@@ -1332,12 +1394,19 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 extracted_sigs     = dict(_prior.extracted_signals or {})
                 candidates         = list(_prior.candidates_list or [])
                 narrowing_attempts = list(_prior.narrowing_attempts or [])
-                _prior_trail = list(_prior.confidence_trail or [])
+                # THE MATCHING STEPS ONLY. Carrying the whole prior trail left
+                # the previous run's Zendesk and RCA lines on a card they were
+                # no longer true of — "the lookup never ran" above twenty
+                # timeline rows.
+                _prior_trail, _cut = matching_history(_prior.confidence_trail)
                 if _prior_trail:
                     confidence_trail   = _prior_trail
                     confidence_trail.append({"mark": "pass",
                         "text": f"<strong>Associate confirmed</strong> BID {confirmed_bid} — "
                                 "the steps above are from the run that found it"})
+                    _sup = superseded_trail_row(_cut)
+                    if _sup:
+                        confidence_trail.append(_sup)
                 else:
                     # Confirmed on the very first run, before any search was
                     # recorded. There is no earlier matching to preserve, so
@@ -1397,9 +1466,13 @@ async def process_review(review_id: str, force_candidates: bool = False):
             candidates = list((_prior.candidates_list or []) if _prior else [])
             narrowing_attempts = list(
                 (_prior.narrowing_attempts or []) if _prior else [])
-            _prior_trail = list((_prior.confidence_trail or []) if _prior else [])
+            _prior_trail, _cut = matching_history(
+                _prior.confidence_trail if _prior else [])
             if _prior_trail:
                 confidence_trail = _prior_trail
+                _sup = superseded_trail_row(_cut)
+                if _sup:
+                    confidence_trail.append(_sup)
             confidence_trail.append({"mark": "warn",
                 "text": f"<strong>Associate confirmed BID {confirmed_bid}</strong>, and "
                         f"BigQuery is not live on this server — so it was NOT "
