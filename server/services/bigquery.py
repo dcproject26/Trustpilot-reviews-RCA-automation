@@ -52,13 +52,30 @@ log = logging.getLogger(__name__)
 _ESCALATION_TYPE_RE = "^escalations$"
 
 if is_live("bigquery"):
-    if GCP_SERVICE_ACCOUNT_JSON:
+    # PRESENT IS NOT USABLE, AND THIS RUNS AT IMPORT. `if GCP_SERVICE_ACCOUNT_
+    # JSON:` took the service-account branch for ANY non-empty value, so a
+    # malformed one — a placeholder pasted into .env, a key truncated by a
+    # newline — reached json.loads and raised out of module import, crashing
+    # the whole application on boot. That happened: the app died with a
+    # JSONDecodeError while BigQuery itself was working perfectly through the
+    # Replit connector, which needs no key at all.
+    #
+    # An unusable optional credential must not be able to stop the server. The
+    # connector is preferred instead and the reason is logged as a WARNING —
+    # falling back is a change to what was asked for, not a step succeeding.
+    from server.services.sheet_export import credential_problem
+    _cred_why = credential_problem(GCP_SERVICE_ACCOUNT_JSON)
+    if GCP_SERVICE_ACCOUNT_JSON and not _cred_why:
         from google.cloud import bigquery as _bqlib
         from google.oauth2 import service_account
         _creds = service_account.Credentials.from_service_account_info(
             json.loads(GCP_SERVICE_ACCOUNT_JSON))
         _bq = _bqlib.Client(credentials=_creds, project=_creds.project_id)
     else:
+        if GCP_SERVICE_ACCOUNT_JSON:
+            log.warning("[bq] GCP_SERVICE_ACCOUNT_JSON is set but unusable "
+                        "(%s) — falling back to the Replit connector, which "
+                        "needs no key. Fix or remove the variable.", _cred_why)
         # Replit BigQuery integration — auth via connectors proxy, no key.
         from server.services import bq_connector as _bqlib
         _bq = _bqlib.Client()

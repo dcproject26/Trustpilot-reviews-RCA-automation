@@ -187,3 +187,38 @@ def test_the_auth_header_uses_the_connector_token(monkeypatch):
 GOOD = ('{"type":"service_account","client_email":"a@b.iam",'
         '"private_key":"-----BEGIN PRIVATE KEY-----\\nx\\n-----END PRIVATE KEY-----",'
         '"token_uri":"https://oauth2.googleapis.com/token"}')
+
+
+# ── an unusable key must not be able to stop the server ─────────────────────
+
+def test_a_malformed_key_does_not_crash_bigquery_at_import(monkeypatch):
+    """WHAT HAPPENED. bigquery.py branches at IMPORT on
+    `if GCP_SERVICE_ACCOUNT_JSON:` — present, not usable. A placeholder pasted
+    into .env is present, so it took the service-account branch, reached
+    json.loads and raised out of module import. The whole application died on
+    boot with a JSONDecodeError while BigQuery itself was working perfectly
+    through the Replit connector, which needs no key at all.
+
+    Driving the real import rather than the helper: the bug was in which
+    branch module-level code chose, and a test of credential_problem() alone
+    would have passed the entire time the app was refusing to start.
+    """
+    import importlib
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "GCP_SERVICE_ACCOUNT_JSON",
+                        '{"type":"service_account",...}')
+    monkeypatch.setattr(cfg, "is_live", lambda svc: svc == "bigquery")
+    import server.services.bigquery as BQ
+    called = []
+    import server.services.bq_connector as BQC
+    monkeypatch.setattr(BQC, "Client", lambda *a, **k: called.append(1) or object())
+    importlib.reload(BQ)          # must not raise
+    assert called == [1], "it did not fall back to the connector"
+
+
+def test_a_usable_key_still_takes_the_service_account_branch(monkeypatch):
+    """The converse. A fallback that fires for every key would silently ignore
+    a perfectly good credential, which is the inverse bug and just as quiet."""
+    import server.services.bigquery as BQ
+    assert BQ.credential_problem(GOOD) == "", \
+        "a good key reads as unusable, so the fallback would always fire"
