@@ -22,7 +22,8 @@ from datetime import datetime
 
 log = logging.getLogger(__name__)
 
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import (APIRouter, HTTPException, Depends, BackgroundTasks,
+                     Header, Response)
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -912,6 +913,51 @@ def _sheet_blocked_by() -> str:
     if not RCA_EXPORT_SHEET_ID:
         return "RCA_EXPORT_SHEET_ID is unset"
     return auth_source()[1]
+
+
+@router.get("/api/export.csv")
+def export_csv(x_export_key: str | None = Header(default=None),
+               db: Session = Depends(get_session)):
+    """Every review and its RCA, as a CSV file. Requires X-Export-Key.
+
+    WHY THIS EXISTS. The sheet export needed a Google credential this project
+    has never had, and spent a long time being the one feature that never ran.
+    This needs nothing: the rows are the same COLUMNS, built by the same
+    row_for(), and the file goes to whoever asks with the key.
+
+    IT REFUSES WHEN NO KEY IS SET, which is the opposite of _vs_auth below.
+    That helper reads `if expected and ...`, so with its variable unset the
+    endpoint serves anyone — fine for a booking lookup behind a fixed caller,
+    not fine for a file containing every review body, author name and booking
+    id in the database. An unset key here is a misconfiguration to report, not
+    a reason to hand the file over.
+    """
+    from server.services.sheet_export import rows_for_all, to_csv
+    expected = os.environ.get("RCA_EXPORT_KEY", "")
+    if not expected:
+        raise HTTPException(503, "RCA_EXPORT_KEY is not set, so this export "
+                                 "is off. Set it, then pass it as X-Export-Key.")
+    if x_export_key != expected:
+        raise HTTPException(401, "bad or missing X-Export-Key")
+
+    rows_in = [(r, r.draft) for r in
+               db.query(Review).order_by(Review.received_at.desc()).all()]
+    rows, failed = rows_for_all(rows_in)
+    if failed:
+        log.warning("[export] %s of %s row(s) could not be built; they are in "
+                    "the file with export_error set", failed, len(rows))
+    return Response(
+        content=to_csv(rows),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": 'attachment; filename="rca_export.csv"',
+            # THE COUNTS TRAVEL WITH THE FILE. A reader who opens it in Excel
+            # cannot tell 40 rows from 40-of-45, and the failures are already
+            # visible per-row in export_error; this is the total, for anyone
+            # scripting against it.
+            "X-Export-Rows":   str(len(rows)),
+            "X-Export-Failed": str(failed),
+        })
 
 
 @router.get("/api/heartbeat")

@@ -150,7 +150,18 @@ COLUMNS = [
     "insights",
     "resolution", "takedown", "flags",
     "zendesk_tickets", "rca_posted_at", "sent_at",
+    # WHICH KIND OF SENT. db.py records sent_route precisely because three
+    # different pieces of work end at status="sent" — a reply that went out, an
+    # RCA posted to the thread and marked finished, and a review closed out
+    # with nothing to send. An export that shows only "sent" merges all three
+    # and quietly overstates how many replies were written.
+    "sent_route", "close_reason",
     "final_response", "rca_prompt_version", "exported_at",
+    # LAST, AND USUALLY EMPTY. A row that could not be built lands here with
+    # the reason in it rather than being dropped: a missing row and a row that
+    # failed to build are different facts, and an export that silently drops
+    # the second reports a smaller, cleaner month than actually happened.
+    "export_error",
 ]
 
 
@@ -284,6 +295,11 @@ def row_for(review, draft, now: datetime | None = None,
         "zendesk_tickets": (getattr(d, "zendesk_ticket_ids", None) or []) if d else [],
         "rca_posted_at": getattr(d, "rca_posted_at", None) if d else None,
         "sent_at":       getattr(d, "sent_at", None) if d else None,
+        # Off the REVIEW, not the draft: a review closed out with no RCA has
+        # no draft to read this from, and that is exactly the case the column
+        # exists to distinguish.
+        "sent_route":    getattr(review, "sent_route", "") or "",
+        "close_reason":  getattr(review, "close_reason", "") or "",
 
         "final_response": (getattr(d, "final_response", "")
                            or getattr(d, "suggested_response", "") or "") if d else "",
@@ -342,6 +358,56 @@ def arrival_row(review, now: datetime | None = None) -> dict:
     that gave up halfway through a completed one.
     """
     return row_for(review, None, now=now, stage=ARRIVED)
+
+
+def stage_for(review, draft) -> str:
+    """ARRIVED or DONE for a review, derived rather than passed in.
+
+    ANNOUNCING THE JUDGEMENT. The two hooks know their own phase because the
+    caller is the event. A dump of every row has no event to read, so it
+    decides — and the decision is `status == "sent"`, the same field the Sent
+    tab uses, NOT the presence of a draft. A review can carry a draft for days
+    before anything is sent; keying on the draft would report work as finished
+    the moment someone opened it.
+    """
+    return DONE if (getattr(review, "status", "") or "") == "sent" else ARRIVED
+
+
+def rows_for_all(pairs) -> tuple[list[dict], int]:
+    """(rows, how_many_failed) for [(review, draft_or_None), ...].
+
+    A row that raises is NOT dropped. It comes back carrying its review_id and
+    the reason in `export_error`, because a review missing from the file and a
+    review whose row blew up look identical once the file is open — and the
+    second is a bug in here, not a quiet month.
+    """
+    rows, failed = [], 0
+    for review, draft in pairs:
+        rid = getattr(review, "id", "") or ""
+        try:
+            rows.append(row_for(review, draft, stage=stage_for(review, draft)))
+        except Exception as e:
+            failed += 1
+            rows.append({"review_id": rid,
+                         "export_error": f"{type(e).__name__}: {e}"})
+    return rows, failed
+
+
+def to_csv(rows: list[dict]) -> str:
+    """COLUMNS as the header, then one line per row. RFC4180 quoting.
+
+    csv.writer, not "," .join — review text carries commas, quotes and
+    newlines, and a hand-rolled join turns one of those into a row that opens
+    shifted by a column and still looks like data.
+    """
+    import csv
+    import io as _io
+    buf = _io.StringIO()
+    w = csv.writer(buf, lineterminator="\r\n")
+    w.writerow(COLUMNS)
+    for r in rows:
+        w.writerow(to_cells(r))
+    return buf.getvalue()
 
 
 def plan(existing_ids: list[str], rows: list[dict],
