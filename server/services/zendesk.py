@@ -613,6 +613,14 @@ def is_conversation(frame) -> bool:
     thread = str(frame.get("thread") or "").strip().lower()
     if thread in NON_CONTACT_THREADS or frame.get("is_internal"):
         return False
+    # A NOTE PROMOTED OUT FROM BEHIND THE TOGGLE IS STILL AN INTERNAL NOTE.
+    # `note_disposition` clears `is_internal` so a booking fact renders inline
+    # on the timeline; this test used that flag to reject machinery, so the
+    # promotion handed it a NAR disposition dressed as a guest conversation.
+    # The two sections want different things from the same row, and the flag
+    # cannot mean both — so the promotion is recorded separately and read here.
+    if frame.get("promoted_from_internal"):
+        return False
     # WHO TOOK PART. The two tests above are about the channel and the flag,
     # and a booking-detail row passes both when its via.channel is one
     # `_map_channel` does not recognise — it falls through to "email". An
@@ -626,11 +634,62 @@ def is_conversation(frame) -> bool:
     return not actor or actor in _PERSON_ACTORS
 
 
+def guest_took_part(group) -> bool:
+    """Whether the GUEST is in this exchange at all.
+
+    THE RULE THAT SHOULD HAVE BEEN THERE. `is_conversation` judges one frame,
+    and "the guest ↔ support" is a property of the EXCHANGE — so a ticket
+    carrying only agent-side actions passed frame by frame and rendered as a
+    contact. On a real booking that put an agent's NAR disposition and an ORM
+    credit into "Customer / CE interactions" as contact 01, and the Slack post
+    reported two contacts where the guest wrote once.
+
+    Independent of `is_internal` ON PURPOSE. The regression that produced that
+    row came from a flag being cleared for another section's benefit; a rule
+    resting on the same flag can be re-broken the same way. Either the guest
+    said something here or they did not, and that is readable from the frames
+    themselves.
+
+    A frame counts as the guest's if they are its actor OR it records
+    something they said — an exchange logged agent-side with the guest's words
+    quoted is still the guest taking part.
+    """
+    for f in (group or []):
+        if not isinstance(f, dict):
+            continue
+        if str(f.get("actor") or "").strip().lower() == "guest":
+            return True
+        if str(f.get("guestSaid") or "").strip():
+            return True
+    return False
+
+
+def _contact_key(f) -> str:
+    """The exchange a frame belongs to: its ticket, or "" for the ungrouped."""
+    return str((f or {}).get("ticket_id") or "").strip()
+
+
 def split_contact_frames(frames) -> tuple[list, list]:
-    """(conversations, moved). Never one list with the rest quietly gone."""
+    """(conversations, moved). Never one list with the rest quietly gone.
+
+    TWO TESTS, at their own grains. `is_conversation` drops machinery frame by
+    frame; `guest_took_part` drops a whole TICKET whose frames are all
+    agent-side, because a contact the guest was never in is not a contact.
+    Ungrouped frames (no ticket id) are judged one by one — there is no
+    exchange to reason about.
+    """
     frames = [f for f in (frames or []) if isinstance(f, dict)]
-    return ([f for f in frames if is_conversation(f)],
-            [f for f in frames if not is_conversation(f)])
+    passed = [f for f in frames if is_conversation(f)]
+    by_ticket: dict = {}
+    for f in passed:
+        by_ticket.setdefault(_contact_key(f), []).append(f)
+    keep = []
+    for key, group in by_ticket.items():
+        if not key or guest_took_part(group):
+            keep.extend(group)
+    kept = {id(f) for f in keep}
+    return ([f for f in frames if id(f) in kept],
+            [f for f in frames if id(f) not in kept])
 
 
 def moved_frames_note(moved) -> str:
@@ -643,8 +702,26 @@ def moved_frames_note(moved) -> str:
     moved = [f for f in (moved or []) if isinstance(f, dict)]
     if not moved:
         return ""
-    n = len(moved)
-    return (f"{n} system event{'' if n == 1 else 's'} moved to the timeline")
+    # TWO KINDS OF MOVED ROW NOW, and calling both "system events" would be a
+    # count that lies about what it counted. A promoted internal note or an
+    # agent-only ticket is not machinery — it is OUR side of the record, and a
+    # reader who sees "3 system events moved" on a card whose agent notes were
+    # the thing dropped has been told the wrong fact.
+    ours = [f for f in moved if f.get("promoted_from_internal")
+            or (str(f.get("actor") or "").strip().lower() in ("co", "ai")
+                and not str(f.get("guestSaid") or "").strip())]
+    sys_n = len(moved) - len(ours)
+    bits = []
+    if sys_n:
+        bits.append(f"{sys_n} system event{'' if sys_n == 1 else 's'} "
+                    f"moved to the timeline")
+    if ours:
+        n = len(ours)
+        bits.append(f"{n} agent-side note{'' if n == 1 else 's'} with no "
+                    f"guest message {'is' if n == 1 else 'are'} on the "
+                    f"timeline, not counted as contact"
+                    f"{'' if n == 1 else 's'}")
+    return "; ".join(bits)
 
 
 # Zendesk's via.channel vocabulary for a conversation is far wider than the
@@ -2522,7 +2599,20 @@ def select_internal_notes(events: list) -> list:
             verdict, why = note_disposition(
                 e.get("summary") or e.get("raw_body") or "")
             if verdict in ("keep", "judge"):
-                e = dict(e, is_internal=False,
+                # PROMOTED, AND IT SAYS SO. Clearing `is_internal` is what
+                # moves a booking fact out from behind the toggle and onto the
+                # timeline — the whole point of keeping it. But
+                # `is_conversation` rejects machinery USING that same flag, so
+                # clearing it silently turned an agent's NAR disposition into
+                # a "Customer / CE interaction" the guest never took part in.
+                # The Slack post reported two contacts on a booking with one.
+                #
+                # On `keep` this used to write internal_reason="", leaving a
+                # promoted note indistinguishable from a row that was never
+                # internal — so nothing downstream COULD tell them apart even
+                # if it wanted to. The marker is its own key rather than
+                # words in internal_reason, which the card renders.
+                e = dict(e, is_internal=False, promoted_from_internal=True,
                          internal_reason=("" if verdict == "keep"
                                           else f"kept because {why}"))
         ids[len(out)] = original
@@ -2534,6 +2624,7 @@ def select_internal_notes(events: list) -> list:
     # against the identities recorded before that.
     runs = {id(c["first"]): c for c in collapsed}
     out = [dict(e, summary=ping_summary(runs[k]), is_internal=False,
+                promoted_from_internal=True,
                 internal_reason=f"{runs[k]['count']} identical pings collapsed")
            if (k := ids.get(i)) in runs else e
            for i, e in enumerate(out)]
