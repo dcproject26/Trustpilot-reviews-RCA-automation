@@ -226,3 +226,78 @@ def test_an_ungrouped_agent_frame_is_kept_rather_than_judged():
     convo, _ = split_contact_frames([loose])
     assert convo == [loose], \
         "an unjudgeable frame was dropped — that is how a contact vanishes"
+
+
+# ── the tracer that shows this on a real card ──────────────────────────────
+
+def _trace(db, rid, capsys):
+    from scripts.trace_contacts import main
+    assert main([rid]) == 0
+    return capsys.readouterr().out
+
+
+def _seed(db, rid, frames):
+    s = db.SessionLocal()
+    s.add(db.Review(id=rid, rating=1, author="A", body_original="b",
+                    status="draft"))
+    s.add(db.RcaDraft(id=f"d_{rid}", review_id=rid,
+                      support_interaction_frames=frames,
+                      rca_v3={"support_interaction_notes": [
+                          {"zd_ref": "ZD-34335318",
+                           "summary": "Guest asked to revert to 08:30"}]}))
+    s.commit(); s.close()
+
+
+def test_the_agent_only_ticket_does_not_reach_the_post(live_db, capsys):
+    """THE WHOLE POINT. One contact, and it is the chat."""
+    _seed(live_db, "tp_tc", [_f(thread="web", weDid="Agent marked NAR"),
+                             ORM, GUEST])
+    out = _trace(live_db, "tp_tc", capsys)
+    assert "contact 01  ZD-34335318" in out
+    assert "contact 02" not in out, out
+
+
+def test_it_says_why_each_frame_was_left_out(live_db, capsys):
+    """A verdict with no reason is one the reader has to take on trust."""
+    _seed(live_db, "tp_tc_why", [
+        _f(thread="api", actor="system", weDid="confirmation email"),
+        NAR, GUEST])
+    out = _trace(live_db, "tp_tc_why", capsys)
+    assert "thread api is machinery" in out
+    assert "promoted internal note" in out
+
+
+def test_an_unmarked_card_is_told_that_is_expected(live_db, capsys):
+    """The marker is stamped at SHAPING, so a card generated before the fix
+    carries none. Reporting that as a failure would send a reader chasing a
+    regenerate they do not need — the group rule already applies."""
+    _seed(live_db, "tp_tc_old", [
+        _f(thread="web", weDid="Agent marked NAR"), ORM, GUEST])
+    out = _trace(live_db, "tp_tc_old", capsys)
+    assert "0 of 3 frame(s) carry" in out
+    assert "ZERO IS EXPECTED" in out
+    assert "contact 01  ZD-34335318" in out, \
+        "the grouping must be right even before a regenerate"
+
+
+def test_a_marked_card_says_both_rules_are_in_force(live_db, capsys):
+    _seed(live_db, "tp_tc_new", [NAR, ORM, GUEST])
+    out = _trace(live_db, "tp_tc_new", capsys)
+    assert "1 of 3 frame(s) carry" in out
+    assert "Both rules" in out
+    assert "ZERO IS EXPECTED" not in out
+
+
+def test_a_case_with_no_contact_says_so_in_words(live_db, capsys):
+    _seed(live_db, "tp_tc_none", [_f(thread="api", actor="system")])
+    out = _trace(live_db, "tp_tc_none", capsys)
+    assert "The guest never wrote in" in out
+
+
+def test_the_left_out_count_is_not_read_as_lost(live_db, capsys):
+    """Every excluded frame is on the events timeline. A section that says
+    what it dropped without saying where it went reads as deletion."""
+    _seed(live_db, "tp_tc_moved", [
+        _f(thread="api", actor="system"), NAR, GUEST])
+    out = _trace(live_db, "tp_tc_moved", capsys)
+    assert "Left out is not lost" in out
