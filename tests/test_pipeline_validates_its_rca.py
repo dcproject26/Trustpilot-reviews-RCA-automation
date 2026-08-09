@@ -200,7 +200,7 @@ def test_validation_that_cannot_run_says_so_rather_than_looking_clean(
 def test_actions_taken_is_computed_by_the_run_not_left_empty(live_db,
                                                             monkeypatch):
     """actions_taken has exactly one writer — validate()'s
-    actions_from_fixes, via project_v4. With validate() dead the column was
+    actions_from_gaps, via project_v4. With validate() dead the column was
     projected from a key the model never emits, so every pipeline-generated
     review had an empty tab block: 'nothing was raised' rendered identically
     to 'the routing never ran'.

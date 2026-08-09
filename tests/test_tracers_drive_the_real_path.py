@@ -527,3 +527,131 @@ def test_a_clean_column_says_so_rather_than_printing_an_empty_list(live_db,
           actions_taken={"co": [SOURCED["gap"]]})
     rc, out = _clear(live_db, "tp_cl4", capsys)
     assert rc == 0 and "Nothing to clear" in out
+
+
+# ── the whole card, end to end ─────────────────────────────────────────────
+#
+# Every other tracer reads ONE section. That found real bugs and kept missing
+# a class: a section fine in the data that never reaches the screen, or one
+# reaching it from a key nothing writes. Both draw an empty block, and an
+# empty block is what a clean case looks like.
+#
+# THREE THINGS MUST NOT PRINT ALIKE, and the seeds below are the three:
+#   ok           content, and a renderer reads it
+#   empty        the key is there and holds nothing — often legitimate
+#   KEY ABSENT   the client asks and gets undefined
+
+def _card(db, rid, capsys, *flags):
+    from scripts.trace_card import main
+    assert main([rid, *flags]) == 0
+    return capsys.readouterr().out
+
+
+def _full_v3():
+    from server.services.rca_v4_validate import validate
+    v3, _ = validate({
+        "stated_issue": "Pickup time changed without notice",
+        "what_went_wrong": {
+            "case_findings": [{"text": "Booking created for 08:30",
+                               "source": "booking", "time": "21 Jul 15:28"}],
+            "guest_issues": [], "fixes": [],
+            "gaps": [{"gap": "Guest's request was closed unresolved",
+                      "team": "CO", "source_ref": "ZD-34335318"}]},
+        "flags": []})
+    v3["suggested_response"] = "Thank you for flagging this."
+    return v3
+
+
+def test_a_present_section_a_blank_one_and_a_missing_key_read_differently(
+        live_db, capsys):
+    from server.prompts import RCA_PROMPT_VERSION
+    _seed(live_db, "tp_card_full", rca_v3=_full_v3(),
+          actions_taken={"co": ["Guest's request was closed unresolved"]},
+          rca_prompt_version=RCA_PROMPT_VERSION)
+    out = _card(live_db, "tp_card_full", capsys)
+    assert "§1 case findings" in out
+    lines = {l.split()[0] + " " + l.split()[1]: l for l in out.splitlines()
+             if l.startswith("  §") or "Actions Taken" in l}
+    assert "KEY ABSENT" not in out, out
+
+
+def test_a_pre_gaps_draft_says_KEY_ABSENT_not_empty(live_db, capsys):
+    """The shape every card was in before gaps were stored. "empty" would say
+    the model was asked and found nothing."""
+    _seed(live_db, "tp_card_old",
+          rca_v3={"what_went_wrong": {"guest_issues": [], "fixes": []}},
+          actions_taken={})
+    out = _card(live_db, "tp_card_old", capsys)
+    assert "KEY ABSENT" in out
+    assert "KEYS THE PROJECTION DOES NOT CARRY" in out
+    assert "rca_v3.what_went_wrong.gaps" in out
+
+
+def test_an_empty_actions_column_is_not_counted_as_five_tabs(live_db, capsys):
+    """THE BUG IN THIS FILE. `actions_taken` is a dict of five tabs, and a
+    card with nothing routed still has all five keys — so `len()` printed
+    "5  ok" for a tab strip holding nothing. This file reporting a healthy
+    card at the exact moment the section was empty is the defect it exists to
+    catch."""
+    _seed(live_db, "tp_card_notabs",
+          rca_v3={"what_went_wrong": {"guest_issues": [], "fixes": [],
+                                      "gaps": []}},
+          actions_taken={})
+    out = _card(live_db, "tp_card_notabs", capsys)
+    row = next(l for l in out.splitlines() if "Actions Taken tabs" in l)
+    assert " 0 " in row and "empty" in row, row
+
+
+def test_a_populated_tab_still_counts_its_rows(live_db, capsys):
+    """The inverse: undercounting to zero would make a working strip look
+    broken."""
+    from server.prompts import RCA_PROMPT_VERSION
+    _seed(live_db, "tp_card_tabs", rca_v3=_full_v3(),
+          actions_taken={"co": ["a", "b"], "sp": ["c"]},
+          rca_prompt_version=RCA_PROMPT_VERSION)
+    out = _card(live_db, "tp_card_tabs", capsys)
+    row = next(l for l in out.splitlines() if "Actions Taken tabs" in l)
+    assert " 3 " in row and "ok" in row, row
+
+
+def test_a_stale_draft_banners_here_too(live_db, capsys):
+    _seed(live_db, "tp_card_stale", rca_v3=_full_v3(),
+          rca_prompt_version="rca_v4+0ldbu1ld")
+    out = _card(live_db, "tp_card_stale", capsys)
+    assert "NOT WRITTEN BY THE RUNNING PROMPT" in out
+    assert "'not asked', not 'nothing found'" in out
+
+
+def test_the_trail_warnings_are_surfaced_not_buried(live_db, capsys):
+    """A `warn` is where the code changed what the model said. Those lines
+    are what explain a thin section, and they live in a column nobody opens."""
+    from server.prompts import RCA_PROMPT_VERSION
+    _seed(live_db, "tp_card_warn", rca_v3=_full_v3(),
+          rca_prompt_version=RCA_PROMPT_VERSION,
+          confidence_trail=[{"step": "gaps", "status": "warn",
+                             "detail": "1 gap cited a description"},
+                            {"step": "match", "status": "pass",
+                             "detail": "booking confirmed"}])
+    out = _card(live_db, "tp_card_warn", capsys)
+    assert "2 entries, 1 warn" in out
+    assert "1 gap cited a description" in out
+    assert "booking confirmed" not in out, "a pass is not a warning"
+
+
+def test_no_warnings_says_so_rather_than_printing_nothing(live_db, capsys):
+    from server.prompts import RCA_PROMPT_VERSION
+    _seed(live_db, "tp_card_nowarn", rca_v3=_full_v3(),
+          rca_prompt_version=RCA_PROMPT_VERSION, confidence_trail=[])
+    out = _card(live_db, "tp_card_nowarn", capsys)
+    assert "No warnings" in out
+
+
+def test_verbose_prints_the_values_and_the_default_does_not(live_db, capsys):
+    from server.prompts import RCA_PROMPT_VERSION
+    _seed(live_db, "tp_card_v", rca_v3=_full_v3(),
+          rca_prompt_version=RCA_PROMPT_VERSION)
+    plain = _card(live_db, "tp_card_v", capsys)
+    assert "Booking created for 08:30" not in plain
+    assert "--verbose" in plain
+    rich = _card(live_db, "tp_card_v", capsys, "--verbose")
+    assert "Booking created for 08:30" in rich

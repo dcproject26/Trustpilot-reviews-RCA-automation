@@ -18,7 +18,7 @@ import re
 from server import dss_check, price_check
 from server.checklist import (ACTION_TEAMS, FLAG_TEAM_ALIASES, ACTION_TABS,
                               actions_raised, findings_text,
-                              actions_from_fixes, actions_from_gaps)
+                              actions_from_gaps)
 from server.taxonomy import L1_CATEGORIES, L2_OPTIONS
 
 # Four. "Unknown" carries both "we checked and nothing can settle it" and "we
