@@ -472,9 +472,14 @@ def test_the_reply_has_no_length_ceiling():
                    for n in notes), notes
 
 
-def test_an_over_long_stated_issue_is_counted_too():
+def test_stated_issue_has_no_length_ceiling_either():
+    """REMOVED BY REQUEST, with the reply's. Both fired without trimming
+    anything, so both were lines no reader could act on and no run could
+    clear. The prompt still asks for short; nothing here polices it.
+
+    NEGATIVE, so it holds against a build where the check is unreachable."""
     _, notes = validate(_ok(stated_issue="word " * 84))
-    assert any("stated_issue is 84 words" in n for n in notes)
+    assert not any("ceiling" in n for n in notes), notes
 
 
 def test_a_reply_inside_its_ceiling_says_nothing():

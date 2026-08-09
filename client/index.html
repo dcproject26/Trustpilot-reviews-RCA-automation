@@ -4784,12 +4784,26 @@ function renderRcaCol() {
   // would drop a thread nobody has classified yet, silently, on the reasoning
   // that we cannot prove it is a conversation. Same list as
   // server/services/zendesk.py::NON_CONTACT_THREADS, which Slack filters on.
+  // THE SERVER DECIDES THIS, and this file no longer has an opinion.
+  //
+  // What was here was a SECOND IMPLEMENTATION: the thread list and
+  // `is_internal`, and none of the server's actor check, its
+  // `promoted_from_internal` marker, or its guest-took-part rule. So every fix
+  // that landed in Python left this page rendering from the weaker copy, and
+  // an agent's internal NAR note kept appearing as "contact 01" across three
+  // rounds of being told it was fixed.
+  //
+  // `is_contact` is stamped by _marked_frames() in api.py from the same
+  // `split_contact_frames` Slack composes with. A frame that predates the
+  // field has no verdict on it — those fall back to the old thread test rather
+  // than vanishing, because emptying the panel for an older draft is the
+  // louder failure.
   const NON_CONTACT_THREADS = ['booking', 'review', 'api', 'sp'];
-  const isConversation = fr => !!fr
-    && NON_CONTACT_THREADS.indexOf(String(fr.thread || '').trim().toLowerCase()) < 0
-    // Internal machinery is not a conversation whatever thread it arrived on:
-    // the booking-in-progress mail is thread "email" and no human sent it.
-    && !fr.is_internal;
+  const isConversation = fr => !!fr && (
+    typeof fr.is_contact === 'boolean'
+      ? fr.is_contact
+      : NON_CONTACT_THREADS.indexOf(String(fr.thread || '').trim().toLowerCase()) < 0
+        && !fr.is_internal);
   const _allFrames    = rca.supportFrames || [];
   const _convoFrames  = _allFrames.filter(isConversation);
   const _movedFrames  = _allFrames.filter(f => !isConversation(f));

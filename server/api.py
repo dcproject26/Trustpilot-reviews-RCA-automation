@@ -500,6 +500,28 @@ def _scrub_timeline(rows, booking):
     return out
 
 
+def _marked_frames(frames) -> list:
+    """The support frames, each carrying `is_contact` — the server's verdict.
+
+    ONE RULE, DECIDED ONCE. `split_contact_frames` already answers "is this an
+    exchange the guest took part in", at both grains: `is_conversation` per
+    frame, `guest_took_part` per ticket. Slack composes from it. The dashboard
+    did not — it re-derived a weaker version in JavaScript — so the same
+    internal note kept reaching the card as a contact after the Python was
+    fixed, three separate times.
+
+    The flag is ADDED, not substituted: every frame still ships, because the
+    panel needs the excluded ones to say how many moved and where they went. A
+    filtered list and a guest who never wrote in must not read the same, which
+    is the reason the split returns two lists rather than one.
+    """
+    from server.services.zendesk import split_contact_frames
+    rows = [f for f in (frames or []) if isinstance(f, dict)]
+    convo, _ = split_contact_frames(rows)
+    keep = {id(f) for f in convo}
+    return [dict(f, is_contact=(id(f) in keep)) for f in rows]
+
+
 def _draft_dict(d: RcaDraft) -> dict:
     _tf = d.ticket_facts or {}
     _bk = d.booking or {}
@@ -689,7 +711,17 @@ def _draft_dict(d: RcaDraft) -> dict:
         "l1_reasoning":                d.l1_reasoning,
         "diagnostic_checks":           d.diagnostic_checks or [],
         "what_went_wrong_bullets":     d.what_went_wrong_bullets or [],
-        "support_interaction_frames":  d.support_interaction_frames or [],
+        # EACH FRAME CARRIES THE SERVER'S VERDICT, so the client does not have
+        # to reach one. index.html held a SECOND implementation of
+        # `is_conversation` in JavaScript — the thread list and `is_internal`,
+        # and none of the actor check, the promotion marker or the
+        # guest-took-part rule. So a fix landing in Python left the card
+        # rendering from the JS copy, and an agent's internal NAR note kept
+        # appearing as "contact 01" through three rounds of "this is fixed".
+        #
+        # Two implementations of one rule is the defect this file's own
+        # comments warn about repeatedly. There is one now, and it is here.
+        "support_interaction_frames":  _marked_frames(d.support_interaction_frames),
         "support_summary":             d.support_summary,
         "sp_interaction_frames":       d.sp_interaction_frames or [],
         # rca_v3 wins by PRESENCE, like every other v4 field: the column is

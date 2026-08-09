@@ -658,8 +658,14 @@ def test_a_null_reply_clears_the_column_on_the_rca_only_path(app_env):
 # It wrote none. A draft regenerated here kept the trail from whenever it was
 # last MATCHED, so every disclosure the analysis produces was absent — and
 # absent reads as "nothing to report". Seen on a real draft: rca_v3 rewritten
-# by the current prompt, stamp and generated_at updated, stated_issue 61 words
-# over its 60-word ceiling, and a three-line trail carrying only the match.
+# by the current prompt, stamp and generated_at updated, and a three-line trail
+# carrying only the match.
+#
+# THE PROBE IS A COERCION, NOT A COUNT. These three used the stated_issue
+# word ceiling, which has since been removed — so a wiring test was hanging on
+# a check that could be, and was, deleted as noise. `claim_accuracy` coercion
+# is a REPAIR ("we changed the model's answer"), which is the class this trail
+# exists to carry and the least likely to be dropped.
 
 def _trail(db, rid):
     return list(_reload(db, rid).confidence_trail or [])
@@ -668,9 +674,9 @@ def _trail(db, rid):
 def test_regenerating_writes_the_validator_notes_to_the_trail(app_env):
     db, api = app_env
     rid = _seed(db)
-    _regenerate(db, api, rid, rca=dict(DIRTY_RCA, stated_issue="word " * 80))
+    _regenerate(db, api, rid, rca=DIRTY_RCA)
     texts = " ".join(t.get("text", "") for t in _trail(db, rid))
-    assert "over the 60-word ceiling" in texts, \
+    assert "claim_accuracy" in texts, \
         f"a coercion fired and the trail says nothing: {texts!r}"
 
 
@@ -708,13 +714,13 @@ def test_regenerating_twice_does_not_stack_rca_entries(app_env):
     trail without bound and show the same coercion five times."""
     db, api = app_env
     rid = _seed(db)
-    dirty = dict(DIRTY_RCA, stated_issue="word " * 80)
+    dirty = dict(DIRTY_RCA)
     _regenerate(db, api, rid, rca=dirty)
     once = len([t for t in _trail(db, rid)
-                if "60-word ceiling" in t.get("text", "")])
+                if "claim_accuracy" in t.get("text", "")])
     _regenerate(db, api, rid, rca=dirty)
     twice = len([t for t in _trail(db, rid)
-                 if "60-word ceiling" in t.get("text", "")])
+                 if "claim_accuracy" in t.get("text", "")])
     assert once == twice == 1, (once, twice)
 
 
@@ -727,7 +733,7 @@ def test_the_trail_survives_the_commit(app_env):
     round trip explicitly."""
     db, api = app_env
     rid = _seed(db)
-    _regenerate(db, api, rid, rca=dict(DIRTY_RCA, stated_issue="word " * 80))
+    _regenerate(db, api, rid, rca=DIRTY_RCA)
     db.SessionLocal().close()
     fresh = db.SessionLocal()
     try:
@@ -735,7 +741,7 @@ def test_the_trail_survives_the_commit(app_env):
         texts = " ".join(t.get("text", "") for t in (d.confidence_trail or []))
     finally:
         fresh.close()
-    assert "60-word ceiling" in texts, \
+    assert "claim_accuracy" in texts, \
         "the trail was written in memory and dropped on commit"
 
 

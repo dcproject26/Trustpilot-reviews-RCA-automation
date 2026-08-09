@@ -837,22 +837,11 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
         notes.append("suggested_response contains an internal name or id — "
                      "needs human review before send")
 
-    # THE REPLY HAS NO CEILING, BY REQUEST. It used to warn at 120 words, and
-    # the warning fired on every card — 124 words, then 127 — while nothing
-    # trimmed anything, so it was a line on the trail that no reader could act
-    # on and no run could clear. A limit nobody enforces and nobody wants is
-    # noise competing with the warnings that mean something.
-    #
-    # `stated_issue` KEEPS ITS 60, deliberately: that field is a one-line
-    # summary and a long one is a different defect, in a field the reader scans
-    # rather than sends.
-    for _f, _cap in (("stated_issue", 60),):
-        _v = rca.get(_f)
-        if isinstance(_v, str):
-            _w = len(_v.split())
-            if _w > _cap:
-                notes.append(f"{_f} is {_w} words, over the {_cap}-word ceiling — "
-                             f"trim before it goes out")
+    # NO WORD CEILINGS, BY REQUEST. `suggested_response` warned at 120 and
+    # `stated_issue` at 60. Both fired without trimming anything, so both were
+    # lines on the trail that no reader could act on and no run could clear —
+    # a limit nobody enforces is noise competing with the warnings that mean
+    # something. The prompt still asks for short; nothing here polices it.
 
     dss = _obj(rca.get("dss"))
     # Accept the pre-split key so a draft written before this change, and a

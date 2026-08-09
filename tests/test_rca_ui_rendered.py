@@ -1252,6 +1252,41 @@ def test_machinery_is_not_counted_as_a_contact(page):
     assert "3 system events moved to the timeline" in got["hint"], got["hint"]
 
 
+# The server stamps `is_contact` on every frame (api.py::_marked_frames) from
+# the same split Slack composes with. These rows are what it produces for an
+# agent-only ticket: the frames pass the THREAD test — "web" is not machinery
+# — and are excluded anyway, because no guest is in the exchange.
+AGENT_ONLY = [
+    {"ticket_id": "33978941", "thread": "web", "actor": "co",
+     "time": "02 Aug 15:28", "time_sort": "2026-08-02T15:28:00",
+     "weDid": "Agent marked NAR", "guestSaid": "", "is_contact": False},
+    {"ticket_id": "33978941", "thread": "web", "actor": "co",
+     "time": "03 Aug 12:45", "time_sort": "2026-08-03T12:45:00",
+     "weDid": "ORM escalation; 25% credit", "guestSaid": "", "is_contact": False},
+]
+GUEST_CHAT = [dict(CHAT[0], is_contact=True)]
+
+
+def test_an_agent_only_ticket_does_not_render_as_a_contact(page):
+    """THE ROW THAT KEPT COMING BACK. An agent's internal NAR note rendered as
+    "contact 01" through three rounds of the Python being fixed, because this
+    page held its own weaker copy of the rule — the thread list and
+    `is_internal`, and nothing else. "web" is not a machinery thread and the
+    row is not marked internal, so its copy let both frames through.
+
+    The verdict is the server's now. This drives the RENDERED panel with the
+    frames exactly as `_marked_frames` ships them, so a page that ignores
+    `is_contact` and re-derives fails here."""
+    try:
+        _render(page, {"frames": GUEST_CHAT + AGENT_ONLY, "notes": []})
+        got = _contact_section(page)
+    finally:
+        _restore(page)
+    assert got["rows"] == 1, \
+        f"the agent-only ticket rendered as a contact: {got}"
+    assert got["hint"].startswith("1 contact"), got["hint"]
+
+
 def test_a_booking_of_pure_machinery_does_not_read_as_a_silent_guest(page):
     """A filtered list and a guest who never wrote in must not look the same."""
     try:
