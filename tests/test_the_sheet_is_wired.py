@@ -377,7 +377,34 @@ def test_unconfigured_says_inert_not_broken(capsys, monkeypatch):
     monkeypatch.setattr(cfg, "is_live", lambda svc: False)
     rc, out = _check(capsys)
     assert rc == 1
-    assert "INERT" in out and "Nothing is written and nothing is broken" in out
+    assert "INERT" in out and "nothing is written, nothing is broken" in out
+    # AND IT MUST NOT GUESS. A first version compared against is_live("dss")
+    # and friends on the theory that they share the credential; running it
+    # showed they do not test it at all — `bool(DSS_SHEET_ID)` is a sheet id
+    # with a hardcoded default, true on a machine with no credentials. It
+    # reported "the credential is readable" on the machine that had none.
+    assert "Nothing here can" in out and "tell those apart" in out
+    # AND IT MUST SAY WHERE THE ANSWER IS. Naming the ambiguity without
+    # naming the thing that resolves it leaves the reader exactly where they
+    # started — the deployment's own log is the only place that can settle it,
+    # because that is the process which actually writes.
+    assert "DEPLOYMENT's log" in out and "[sheet]" in out
+
+
+def test_a_credential_with_no_sheet_id_is_told_the_other_thing(capsys,
+                                                               monkeypatch):
+    """SURVIVED A MUTATION. The two unconfigured causes need different
+    actions, and only one of them was asserted — so collapsing the branch to
+    always blame the credential passed."""
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "is_live", lambda svc: False)
+    monkeypatch.setattr(cfg, "GCP_SERVICE_ACCOUNT_JSON", '{"x": 1}')
+    monkeypatch.setattr(cfg, "RCA_EXPORT_SHEET_ID", "")
+    rc, out = _check(capsys)
+    assert rc == 1
+    assert "Set RCA_EXPORT_SHEET_ID" in out, out
+    assert "not readable IN THIS SHELL" not in out, \
+        "it blamed the credential on a machine that has one"
 
 
 def test_an_unreachable_sheet_names_the_sharing_not_the_data(capsys,

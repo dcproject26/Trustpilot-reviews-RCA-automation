@@ -57,9 +57,27 @@ def main(argv=None):
     print(f"  creds   {'set' if GCP_SERVICE_ACCOUNT_JSON else 'NOT SET'}")
     print(f"  live    {is_live('sheet_export')}")
     if not is_live("sheet_export"):
-        print("\n  The export is INERT. Nothing is written and nothing is "
-              "broken —\n  set RCA_EXPORT_SHEET_ID and GCP_SERVICE_ACCOUNT_JSON "
-              "to turn it on.")
+        # WHAT IS ACTUALLY KNOWABLE FROM HERE, and no more.
+        #
+        # A first version of this compared against is_live("dss") and friends
+        # on the theory that they share the credential — and running it showed
+        # they do NOT test it: `"dss": bool(DSS_SHEET_ID)` is a sheet id with a
+        # hardcoded default, true on a machine with no credentials at all. So
+        # it reported "the credential is readable" on the machine that had
+        # none. A diagnostic that guesses is worse than one that says it
+        # cannot tell.
+        print("\n  The export is INERT — nothing is written, nothing is "
+              "broken.")
+        if not GCP_SERVICE_ACCOUNT_JSON:
+            print("  GCP_SERVICE_ACCOUNT_JSON is not readable IN THIS SHELL.")
+            print("  That does not mean the server lacks it: Replit keeps "
+                  "secrets in the run\n  environment and a plain shell often "
+                  "cannot see them. Nothing here can\n  tell those apart.")
+            print("  To find out, look at the DEPLOYMENT's log for '[sheet]' "
+                  "lines after a\n  review is ingested — that is the process "
+                  "that actually writes.")
+        else:
+            print("  Set RCA_EXPORT_SHEET_ID to turn it on.")
         return 1
 
     io = X.SheetIO(RCA_EXPORT_SHEET_ID, RCA_EXPORT_SHEET_TAB)
