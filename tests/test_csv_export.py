@@ -277,7 +277,15 @@ def test_an_open_serve_is_announced_in_the_log(client, monkeypatch, caplog):
     said = " ".join(r.message % r.args if r.args else r.message
                     for r in caplog.records)
     assert "NO key" in said, f"an open serve logged nothing: {said!r}"
-    assert "RCA_EXPORT_KEY" in said, "it did not name what would close it"
+    # THE DIAGNOSIS AND THE REMEDY ARE ASSERTED SEPARATELY, and the second one
+    # is why. Deleting the remedy clause SURVIVED a mutation, because the
+    # original assertion looked for "RCA_EXPORT_KEY" — which still appears in
+    # the diagnosis half of the same sentence. It was matching a string
+    # elsewhere in the same output, which is a check on nothing.
+    # "X-Export-Key" is the header name and appears ONLY in the remedy.
+    assert "RCA_EXPORT_KEY is unset" in said, "it did not name the cause"
+    assert "X-Export-Key" in said, \
+        f"it named the cause but not what would fix it: {said!r}"
 
 
 def test_a_guarded_serve_does_not_cry_wolf(client, monkeypatch, caplog):
