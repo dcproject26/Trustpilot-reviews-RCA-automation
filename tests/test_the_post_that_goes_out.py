@@ -223,3 +223,135 @@ def test_the_card_is_told(live_db, client):
     blob = r.json()["draft"]
     assert blob["slack_override_stale"] is True, blob.get("slack_override_stale")
     assert blob["slack_thread_override"] == "hand written", blob
+
+
+# ── the post names the booking it is about ─────────────────────────────────
+#
+# It named it nowhere. A reader in the thread got the analysis and had to open
+# the dashboard to find out which booking, which experience, or which vendor
+# it concerned — on a post whose subject is often the vendor's failure.
+
+BOOKING = {"id": "32885089",
+           "experienceName": "Auschwitz-Birkenau Guided Tour with Fast-Track "
+                             "Tickets & Transfer Options",
+           "tid_name": "English Guided Tour", "tgid": "15406", "tid": "19354",
+           "vid": "4045", "vendorName": "Krakville",
+           "fulfilmentType": "Vendor Api"}
+
+
+def _post(db, rid="tp_bd", booking=BOOKING):
+    from server.services.slack import format_rca_slack
+    s = db.SessionLocal()
+    s.add(db.Review(id=rid, rating=1, author="R", body_original="b",
+                    status="draft"))
+    s.add(db.RcaDraft(id=f"d_{rid}", review_id=rid, booking=booking,
+                      rca_v3={"what_went_wrong": {"guest_issues": [],
+                                                  "fixes": [], "gaps": []},
+                              "flags": []}))
+    s.commit()
+    r = s.query(db.Review).filter_by(id=rid).first()
+    d = s.query(db.RcaDraft).filter_by(review_id=rid).first()
+    txt = format_rca_slack(r, d)
+    s.close()
+    return txt
+
+
+def _details(txt):
+    i = txt.index("Booking details")
+    return txt[i:txt.index("____", i)]
+
+
+@pytest.mark.parametrize("label,value", [
+    ("Booking ID", "32885089"),
+    ("Experience", "Auschwitz-Birkenau Guided Tour with Fast-Track"),
+    ("TID name", "English Guided Tour"),
+    ("TGID / TID", "15406 / 19354"),
+    ("Vendor ID", "4045"),
+    ("Vendor name", "Krakville"),
+    ("Fulfilment type", "Vendor Api"),
+])
+def test_each_requested_field_is_in_the_post(live_db, label, value):
+    body = _details(_post(live_db, rid=f"tp_bd_{label.replace(' ', '_').replace('/', '')}"))
+    assert f"• {label}: " in body, body
+    assert value in body, body
+
+
+def test_the_section_comes_first(live_db):
+    """A reader should know which booking before reading what went wrong."""
+    txt = _post(live_db, rid="tp_bd_order")
+    assert txt.index("Booking details") < txt.index("Customer / CE"), \
+        "the booking is introduced after the analysis about it"
+
+
+def test_a_field_the_warehouse_did_not_return_is_named_not_skipped(live_db):
+    """Dropping the row makes a missing vendor id and a booking that never had
+    one read the same — and on a post about a vendor's failure that is the
+    field most worth knowing is absent."""
+    body = _details(_post(live_db, rid="tp_bd_gap",
+                          booking={"id": "32885089", "vendorName": "Krakville"}))
+    assert "• Vendor ID: — not recorded" in body, body
+    assert "• Vendor name: Krakville" in body, body
+
+
+def test_tgid_and_tid_stay_on_one_row(live_db):
+    """They are read together — a TGID with no TID is a product with no ticket
+    type — so splitting them loses the pairing."""
+    body = _details(_post(live_db, rid="tp_bd_pair",
+                          booking={"id": "1", "tgid": "15406"}))
+    assert "• TGID / TID: 15406 / —" in body, body
+
+
+def test_the_alternate_spellings_are_read(live_db):
+    """The warehouse and the BigQuery enrichment spell these differently and
+    the client already reads both. Reading one would blank the field on half
+    the drafts."""
+    body = _details(_post(live_db, rid="tp_bd_alt",
+                          booking={"id": "1", "vendor_name": "Krakville",
+                                   "fulfilment_type": "Vendor Api",
+                                   "experience_name": "A tour"}))
+    assert "• Vendor name: Krakville" in body, body
+    assert "• Fulfilment type: Vendor Api" in body, body
+    assert "• Experience: A tour" in body, body
+
+
+def test_no_booking_means_no_section(live_db):
+    """A wall of seven dashes would say "no booking matched" a second time,
+    louder, in a post that already says it."""
+    txt = _post(live_db, rid="tp_bd_none", booking={})
+    assert "Booking details" not in txt, txt[:400]
+
+
+def test_the_card_gets_the_same_block_the_post_carries(live_db):
+    """THE CARD COMPOSES THE PREVIEW IN JAVASCRIPT while format_rca_slack
+    composes the posted text in Python — two composers for one post, which is
+    how "Fix: [object Object]" once reached a real thread from the client half
+    while the server's copy was correct.
+
+    The section LIST is still duplicated. Its CONTENT is not: the card renders
+    this string verbatim, exactly as it already does for What went wrong."""
+    from server.api import _draft_dict
+    s = live_db.SessionLocal()
+    s.add(live_db.Review(id="tp_bd_tog", rating=1, author="R",
+                         body_original="b", status="draft"))
+    s.add(live_db.RcaDraft(id="d_tp_bd_tog", review_id="tp_bd_tog",
+                           booking=BOOKING,
+                           rca_v3={"what_went_wrong": {"guest_issues": [],
+                                                       "fixes": [], "gaps": []},
+                                   "flags": []}))
+    s.commit()
+    d = s.query(live_db.RcaDraft).filter_by(review_id="tp_bd_tog").first()
+    served = _draft_dict(d)["booking_details_text"]
+    s.close()
+    assert "• Booking ID: 32885089" in served, served
+    assert "• Vendor name: Krakville" in served, served
+
+
+def test_the_page_renders_that_block_rather_than_rebuilding_it():
+    """NEGATIVE, on the client, which has no harness here. If the page starts
+    reading booking fields to compose this itself, the two composers are back."""
+    src = open("client/index.html", encoding="utf-8").read()
+    assert "rca.bookingDetailsText" in src, \
+        "the page is not rendering the server's block"
+    i = src.index("['booking',   'Booking details'")
+    assert "fulfilmentType" not in src[i:i + 400], \
+        "the page is composing the booking block itself"

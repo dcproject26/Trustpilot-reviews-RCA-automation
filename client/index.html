@@ -2344,6 +2344,7 @@ async function loadDraftOverlays() {
       // a real post while the server's version was correct. There is one
       // composer now and this is its output; nothing on this page rebuilds it.
       r.rca.wwrSlackText         = draft.wwr_slack_text || '';
+      r.rca.bookingDetailsText   = draft.booking_details_text || '';
       r.rca.supportInteraction   = (draft.support_interaction_frames || []).map(mapSupportFrame);
       // Facts and interpretation arrive separately and are merged at render:
       // the frames are Zendesk-derived rows, the notes are the model's account
@@ -5145,6 +5146,11 @@ function renderRcaCol() {
 
     // Ordered so a reader gets the verdict first and the evidence after.
     const SECTIONS = [
+      // COMPOSED BY THE SERVER and rendered here verbatim, like wwrText above
+      // it — api.py::_booking_details_text calls the same helper the posted
+      // text uses, so the preview and the thread cannot disagree about which
+      // booking, experience or vendor the post is about.
+      ['booking',   'Booking details',       rca.bookingDetailsText || ''],
       ['wwr',       'What went wrong',       wwrText],
       ['logs',      'Booking logs',          logsText],
       ['flags',     'Flags',                 flagsText],

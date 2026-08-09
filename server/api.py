@@ -500,6 +500,16 @@ def _scrub_timeline(rows, booking):
     return out
 
 
+def _booking_details_text(d) -> str:
+    """The Slack post's Booking details block, for the card's preview.
+
+    Imported from the composer rather than rebuilt, so the preview and the
+    posted text cannot disagree about the booking they name.
+    """
+    from server.services.slack import _booking_details_lines
+    return _booking_details_lines(d, "\n")
+
+
 def _override_is_stale(d) -> bool:
     """Whether the hand-written Slack post predates the analysis it describes.
 
@@ -832,6 +842,13 @@ def _draft_dict(d: RcaDraft) -> dict:
         # edit re-renders the preview from the server's composer rather than
         # from a second implementation that has to be kept in step by hand.
         "wwr_slack_text":     _wwr_slack_text(d, _v3_resolved),
+        # THE BOOKING BLOCK, COMPOSED ONCE, for the same reason as the line
+        # above. The card builds the rest of the Slack preview in JavaScript
+        # while `format_rca_slack` builds it again in Python — two composers,
+        # which is how the client once put "Fix: [object Object]" on a real
+        # post while the server's copy was correct. The section LIST is still
+        # duplicated; its CONTENT is not, and that is the half that renders.
+        "booking_details_text": _booking_details_text(d),
 
         "template_name":      d.template_name or "",
         # Presence-based, like every other v4 field — and for the same reason,

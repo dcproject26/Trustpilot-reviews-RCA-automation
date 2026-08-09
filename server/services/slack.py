@@ -978,6 +978,56 @@ def _contacts(frames):
     return out
 
 
+# The seven the card's Booking Details panel shows, in its order, each with
+# every key it has been stored under. `vendorName` / `vendor_name` and
+# `fulfilmentType` / `fulfilment_type` both occur: the warehouse and the
+# BigQuery enrichment spell them differently, and the client already reads
+# both. Reading one would blank the field on half the drafts.
+_BOOKING_DETAIL_ROWS = (
+    ("Booking ID",       ("id", "bid", "booking_id")),
+    ("Experience",       ("experienceName", "experience_name", "experience")),
+    ("TID name",         ("tid_name", "tidName", "tour_name")),
+    ("TGID / TID",       ("tgid",)),
+    ("Vendor ID",        ("vid", "vendor_id", "vendorId")),
+    ("Vendor name",      ("vendorName", "vendor_name", "partner")),
+    ("Fulfilment type",  ("fulfilmentType", "fulfilment_type",
+                          "fulfillment_type")),
+)
+
+
+def _booking_field(bk: dict, keys) -> str:
+    for k in keys:
+        v = str((bk or {}).get(k) or "").strip()
+        if v:
+            return v
+    return ""
+
+
+def _booking_details_lines(draft, nl: str) -> str:
+    """The booking, as the post's opening section — or "" when there is none.
+
+    NOTHING AT ALL means no booking was matched, and the post already says
+    that elsewhere; a section of seven dashes would be a wall saying it again.
+    But a booking WITH gaps prints the gaps: "Vendor ID — not recorded" is a
+    fact about this booking, and dropping the row makes it indistinguishable
+    from a booking that has one.
+    """
+    bk = getattr(draft, "booking", None) or {}
+    if not _booking_field(bk, ("id", "bid", "booking_id")):
+        return ""
+    rows = []
+    for label, keys in _BOOKING_DETAIL_ROWS:
+        val = _booking_field(bk, keys)
+        if label == "TGID / TID":
+            # ONE ROW, TWO IDS, exactly as the panel shows it. They are read
+            # together — a TGID with no TID is a product with no ticket type —
+            # so splitting them across two rows loses the pairing.
+            _tid = _booking_field(bk, ("tid",))
+            val = f"{val or '—'} / {_tid or '—'}" if (val or _tid) else ""
+        rows.append(f"• {label}: {val or '— not recorded'}")
+    return nl.join(rows)
+
+
 def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
     """The v3 layout, matching the dashboard preview section for section.
     Kept deliberately close to _genSlackText in client/index.html: the two
@@ -1004,6 +1054,19 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
     # shows alongside them — evidence rows, the guest quote, `pattern`,
     # `backs_claim`, the owner chip, the accuracy note — is deliberately not
     # here. See services/wwr_post.py.
+    # BOOKING DETAILS, FIRST. The post named the booking nowhere: a reader in
+    # the thread got the analysis and had to open the dashboard to find out
+    # which booking, which experience, or which vendor it was about. These are
+    # the seven the card's own Booking Details panel shows, in its order.
+    #
+    # A FIELD THE WAREHOUSE DID NOT RETURN IS NAMED, not skipped. Dropping the
+    # row makes a missing vendor id and a booking that never had one read the
+    # same, and on a post about a vendor's failure that is the field most worth
+    # knowing is absent.
+    _bd = _booking_details_lines(draft, nl)
+    if _bd:
+        sections.append(("Booking details", _bd))
+
     from server.services.wwr_post import compose as _compose_wwr
     _wwr = _compose_wwr(v3.get("what_went_wrong"))
     if _wwr:
