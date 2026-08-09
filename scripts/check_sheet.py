@@ -93,17 +93,26 @@ def main(argv=None):
     # share the sheet. Everything decidable without a request is decided here
     # so that a failure past this point really is the sheet or the sharing.
     print("\n=== THE CREDENTIAL ===")
-    why = X.credential_problem(GCP_SERVICE_ACCOUNT_JSON)
+    src, why = X.auth_source()
     if why:
-        print(f"  UNUSABLE: {why}")
+        print(f"  UNUSABLE ({src}): {why}")
         print("\n  Nothing was asked of Google. The sharing is NOT implicated "
-              "— this value\n  never became an identity, so there was nothing "
-              "to share with.")
+              "— there was no\n  identity for the sheet to be shared with.")
         return 1
-    import json as _json
-    print(f"  parses, and is a service account: "
-          f"{_json.loads(GCP_SERVICE_ACCOUNT_JSON)['client_email']}")
-    print("  ^ THIS is the address the sheet must be shared with, as Editor.")
+    if src == "connector":
+        # AND THE SHARING STEP IS GONE, which is worth saying out loud: the
+        # rest of this script's advice is about a share that does not apply
+        # on this route.
+        print("  the Replit Google Sheets connector, OAuth as whoever "
+              "connected it.")
+        print("  NO SHARING STEP — it acts as that person, who already owns "
+              "the sheet.")
+    else:
+        import json as _json
+        print(f"  a service account: "
+              f"{_json.loads(GCP_SERVICE_ACCOUNT_JSON)['client_email']}")
+        print("  ^ THIS is the address the sheet must be shared with, as "
+              "Editor.")
 
     io = X.SheetIO(RCA_EXPORT_SHEET_ID, RCA_EXPORT_SHEET_TAB)
 

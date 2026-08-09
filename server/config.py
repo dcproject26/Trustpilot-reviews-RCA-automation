@@ -147,6 +147,15 @@ def _bq_connector_available() -> bool:
         return False
 
 
+def _sheets_connector_available() -> bool:
+    """Replit Google Sheets integration (OAuth — no service-account key)."""
+    try:
+        from server.services.sheets_connector import available
+        return available()
+    except Exception:
+        return False
+
+
 def _zd_connector_available() -> bool:
     """Replit Zendesk integration (OAuth — no email/API-token pair needed)."""
     try:
@@ -174,7 +183,9 @@ def is_live(service: str) -> bool:
         "dss":            bool(DSS_SHEET_ID),
         "canned":         bool(CANNED_RESPONSES_SHEET_ID),
         "checklist":      bool(RCA_CHECKLIST_SHEET_ID),
-        "sheet_export":   bool(RCA_EXPORT_SHEET_ID and GCP_SERVICE_ACCOUNT_JSON),
+        "sheet_export":   bool(RCA_EXPORT_SHEET_ID and
+                               (GCP_SERVICE_ACCOUNT_JSON or
+                                _sheets_connector_available())),
     }
     return checks.get(service, False)
 

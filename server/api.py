@@ -904,13 +904,14 @@ def _sheet_blocked_by() -> str:
     that needs a request to Google, which a heartbeat must not make. So the
     empty return means "nothing wrong from here", not "the write will work" —
     the two are different claims and only the first is knowable without the
-    network.
+    network. (On the connector route there is no sharing step at all, so the
+    gap between those two claims closes.)
     """
-    from server.config import GCP_SERVICE_ACCOUNT_JSON, RCA_EXPORT_SHEET_ID
-    from server.services.sheet_export import credential_problem
+    from server.config import RCA_EXPORT_SHEET_ID
+    from server.services.sheet_export import auth_source
     if not RCA_EXPORT_SHEET_ID:
         return "RCA_EXPORT_SHEET_ID is unset"
-    return credential_problem(GCP_SERVICE_ACCOUNT_JSON)
+    return auth_source()[1]
 
 
 @router.get("/api/heartbeat")
@@ -947,6 +948,13 @@ def heartbeat(db: Session = Depends(get_session)):
     # last reader to re-share a spreadsheet whose sharing was fine.
     if not checks["sheet"]:
         out["sheet_blocked_by"] = _sheet_blocked_by()
+    else:
+        # WHICH ONE. Two credentials can satisfy this and they fail
+        # differently afterwards — a service account still needs the sheet
+        # shared with it, the connector does not. "true" alone would not say
+        # which of those futures you are in.
+        from server.services.sheet_export import auth_source
+        out["sheet_auth"] = auth_source()[0]
     return out
 
 

@@ -600,9 +600,16 @@ def test_the_heartbeat_names_which_of_the_three_causes_it_is(client,
     monkeypatch.setattr(cfg, "RCA_EXPORT_SHEET_ID", "sheet123")
 
     monkeypatch.setattr(cfg, "GCP_SERVICE_ACCOUNT_JSON", "")
+    monkeypatch.setattr(X, "_connector_available", lambda: False)
     body = client.get("/api/heartbeat").json()
     assert body["checks"]["sheet"] is False
-    assert "not set" in body["sheet_blocked_by"]
+    # BOTH ROUTES, not just the variable name. There are two ways to
+    # authenticate and the one this env var points at is the harder of them —
+    # it is the route that needs the sheet shared with a stranger. Naming only
+    # it is how an afternoon goes into GCP for a key that was never needed.
+    blocked = body["sheet_blocked_by"]
+    assert "GCP_SERVICE_ACCOUNT_JSON" in blocked
+    assert "Connectors" in blocked, blocked
 
     monkeypatch.setattr(cfg, "GCP_SERVICE_ACCOUNT_JSON",
                         '{"type":"service_account",...}')

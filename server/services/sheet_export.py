@@ -92,6 +92,45 @@ def credential_problem(raw: str) -> str:
                 "header in it, so the key body did not survive the paste.")
     return ""
 
+
+def _connector_available() -> bool:
+    try:
+        from server.services.sheets_connector import available
+        return available()
+    except Exception:
+        return False
+
+
+def auth_source() -> tuple[str, str]:
+    """(which credential will be used, what is wrong with it). "" == fine.
+
+    ONE DECISION, IN ONE PLACE. There are two ways to authenticate — the
+    Replit Google Sheets connector, as BigQuery and Zendesk already do, and a
+    service-account key — and the recurring defect in this project is the same
+    rule implemented twice and drifting. _hdr(), the heartbeat and the
+    preflight all ask this; none of them decides for itself.
+
+    The connector wins when present because it has NO SHARING STEP: it is
+    OAuth as the person who connected it, and they already own the sheet. A
+    service account is a stranger to the Drive and needs the sheet shared with
+    its client_email, which is the step that has been misdiagnosed twice.
+
+    Returns ("none", why) when neither is usable — never ("", "").
+    """
+    if _connector_available():
+        from server.services.sheets_connector import scope_problem
+        return "connector", scope_problem()
+    from server.config import GCP_SERVICE_ACCOUNT_JSON
+    why = credential_problem(GCP_SERVICE_ACCOUNT_JSON)
+    if not GCP_SERVICE_ACCOUNT_JSON:
+        # BOTH ROUTES NAMED, because both are open and the easier one is not
+        # the one the variable name points at.
+        return "none", ("no Google credential: neither the Replit Google "
+                        "Sheets connector (Tools → Connectors → Google "
+                        "Sheets) nor GCP_SERVICE_ACCOUNT_JSON is set. The "
+                        "connector needs no sharing step; the key does.")
+    return "service_account", why
+
 # The header, and the only definition of it. Order is the sheet's column order;
 # changing it is a breaking change to any sheet already populated, which is why
 # check_header() exists.
@@ -398,10 +437,16 @@ class SheetIO:
             # not installed everywhere this runs, and importing it first meant
             # a bad credential reported ModuleNotFoundError — a third way for
             # the same misconfiguration to name the wrong culprit.
-            from server.config import GCP_SERVICE_ACCOUNT_JSON
-            why = credential_problem(GCP_SERVICE_ACCOUNT_JSON)
-            if why:
+            src, why = auth_source()
+            if why or src == "none":
                 raise RuntimeError(why)
+            if src == "connector":
+                # OAuth as the person who connected it. No google-auth, no
+                # key, and nothing to share — they already own the sheet.
+                from server.services.sheets_connector import token
+                self._token = token()
+                return {"Authorization": f"Bearer {self._token}"}
+            from server.config import GCP_SERVICE_ACCOUNT_JSON
             from google.auth.transport.requests import Request as _Req
             from google.oauth2 import service_account
             info = json.loads(GCP_SERVICE_ACCOUNT_JSON)
