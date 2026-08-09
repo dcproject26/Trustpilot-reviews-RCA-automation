@@ -222,3 +222,33 @@ def test_a_usable_key_still_takes_the_service_account_branch(monkeypatch):
     import server.services.bigquery as BQ
     assert BQ.credential_problem(GOOD) == "", \
         "a good key reads as unusable, so the fallback would always fire"
+
+
+# ── two mutation survivors ──────────────────────────────────────────────────
+
+def test_is_live_says_the_export_is_on_with_only_a_connector(monkeypatch):
+    """SURVIVED A MUTATION: reverting is_live("sheet_export") to require
+    GCP_SERVICE_ACCOUNT_JSON killed nothing.
+
+    That reversion is the whole bug being fixed — with a connector bound and
+    no key, is_live would be False, _write() would log "not exporting … is
+    unset" and return {"skipped"}, and the export would sit inert next to a
+    perfectly good connection. Nothing asserted otherwise, so the clause could
+    be deleted in silence.
+    """
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "RCA_EXPORT_SHEET_ID", "sheet123")
+    monkeypatch.setattr(cfg, "GCP_SERVICE_ACCOUNT_JSON", "")
+    monkeypatch.setattr(cfg, "_sheets_connector_available", lambda: True)
+    monkeypatch.setattr(cfg, "MOCK_MODE", False)
+    assert cfg.is_live("sheet_export") is True
+
+
+def test_is_live_says_the_export_is_off_with_neither(monkeypatch):
+    """The converse, or the test above passes against a clause hardcoded True."""
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "RCA_EXPORT_SHEET_ID", "sheet123")
+    monkeypatch.setattr(cfg, "GCP_SERVICE_ACCOUNT_JSON", "")
+    monkeypatch.setattr(cfg, "_sheets_connector_available", lambda: False)
+    monkeypatch.setattr(cfg, "MOCK_MODE", False)
+    assert cfg.is_live("sheet_export") is False

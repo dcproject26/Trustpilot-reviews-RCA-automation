@@ -647,3 +647,24 @@ def test_the_heartbeat_does_not_ask_google_anything(client, monkeypatch):
                         lambda self: called.append(1) or ([], []))
     assert client.get("/api/heartbeat").json()["checks"]["sheet"] is True
     assert called == [], "the heartbeat reached out to Google"
+
+
+def test_the_heartbeat_says_WHICH_credential_it_used(client, monkeypatch):
+    """SURVIVED A MUTATION: hardcoding sheet_auth to "connector" killed
+    nothing. The field was added and never asserted, so it reported a constant.
+
+    It exists because the two credentials fail DIFFERENTLY after this point —
+    a service account still needs the sheet shared with its client_email, the
+    connector has no sharing step at all. A field that always says the same
+    thing does not distinguish those futures; it just looks like it does.
+    """
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "RCA_EXPORT_SHEET_ID", "sheet123")
+    monkeypatch.setattr(cfg, "GCP_SERVICE_ACCOUNT_JSON", GOOD_CRED)
+    monkeypatch.setattr(X, "_connector_available", lambda: False)
+    assert client.get("/api/heartbeat").json()["sheet_auth"] == "service_account"
+
+    monkeypatch.setattr(X, "_connector_available", lambda: True)
+    from server.services import sheets_connector as SC
+    monkeypatch.setattr(SC, "scope_problem", lambda: "")
+    assert client.get("/api/heartbeat").json()["sheet_auth"] == "connector"
