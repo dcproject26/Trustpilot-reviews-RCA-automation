@@ -176,3 +176,85 @@ def test_guest_facing_events_are_never_collapsed():
 def test_a_span_of_one_moment_does_not_read_as_a_range():
     line = ping_summary({"count": 2, "from": "02 Aug 09:14", "to": "02 Aug 09:14"})
     assert "to" not in line.replace("Aug", ""), line
+
+
+# ── what makes two pings "the same" ────────────────────────────────────────
+#
+# TWO MUTATIONS SURVIVED THE WHOLE SUITE HERE, and the reason is visible in
+# the tests above: every one of them collapses the SAME STRING repeated. When
+# the bodies are already identical `_ping_key` has nothing to normalise, so
+# deleting the digit-stripping passed, and deleting the punctuation-stripping
+# passed too.
+#
+# The function exists for the case those tests do not have. The pings carry
+# ticket numbers and timestamps, so the four rows on a real card were never
+# byte-identical — normalising is the whole reason they collapse at all.
+
+def test_pings_differing_only_by_an_id_still_collapse():
+    """The real ones carry a ticket number. Without the digit-stripping they
+    are four distinct strings and four rows stay on screen — which is the
+    state this function was written to end."""
+    kept, groups = collapse_repeats([
+        _ev("02 Aug 09:14", f"{PING} (ref 33978941)"),
+        _ev("02 Aug 15:22", f"{PING} (ref 33978955)"),
+        _ev("03 Aug 10:07", f"{PING} (ref 34335318)")])
+    assert len(groups) == 1, groups
+    assert groups[0]["count"] == 3
+
+
+def test_pings_differing_only_by_a_timestamp_still_collapse():
+    kept, groups = collapse_repeats([
+        _ev("02 Aug 09:14", f"{PING} at 09:14"),
+        _ev("02 Aug 15:22", f"{PING} at 15:22")])
+    assert len(groups) == 1 and groups[0]["count"] == 2, groups
+
+
+def test_pings_differing_only_by_punctuation_still_collapse():
+    """The same message re-sent by a different system arrives with different
+    spacing and brackets. Two rows for one event is the same defect as four."""
+    kept, groups = collapse_repeats([
+        _ev("02 Aug 09:14", PING),
+        _ev("02 Aug 15:22", "  Customer Reschedule Request -- can't be pushed "
+                            "to Pending, until it's pending on SP!!  ")])
+    assert len(groups) == 1 and groups[0]["count"] == 2, groups
+
+
+def test_two_genuinely_different_pings_do_not_collapse():
+    """THE INVERSE, and it is what stops the normalisation going too far. A
+    key that strips enough to merge these would hide a second, different
+    failure behind the first one's count."""
+    kept, groups = collapse_repeats([
+        _ev("02 Aug 09:14", PING),
+        _ev("02 Aug 15:22", "Refund of GBP 5.12 could not be processed.")])
+    assert groups == [], groups
+    assert len(kept) == 2, kept
+
+
+def test_the_number_itself_is_not_what_distinguishes_them():
+    """`_ping_key` maps every run of digits to a single '#', so "ref 1" and
+    "ref 33978941" are one key. A length-sensitive replacement would leave
+    them apart."""
+    from server.ticket_notes import _ping_key
+    assert _ping_key(f"{PING} ref 1") == _ping_key(f"{PING} ref 33978941")
+    assert _ping_key(PING) != _ping_key("Refund could not be processed")
+
+
+def test_a_ping_with_a_number_is_not_the_same_as_one_without():
+    """WHAT THE DIGIT STEP ACTUALLY BUYS, and the last mutation to survive
+    here. The second regex already strips digits — they are not in `[a-z# ]`,
+    so they become spaces either way, and every test above passes without the
+    first step at all.
+
+    Mapping digits to '#' FIRST keeps "there was a number here" as a
+    distinguishing feature. Without it "Refund of 5 tickets processed" and
+    "Refund of tickets processed" normalise to the same string and collapse
+    into one row — two different messages reported as one repeated one, with
+    the count hiding the difference."""
+    from server.ticket_notes import _ping_key
+    assert _ping_key("Refund of 5 tickets processed") \
+        != _ping_key("Refund of tickets processed")
+    kept, groups = collapse_repeats([
+        _ev("02 Aug 09:14", "Refund of 5 tickets processed"),
+        _ev("02 Aug 15:22", "Refund of tickets processed")])
+    assert groups == [], groups
+    assert len(kept) == 2, kept
