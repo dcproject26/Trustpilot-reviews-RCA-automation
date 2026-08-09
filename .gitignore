@@ -2,6 +2,15 @@ __pycache__/
 *.pyc
 .venv/
 
+# Real secrets. server/config.py calls load_dotenv(), so this file is how a
+# shell gets the credentials the deployment holds — which means it is where
+# a service-account PRIVATE KEY ends up, in a repo where `.env.example` is
+# tracked one character away from it. Ignore the real one explicitly and
+# un-ignore the example, so adding a key here cannot be staged by `git add -A`.
+.env
+.env.*
+!.env.example
+
 # Local SQLite state. Each box has its own reviews/drafts; committing one
 # would overwrite another machine's data on pull, and the journal/WAL
 # siblings churn on every write.
