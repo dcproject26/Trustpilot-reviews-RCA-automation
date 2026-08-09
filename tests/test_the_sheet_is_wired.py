@@ -356,3 +356,124 @@ def test_ingest_calls_the_arrival_hook(live_db, client, monkeypatch):
     r = client.post("/api/reviews/refresh-slack?hours=1")
     assert r.status_code == 200, r.text
     assert seen, "a review was ingested and no arrival row was written"
+
+
+# ── the preflight, which has to be trustworthy or it is worse than nothing ──
+#
+# The write happens inside /refresh-slack and /send, where a failure is caught,
+# logged and deliberately ignored — the review going out matters more than the
+# row. So the first sign of a misconfigured sheet is an empty spreadsheet and a
+# log line nobody watches. This asks the same questions in the open, and four
+# different causes must not print alike.
+
+def _check(capsys, *argv, **env):
+    from scripts.check_sheet import main
+    rc = main(list(argv))
+    return rc, capsys.readouterr().out
+
+
+def test_unconfigured_says_inert_not_broken(capsys, monkeypatch):
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "is_live", lambda svc: False)
+    rc, out = _check(capsys)
+    assert rc == 1
+    assert "INERT" in out and "Nothing is written and nothing is broken" in out
+
+
+def test_an_unreachable_sheet_names_the_sharing_not_the_data(capsys,
+                                                             monkeypatch):
+    """A credential that reads three other sheets proves nothing here — those
+    are all read-only. The message has to say so or the reader goes looking at
+    the rows."""
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "is_live", lambda svc: True)
+    monkeypatch.setattr(X.SheetIO, "resolve_tab",
+                        lambda self: (_ for _ in ()).throw(
+                            RuntimeError("403 caller has no access")))
+    rc, out = _check(capsys)
+    assert rc == 1
+    assert "SHARED WITH THE SERVICE ACCOUNT" in out
+    assert "403" in out
+
+
+def test_a_mismatched_header_refuses_and_says_why_it_matters(capsys,
+                                                             monkeypatch):
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "is_live", lambda svc: True)
+    monkeypatch.setattr(X.SheetIO, "resolve_tab", lambda self: "RCA log")
+    monkeypatch.setattr(X.SheetIO, "read_column_a_and_header",
+                        lambda self: (["review_id", "wrong"], []))
+    rc, out = _check(capsys)
+    assert rc == 1
+    assert "REFUSED" in out
+    assert "one place left" in out, "the consequence is not stated"
+
+
+def test_an_empty_tab_is_reported_as_ready_not_as_a_fault(capsys, monkeypatch):
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "is_live", lambda svc: True)
+    monkeypatch.setattr(X.SheetIO, "resolve_tab", lambda self: "RCA log")
+    monkeypatch.setattr(X.SheetIO, "read_column_a_and_header",
+                        lambda self: ([], []))
+    rc, out = _check(capsys)
+    assert rc == 0
+    assert "EMPTY" in out and "header will be written" in out
+
+
+def test_it_plans_both_phases_for_a_review(live_db, capsys, monkeypatch):
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "is_live", lambda svc: True)
+    monkeypatch.setattr(X.SheetIO, "resolve_tab", lambda self: "RCA log")
+    monkeypatch.setattr(X.SheetIO, "read_column_a_and_header",
+                        lambda self: (list(X.COLUMNS), []))
+    _seed(live_db, "tp_pf")
+    rc, out = _check(capsys, "tp_pf")
+    assert rc == 0
+    assert "PHASE RECEIVED" in out and "PHASE SENT" in out
+    assert "APPEND a new row" in out
+
+
+def test_a_completion_with_no_arrival_row_is_shown_as_refused(live_db, capsys,
+                                                              monkeypatch):
+    """The state that matters most: it looks like nothing happened, and the
+    reason is upstream."""
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "is_live", lambda svc: True)
+    monkeypatch.setattr(X.SheetIO, "resolve_tab", lambda self: "RCA log")
+    monkeypatch.setattr(X.SheetIO, "read_column_a_and_header",
+                        lambda self: (list(X.COLUMNS), []))
+    _seed(live_db, "tp_pf2")
+    rc, out = _check(capsys, "tp_pf2", "--stage", "sent")
+    assert rc == 0
+    assert "REFUSED" in out and "Run the arrival phase first" in out
+
+
+def test_the_dry_run_writes_nothing(live_db, capsys, monkeypatch):
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "is_live", lambda svc: True)
+    monkeypatch.setattr(X.SheetIO, "resolve_tab", lambda self: "RCA log")
+    monkeypatch.setattr(X.SheetIO, "read_column_a_and_header",
+                        lambda self: (list(X.COLUMNS), []))
+    wrote = []
+    monkeypatch.setattr(X, "on_review_arrived", lambda r: wrote.append("a"))
+    monkeypatch.setattr(X, "on_review_finished", lambda r, d: wrote.append("b"))
+    _seed(live_db, "tp_pf3")
+    rc, out = _check(capsys, "tp_pf3")
+    assert rc == 0 and wrote == [], wrote
+    assert "DRY RUN" in out
+
+
+def test_apply_writes_both_phases(live_db, capsys, monkeypatch):
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "is_live", lambda svc: True)
+    monkeypatch.setattr(X.SheetIO, "resolve_tab", lambda self: "RCA log")
+    monkeypatch.setattr(X.SheetIO, "read_column_a_and_header",
+                        lambda self: (list(X.COLUMNS), []))
+    wrote = []
+    monkeypatch.setattr(X, "on_review_arrived", lambda r: wrote.append("a") or {})
+    monkeypatch.setattr(X, "on_review_finished",
+                        lambda r, d: wrote.append("b") or {})
+    _seed(live_db, "tp_pf4")
+    rc, out = _check(capsys, "tp_pf4", "--apply")
+    assert rc == 0 and wrote == ["a", "b"], wrote
+    assert "DRY RUN" not in out
