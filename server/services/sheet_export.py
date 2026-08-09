@@ -32,6 +32,66 @@ log = logging.getLogger(__name__)
 
 SCOPE_RW = "https://www.googleapis.com/auth/spreadsheets"
 
+# Required by google.oauth2 to build an identity at all. Checked here so a
+# missing one is named rather than raised from inside the library.
+_CRED_KEYS = ("client_email", "private_key", "token_uri")
+
+
+def credential_problem(raw: str) -> str:
+    """What is wrong with GCP_SERVICE_ACCOUNT_JSON, in words. "" if nothing.
+
+    WHY THIS IS SEPARATE FROM THE SHARING CHECK. A credential that will not
+    parse and a sheet that is not shared both surface as one thing from the
+    outside — "could not read the spreadsheet" — and the fixes for them are
+    opposite. This was not hypothetical: a placeholder pasted verbatim
+    (`{"type":"service_account",...}`) raised a bare JSONDecodeError from
+    json.loads, which arrived under the heading COULD NOT READ THE
+    SPREADSHEET, and the advice printed underneath was to go share the sheet
+    with the service account. The sharing was never the problem and the
+    credential had never been read.
+
+    So: everything knowable WITHOUT the network is decided here, and named.
+    Anything this returns "" for has a real credential behind it, and a
+    failure after that point genuinely is the sheet or the sharing.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return ("GCP_SERVICE_ACCOUNT_JSON is not set, so there is no identity "
+                "to write as. This is the secret to add; the sheet ALSO has "
+                "to be shared with that identity as an editor.")
+    if "..." in raw[:200]:
+        # The placeholder in .env.example and in every set-up instruction ends
+        # with `...`. Pasted as-is it is non-empty, so `creds set` reads true
+        # and is_live() says the export is on.
+        return ("GCP_SERVICE_ACCOUNT_JSON still contains '...', so what was "
+                "pasted is the PLACEHOLDER, not a key. It has to be the whole "
+                "service-account JSON, on one line.")
+    try:
+        info = json.loads(raw)
+    except Exception as e:
+        if not raw.endswith("}"):
+            # A service-account file is pretty-printed over many lines. Pasted
+            # into a .env, everything after the first newline is a separate
+            # line the parser never sees.
+            return (f"GCP_SERVICE_ACCOUNT_JSON is not valid JSON ({e}) and "
+                    f"does not end in '}}', which is what a multi-line JSON "
+                    f"file pasted into a single-line .env looks like. It has "
+                    f"to be one line.")
+        return (f"GCP_SERVICE_ACCOUNT_JSON is not valid JSON ({e}). This is "
+                f"the value itself, not the sheet and not the sharing.")
+    if not isinstance(info, dict):
+        return (f"GCP_SERVICE_ACCOUNT_JSON parsed as {type(info).__name__}, "
+                f"not an object. It has to be the service-account JSON.")
+    missing = [k for k in _CRED_KEYS if not str(info.get(k) or "").strip()]
+    if missing:
+        return (f"GCP_SERVICE_ACCOUNT_JSON is missing {', '.join(missing)}. "
+                f"That is not a whole service-account key — check nothing was "
+                f"truncated on the way in.")
+    if "PRIVATE KEY" not in info["private_key"]:
+        return ("GCP_SERVICE_ACCOUNT_JSON has a private_key with no PEM "
+                "header in it, so the key body did not survive the paste.")
+    return ""
+
 # The header, and the only definition of it. Order is the sheet's column order;
 # changing it is a breaking change to any sheet already populated, which is why
 # check_header() exists.
@@ -334,15 +394,16 @@ class SheetIO:
     # -- auth ---------------------------------------------------------------
     def _hdr(self):
         if self._token is None:
+            # THE CHECK COMES FIRST, BEFORE THE LIBRARY IMPORT. google-auth is
+            # not installed everywhere this runs, and importing it first meant
+            # a bad credential reported ModuleNotFoundError — a third way for
+            # the same misconfiguration to name the wrong culprit.
+            from server.config import GCP_SERVICE_ACCOUNT_JSON
+            why = credential_problem(GCP_SERVICE_ACCOUNT_JSON)
+            if why:
+                raise RuntimeError(why)
             from google.auth.transport.requests import Request as _Req
             from google.oauth2 import service_account
-            from server.config import GCP_SERVICE_ACCOUNT_JSON
-            if not GCP_SERVICE_ACCOUNT_JSON:
-                raise RuntimeError(
-                    "GCP_SERVICE_ACCOUNT_JSON is not set, so there is no "
-                    "identity to write as. Reading uses the same credential; "
-                    "writing additionally needs the sheet SHARED WITH THE "
-                    "SERVICE ACCOUNT as an editor.")
             info = json.loads(GCP_SERVICE_ACCOUNT_JSON)
             # The read-write scope. Everything else in this codebase asks for
             # spreadsheets.readonly, and a readonly token fails the write with

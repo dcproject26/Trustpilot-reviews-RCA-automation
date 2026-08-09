@@ -21,6 +21,8 @@ duplicate.
 """
 from datetime import datetime
 
+import json
+
 import pytest
 
 from server.services import sheet_export as X
@@ -372,6 +374,25 @@ def _check(capsys, *argv, **env):
     return rc, capsys.readouterr().out
 
 
+# A credential that is well-formed but fake. is_live("sheet_export") reads
+# GCP_SERVICE_ACCOUNT_JSON, so "live with no credential" is a state the real
+# config cannot be in — every preflight test below used to stub exactly that,
+# and so ran against a machine that could not exist.
+GOOD_CRED = json.dumps({
+    "type": "service_account",
+    "client_email": "rca@proj.iam.gserviceaccount.com",
+    "private_key": "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----\n",
+    "token_uri": "https://oauth2.googleapis.com/token",
+})
+
+
+def _configured(monkeypatch):
+    """Live AND holding a usable credential — the two go together."""
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "is_live", lambda svc: True)
+    monkeypatch.setattr(cfg, "GCP_SERVICE_ACCOUNT_JSON", GOOD_CRED)
+
+
 def test_unconfigured_says_inert_not_broken(capsys, monkeypatch):
     import server.config as cfg
     monkeypatch.setattr(cfg, "is_live", lambda svc: False)
@@ -412,21 +433,25 @@ def test_an_unreachable_sheet_names_the_sharing_not_the_data(capsys,
     """A credential that reads three other sheets proves nothing here — those
     are all read-only. The message has to say so or the reader goes looking at
     the rows."""
-    import server.config as cfg
-    monkeypatch.setattr(cfg, "is_live", lambda svc: True)
+    _configured(monkeypatch)
     monkeypatch.setattr(X.SheetIO, "resolve_tab",
                         lambda self: (_ for _ in ()).throw(
                             RuntimeError("403 caller has no access")))
     rc, out = _check(capsys)
     assert rc == 1
-    assert "SHARED WITH THE SERVICE ACCOUNT" in out
+    assert "SHARING" in out
+    assert "read-only" in out, "the reason a working read proves nothing"
     assert "403" in out
+    # AND THE CONVERSE, now that the credential is checked first: having
+    # cleared it, this branch must not hedge back to blaming it. "credential
+    # or sharing" is what sent the last reader to re-paste a key that was
+    # never wrong.
+    assert "credential above is well-formed" in out, out
 
 
 def test_a_mismatched_header_refuses_and_says_why_it_matters(capsys,
                                                              monkeypatch):
-    import server.config as cfg
-    monkeypatch.setattr(cfg, "is_live", lambda svc: True)
+    _configured(monkeypatch)
     monkeypatch.setattr(X.SheetIO, "resolve_tab", lambda self: "RCA log")
     monkeypatch.setattr(X.SheetIO, "read_column_a_and_header",
                         lambda self: (["review_id", "wrong"], []))
@@ -437,8 +462,7 @@ def test_a_mismatched_header_refuses_and_says_why_it_matters(capsys,
 
 
 def test_an_empty_tab_is_reported_as_ready_not_as_a_fault(capsys, monkeypatch):
-    import server.config as cfg
-    monkeypatch.setattr(cfg, "is_live", lambda svc: True)
+    _configured(monkeypatch)
     monkeypatch.setattr(X.SheetIO, "resolve_tab", lambda self: "RCA log")
     monkeypatch.setattr(X.SheetIO, "read_column_a_and_header",
                         lambda self: ([], []))
@@ -448,8 +472,7 @@ def test_an_empty_tab_is_reported_as_ready_not_as_a_fault(capsys, monkeypatch):
 
 
 def test_it_plans_both_phases_for_a_review(live_db, capsys, monkeypatch):
-    import server.config as cfg
-    monkeypatch.setattr(cfg, "is_live", lambda svc: True)
+    _configured(monkeypatch)
     monkeypatch.setattr(X.SheetIO, "resolve_tab", lambda self: "RCA log")
     monkeypatch.setattr(X.SheetIO, "read_column_a_and_header",
                         lambda self: (list(X.COLUMNS), []))
@@ -464,8 +487,7 @@ def test_a_completion_with_no_arrival_row_is_shown_as_refused(live_db, capsys,
                                                               monkeypatch):
     """The state that matters most: it looks like nothing happened, and the
     reason is upstream."""
-    import server.config as cfg
-    monkeypatch.setattr(cfg, "is_live", lambda svc: True)
+    _configured(monkeypatch)
     monkeypatch.setattr(X.SheetIO, "resolve_tab", lambda self: "RCA log")
     monkeypatch.setattr(X.SheetIO, "read_column_a_and_header",
                         lambda self: (list(X.COLUMNS), []))
@@ -476,8 +498,7 @@ def test_a_completion_with_no_arrival_row_is_shown_as_refused(live_db, capsys,
 
 
 def test_the_dry_run_writes_nothing(live_db, capsys, monkeypatch):
-    import server.config as cfg
-    monkeypatch.setattr(cfg, "is_live", lambda svc: True)
+    _configured(monkeypatch)
     monkeypatch.setattr(X.SheetIO, "resolve_tab", lambda self: "RCA log")
     monkeypatch.setattr(X.SheetIO, "read_column_a_and_header",
                         lambda self: (list(X.COLUMNS), []))
@@ -491,8 +512,7 @@ def test_the_dry_run_writes_nothing(live_db, capsys, monkeypatch):
 
 
 def test_apply_writes_both_phases(live_db, capsys, monkeypatch):
-    import server.config as cfg
-    monkeypatch.setattr(cfg, "is_live", lambda svc: True)
+    _configured(monkeypatch)
     monkeypatch.setattr(X.SheetIO, "resolve_tab", lambda self: "RCA log")
     monkeypatch.setattr(X.SheetIO, "read_column_a_and_header",
                         lambda self: (list(X.COLUMNS), []))
@@ -504,3 +524,119 @@ def test_apply_writes_both_phases(live_db, capsys, monkeypatch):
     rc, out = _check(capsys, "tp_pf4", "--apply")
     assert rc == 0 and wrote == ["a", "b"], wrote
     assert "DRY RUN" not in out
+
+
+def test_the_preflight_stops_at_a_bad_credential_and_clears_the_sharing(
+        capsys, monkeypatch):
+    """THE FAILURE THIS SECTION GAINED A FIFTH CAUSE FOR.
+
+    The placeholder from the setup instructions was pasted into .env verbatim.
+    Being non-empty, it satisfied `creds set` and is_live(), so the preflight
+    went straight past CONFIG, raised JSONDecodeError inside resolve_tab, and
+    printed it under COULD NOT READ THE SPREADSHEET — followed by advice to
+    share the sheet with the service account. That advice sent the reader to
+    change permissions on a sheet whose permissions were fine, for an identity
+    that had never been constructed.
+
+    Two things are asserted, and the second matters more: it must NOT talk
+    about sharing. Naming the real cause while still printing the wrong one
+    leaves both on the page and the reader picks either.
+    """
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "is_live", lambda svc: True)
+    monkeypatch.setattr(cfg, "GCP_SERVICE_ACCOUNT_JSON",
+                        '{"type":"service_account",...}')
+    reached = []
+    monkeypatch.setattr(X.SheetIO, "resolve_tab",
+                        lambda self: reached.append(1))
+    rc, out = _check(capsys)
+    assert rc == 1
+    assert "PLACEHOLDER" in out, out
+    assert "SHARED WITH THE SERVICE ACCOUNT" not in out, \
+        "it still told them to go fix the sharing"
+    assert reached == [], "it asked Google something with an unusable key"
+
+
+def test_a_good_credential_prints_the_address_to_share_with(capsys,
+                                                            monkeypatch):
+    """The other half: having found nothing wrong, it has to SAY it looked,
+    and the useful form of that is the address — which is otherwise buried in
+    a one-line secret nobody wants to echo."""
+    _configured(monkeypatch)
+    monkeypatch.setattr(X.SheetIO, "resolve_tab", lambda self: "RCA log")
+    monkeypatch.setattr(X.SheetIO, "read_column_a_and_header",
+                        lambda self: ([], []))
+    rc, out = _check(capsys)
+    assert rc == 0
+    assert "rca@proj.iam.gserviceaccount.com" in out
+    assert "shared with, as Editor" in out
+    assert "-----BEGIN" not in out, "it echoed the private key"
+
+
+# ── the heartbeat, which is the only place a DEPLOYMENT can be asked ────────
+#
+# The write is caught and logged inside /send, the preflight only runs in a
+# shell, and a Replit shell does not see deployment secrets. So for the one
+# process that actually writes, the sole evidence was a log line after an
+# ingest — you had to make a review arrive to find out whether the credential
+# existed. /api/heartbeat is public and already answers this for six other
+# services; the sheet was simply missing from it.
+
+def test_the_heartbeat_reports_the_sheet(client, monkeypatch):
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "GCP_SERVICE_ACCOUNT_JSON", GOOD_CRED)
+    monkeypatch.setattr(cfg, "RCA_EXPORT_SHEET_ID", "sheet123")
+    body = client.get("/api/heartbeat").json()
+    assert body["checks"]["sheet"] is True
+    assert "sheet_blocked_by" not in body, \
+        "it named a blocker while reporting the sheet as fine"
+
+
+def test_the_heartbeat_names_which_of_the_three_causes_it_is(client,
+                                                             monkeypatch):
+    """A bare false is what every other check gets, because the fix for all of
+    them is the same — set the secret. These three have different fixes."""
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "RCA_EXPORT_SHEET_ID", "sheet123")
+
+    monkeypatch.setattr(cfg, "GCP_SERVICE_ACCOUNT_JSON", "")
+    body = client.get("/api/heartbeat").json()
+    assert body["checks"]["sheet"] is False
+    assert "not set" in body["sheet_blocked_by"]
+
+    monkeypatch.setattr(cfg, "GCP_SERVICE_ACCOUNT_JSON",
+                        '{"type":"service_account",...}')
+    body = client.get("/api/heartbeat").json()
+    assert body["checks"]["sheet"] is False
+    assert "PLACEHOLDER" in body["sheet_blocked_by"], body["sheet_blocked_by"]
+
+    monkeypatch.setattr(cfg, "GCP_SERVICE_ACCOUNT_JSON", GOOD_CRED)
+    monkeypatch.setattr(cfg, "RCA_EXPORT_SHEET_ID", "")
+    body = client.get("/api/heartbeat").json()
+    assert "RCA_EXPORT_SHEET_ID" in body["sheet_blocked_by"]
+
+
+def test_the_heartbeat_never_echoes_the_key(client, monkeypatch):
+    """It is a PUBLIC endpoint — no auth. Naming the cause must not become
+    printing the credential."""
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "GCP_SERVICE_ACCOUNT_JSON",
+                        '{"client_email":"a@b.iam","private_key":"SEKRIT",'
+                        '"token_uri":"u"}')
+    raw = client.get("/api/heartbeat").text
+    assert "SEKRIT" not in raw and "PEM" in raw
+
+
+def test_the_heartbeat_does_not_ask_google_anything(client, monkeypatch):
+    """A monitoring endpoint that makes an outbound request per poll is a
+    different thing from the one being added here. The sharing is therefore
+    NOT covered by this check, and the docstring has to keep saying so."""
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "GCP_SERVICE_ACCOUNT_JSON", GOOD_CRED)
+    monkeypatch.setattr(cfg, "RCA_EXPORT_SHEET_ID", "sheet123")
+    called = []
+    monkeypatch.setattr(X.SheetIO, "resolve_tab", lambda self: called.append(1))
+    monkeypatch.setattr(X.SheetIO, "read_column_a_and_header",
+                        lambda self: called.append(1) or ([], []))
+    assert client.get("/api/heartbeat").json()["checks"]["sheet"] is True
+    assert called == [], "the heartbeat reached out to Google"

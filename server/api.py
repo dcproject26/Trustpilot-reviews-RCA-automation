@@ -891,6 +891,28 @@ def health():
     return status_summary()
 
 
+def _sheet_blocked_by() -> str:
+    """Why the sheet export cannot write, in words. "" when it can.
+
+    WHY THIS IS NOT is_live("sheet_export"). That is bool(sheet_id and
+    credential), and the sheet id has a hardcoded default — so it reduces to
+    "the credential variable is non-empty", which a placeholder pasted verbatim
+    satisfies. It reported the export as live on a box whose credential had
+    never parsed.
+
+    What it CANNOT say is whether the sheet is shared with the service account;
+    that needs a request to Google, which a heartbeat must not make. So the
+    empty return means "nothing wrong from here", not "the write will work" —
+    the two are different claims and only the first is knowable without the
+    network.
+    """
+    from server.config import GCP_SERVICE_ACCOUNT_JSON, RCA_EXPORT_SHEET_ID
+    from server.services.sheet_export import credential_problem
+    if not RCA_EXPORT_SHEET_ID:
+        return "RCA_EXPORT_SHEET_ID is unset"
+    return credential_problem(GCP_SERVICE_ACCOUNT_JSON)
+
+
 @router.get("/api/heartbeat")
 def heartbeat(db: Session = Depends(get_session)):
     """Public monitoring endpoint — no auth required."""
@@ -910,14 +932,22 @@ def heartbeat(db: Session = Depends(get_session)):
         "dss":       is_live("dss"),
         "canned":    is_live("canned"),
         "checklist": is_live("checklist"),
+        "sheet":     not _sheet_blocked_by(),
     }
-    return {
+    out = {
         "ok":        True,
         "uptime_s":  int(time.time() - _START_TIME),
         "mock_mode": MOCK_MODE,
         "version":   version,
         "checks":    checks,
     }
+    # NAMED, NOT JUST FALSE. Every other check here is a boolean because the
+    # fix is the same for all of them — set the secret. The sheet has three
+    # distinct causes with three different fixes, and a bare false sent the
+    # last reader to re-share a spreadsheet whose sharing was fine.
+    if not checks["sheet"]:
+        out["sheet_blocked_by"] = _sheet_blocked_by()
+    return out
 
 
 @router.get("/api/reviews")

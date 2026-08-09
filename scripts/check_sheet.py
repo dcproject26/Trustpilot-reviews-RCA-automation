@@ -6,13 +6,20 @@ review going out matters more than the row. That is right, and it means the
 first sign of a misconfigured sheet is an empty spreadsheet and a line in a
 log nobody is watching. This asks the same questions in the open.
 
-FOUR THINGS CAN BE WRONG, and they fail in ways that read alike from the
+FIVE THINGS CAN BE WRONG, and they fail in ways that read alike from the
 outside — an empty sheet:
 
-  the credential          GCP_SERVICE_ACCOUNT_JSON unset, or the sheet not
-                          SHARED WITH THE SERVICE ACCOUNT as an editor. The
-                          same credential already reads three other sheets, so
-                          a working read proves nothing about this one.
+  the credential          GCP_SERVICE_ACCOUNT_JSON unset, malformed, or the
+                          placeholder pasted verbatim. Decided with no network
+                          at all, and reported on its own, because it used to
+                          be reported as a sharing problem — see below.
+  the sharing             the sheet not SHARED WITH THE SERVICE ACCOUNT as an
+                          editor. The same credential already reads three other
+                          sheets, so a working read proves nothing about this
+                          one. Only claimed once the credential is known good;
+                          a value that never parsed had no identity to share
+                          the sheet with, and saying "share it" sends you to
+                          fix something that was never broken.
   the tab                 the URL carries a gid, the API wants a name.
   the header              a column added in code and not in the sheet shifts
                           every value one place left and stays plausible.
@@ -80,6 +87,24 @@ def main(argv=None):
             print("  Set RCA_EXPORT_SHEET_ID to turn it on.")
         return 1
 
+    # THE CREDENTIAL, BEFORE THE NETWORK. `creds set` above is only "the
+    # variable is non-empty" — a placeholder pasted verbatim satisfies it, and
+    # used to fail later as COULD NOT READ THE SPREADSHEET with advice to go
+    # share the sheet. Everything decidable without a request is decided here
+    # so that a failure past this point really is the sheet or the sharing.
+    print("\n=== THE CREDENTIAL ===")
+    why = X.credential_problem(GCP_SERVICE_ACCOUNT_JSON)
+    if why:
+        print(f"  UNUSABLE: {why}")
+        print("\n  Nothing was asked of Google. The sharing is NOT implicated "
+              "— this value\n  never became an identity, so there was nothing "
+              "to share with.")
+        return 1
+    import json as _json
+    print(f"  parses, and is a service account: "
+          f"{_json.loads(GCP_SERVICE_ACCOUNT_JSON)['client_email']}")
+    print("  ^ THIS is the address the sheet must be shared with, as Editor.")
+
     io = X.SheetIO(RCA_EXPORT_SHEET_ID, RCA_EXPORT_SHEET_TAB)
 
     print("\n=== THE TAB ===")
@@ -87,10 +112,10 @@ def main(argv=None):
         name = io.resolve_tab()
     except Exception as e:
         print(f"  COULD NOT READ THE SPREADSHEET: {e}")
-        print("\n  This is the credential or the sharing, not the data. The "
-              "sheet has to be\n  SHARED WITH THE SERVICE ACCOUNT as an "
-              "editor — reading three other\n  sheets with the same credential "
-              "proves nothing, they are all read-only.")
+        print("\n  The credential above is well-formed, so this is the SHARING "
+              "or the sheet\n  id. Share it with the address printed above as "
+              "an editor — reading three\n  other sheets with the same "
+              "credential proves nothing, they are all\n  read-only.")
         return 1
     print(f"  writing to tab {name!r}")
 

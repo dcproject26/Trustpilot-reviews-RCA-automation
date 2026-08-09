@@ -11,6 +11,7 @@ sheet whose header is different. Every value lands one column left and the
 result reads as plausible data — dates under "author", ids under "rating" —
 which no amount of looking at the sheet will reveal.
 """
+import json
 from datetime import datetime
 
 import pytest
@@ -304,3 +305,97 @@ def test_the_write_asks_for_the_read_write_scope():
     rather than on the token."""
     assert SX.SCOPE_RW == "https://www.googleapis.com/auth/spreadsheets"
     assert not SX.SCOPE_RW.endswith(".readonly")
+
+
+# ── the credential, told apart from the sharing ─────────────────────────────
+#
+# WHAT HAPPENED. A placeholder was pasted verbatim into .env — the literal
+# `{"type":"service_account",...}` from the setup instructions. It is
+# non-empty, so config reported `creds set` and is_live() said the export was
+# on. json.loads then raised from inside _hdr(), the exception surfaced under
+# the heading COULD NOT READ THE SPREADSHEET, and the advice printed beneath
+# it was to go share the sheet with the service account. The sharing was fine.
+# There was no service account: the value had never parsed.
+#
+# These drive credential_problem() rather than assert on the text of the
+# script, and each asserts the SUBJECT of the complaint, not just that one
+# was made — a function that returned the same sentence for every input would
+# pass a mere truthiness check.
+
+def test_a_pasted_placeholder_is_named_as_a_placeholder():
+    why = SX.credential_problem('{"type":"service_account",...}')
+    assert "PLACEHOLDER" in why
+    assert "shar" not in why.lower(), f"it blamed the sharing: {why}"
+
+
+def test_an_unset_credential_says_it_is_the_secret_to_add():
+    why = SX.credential_problem("")
+    assert "not set" in why
+    assert SX.credential_problem("   ") == why, "whitespace read as a value"
+
+
+def test_a_multi_line_key_pasted_into_a_dotenv_is_named_as_truncation():
+    """A service-account file is pretty-printed. load_dotenv keeps the first
+    line only, so the value stops mid-object."""
+    why = SX.credential_problem('{"type": "service_account",')
+    assert "one line" in why
+    assert "shar" not in why.lower(), f"it blamed the sharing: {why}"
+
+
+def test_bad_json_that_is_complete_is_not_blamed_on_line_breaks():
+    """SURVIVED A MUTATION. Only the truncated case was asserted, so forcing
+    the truncation branch to always fire killed nothing — and every malformed
+    credential, however complete, would have been reported as "it has to be
+    one line". Sending someone to re-paste a value whose line breaks were
+    never the problem is the same wrong-culprit failure one layer down."""
+    why = SX.credential_problem('{"type": service_account}')
+    assert "not valid JSON" in why
+    assert "one line" not in why, f"it blamed line breaks on one line: {why}"
+    assert "not the sheet and not the sharing" in why
+
+
+def test_json_that_is_not_an_object_is_named_as_the_wrong_shape():
+    why = SX.credential_problem('["service_account"]')
+    assert "not an object" in why and "list" in why
+
+
+def test_a_key_missing_client_email_names_client_email():
+    why = SX.credential_problem(json.dumps(
+        {"private_key": "-- PRIVATE KEY --", "token_uri": "u"}))
+    assert "client_email" in why
+    assert "private_key" not in why, f"it named a field that was present: {why}"
+
+
+def test_a_private_key_with_no_pem_body_is_named():
+    why = SX.credential_problem(json.dumps(
+        {"client_email": "a@b.iam", "private_key": "xxx", "token_uri": "u"}))
+    assert "PEM" in why
+
+
+def test_a_well_formed_credential_is_not_complained_about():
+    """The other half of the rule: this must be able to say it looked and
+    found nothing wrong, or every credential is 'broken' and the check is
+    noise. A live token is NOT claimed — only that the value is usable."""
+    assert SX.credential_problem(json.dumps({
+        "type": "service_account",
+        "client_email": "rca@proj.iam.gserviceaccount.com",
+        "private_key": "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n",
+        "token_uri": "https://oauth2.googleapis.com/token",
+    })) == ""
+
+
+def test_the_auth_header_refuses_before_it_reaches_the_network():
+    """Driving the call site, not just the checker. _hdr() must consult
+    credential_problem BEFORE building an identity — a version that checked
+    only emptiness let the placeholder through to json.loads, which is the
+    whole bug."""
+    import server.config as C
+    io = SX.SheetIO("sheet123", "0")
+    old = C.GCP_SERVICE_ACCOUNT_JSON
+    C.GCP_SERVICE_ACCOUNT_JSON = '{"type":"service_account",...}'
+    try:
+        with pytest.raises(RuntimeError) as e:
+            io._hdr()
+    finally:
+        C.GCP_SERVICE_ACCOUNT_JSON = old
+    assert "PLACEHOLDER" in str(e.value), str(e.value)
