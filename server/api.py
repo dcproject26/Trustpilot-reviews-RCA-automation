@@ -925,20 +925,27 @@ def export_csv(x_export_key: str | None = Header(default=None),
     This needs nothing: the rows are the same COLUMNS, built by the same
     row_for(), and the file goes to whoever asks with the key.
 
-    IT REFUSES WHEN NO KEY IS SET, which is the opposite of _vs_auth below.
-    That helper reads `if expected and ...`, so with its variable unset the
-    endpoint serves anyone — fine for a booking lookup behind a fixed caller,
-    not fine for a file containing every review body, author name and booking
-    id in the database. An unset key here is a misconfiguration to report, not
-    a reason to hand the file over.
+    THE KEY IS OPTIONAL, AND WHICH MODE IT IS IN IS SAID OUT LOUD. Nothing
+    else in this application authenticates — /api/reviews, the dashboard and
+    every draft endpoint are open, and CORS is "*" — so demanding a key here
+    and nowhere else was friction rather than protection: the same data is one
+    unauthenticated endpoint away.
+
+    So with RCA_EXPORT_KEY unset the file is served, like everything else. The
+    part that is NOT copied from _vs_auth below is the silence. That helper
+    reads `if expected and ...` and an outsider cannot tell a guarded endpoint
+    from an unguarded one, which is this codebase's oldest failure wearing a
+    security hat. Here the mode rides back on X-Export-Auth and an open serve
+    logs a warning naming what would close it.
     """
     from server.services.sheet_export import rows_for_all, to_csv
     expected = os.environ.get("RCA_EXPORT_KEY", "")
-    if not expected:
-        raise HTTPException(503, "RCA_EXPORT_KEY is not set, so this export "
-                                 "is off. Set it, then pass it as X-Export-Key.")
-    if x_export_key != expected:
+    if expected and x_export_key != expected:
         raise HTTPException(401, "bad or missing X-Export-Key")
+    if not expected:
+        log.warning("[export] served with NO key — RCA_EXPORT_KEY is unset, so "
+                    "anyone who can reach this host can take the file. Set it "
+                    "to require X-Export-Key.")
 
     rows_in = [(r, r.draft) for r in
                db.query(Review).order_by(Review.received_at.desc()).all()]
@@ -957,6 +964,11 @@ def export_csv(x_export_key: str | None = Header(default=None),
             # scripting against it.
             "X-Export-Rows":   str(len(rows)),
             "X-Export-Failed": str(failed),
+            # WHICH MODE, from the outside. "open" is not a failure and not a
+            # secret — it is the honest description of an app where nothing
+            # else authenticates either, and it is the only way to tell a
+            # guarded endpoint from an unguarded one without the source.
+            "X-Export-Auth":   "key" if expected else "open",
         })
 
 

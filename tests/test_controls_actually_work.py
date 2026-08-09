@@ -1249,39 +1249,37 @@ def test_the_button_is_bound_at_all(page):
 
 # ── ↓ CSV, driven ───────────────────────────────────────────────────────────
 
-def test_the_csv_button_asks_for_a_key_and_reports_the_servers_answer(page):
-    """Clicks it for real, dialog and all.
+def test_the_csv_button_downloads_with_no_key_and_no_prompt(page):
+    """Clicks it for real. The server under this fixture has no
+    RCA_EXPORT_KEY, so the correct behaviour is a download and NO dialog —
+    demanding a key here while /api/reviews and the dashboard are both open
+    would be friction, not protection.
 
-    The server under this fixture has no RCA_EXPORT_KEY, so the honest answer
-    from /api/export.csv is a 503 — and 503 must NOT read like 401. They need
-    opposite actions: one means go set a key on the server, the other means
-    retype yours. A button showing one message for both leaves someone
-    retyping a correct key forever, which is this file's failure in its
-    talkative form — the control is alive, and what it says is wrong.
+    The dialog handler is registered and asserted UNUSED, which is the point:
+    "it did not prompt" and "a prompt appeared and something dismissed it"
+    are different outcomes and would otherwise look identical from the button.
     """
-    page.on("dialog", lambda d: d.accept("any-key-at-all"))
+    asked = []
+    page.on("dialog", lambda d: (asked.append(d.message), d.dismiss()))
     page.click("[data-export-csv]")
     page.wait_for_function(
         "() => !document.querySelector('[data-export-csv]').textContent"
         ".includes('building')", timeout=6000)
     said = page.evaluate(
         "() => document.querySelector('[data-export-csv]').textContent")
-    assert "server key unset" in said, (
-        f"the button said {said!r}. With no RCA_EXPORT_KEY on the server the "
-        f"only correct answer is that the SERVER has no key — anything about "
-        f"the typed key sends the reader to fix the wrong end.")
+    assert asked == [], f"it prompted for a key nobody configured: {asked}"
+    assert "rows" in said, (
+        f"the button said {said!r}; with no key configured the export should "
+        f"have completed and reported its row count")
 
 
-def test_a_cancelled_prompt_leaves_the_csv_button_alone(page):
-    """Dismissing the prompt is not a failure and must not be dressed as one.
-    A button left reading "failed" after someone changed their mind is the
-    inverse of the bug above: a healthy run that looks broken."""
-    page.on("dialog", lambda d: d.dismiss())
-    before = page.evaluate(
-        "() => document.querySelector('[data-export-csv]').textContent")
-    page.evaluate("() => sessionStorage.removeItem('rcaExportKey')")
+def test_the_csv_button_recovers_to_its_label(page):
+    """It is a status line while it works and a button again afterwards. One
+    that stays reading "41 rows" is a button nobody can tell is ready."""
     page.click("[data-export-csv]")
-    page.wait_for_timeout(400)
-    after = page.evaluate(
-        "() => document.querySelector('[data-export-csv]').textContent")
-    assert after == before, f"cancelling changed the button to {after!r}"
+    page.wait_for_function(
+        "() => document.querySelector('[data-export-csv]').textContent"
+        ".includes('rows')", timeout=6000)
+    page.wait_for_function(
+        "() => { const b = document.querySelector('[data-export-csv]');"
+        "return b.textContent.includes('CSV') && !b.disabled; }", timeout=8000)

@@ -139,16 +139,30 @@ def _seed(db, rid, **kw):
     s.commit(); s.close()
 
 
-def test_no_key_configured_refuses_rather_than_serving_it(client, monkeypatch):
-    """THE OPPOSITE OF _vs_auth, deliberately. That helper reads
-    `if expected and ...`, so an unset variable makes its endpoint public.
-    Fine for a booking lookup; not for a file holding every review body,
-    author name and booking id. An unset key is a misconfiguration to report,
-    not a reason to hand the file over."""
+def test_no_key_configured_serves_it_but_says_so(client, monkeypatch):
+    """OPEN, AND VISIBLE. Nothing else in this app authenticates —
+    /api/reviews, the dashboard and every draft endpoint are unguarded, CORS
+    is "*" — so a key here and nowhere else was friction, not protection: the
+    same data is one open endpoint away.
+
+    What is NOT copied from _vs_auth is the silence. That helper reads
+    `if expected and ...` and an outsider cannot tell a guarded endpoint from
+    an unguarded one — this codebase's oldest failure wearing a security hat.
+    The mode rides back on the response instead.
+    """
     monkeypatch.delenv("RCA_EXPORT_KEY", raising=False)
-    r = client.get("/api/export.csv", headers={"X-Export-Key": "anything"})
-    assert r.status_code == 503
-    assert "RCA_EXPORT_KEY" in r.text, "it did not name what would work"
+    r = client.get("/api/export.csv")
+    assert r.status_code == 200
+    assert r.headers["X-Export-Auth"] == "open"
+
+
+def test_a_configured_key_reports_the_guarded_mode(client, live_db, monkeypatch):
+    """The converse, and the reason the header is worth having: "open" must be
+    distinguishable from "key" from the outside, or the field says nothing."""
+    monkeypatch.setenv("RCA_EXPORT_KEY", "s3cret")
+    r = client.get("/api/export.csv", headers={"X-Export-Key": "s3cret"})
+    assert r.status_code == 200
+    assert r.headers["X-Export-Auth"] == "key"
 
 
 def test_a_wrong_key_is_rejected(client, monkeypatch):
@@ -156,6 +170,12 @@ def test_a_wrong_key_is_rejected(client, monkeypatch):
     assert client.get("/api/export.csv",
                       headers={"X-Export-Key": "nope"}).status_code == 401
     assert client.get("/api/export.csv").status_code == 401, "no header passed"
+
+
+def test_the_key_is_only_demanded_when_one_is_configured(client, monkeypatch):
+    """The whole point of the change: no key set means no key asked for."""
+    monkeypatch.delenv("RCA_EXPORT_KEY", raising=False)
+    assert client.get("/api/export.csv").status_code == 200
 
 
 def test_the_right_key_returns_the_rows(client, live_db, monkeypatch):
@@ -224,12 +244,12 @@ def test_a_rejected_key_is_cleared_rather_than_retried_forever():
     assert "sessionStorage.removeItem('rcaExportKey')" in PAGE
 
 
-def test_the_two_auth_faults_are_shown_differently():
-    """401 and 503 need opposite actions — retype the key, versus go set one
-    on the server. Showing one message for both means retyping a correct key
-    forever."""
-    assert "'↓ key rejected'" in PAGE
-    assert "'↓ server key unset'" in PAGE
+def test_the_button_tries_bare_before_it_asks_for_anything():
+    """Prompting up front would demand a key from everyone to protect a door
+    in a building with no walls. The prompt is reached only from a 401, which
+    the server returns only when a key really is configured."""
+    assert "resp.status === 401" in PAGE
+    assert "'This export needs a key" in PAGE
 
 
 def test_the_button_reports_the_counts_it_was_given():
