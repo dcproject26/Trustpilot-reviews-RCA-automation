@@ -36,12 +36,19 @@ SCOPE_RW = "https://www.googleapis.com/auth/spreadsheets"
 # changing it is a breaking change to any sheet already populated, which is why
 # check_header() exists.
 COLUMNS = [
-    "review_id", "received_at", "author", "rating", "language", "review_text",
+    # `stage` IS THE FIRST THING YOU SCAN. A row written on arrival holds an
+    # id, a time and a link and nothing else; a row written on send holds
+    # everything. Without this column those two are told apart only by
+    # squinting at which cells are blank — and a half-written row would read
+    # exactly like an export that failed halfway.
+    "review_id", "stage", "received_at", "slack_link",
+    "author", "rating", "language", "review_text",
     "status",
     "booking_id", "tid", "vid", "tgid", "experience", "vendor", "visit_date",
     "match_tier", "match_method",
     "l1", "l2", "sub_themes", "scenarios",
     "issue_count", "issues", "owners", "claim_accuracy",
+    "insights",
     "resolution", "takedown", "flags",
     "zendesk_tickets", "rca_posted_at", "sent_at",
     "final_response", "rca_prompt_version", "exported_at",
@@ -65,12 +72,64 @@ def _s(v) -> str:
     return str(v)
 
 
-def row_for(review, draft, now: datetime | None = None) -> dict:
+# The five the card's Experience insights panel shows, with the label it uses.
+# Same five, same words: a sheet column and a card panel that disagree about
+# what "Same-day issues" counts is a reconciliation nobody can win.
+_INSIGHT_ROWS = (("tgidRating", "TGID rating"),
+                 ("completion", "Completion rate"),
+                 ("sameDayIssues", "Same-day issues"),
+                 ("similarReviews", "Similar reviews"),
+                 ("similarQueries", "Similar queries"))
+
+
+def _insights_cell(ins) -> str:
+    """The insights as one readable cell, or "".
+
+    A JSON dump is not something anyone pivots on, and the raw block is
+    nested. Flattened to "label value" pairs in the panel's order, dropping
+    the ones the warehouse had nothing for — a cell of five em-dashes says
+    less than an empty one.
+    """
+    if not isinstance(ins, dict):
+        return ""
+    out = []
+    for key, label in _INSIGHT_ROWS:
+        node = ins.get(key)
+        val = (node or {}).get("value") if isinstance(node, dict) else node
+        val = str(val or "").strip()
+        if val and val != "\u2014":
+            out.append(f"{label} {val}")
+    return "; ".join(out)
+
+
+def slack_link(review) -> str:
+    """The permalink to the Slack message this review arrived on, or "".
+
+    Built rather than stored: Slack permalinks are derivable from the channel
+    and the ts, and a second stored copy of a derivable fact is one more thing
+    to fall out of step. `C_MANUAL` and `VECTORSHIFT` are the synthetic
+    channels for reviews that did not come from Slack at all — a link into
+    them would 404, which is worse than no link.
+    """
+    ch = str(getattr(review, "slack_channel", "") or "").strip()
+    ts = str(getattr(review, "slack_ts", "") or "").strip()
+    if not ch or not ts or ch in ("C_MANUAL", "VECTORSHIFT"):
+        return ""
+    return f"https://slack.com/archives/{ch}/p{ts.replace('.', '')}"
+
+
+def row_for(review, draft, now: datetime | None = None,
+            stage: str = "") -> dict:
     """One review's row, as {column: value}.
 
     Takes the objects, not a session, so it can be driven with anything that
     has the attributes — and so a change to the columns is testable without a
     database.
+
+    TWO PHASES, ONE BUILDER. Called with `draft=None` on arrival it produces
+    the arrival shape — id, time, link, and the review itself — because every
+    draft-derived field reads off `d` and `d` is None. A second builder would
+    be a second place for a column to be forgotten.
     """
     d = draft
     v3 = (getattr(d, "rca_v3", None) or {}) if d else {}
@@ -80,7 +139,9 @@ def row_for(review, draft, now: datetime | None = None) -> dict:
 
     return {
         "review_id":     getattr(review, "id", ""),
+        "stage":         stage,
         "received_at":   getattr(review, "received_at", None),
+        "slack_link":    slack_link(review),
         "author":        getattr(review, "author", ""),
         "rating":        getattr(review, "rating", None),
         "language":      getattr(review, "language", ""),
@@ -111,6 +172,10 @@ def row_for(review, draft, now: datetime | None = None) -> dict:
                           if isinstance(i, dict) and i.get("owner")],
         "claim_accuracy": [i.get("claim_accuracy") for i in issues
                            if isinstance(i, dict) and i.get("claim_accuracy")],
+
+        # THE INSIGHTS AS A SENTENCE, not the raw block. The sheet is read
+        # across rows; a JSON dump in a cell is not something anyone pivots on.
+        "insights":      _insights_cell(getattr(d, "insights", None) if d else None),
 
         "resolution":    getattr(d, "resolution", "") if d else "",
         "takedown":      takedown.get("verdict") or "",
@@ -165,7 +230,23 @@ def check_header(existing_header: list[str]) -> str:
               "let this rewrite it.")
 
 
-def plan(existing_ids: list[str], rows: list[dict]) -> tuple[list, list]:
+ARRIVED = "received"       # written when the review lands
+DONE    = "sent"           # written when the RCA goes out or is closed out
+
+
+def arrival_row(review, now: datetime | None = None) -> dict:
+    """The row a review gets the moment it arrives: id, time, link, the text.
+
+    Every draft-derived cell comes back empty because there is no draft yet,
+    and `stage` says so. That is the point: a row a person opens ten minutes
+    after the review landed should say "received", not look like an export
+    that gave up halfway through a completed one.
+    """
+    return row_for(review, None, now=now, stage=ARRIVED)
+
+
+def plan(existing_ids: list[str], rows: list[dict],
+         require_existing: bool = False) -> tuple[list, list, list]:
     """(updates, appends) for an upsert keyed on review_id.
 
     updates is [(row_number, cells)] with row_number 1-based INCLUDING the
@@ -183,12 +264,25 @@ def plan(existing_ids: list[str], rows: list[dict]) -> tuple[list, list]:
         rid = str(rid or "").strip()
         if rid and rid not in at:
             at[rid] = i + 2          # +1 for 0-based, +1 for the header row
-    updates, appends = [], []
+    updates, appends, orphans = [], [], []
     for r in rows:
         cells = to_cells(r)
-        n = at.get(str(r.get("review_id") or "").strip())
-        (updates.append((n, cells)) if n else appends.append(cells))
-    return updates, appends
+        rid = str(r.get("review_id") or "").strip()
+        n = at.get(rid)
+        if n:
+            updates.append((n, cells))
+        elif require_existing:
+            # THE COMPLETION WRITE NEVER APPENDS. Arrival creates the row, so
+            # a completion that cannot find one means the arrival write did
+            # not happen — and appending here would paper over that with a row
+            # missing its arrival time, then race a late arrival write into a
+            # duplicate. Named instead: two people finishing reviews at once
+            # is the normal case this tool has to survive, and it survives it
+            # by the ordering, not by luck.
+            orphans.append(rid)
+        else:
+            appends.append(cells)
+    return updates, appends, orphans
 
 
 class SheetIO:
@@ -204,6 +298,38 @@ class SheetIO:
         self.sheet_id = sheet_id
         self.tab = tab
         self._token = None
+
+    def resolve_tab(self):
+        """Turn a numeric tab into the sheet NAME the API needs.
+
+        A URL carries a gid — `#gid=0` — and that is what anyone pastes. The
+        Sheets values API takes a tab NAME in its A1 ranges and has no idea
+        what a gid is, so a configured "0" would be read as a tab literally
+        called 0 and every write would 400, or worse, land on a tab that
+        happens to be named that.
+
+        Resolved once, from the spreadsheet itself. If the gid is not there,
+        the tab is left as configured and the caller gets the API's own error
+        rather than a guess — inventing a fallback tab is how an export writes
+        a month of rows into the wrong one.
+        """
+        tab = str(self.tab or "").strip()
+        if not tab.lstrip("-").isdigit():
+            return self.tab
+        import httpx
+        r = httpx.get(self._base(), headers=self._hdr(),
+                      params={"fields": "sheets.properties(sheetId,title)"},
+                      timeout=20.0)
+        r.raise_for_status()
+        for sh in (r.json().get("sheets") or []):
+            props = sh.get("properties") or {}
+            if str(props.get("sheetId")) == tab:
+                self.tab = props.get("title") or self.tab
+                log.info("[sheet] gid %s is the tab %r", tab, self.tab)
+                return self.tab
+        log.warning("[sheet] gid %s is not in this spreadsheet — leaving the "
+                    "tab as %r", tab, self.tab)
+        return self.tab
 
     # -- auth ---------------------------------------------------------------
     def _hdr(self):
@@ -278,7 +404,8 @@ class SheetIO:
         r.raise_for_status()
 
 
-def export(io, rows, apply: bool = False) -> dict:
+def export(io, rows, apply: bool = False,
+           require_existing: bool = False) -> dict:
     """Upsert `rows` through `io`. Returns what happened, including what did not.
 
     Never raises for a refusal — the caller gets a report. A traceback is the
@@ -286,7 +413,7 @@ def export(io, rows, apply: bool = False) -> dict:
     and fix, not a crash.
     """
     out = {"updated": 0, "appended": 0, "refused": "", "duplicates": [],
-           "header_written": False, "rows": len(rows)}
+           "header_written": False, "rows": len(rows), "orphans": []}
     header, ids = io.read_column_a_and_header()
     why = check_header(header)
     if why:
@@ -297,8 +424,9 @@ def export(io, rows, apply: bool = False) -> dict:
             io.write_header()
         out["header_written"] = True
     out["duplicates"] = duplicate_ids(ids)
-    updates, appends = plan(ids, rows)
+    updates, appends, orphans = plan(ids, rows, require_existing)
     out["updated"], out["appended"] = len(updates), len(appends)
+    out["orphans"] = orphans
     if apply:
         io.update_rows(updates)
         io.append_rows(appends)
@@ -321,3 +449,69 @@ def duplicate_ids(existing_ids: list[str]) -> list[str]:
             dupes.append(rid)
         seen.add(rid)
     return dupes
+
+
+# ── the two hooks the app calls ────────────────────────────────────────────
+#
+# ONE ENTRY POINT, TWO STAGES. Both go through `_write` so the header check,
+# the gid resolution and the refusal reporting cannot differ between them —
+# and so "the export did nothing" has one place to be explained.
+#
+# NOTHING HERE RAISES INTO A REQUEST. A sheet that is unshared, renamed or
+# rate-limited must not fail a send: the review going out matters and the row
+# does not. Every outcome is logged with what would fix it.
+
+def _write(review, draft, stage: str, require_existing: bool) -> dict:
+    from server.config import (RCA_EXPORT_SHEET_ID, RCA_EXPORT_SHEET_TAB,
+                               is_live)
+    if not is_live("sheet_export"):
+        # SAID, NOT SILENT. Unconfigured and broken must not look alike, and
+        # this is the state every environment starts in.
+        log.info("[sheet] not exporting %s: RCA_EXPORT_SHEET_ID or "
+                 "GCP_SERVICE_ACCOUNT_JSON is unset",
+                 getattr(review, "id", "?"))
+        return {"skipped": "not configured"}
+    row = (arrival_row(review) if stage == ARRIVED
+           else row_for(review, draft, stage=DONE))
+    try:
+        io = SheetIO(RCA_EXPORT_SHEET_ID, RCA_EXPORT_SHEET_TAB)
+        io.resolve_tab()
+        out = export(io, [row], apply=True, require_existing=require_existing)
+    except Exception as e:
+        log.warning("[sheet] %s write failed for %s: %s — the review is "
+                    "unaffected; the row is not there",
+                    stage, getattr(review, "id", "?"), e)
+        return {"failed": str(e)}
+    if out.get("refused"):
+        log.warning("[sheet] refused: %s", out["refused"])
+    if out.get("orphans"):
+        # The arrival write is what creates the row, and it did not happen.
+        # Appending here would hide that AND race a late arrival into a
+        # duplicate, so it is named instead.
+        log.warning("[sheet] %s has no arrival row, so the completed row was "
+                    "NOT written — check whether the arrival hook ran",
+                    ", ".join(out["orphans"]))
+    if out.get("duplicates"):
+        log.warning("[sheet] the sheet already holds %s more than once; the "
+                    "first was updated and the rest left as they are",
+                    ", ".join(out["duplicates"]))
+    log.info("[sheet] %s %s: updated=%s appended=%s",
+             stage, getattr(review, "id", "?"), out.get("updated"),
+             out.get("appended"))
+    return out
+
+
+def on_review_arrived(review) -> dict:
+    """Phase one. Creates the row, so every later write is an UPDATE.
+
+    That ordering is what makes this safe for several people at once: two
+    completions racing are two updates to two different rows, and an update
+    targets a row number that nothing shifts. Two appends racing would be the
+    dangerous shape, and after this there are none.
+    """
+    return _write(review, None, ARRIVED, require_existing=False)
+
+
+def on_review_finished(review, draft) -> dict:
+    """Phase two — the RCA was sent, or the review was closed out."""
+    return _write(review, draft, DONE, require_existing=True)

@@ -100,6 +100,19 @@ DSS_SHEET_ID            = os.getenv("DSS_SHEET_ID",
                                      "13PpmkVW5mvLbpW5wtSUOZBhRQfQUsOJtLys2osQnvR0")
 DSS_SHEET_TAB           = os.getenv("DSS_SHEET_TAB", "")          # legacy, unused
 
+# Every review and its RCA, as rows. Written in TWO phases: a row on arrival
+# carrying the id, the time and the Slack link, and the same row filled in when
+# the RCA is sent or the review is closed out. The tab is the gid from the
+# sheet's URL — that is what anyone pastes — and SheetIO resolves it to the
+# name the API wants.
+#
+# WRITING NEEDS THE SHEET SHARED WITH THE SERVICE ACCOUNT as an editor. The
+# same credential reads three other sheets already; none of those are writable,
+# so a read that works proves nothing about this.
+RCA_EXPORT_SHEET_ID     = os.getenv("RCA_EXPORT_SHEET_ID",
+                                    "19Im-BbgWq6idQqP6SgWoEs-cx8sBwIEmimAbwAq9aBU")
+RCA_EXPORT_SHEET_TAB    = os.getenv("RCA_EXPORT_SHEET_TAB", "0")
+
 # Canned responses — OPTIONAL live refresh of server/data/canned_macros.json.
 #
 # No default, deliberately. There used to be one here while .env.example named
@@ -161,6 +174,7 @@ def is_live(service: str) -> bool:
         "dss":            bool(DSS_SHEET_ID),
         "canned":         bool(CANNED_RESPONSES_SHEET_ID),
         "checklist":      bool(RCA_CHECKLIST_SHEET_ID),
+        "sheet_export":   bool(RCA_EXPORT_SHEET_ID and GCP_SERVICE_ACCOUNT_JSON),
     }
     return checks.get(service, False)
 

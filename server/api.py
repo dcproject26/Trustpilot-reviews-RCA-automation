@@ -2007,6 +2007,19 @@ async def refresh_slack(hours: int = 72, background_tasks: BackgroundTasks = Non
             body_original=parsed["body_original"], received_at=_at,
             reference_number=parsed["reference_number"], status="new"))
         db.commit()
+        # PHASE ONE OF THE SHEET: the row exists from the moment the review
+        # does, carrying its id, its arrival time and the Slack link. Every
+        # later write is then an UPDATE, which is what makes this safe with
+        # several people working at once — two appends racing is the dangerous
+        # shape, and after this there are none.
+        #
+        # After the commit and never in front of it: a sheet that is unshared
+        # or rate-limited must not cost us the review.
+        try:
+            from server.services.sheet_export import on_review_arrived
+            on_review_arrived(db.query(Review).filter(Review.id == rid).first())
+        except Exception as _e:
+            log.warning(f"[ingest] {rid}: sheet arrival row not written: {_e}")
         queued += 1
         ingested.append(rid)
 
@@ -2720,6 +2733,15 @@ async def send_review(review_id: str, db: Session = Depends(get_session)):
             m.minutes_to_send = (datetime.utcnow() - r.received_at).total_seconds() / 60
         m.sent = True
     db.commit()
+    # PHASE TWO OF THE SHEET: the arrival row is filled in. It NEVER appends —
+    # arrival created the row, so a completion that finds none means that hook
+    # did not run, and appending here would hide it and race a late arrival
+    # into a duplicate. Logged, not raised: the review is finished either way.
+    try:
+        from server.services.sheet_export import on_review_finished
+        on_review_finished(r, d)
+    except Exception as _e:
+        log.warning(f"[sheet] {review_id}: completed row not written: {_e}")
     # `posted` is a separate fact from `ok`. The caller used to get {"ok":
     # true, "ts": null} for a post that was skipped, for one that failed and
     # for one that was never attempted, and had to guess which.
@@ -2801,6 +2823,15 @@ async def close_review(review_id: str, body: CloseOut | None = None,
             m.minutes_to_send = (now - r.received_at).total_seconds() / 60
         m.sent = True
     db.commit()
+    # PHASE TWO OF THE SHEET: the arrival row is filled in. It NEVER appends —
+    # arrival created the row, so a completion that finds none means that hook
+    # did not run, and appending here would hide it and race a late arrival
+    # into a duplicate. Logged, not raised: the review is finished either way.
+    try:
+        from server.services.sheet_export import on_review_finished
+        on_review_finished(r, d)
+    except Exception as _e:
+        log.warning(f"[sheet] {review_id}: completed row not written: {_e}")
     log.info(f"[close] {review_id}: closed from {bucket} — {reason}")
     return {"ok": True, "closed_from": bucket, "reason": reason,
             "posted": False, "had_draft": d is not None}
