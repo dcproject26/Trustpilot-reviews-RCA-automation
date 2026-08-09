@@ -1399,18 +1399,41 @@ def _case_findings(raw, issues, notes) -> list:
     # timeline entries are what made this section read as a second copy of the
     # events timeline. Dropped and COUNTED, never dropped quietly — a section
     # that silently shrinks is the failure this file opens with.
-    merged = dropped = folded = 0
+    merged = narrated = folded = 0
     for n, issue in enumerate(issues or []):
         for e in (issue.get("evidence") or []):
             if not isinstance(e, dict):
                 continue
             if not _clean(e.get("text")):
                 continue
+            # AN ISSUE WITH NO CLAIM IS STILL AN ISSUE, and its evidence is
+            # still a record of what happened. This used to DROP those rows,
+            # which contradicted `_issue_to_flag` eight hundred lines up —
+            # that function deliberately KEEPS a claimless issue carrying a
+            # case_side, an owner or an operational failure, because "a
+            # problem the Zendesk case shows and the review never mentioned
+            # has no claim by definition". So one rule kept the issue on the
+            # card and this one deleted all its evidence.
+            #
+            # MEASURED on tp_1785672694_664719: six rows dropped, and four of
+            # them fold straight onto §1 rows at the same minute, three of
+            # which currently render with `ref: null` — the drop was throwing
+            # away the ticket references those findings lack. Of the two that
+            # were genuinely new, one was "Booking record shows escalationEmail
+            # is blank for Krakville" — the exact text the SP gap's source_ref
+            # quotes, which is why that gap was ALSO being reported as citing a
+            # description rather than a reference. Two warnings, one cause.
+            #
+            # KEPT AS NARRATIVE, NOT AS EVIDENCE. `backs_claim` stays null: the
+            # row records something, it adjudicates nothing, and dressing it as
+            # proof of a claim the guest never made is the error the drop was
+            # reaching for.
             backs = e.get("backs_claim")
-            backs = n if backs in (None, "") else backs
             if not _clean(issue.get("claim")):
-                dropped += 1
-                continue
+                backs = None
+                narrated += 1
+            else:
+                backs = n if backs in (None, "") else backs
             # FOLD, DO NOT DROP AND DO NOT REPEAT. An evidence row that
             # restates a narrative row is the same event written twice — but
             # it carries the ZD ref, which the narrative row does not. So its
@@ -1448,10 +1471,15 @@ def _case_findings(raw, issues, notes) -> list:
     if merged:
         notes.append(f"{merged} evidence point(s) moved into case findings "
                      f"from the claims they back")
-    if dropped:
-        notes.append(f"{dropped} evidence row(s) backed no claim and were "
-                     f"NOT rendered — evidence settles a claim, and a row "
-                     f"citing none is a timeline entry")
+    if narrated:
+        # THE OLD LINE SAID THEY WERE NOT RENDERED, and described a mechanism
+        # that was not the one running: the gate read `issue.claim`, not the
+        # row's own `backs_claim`, so "backed no claim" made real records of
+        # what happened sound like junk that had wandered in.
+        notes.append(f"{narrated} evidence point(s) sit on an issue the guest "
+                     f"never claimed publicly — rendered as NARRATIVE "
+                     f"findings, not as proof of a claim, because they record "
+                     f"what happened and adjudicate nothing")
     if folded:
         notes.append(f"{folded} evidence point(s) said what a case finding "
                      f"already said; their ticket reference was added to that "

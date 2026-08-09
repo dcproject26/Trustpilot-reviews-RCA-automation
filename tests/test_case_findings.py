@@ -144,16 +144,26 @@ def test_two_genuinely_different_facts_both_survive():
     assert len(_findings(out)) == 2, [r["text"] for r in _findings(out)]
 
 
-def test_an_evidence_row_backing_no_claim_is_not_rendered():
-    """Evidence settles a claim. A row citing none is a timeline entry that
-    wandered in — and timeline entries are what made §1 read as a second copy
-    of the events timeline.
+def test_an_evidence_row_on_a_claimless_issue_is_kept_as_narrative():
+    """REVERSED, AND THIS TEST IS THE RECORD OF WHY. It used to assert
+    `rows == []` — evidence on a claimless issue was DROPPED, on the reasoning
+    that "evidence settles a claim, and a row citing none is a timeline entry
+    that wandered in".
 
-    DRIVES `_case_findings` DIRECTLY. Going through `validate` cannot reach
-    this: an issue with no claim is moved to flags, and one that survives on
-    an operational failure alone has that dropped when the case shows nothing.
-    Contriving a path would have tested the contrivance. The function is pure
-    and takes its three inputs, so it is driven where it lives.
+    That reasoning was about §1 not becoming a second copy of the events
+    timeline, and it is still right about THAT. The implementation was not: it
+    gated on `issue.claim`, so it deleted the evidence of every issue the
+    guest never raised publicly — which `_issue_to_flag` deliberately KEEPS on
+    the card, because "a problem the Zendesk case shows and the review never
+    mentioned has no claim by definition". One rule kept the issue, this one
+    deleted its evidence.
+
+    On a real card six rows went that way. Four folded onto §1 rows at the
+    same minute, three of which render with `ref: null` — the drop was
+    discarding the ticket references those findings lack.
+
+    DRIVES `_case_findings` DIRECTLY, as before: through `validate` a
+    three-null issue is moved to flags, so the case cannot be reached.
     """
     from server.services.rca_v4_validate import _case_findings
     notes = []
@@ -161,13 +171,15 @@ def test_an_evidence_row_backing_no_claim_is_not_rendered():
         [], [{"issue": "A", "claim": "",
               "evidence": [{"text": "Confirmation email sent 09:13",
                             "source": "zendesk"}]}], notes)
-    assert rows == [], rows
-    assert any("backed no claim" in n for n in notes), notes
+    assert [r["text"] for r in rows] == ["Confirmation email sent 09:13"], rows
+    assert rows[0]["backs_claim"] is None, \
+        "kept, but not as proof of a claim the guest never made"
 
 
-def test_a_dropped_evidence_row_says_so_rather_than_vanishing():
-    """Counted, never silent. A section that shrinks without saying so reads
-    as a model that returned less."""
+def test_the_narrative_rendering_is_counted_rather_than_silent():
+    """Counted, never silent — the principle survives the reversal. What
+    changed is the sentence: the old one said the rows were NOT rendered,
+    which described a mechanism that was not the one running."""
     from server.services.rca_v4_validate import _case_findings
     notes = []
     _case_findings(
@@ -175,7 +187,9 @@ def test_a_dropped_evidence_row_says_so_rather_than_vanishing():
               "evidence": [{"text": "Rebooking sent 09:11", "source": "zendesk"},
                            {"text": "Confirmation emailed 09:13",
                             "source": "zendesk"}]}], notes)
-    assert any("2 evidence row(s) backed no claim" in n for n in notes), notes
+    said = " ".join(notes)
+    assert "2 evidence point(s) sit on an issue the guest never claimed" in said, notes
+    assert "NOT rendered" not in said
 
 
 def test_an_evidence_point_stays_routed_to_its_claim():
@@ -720,3 +734,93 @@ def test_the_gaps_skeleton_names_source_ref_as_required():
     i = block.index('"gaps"')
     gaps_block = block[i:i + 400]
     assert '"source_ref"' in gaps_block and "REQUIRED" in gaps_block, gaps_block
+
+
+# ── an issue the guest never claimed still has evidence ────────────────────
+#
+# TWO RULES IN THIS FILE CONTRADICTED EACH OTHER. `_issue_to_flag` KEEPS a
+# claimless issue that carries a case_side, an owner or an operational
+# failure — "a problem the Zendesk case shows and the review never mentioned
+# has no claim by definition", and demoting one is how the modification
+# request in the Bhayani case vanished. Then `_case_findings` deleted every
+# evidence row belonging to exactly those issues.
+#
+# MEASURED on tp_1785672694_664719: six rows dropped. Four fold onto §1 rows
+# at the same minute, THREE of which render with `ref: null` — so the drop was
+# throwing away the ticket references those findings lack. Of the two
+# genuinely new, one was "Booking record shows escalationEmail is blank for
+# Krakville", the exact text the SP gap's source_ref quotes — which is why
+# that gap was ALSO reported as citing a description rather than a reference.
+# Two warnings on one card, one cause.
+
+CLAIMLESS = {"issue": "Reschedule automation failure led to an unverified rebook",
+             "claim": None, "case_side": "the case shows it"}
+
+
+def _with_evidence(*rows):
+    return dict(CLAIMLESS, evidence=list(rows))
+
+
+def test_evidence_on_a_claimless_issue_is_rendered():
+    out, _ = validate(_wwr(case_findings=[], guest_issues=[_with_evidence(
+        {"text": "Booking record shows escalationEmail is blank for Krakville",
+         "source": "booking", "ref": "32885089"})]))
+    assert [r["text"] for r in _findings(out)] == [
+        "Booking record shows escalationEmail is blank for Krakville"]
+
+
+def test_it_is_narrative_not_proof_of_a_claim():
+    """`backs_claim` stays null. The row records something and adjudicates
+    nothing; dressing it as proof of a claim the guest never made is the error
+    the drop was reaching for."""
+    out, _ = validate(_wwr(case_findings=[], guest_issues=[_with_evidence(
+        {"text": "Booking record shows escalationEmail is blank",
+         "source": "booking", "ref": "32885089"})]))
+    assert _findings(out)[0]["backs_claim"] is None, _findings(out)[0]
+
+
+def test_it_hands_its_ticket_reference_to_a_finding_that_has_none():
+    """THE MEASURED GAIN. Three of the six dropped rows fold onto §1 rows
+    rendering with `ref: null` — the drop was discarding the references."""
+    out, _ = validate(_wwr(
+        case_findings=[{"text": "Reschedule automation failed; system flagged "
+                                "manual handling required",
+                        "source": "zendesk", "time": "01 Aug 21:56"}],
+        guest_issues=[_with_evidence(
+            {"text": "System flagged automation failure at 01 Aug 21:56 and "
+                     "required manual handling", "source": "zendesk",
+             "ref": "ZD-33978941", "time": "01 Aug 21:56"})]))
+    rows = _findings(out)
+    assert len(rows) == 1, [r["text"] for r in rows]
+    assert rows[0]["ref"] == "ZD-33978941", rows[0]
+
+
+def test_the_count_says_what_happened_rather_than_that_they_vanished():
+    _, notes = validate(_wwr(case_findings=[], guest_issues=[_with_evidence(
+        {"text": "Booking record shows escalationEmail is blank",
+         "source": "booking"})]))
+    said = " ".join(notes)
+    assert "sit on an issue the guest never claimed publicly" in said, notes
+    assert "NOT rendered" not in said, \
+        "the old line said they were dropped; they are not"
+
+
+def test_a_claimed_issue_still_routes_its_evidence_to_the_claim():
+    """The inverse must not break: evidence on a real claim is still proof of
+    it, and loses its routing if this is applied too widely."""
+    out, _ = validate(_wwr(case_findings=[], guest_issues=[
+        {"issue": "Pickup moved", "claim": "they moved my pickup",
+         "claim_accuracy": "Accurate",
+         "evidence": [{"text": "Vendor messaged a 13:45 pickup",
+                       "source": "zendesk", "ref": "ZD-34335318"}]}]))
+    assert _findings(out)[0]["backs_claim"] == 0, _findings(out)[0]
+
+
+def test_a_claimless_issue_with_nothing_to_keep_it_is_still_flagged():
+    """The demotion rule is untouched: three nulls is still our finding, not
+    the guest's, and it still moves to flags."""
+    out, notes = validate(_wwr(case_findings=[], guest_issues=[
+        {"issue": "Something we noticed", "claim": None,
+         "evidence": [{"text": "A record", "source": "zendesk"}]}]))
+    assert out["what_went_wrong"]["guest_issues"] == []
+    assert any("moved to flags" in n for n in notes), notes
