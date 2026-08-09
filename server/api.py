@@ -2310,7 +2310,18 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
     # The matching half is kept: this endpoint did not re-match, so those
     # entries are still true. The RCA half is rebuilt, because it just was.
     import html as _html
-    _kept = [t for t in (d.confidence_trail or [])
+    # THE PRE-CONFIRMATION BLOCK GOES FIRST. The filter below is right for one
+    # run's worth of trail and wrong for two stacked: it drops RCA and reply
+    # lines, so a superseded run's ZENDESK lines survive every regenerate.
+    # That left "Zendesk was not searched — the lookup that never ran" above
+    # "Zendesk contacts for 32885089: 4 found", both marked current.
+    #
+    # This endpoint does NOT re-fetch Zendesk, so the CURRENT run's Zendesk
+    # lines are still true and are kept — which is why it cannot use the
+    # pipeline's `matching_history` cut, and needs the bounded block instead.
+    from server.pipeline import drop_superseded_block, superseded_trail_row
+    _trail_now, _cut = drop_superseded_block(d.confidence_trail)
+    _kept = [t for t in _trail_now
              if not str((t or {}).get("text", "")).startswith("<strong>RCA</strong>")
              # The reply was just rewritten and re-translated, so the previous
              # run's language line is about a reply that no longer exists.
@@ -2321,6 +2332,9 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
              and not str((t or {}).get("text", "")).startswith("<strong>No approved macro")
              and not str((t or {}).get("text", "")).startswith("<strong>The reply is an approved macro")
              and "This run has not finished" not in str((t or {}).get("text", ""))]
+    _sup = superseded_trail_row(_cut)
+    if _sup:
+        _kept.append(_sup)
     for _n in (rca_notes or []):
         _kept.append({"mark": "warn",
                       "text": f"<strong>RCA</strong> — {_html.escape(str(_n))}"})

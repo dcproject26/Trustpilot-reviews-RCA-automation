@@ -491,6 +491,40 @@ def matching_history(trail) -> tuple[list, int]:
     return rows, 0
 
 
+def drop_superseded_block(trail) -> tuple[list, int]:
+    """(trail without the pre-confirmation block, how many rows went).
+
+    FOR THE PATH THAT DOES NOT RE-FETCH. `matching_history` keeps ONLY the
+    matching steps, which is right for a full pipeline run — everything after
+    is derived again. `regenerate-rca` re-runs the model and nothing else, so
+    the Zendesk lines on the trail are still true of the card and cutting them
+    would delete a true record.
+
+    Its own filter drops `RCA` and reply lines and leaves the rest, which is
+    correct for one run's worth of trail and wrong for two stacked. On a real
+    card that left "Zendesk was not searched — the lookup that never ran"
+    sitting above "Zendesk contacts for 32885089: 4 by booking-id field", both
+    marked current, on a card with twenty timeline rows.
+
+    THE BLOCK IS BOUNDED AT BOTH ENDS. It starts at the first re-derived entry
+    and ends at `Associate confirmed`, which is written the moment the prior
+    trail is adopted — so everything between them belongs to the run that came
+    before the confirmation, and everything after it belongs to the run that
+    followed. No confirmation line means one run, and one run has nothing
+    superseded in it.
+    """
+    rows = [t for t in (trail or []) if isinstance(t, dict)]
+    _kept, cut = matching_history(rows)
+    if not cut:
+        return rows, 0
+    start = len(_kept)
+    for j in range(start, len(rows)):
+        text = re.sub(r"<[^>]+>", "", str(rows[j].get("text") or ""))
+        if "Associate confirmed" in text:
+            return rows[:start] + rows[j:], j - start
+    return rows, 0
+
+
 def superseded_trail_row(n: int) -> dict | None:
     """The line that says the cut happened, or None when nothing was cut."""
     if not n:

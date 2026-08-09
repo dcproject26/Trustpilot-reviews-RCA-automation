@@ -320,3 +320,103 @@ def test_a_confirmation_inside_the_matching_block_is_not_a_stack(live_db,
     out = _card(live_db, "tp_conf_first", capsys)
     assert "STILL CARRIES" not in out, \
         "a normal confirmed card was reported as carrying a superseded run"
+
+
+# ── the OTHER path: regenerate-rca, which does not re-fetch ────────────────
+#
+# MY FIX WENT INTO ONE OF TWO PATHS. `matching_history` is called from the
+# pipeline; the dashboard's Regenerate button calls `regenerate-rca`, which
+# re-runs the model and nothing else. So the cut never fired on the regenerate
+# the reader was actually doing, and I sent them to it four times.
+#
+# That endpoint CANNOT use the same cut: it does not re-fetch Zendesk, so the
+# current run's Zendesk lines are still true of the card and dropping them
+# would delete a true record. The superseded BLOCK is what goes — bounded at
+# the first re-derived entry and at `Associate confirmed`, which is written
+# the moment the prior trail is adopted.
+
+from server.pipeline import drop_superseded_block
+
+CONFIRMED = _row("<strong>Associate confirmed</strong> BID 32885089 — the "
+                 "steps above are from the run that found it")
+CURRENT = [
+    _row("<strong>Zendesk contacts for 32885089:</strong> 4 by booking-id field"),
+    _row("<strong>Events timeline:</strong> 22 read, 20 shown", "warn"),
+]
+
+
+def test_the_block_between_the_boundaries_is_dropped():
+    kept, cut = drop_superseded_block(MATCHING + SUPERSEDED + [CONFIRMED] + CURRENT)
+    assert cut == len(SUPERSEDED)
+    said = " ".join(r["text"] for r in kept)
+    assert "lookup that never ran" not in said
+    assert "4 of 4 case finding(s) carry no time" not in said
+
+
+def test_the_current_runs_zendesk_lines_are_kept():
+    """THE DIFFERENCE FROM THE PIPELINE CUT. This endpoint did not re-fetch,
+    so those lines are still true and deleting them loses a real record."""
+    kept, _ = drop_superseded_block(MATCHING + SUPERSEDED + [CONFIRMED] + CURRENT)
+    said = " ".join(r["text"] for r in kept)
+    assert "Zendesk contacts for 32885089" in said, said
+    assert "22 read, 20 shown" in said, said
+
+
+def test_the_matching_history_is_kept_too():
+    kept, _ = drop_superseded_block(MATCHING + SUPERSEDED + [CONFIRMED] + CURRENT)
+    said = " ".join(r["text"] for r in kept)
+    assert "Author parsed" in said and "Associate confirmed" in said
+
+
+def test_one_run_has_nothing_superseded():
+    """No confirmation line means one run, and cutting anything from it would
+    delete a card's only trail."""
+    kept, cut = drop_superseded_block(MATCHING + SUPERSEDED)
+    assert cut == 0 and kept == MATCHING + SUPERSEDED
+
+
+def test_an_empty_trail_is_not_an_error_here_either():
+    assert drop_superseded_block([]) == ([], 0)
+    assert drop_superseded_block(None) == ([], 0)
+
+
+def test_the_endpoint_drops_the_block_and_says_so(live_db, monkeypatch):
+    """DRIVEN THROUGH THE ENDPOINT. The function being right is worth nothing
+    if regenerate-rca still reads `d.confidence_trail` raw — which is exactly
+    how the pipeline half of this fix reached one path and not the other."""
+    from fastapi.testclient import TestClient
+    from server.main import app
+    from server.db import get_session
+    import server.services.claude as claude
+
+    async def _rca(*a, **k):
+        return {"what_went_wrong": {"guest_issues": [], "fixes": [],
+                                    "gaps": []}, "flags": []}
+    monkeypatch.setattr(claude, "generate_rca_v3", _rca)
+
+    s = live_db.SessionLocal()
+    s.add(live_db.Review(id="tp_rg", rating=1, author="A", body_original="b",
+                         status="draft"))
+    s.add(live_db.RcaDraft(id="d_tp_rg", review_id="tp_rg",
+                           booking={"id": "32885089"},
+                           confidence_trail=MATCHING + SUPERSEDED
+                           + [CONFIRMED] + CURRENT))
+    s.commit(); s.close()
+
+    app.dependency_overrides[get_session] = lambda: live_db.SessionLocal()
+    try:
+        with TestClient(app) as c:
+            r = c.post("/api/reviews/tp_rg/regenerate-rca", json={})
+        assert r.status_code == 200, r.text
+    finally:
+        app.dependency_overrides.clear()
+
+    s = live_db.SessionLocal()
+    d = s.query(live_db.RcaDraft).filter_by(review_id="tp_rg").first()
+    said = " ".join(e.get("text", "") for e in (d.confidence_trail or []))
+    s.close()
+    assert "lookup that never ran" not in said, \
+        "the superseded Zendesk line survived a regenerate"
+    assert "Zendesk contacts for 32885089" in said, \
+        "the current run's Zendesk line was deleted — it did not re-fetch"
+    assert "step(s) from the earlier run were removed" in said
