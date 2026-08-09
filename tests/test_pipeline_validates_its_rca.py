@@ -150,13 +150,17 @@ def test_a_coercion_is_announced_on_the_trail_not_only_in_the_log(live_db,
     """A repair is 'we changed the model's answer', and the reader is on the
     card, not in the server log."""
     rca = json.loads(json.dumps(BASE))
-    # Over the 120-word ceiling: validate() counts and says so.
-    rca["suggested_response"] = " ".join(["sorry"] * 130)
+    # A COERCION THAT STILL EXISTS. This used to drive the reply's 120-word
+    # ceiling, which has been removed — so the test was pinning the wiring
+    # through a check that no longer runs. `stated_issue` keeps its 60-word
+    # ceiling and is the same kind of note, counted and said rather than
+    # applied silently.
+    rca["stated_issue"] = " ".join(["sorry"] * 70)
     _stub(monkeypatch, rca)
     _seed(live_db, "tp_note")
     _, trail, _ = _run(live_db, "tp_note")
 
-    assert any("120-word ceiling" in t for t in trail), \
+    assert any("60-word ceiling" in t for t in trail), \
         f"no validation note reached the trail: {trail}"
 
 

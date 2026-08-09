@@ -551,14 +551,20 @@ def test_only_the_subpoints_that_issue_has_are_printed(page):
     assert "SOP/process gap:" not in block, "an absent sub-point was printed anyway"
 
 
-def test_the_owner_is_tagged_under_the_fixes_heading(page):
-    """Heading 5 is "tag the relevant team(s)". The owner CHIP came out of the
-    post; the team is named where the mandate puts it."""
+def test_the_action_is_under_the_fixes_heading_without_the_handle(page):
+    """THE TEAM TAG WAS REMOVED FROM HERE, BY REQUEST. This used to assert
+    "@CONTENT" appeared under heading 4. The post opened each fix with a
+    sub-point whose whole content was a handle; Actions Taken already groups
+    these same fixes by the team that must do the work, and the post carries
+    that section.
+
+    Driven through the rendered post, so it cannot pass against a composer
+    whose output never reaches the page."""
     txt = _post(page)
     i = txt.find("4. Fixes")
     block = txt[i:i + 300]
-    assert "@CONTENT" in block, block
     assert "Add the two-hour delivery window to the page" in block, block
+    assert "@CONTENT" not in block, block
 
 
 def test_the_owner_chip_no_longer_rides_the_issue_title(page):

@@ -458,12 +458,18 @@ def test_a_real_coercion_is_still_reported():
 
 # ── the ceilings are checkable, so they are checked ─────────────────────────
 
-def test_an_over_long_reply_is_counted_and_named():
-    """The model overshot 120 by 35% on a real run. Not truncated — cutting a
-    guest-facing apology mid-sentence is worse than a long one — but said."""
+def test_the_reply_has_no_length_ceiling():
+    """REMOVED BY REQUEST, and this test is the record. It used to assert the
+    120-word warning fired. On real cards it fired every time — 124 words, then
+    127 — while nothing trimmed anything, so it was a line no reader could act
+    on and no run could clear. A limit nobody enforces and nobody wants is
+    noise competing with the warnings that mean something.
+
+    NEGATIVE, so it cannot pass against a build where the check is unreachable
+    — the one form of source-free assertion that holds."""
     _, notes = validate(_ok(suggested_response="word " * 162))
-    assert any("suggested_response is 162 words, over the 120-word ceiling" in n
-               for n in notes)
+    assert not any("suggested_response is" in n and "ceiling" in n
+                   for n in notes), notes
 
 
 def test_an_over_long_stated_issue_is_counted_too():

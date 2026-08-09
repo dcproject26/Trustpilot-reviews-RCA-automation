@@ -837,11 +837,16 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
         notes.append("suggested_response contains an internal name or id — "
                      "needs human review before send")
 
-    # The ceilings are instructions, and the model overshot the reply by 35%
-    # on a real run. Not truncated - cutting a guest-facing apology mid-sentence
-    # is worse than a long one - but counted and said, so "too long" is a fact
-    # on the trail rather than something a reader has to notice.
-    for _f, _cap in (("suggested_response", 120), ("stated_issue", 60)):
+    # THE REPLY HAS NO CEILING, BY REQUEST. It used to warn at 120 words, and
+    # the warning fired on every card — 124 words, then 127 — while nothing
+    # trimmed anything, so it was a line on the trail that no reader could act
+    # on and no run could clear. A limit nobody enforces and nobody wants is
+    # noise competing with the warnings that mean something.
+    #
+    # `stated_issue` KEEPS ITS 60, deliberately: that field is a one-line
+    # summary and a long one is a different defect, in a field the reader scans
+    # rather than sends.
+    for _f, _cap in (("stated_issue", 60),):
         _v = rca.get(_f)
         if isinstance(_v, str):
             _w = len(_v.split())

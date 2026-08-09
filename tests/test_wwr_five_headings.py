@@ -132,20 +132,35 @@ def test_heading_five_says_when_no_fix_and_no_team_exist():
     assert "No fix recorded" in text
 
 
-def test_heading_five_tags_the_owner_and_states_the_action():
+def test_heading_five_states_the_action_and_not_the_handle():
+    """THE TEAM TAG IS GONE FROM HERE, BY REQUEST. This used to assert
+    "@PRODUCT" appeared. The post opened each fix with a sub-point whose entire
+    content was a handle — it said nothing the action did not, and the ROUTING
+    already has a home: Actions Taken is a view over these same fixes, grouped
+    by the team that must do the work, and the post carries that section.
+
+    NEGATIVE on the handle, so it holds even if the composer changes shape."""
     text = compose(_wwr([_issue(fix={"action": "Add a retry",
                                      "owner": "PRODUCT",
                                      "because": "no retry on timeout"})]))
-    assert "@PRODUCT" in text
     assert "Add a retry" in text
+    assert "@PRODUCT" not in text, text
 
 
-def test_a_fix_with_no_owner_says_no_team_was_tagged():
-    """Heading 5 is "tag the relevant team(s)". A fix with no owner leaves
-    that unanswered, and an unanswered mandatory sub-point must not look like
-    a fix that needs nobody."""
-    text = compose(_wwr([_issue(fix={"action": "Add a retry"})]))
-    assert "No team tagged" in text
+def test_the_action_is_the_first_sub_point_not_the_second():
+    """A list that starts at b reads like a row the composer dropped, which is
+    the shape of every silent-failure bug in this project."""
+    text = compose(_wwr([_issue(fix={"action": "Add a retry",
+                                     "owner": "PRODUCT"})]))
+    line = next(l for l in text.splitlines() if "Add a retry" in l)
+    assert line.strip().startswith("a."), line
+
+
+def test_a_fix_with_no_action_still_says_something():
+    """The heading is mandatory. A bare "4. Fixes" with nothing under it reads
+    as a composer that broke rather than as an issue nobody has fixed."""
+    text = compose(_wwr([_issue(fix={})]))
+    assert "No fix recorded for this issue" in text
 
 
 # ── The fix object is never stringified ─────────────────────────────────────

@@ -103,40 +103,44 @@ def _join_points(v) -> str:
 
 
 def _fix_lines(g: dict, doc_fixes: dict) -> list[str]:
-    """Heading 5: the teams to tag, and the corrective action.
+    """Heading 5: the corrective action.
 
     The issue's own fix wins over the document-level one. `fix` is an OBJECT —
     action, owner, because — and the client half of the old two-composer setup
     dropped it into a string concatenation, which is how "• Fix: [object
     Object]" went out on a real post. Read field by field here so there is no
     stringification to get wrong.
+
+    THE TEAM TAG IS GONE FROM HERE, BY REQUEST. This used to open with a bare
+    "a. @CO" above the action — a sub-point whose entire content was a handle.
+    It said nothing the action did not, and the ROUTING already has a home:
+    Actions Taken is a view over these same fixes, grouped by the team that
+    must do the work, and the post carries that section. One fact, one place.
+
+    So the action is the only sub-point, and it is `a.` rather than `b.`: a
+    list that starts at b reads like a row the composer dropped, which is the
+    shape of every silent-failure bug in this project.
     """
     fx = g.get("fix") if isinstance(g.get("fix"), dict) else None
     lines = []
     if fx and str(fx.get("action") or "").strip():
-        owner = str(fx.get("owner") or "").strip()
-        if owner:
-            lines.append(_sub("a", f"@{owner}"))
-        else:
-            lines.append(_sub("a", "No team tagged — the fix names no owner"))
-        lines.append(_sub("b", str(fx["action"]).strip()))
+        lines.append(_sub("a", str(fx["action"]).strip()))
         return lines
     if isinstance(g.get("fix"), str) and g["fix"].strip():
-        lines.append(_sub("a", "No team tagged — this draft predates fix owners"))
-        lines.append(_sub("b", g["fix"].strip()))
+        lines.append(_sub("a", g["fix"].strip()))
         return lines
     # Nothing on the issue. The document-level node is where a pre-v4 draft
     # keeps its fixes, so an old RCA reposted from the dashboard still says
     # something under a heading that must appear either way.
-    teams = [t for t in (doc_fixes or {}).get("teams") or [] if str(t).strip()]
     actions = [str(a).strip() for a in (doc_fixes or {}).get("actions") or []
                if str(a).strip()]
-    if teams:
-        lines.append(_sub("a", ", ".join(f"@{t}" for t in teams)))
     if actions:
-        lines.append(_sub("b", "; ".join(actions)))
+        lines.append(_sub("a", "; ".join(actions)))
     if not lines:
-        lines.append(_sub("a", "No fix recorded for this issue, and no team tagged"))
+        # STILL SAYS SOMETHING. The heading is mandatory, and a bare "4. Fixes"
+        # with nothing under it reads as a composer that broke rather than as
+        # an issue nobody has proposed a fix for.
+        lines.append(_sub("a", "No fix recorded for this issue"))
     return lines
 
 

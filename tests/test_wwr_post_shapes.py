@@ -35,15 +35,19 @@ def test_the_v3_object_shape_still_composes():
     text = compose({"guest_issues": [ISSUE],
                     "fixes": {"teams": ["CO"], "actions": ["Resend tickets"]}})
     assert text and "could not be composed" not in text, text
-    assert "@CO" in text and "Resend tickets" in text, text
+    # THE ACTION, NOT THE HANDLE. The team tag was removed from this heading by
+    # request — Actions Taken already groups these same fixes by the team that
+    # must do the work, and the post carries that section.
+    assert "Resend tickets" in text, text
+    assert "@CO" not in text, text
 
 
 def test_a_list_fix_reaches_the_post():
     text = compose({"guest_issues": [ISSUE],
                     "fixes": [{"action": "Alert on failed fulfilment",
                                "owner": "TECH"}]})
-    assert "@TECH" in text, text
     assert "Alert on failed fulfilment" in text, text
+    assert "@TECH" not in text, text
 
 
 def test_an_unowned_fix_still_reaches_the_post():
