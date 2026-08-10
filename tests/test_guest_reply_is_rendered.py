@@ -94,6 +94,17 @@ def test_no_python_reader_reaches_for_guestSaid_alone():
         src = inspect.getsource(mod)
         assert 'get("guestSaid")' not in src, \
             f"{mod.__name__} reads guestSaid directly again"
+    # AND THE SCRIPTS, which is where this test was too narrow the first time.
+    # trace_contacts.py had its own `f.get('guestSaid') or f.get('weDid')` and
+    # kept printing a blank line for a guest whose words were in guestReply —
+    # so the diagnostic said the bug was still there after it had been fixed.
+    # A wrong diagnostic is worse than none: it sends you back to code that is
+    # already correct.
+    import glob
+    for path in glob.glob("scripts/*.py"):
+        text = open(path, encoding="utf-8").read()
+        assert "guestSaid'" not in text and 'guestSaid"' not in text, \
+            f"{path} reads guestSaid directly"
     assert 'get("guestSaid")' in inspect.getsource(zendesk.guest_words), \
         "guest_words no longer reads guestSaid at all"
 

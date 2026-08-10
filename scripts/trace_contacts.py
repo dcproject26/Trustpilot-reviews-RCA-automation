@@ -50,6 +50,7 @@ def main(argv=None):
         ap.error("give a review id or --bid")
 
     from server.db import SessionLocal, RcaDraft
+    from server.services.zendesk import guest_words as _gw
     from server.services.zendesk import (split_contact_frames, is_conversation,
                                          guest_took_part, moved_frames_note,
                                          NON_CONTACT_THREADS)
@@ -87,7 +88,10 @@ def main(argv=None):
             ac = str(f.get("actor") or "?").lower()
             prom = bool(f.get("promoted_from_internal"))
             marked += prom
-            gs = bool(str(f.get("guestSaid") or "").strip()) or ac == "guest"
+            # guest_words, not guestSaid: a guest's REPLY lives in
+            # guestReply, and reading one field made a frame with real
+            # guest speech look like it had none.
+            gs = bool(_gw(f)) or ac == "guest"
             ok = is_conversation(f)
             why = ""
             if not ok:
@@ -119,7 +123,7 @@ def main(argv=None):
             for f in group:
                 who = str(f.get("actor") or "?").lower()
                 print(f"       - {f.get('time') or '?':<16} {who:<7} "
-                      f"{_one(f.get('guestSaid') or f.get('weDid'), 44)}")
+                      f"{_one(_gw(f) or f.get('weDid'), 44)}")
             if not guest_took_part(group):
                 print("       !! NO GUEST IN THIS EXCHANGE — this is the bug. "
                       "Every frame is agent-side.")
