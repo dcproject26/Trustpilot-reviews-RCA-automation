@@ -43,7 +43,15 @@ from server.services import claude as C
     "Does not apply — agent-side event",
 ])
 def test_commentary_about_the_field_is_recognised(text):
-    assert C._NOT_APPLICABLE.match(text), f"{text!r} was not caught"
+    # THROUGH _blank_meta, not the raw pattern. The first version asserted
+    # `_NOT_APPLICABLE.match(text)` while the code had moved to `.search()`,
+    # so the test anchored no matter what the pattern said — and a mutation
+    # deleting the `^` survived twice, because nothing in the suite exercised
+    # the anchoring the way the code does. A test that calls a different
+    # method than the call site is testing a different function.
+    out, blanked = C._blank_meta({"guestSaid": text})
+    assert blanked == ["guestSaid"], f"{text!r} was not caught"
+    assert out["guestSaid"] == ""
 
 
 @pytest.mark.parametrize("text", [
@@ -59,7 +67,9 @@ def test_a_real_message_is_left_alone(text):
     applicable" or "none" partway through, and blanking those would delete
     something a person actually wrote — which is worse than the bug, because
     the row still renders and now misquotes them."""
-    assert not C._NOT_APPLICABLE.match(text), f"{text!r} was wrongly caught"
+    out, blanked = C._blank_meta({"guestSaid": text})
+    assert blanked == [], f"{text!r} was wrongly caught"
+    assert out["guestSaid"] == text, "a real message was altered"
 
 
 # ── the coercion, and what it reports ───────────────────────────────────────
