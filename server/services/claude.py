@@ -642,7 +642,20 @@ def _blank_meta(frame: dict) -> tuple[dict, list]:
     """
     out, hit = dict(frame), []
     for k in ("guestSaid", "weDid", "guestReply"):
-        if _NOT_APPLICABLE.match(str(out.get(k) or "")):
+        # .search(), NOT .match(), and the `^` in the pattern is what anchors.
+        #
+        # ONE MECHANISM, ON PURPOSE. This was `.match()` against a pattern that
+        # ALSO starts with `^` — two ways of saying the same thing, either
+        # sufficient alone. Mutation testing proved that costs more than it
+        # buys: deleting the `^` killed nothing, because `.match()` still
+        # anchored, so nothing in the suite could show the anchoring was
+        # load-bearing at all. Belt and braces where either holds the trousers
+        # up means neither can be tested.
+        #
+        # Now the `^` is the only anchor, and dropping it is immediately fatal:
+        # "the refund policy is not applicable here" starts matching, and a
+        # sentence a guest actually wrote gets blanked.
+        if _NOT_APPLICABLE.search(str(out.get(k) or "")):
             out[k] = ""
             hit.append(k)
     return out, hit
