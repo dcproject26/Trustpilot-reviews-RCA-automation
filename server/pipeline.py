@@ -22,6 +22,7 @@ Steps:
   15. Metrics
 """
 import asyncio, logging, re, unicodedata
+from collections import Counter as _Counter
 # Module scope, not inside the validation try. It used to be imported two lines
 # after a statement that always raised, so `_html` was never bound — and the
 # contact-note join below, which is a DIFFERENT try, then died on the NameError
@@ -1349,7 +1350,29 @@ async def process_review(review_id: str, force_candidates: bool = False):
             _eng if _orig in _eng else (f"{_eng}\n{_orig}".strip() if _eng else _orig))
 
         # ── Instrumentation counters ──────────────────────────────────────────
-        _ctr = {
+        #
+        # A COUNTER, NOT A DICT, AND THAT IS THE POINT. This was a plain dict
+        # with a fixed key list, so `_ctr["k"] += 1` on an undeclared key threw
+        # KeyError and took down the WHOLE RUN. Six keys were being incremented
+        # that no one had declared:
+        #
+        #   indicator_mismatch, t1_name_uncheckable, t2_extraction_unavailable,
+        #   t2_shortlist_crashed, t2_text_bid_dropped, t2_ticket_no_bid
+        #
+        # Every one of them sits on a DIAGNOSTIC branch — the code that runs
+        # when something unusual happened and exists to explain it. So the
+        # pipeline crashed precisely on the reviews that most needed
+        # explaining, and on the way out it discarded the RCA validation:
+        # `except Exception: keeping raw output` then stored the model's
+        # unchecked answer, fabricated timeline rows and all. Two live drafts
+        # ended that way, both reading "Run failed — KeyError:
+        # 't2_ticket_no_bid'" at the bottom of an otherwise plausible card.
+        #
+        # An instrumentation counter must never be able to fail a run. The keys
+        # below stay declared as documentation of what is measured; Counter
+        # means a new or misspelled one is a wrong number rather than an
+        # outage.
+        _ctr = _Counter({
             "bid_attachment": 0, "bid_regex": 0, "bid_manual": 0, "bid_none": 0,
             "t1_attachment_confirmed": 0, "t1_manual_confirmed": 0,
             "t1_regex_verified": 0, "t1_regex_downgraded": 0, "t1_bq_missed": 0,
@@ -1373,7 +1396,14 @@ async def process_review(review_id: str, force_candidates: bool = False):
             "t2_bq_support_candidates":    0,
             "t2_bq_support_no_match":      0,
             "t2_zendesk_truncated":        0,
-        }
+            # The six that were incremented without ever being declared.
+            "indicator_mismatch":          0,
+            "t1_name_uncheckable":         0,
+            "t2_extraction_unavailable":   0,
+            "t2_shortlist_crashed":        0,
+            "t2_text_bid_dropped":         0,
+            "t2_ticket_no_bid":            0,
+        })
 
         # ── 2. BID extraction + source detection ─────────────────────────────
         confidence_trail = []
