@@ -1163,6 +1163,33 @@ def classification_entry(l1: str, l2: str, err: Exception | None,
             "lookup. Set the classification by hand, or re-run this review."}
 
 
+def zendesk_not_searched_entry() -> dict:
+    """The trail line for a review whose booking is not matched yet.
+
+    THE MOST COMMON STATE ON THE CARD, AND IT WAS SILENT. Every ticket search
+    is keyed on a booking id, so `if bid_for_zd:` skips Zendesk entirely on the
+    first run of nearly every review — and it skipped it in exactly the way a
+    booking with no tickets looks: empty timeline, empty contacts panel,
+    nothing in the trail. The other Zendesk trail entries all hang off
+    `search_tally`, which does not exist until a search has run, so they stayed
+    quiet as well.
+
+    Worse than invisible: an empty record is what tips the RCA prompt into
+    narrating the guest's review instead of listing events, so the card looked
+    fullest exactly when nobody had been asked anything.
+
+    A function rather than an inline dict for the reason dss_entry is one —
+    the alternative is asserting the sentence appears in pipeline.py, which
+    passes just as happily against a build where the branch is unreachable.
+    """
+    return {"mark": "warn",
+            "text": "<strong>Zendesk was not searched.</strong> Every ticket "
+                    "lookup is keyed on a booking id and this review has none "
+                    "yet, so no search ran — this is not a guest who never "
+                    "wrote in. Confirm a booking, or re-run once one is "
+                    "matched, and the tickets will load."}
+
+
 def dss_entry(dss_rec, err: Exception | None, live: bool,
               l1: str = "", l2: str = "") -> dict | None:
     """The trail line for the DSS lookup. None only when a row was matched.
@@ -3197,6 +3224,23 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 log.warning(f"Zendesk failed — continuing with empty timeline: {e}")
                 timeline, extracted_bk = [], {}
                 zd_meta = {"ticket_ids": [], "timeline_raw": []}
+        else:
+            # NOT ASKED IS NOT "NOTHING FOUND", AND THIS BRANCH USED TO BE
+            # SILENT. Every ticket search is keyed on a booking id, so a review
+            # whose booking is not matched yet skips Zendesk entirely — and
+            # skipped it in exactly the same way a booking with no tickets
+            # looks: empty timeline, empty contacts panel, nothing in the
+            # trail. The trail entries below all hang off `search_tally`, which
+            # only exists once a search has run, so they stayed quiet too.
+            #
+            # This is the first run of nearly every review, which made it the
+            # most common state on the card and the least visible. Worse, an
+            # empty record is what tips the RCA prompt into narrating the
+            # guest's review instead of listing events — so the card looked
+            # fullest precisely when we had asked nobody anything.
+            log.info("[pipeline] Zendesk NOT searched for %s — no booking id "
+                     "yet", review_id)
+            confidence_trail.append(zendesk_not_searched_entry())
 
         # WHICH SEARCHES RAN, before the count of what they found. The card
         # said "one contact" with total confidence because the ticket search
