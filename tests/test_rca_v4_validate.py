@@ -620,3 +620,106 @@ def test_the_demotion_is_never_silent():
     exists to prevent."""
     _, notes = validate(_ok(what_went_wrong={"guest_issues": [_finding()]}))
     assert notes and any("not the guest's" in n for n in notes)
+
+
+# ── the guest's account is not an event ─────────────────────────────────────
+#
+# WHAT SHIPPED. A card carried a six-row EVENTS TIMELINE of which four rows
+# were the guest's review restated: "Guide changed meeting point at 08:30",
+# "Departure delayed past 10:00", each ending "(guest's account, unverified)".
+# The prompt asked for exactly that when the systems returned nothing, so the
+# model was not wrong — the instruction was.
+#
+# Two things made it worse than a cosmetic error. A parenthetical does not
+# undo a heading: the reader scans a column of times and labels and reads
+# every row as something we know, because everything else in that column is.
+# And it fired precisely when the record was EMPTY, so the card looked fullest
+# exactly when we knew least, and a broken Zendesk lookup was indistinguishable
+# from a case where nothing happened.
+#
+# The prompt now forbids it. These test the SERVER-SIDE guard, because the
+# prompt is a request and the previous request was honoured to the letter.
+
+def _logs(rows, **kw):
+    from server.services import rca_v4_validate as V
+    notes = []
+    out = V._booking_logs(rows, kw.get("booking_confirmed", True), notes)
+    return out, notes
+
+
+def test_a_row_marked_as_the_guests_account_is_dropped():
+    out, notes = _logs([
+        {"time": "08:30", "what": "Guide changed meeting point",
+         "detail": "Guide called guests to redirect them (guest's account, unverified)."},
+        {"time": "14 Jul 12:46", "what": "Booking created",
+         "detail": "Booking 32728059 confirmed for 08 Aug."},
+    ])
+    assert len(out) == 1
+    assert out[0]["what"] == "Booking created"
+
+
+def test_the_undated_sentinel_is_dropped_too():
+    """The retired rule gave these rows time="undated" so they would not render
+    as a column of dashes. That sentinel now means an entry got in that should
+    not have."""
+    out, _ = _logs([{"time": "undated", "what": "Departure delayed",
+                     "detail": "Tour left two hours late."}])
+    assert out == []
+
+
+def test_the_drop_is_counted_and_says_where_the_claim_lives_instead():
+    """Silently shrinking six rows to two reads as a lookup that half-failed,
+    which is the inverse of what happened."""
+    out, notes = _logs([
+        {"time": "undated", "what": "A", "detail": "x"},
+        {"time": "undated", "what": "B", "detail": "y"},
+        {"time": "01 Jan", "what": "Booking created", "detail": "real"},
+    ])
+    said = " ".join(notes)
+    assert "2 row(s) were the guest's account" in said
+    assert "1 recorded event(s) remain" in said
+    assert "stated_issue" in said, "it did not say where the claim does belong"
+
+
+def test_a_timeline_of_only_real_events_is_untouched_and_unremarked():
+    """The other half of the rule. If every healthy timeline came back with a
+    note about dropped claims, the note would mean nothing."""
+    rows = [{"time": "14 Jul 12:46", "what": "Booking created", "detail": "a"},
+            {"time": "08 Aug", "what": "Review posted", "detail": "b"}]
+    out, notes = _logs([dict(r) for r in rows])
+    assert len(out) == 2
+    assert not [n for n in notes if "guest's account" in n]
+
+
+def test_an_empty_middle_is_left_empty_rather_than_filled():
+    """The shape this whole change is for: booking and review bookends with
+    nothing between them is the honest look of a case whose systems hold
+    nothing."""
+    out, _ = _logs([
+        {"time": "14 Jul", "what": "Booking created", "detail": "real"},
+        {"time": "undated", "what": "Guide changed meeting point", "detail": "claim"},
+        {"time": "undated", "what": "Departure delayed", "detail": "claim"},
+        {"time": "08 Aug", "what": "Review posted", "detail": "real"},
+    ])
+    assert [r["what"] for r in out] == ["Booking created", "Review posted"]
+
+
+def test_the_word_unverified_alone_is_enough_to_catch_it():
+    """The mark has been written more than one way. Matching only the exact
+    sentence would let a rephrasing through, and a rephrased claim is still a
+    claim."""
+    out, _ = _logs([{"time": "09:00", "what": "Guide walked away",
+                     "detail": "Guests said he left without explanation (unverified)"}])
+    assert out == []
+
+
+def test_the_prompt_no_longer_asks_for_it():
+    """NEGATIVE, so unreachability cannot defeat it — the one form of source
+    assertion CLAUDE.md allows. The guard above would keep working while the
+    prompt still requested the rows, and every run would then carry a drop
+    note for something nobody should have asked for."""
+    from server import prompts
+    assert "build\n    the sequence from the guest's own account" not in prompts.RCA_V4_TEMPLATE
+    assert 'end each such `detail` with "(guest\'s account, unverified)"' \
+        not in prompts.RCA_V4_TEMPLATE
+    assert "THE GUEST'S ACCOUNT IS NEVER AN EVENT" in prompts.RCA_V4_TEMPLATE

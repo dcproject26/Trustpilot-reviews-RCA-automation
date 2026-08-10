@@ -782,6 +782,29 @@ def _taxonomy(rca, notes):
     return {"l1": CATCH_ALL[0], "l2": CATCH_ALL[1], "l1_raw": l1, "l2_raw": l2}
 
 
+# A row the model built from the review rather than from the record. The
+# retired prompt rule stamped these itself — "(guest's account, unverified)" —
+# and gave them the sentinel time "undated", so both are reliable markers of
+# an entry no system ever saw.
+_GUEST_ACCOUNT_MARK = re.compile(r"guest'?s\s+account|unverified\s*\)?\s*$", re.I)
+
+
+def _is_guest_claim(row) -> bool:
+    """Whether this timeline row is the guest's story rather than a record.
+
+    THE PROMPT ALONE IS NOT ENOUGH. Rule 10 now forbids these outright, but a
+    prompt is a request: the previous rule was followed exactly, which is how
+    four claims came to sit under a heading that says these are events, and a
+    parenthetical does not undo a heading. So the ban is also enforced here,
+    where it cannot be talked out of.
+    """
+    if not isinstance(row, dict):
+        return False
+    if str(row.get("time") or "").strip().lower() == "undated":
+        return True
+    return bool(_GUEST_ACCOUNT_MARK.search(str(row.get("detail") or "")))
+
+
 def _booking_logs(raw, booking_confirmed, notes):
     """The booking timeline, or nothing when there is no booking yet.
 
@@ -791,12 +814,25 @@ def _booking_logs(raw, booking_confirmed, notes):
     booking has no events" are different sentences for the reader.
     """
     rows = _rows(raw, ("time", "what", "detail"))
-    if booking_confirmed or not rows:
-        return rows
-    notes.append(f"booking_logs: {len(rows)} row(s) dropped — no booking is "
-                 f"confirmed yet, so there is no booking for a timeline to be "
-                 f"about; the model narrated the guest's account instead")
-    return []
+    if not booking_confirmed and rows:
+        notes.append(f"booking_logs: {len(rows)} row(s) dropped — no booking is "
+                     f"confirmed yet, so there is no booking for a timeline to be "
+                     f"about; the model narrated the guest's account instead")
+        return []
+    # THE GUEST'S ACCOUNT IS NOT AN EVENT, and this is where that is enforced
+    # rather than requested. Counted and named, never silently removed: a
+    # timeline that quietly shrank from six rows to two reads as a lookup that
+    # half-failed, which is the inverse of what happened.
+    claims = [r for r in rows if _is_guest_claim(r)]
+    if claims:
+        kept = [r for r in rows if not _is_guest_claim(r)]
+        notes.append(
+            f"booking_logs: {len(claims)} row(s) were the guest's account, not "
+            f"the record — dropped. The timeline shows what the systems saw; "
+            f"the guest's version is in stated_issue and the claims, where it "
+            f"is labelled as theirs. {len(kept)} recorded event(s) remain")
+        return kept
+    return rows
 
 
 def validate(rca: dict, scenarios_routed=None, keep_actions=None,

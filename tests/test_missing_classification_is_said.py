@@ -752,21 +752,49 @@ def _prompt(booking=None, **kw):
         support_summary="", checklist={}, review_id="r1", **kw).split())
 
 
-def test_the_assembled_prompt_asks_for_undated_not_null():
+def test_the_prompt_no_longer_asks_for_undated():
+    """RETIRED WITH THE RULE THAT NEEDED IT.
+
+    `time: "undated"` existed for one purpose: to carry timeline entries built
+    from the guest's account, so they would not render as a column of dashes.
+    Rule 10 now forbids those entries outright — the guest's story is a claim,
+    and it has fields of its own — so nothing is left for the sentinel to
+    describe. A prompt still asking for it would produce rows the validator
+    then drops, and every run would carry a drop note for something nobody
+    should have requested.
+
+    NEGATIVE, which is the form of source assertion CLAUDE.md permits:
+    unreachability cannot defeat "this string appears nowhere".
+    """
     out = _prompt()
-    assert '`time` is the string "undated" rather than null' in out
+    assert '`time` is the string "undated"' not in out
+    assert "build\n    the sequence from the guest's own account" not in out
 
 
-def test_it_says_why_null_is_wrong_there():
-    """A rule with no reason attached is the first thing dropped in an edit."""
+def test_the_prompt_says_the_guests_account_is_never_an_event():
+    """And says WHY. A rule with no reason attached is the first thing dropped
+    in an edit — which is how the rule this replaces got written in the first
+    place."""
     out = _prompt()
-    assert "reads as timestamps we failed to load" in out
+    assert "THE GUEST'S ACCOUNT IS NEVER AN EVENT" in out
+    assert "A parenthetical does not undo a heading" in out
+    assert "fullest exactly when we knew least" in out, \
+        "the inversion that made it worse than cosmetic is not stated"
 
 
 def test_null_is_still_allowed_for_a_real_undated_event():
-    """Overcorrecting would put "undated" on system events whose time genuinely
+    """Overcorrecting would forbid null on system events whose time genuinely
     is not recorded — the inverse bug, and it hides a real gap."""
-    assert "not as a shorthand" in _prompt()
+    out = _prompt()
+    assert "`time` is null ONLY when you have a REAL event" in out
+
+
+def test_the_prompt_says_where_the_guests_version_does_belong():
+    """A ban that does not name the alternative gets read as "leave it out",
+    and the guest's account then vanishes from the card entirely — which is a
+    different failure, not a fix."""
+    out = _prompt()
+    assert "`claim` and `stated_issue`" in out
 
 
 def test_the_bookend_dates_are_substituted_not_left_as_tokens():

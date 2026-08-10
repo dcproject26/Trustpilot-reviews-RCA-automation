@@ -1839,23 +1839,46 @@ that turned out fine is silence — never a line in the output.
     <<BOOKING>> is empty or carries no id: RETURN AN EMPTY LIST and say
     nothing. The card explains the emptiness itself.
 
-    When a booking IS confirmed and the systems still gave you nothing, build
-    the sequence from the guest's own account — they always narrate one — and
-    end each such `detail` with "(guest's account, unverified)". At that point
-    there is a booking for the account to be about.
+    THE GUEST'S ACCOUNT IS NEVER AN EVENT. Not when the systems gave you
+    nothing, not when the booking is confirmed, not marked "unverified", not
+    ever. This section is what the RECORD shows happened — Zendesk tickets,
+    fulfilment runs, automated mails, the booking and the review. What the
+    guest says happened is a CLAIM, and claims already have a home: they are
+    the `claim` and `stated_issue` fields, quoted as theirs and labelled with
+    a `claim_accuracy` the record decides.
 
-10b. A GUEST'S ACCOUNT HAS NO CLOCK, SO SAY SO IN `time`. A guest narrates an
-    order of events, not timestamps. Returning null for every `time` on such a
-    sequence renders a column of dashes, which reads as timestamps we failed to
-    load rather than as timestamps that were never available — the same absence
-    the dashboard shows for a broken lookup. So on any entry you built from the
-    guest's account, `time` is the string "undated" rather than null.
-    Two entries are exempt because the warehouse always knows them, and they
-    give an undated sequence real bookends: the booking being made
+    An earlier version of this rule said the opposite — build the sequence
+    from the guest's own account when the systems gave you nothing, and end
+    each `detail` with "(guest's account, unverified)". It produced exactly
+    what it promised, and the result was a timeline of four claims and two
+    real bookends, sitting under a heading that says these are events. A
+    parenthetical does not undo a heading. The reader scans a column of times
+    and labels, and "Guide changed meeting point at 08:30" reads as something
+    we know, because everything else in that column is.
+
+    Worse, it fired precisely when the record was EMPTY — so the card looked
+    fullest exactly when we knew least, and a broken Zendesk lookup was
+    indistinguishable from a case where nothing happened. That inversion is
+    the reason the rule is gone rather than softened.
+
+    So when the booking is confirmed and the systems gave you nothing: return
+    ONLY the entries the record supports — the booking being made and the
+    review being posted, which the warehouse always knows. Two entries, or
+    one, or none. An empty middle is the honest shape of a case whose systems
+    hold nothing, and the card says so itself.
+
+10b. THE BOOKENDS THE WAREHOUSE ALWAYS KNOWS. Two entries are always
+    available and give the sequence its ends: the booking being made
     (<<BOOKING_DATE>>) and the visit (<<VISIT_DATE>>). Include both as the
     first and last dated entries whenever they are known, whatever else you
-    have. `time` is null ONLY when you have a real event whose time genuinely
-    is not recorded anywhere — not as a shorthand for "the guest did not say".
+    have. `time` is null ONLY when you have a REAL event whose time genuinely
+    is not recorded anywhere.
+
+    There is no "undated" any more. That string existed to carry entries built
+    from the guest's account, and rule 10 no longer permits any — so a `time`
+    of "undated" now means an entry got in that should not have. If you find
+    yourself reaching for it, the entry is a claim and belongs in
+    `stated_issue` or a `claim`, not here.
 
 20. NO APPROVED MACRO, NO REPLY. When the tone block above says no approved
     macro matches, `suggested_response` is null. Not a paraphrase of one, not
