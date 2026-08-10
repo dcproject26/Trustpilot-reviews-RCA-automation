@@ -57,6 +57,26 @@ def _declared():
     return set(re.findall(r'"([a-z0-9_]+)":', _literal()))
 
 
+def _expression():
+    """The whole `_Counter({...})` call, not just the dict inside it.
+
+    _literal() returns the braces only. Building the object as
+    `_Counter(eval(_literal()))` forces a Counter whatever the source says, so
+    reverting the pipeline to a plain dict would have sailed straight past the
+    test that exists to prevent exactly that. Evaluate what is written.
+    """
+    start = SRC.index("_ctr = _Counter({")
+    open_paren = SRC.index("(", start)
+    depth, i = 0, open_paren
+    while i < len(SRC):
+        depth += SRC[i] == "("
+        depth -= SRC[i] == ")"
+        i += 1
+        if depth == 0:
+            break
+    return SRC[SRC.index("_Counter", start):i]
+
+
 def _used():
     used = set()
     for n in ast.walk(ast.parse(SRC)):
@@ -80,7 +100,9 @@ def test_the_pipeline_counter_is_that_kind_of_counter():
     """Driven rather than asserted from source: build the same object the
     pipeline builds and prove the operation is survivable on it."""
     from collections import Counter as _Counter
-    ctr = _Counter(eval(_literal()))
+    ctr = eval(_expression(), {"_Counter": _Counter})
+    assert isinstance(ctr, _Counter), \
+        f"the pipeline builds a {type(ctr).__name__}, which can raise KeyError"
     ctr["a_key_no_one_declared"] += 1
     assert ctr["a_key_no_one_declared"] == 1
     assert ctr["another"] == 0, "reading an absent key must not raise either"
