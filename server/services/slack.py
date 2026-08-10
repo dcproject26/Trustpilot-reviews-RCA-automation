@@ -1,4 +1,6 @@
 import hmac, hashlib, time, re, logging
+
+from server.services import zendesk as _zd
 from server.config import (is_live, SLACK_SIGNING_SECRET, SLACK_BOT_TOKEN,
                             SLACK_USER_TOKEN, MOCK_MODE, ORM_CHANNELS,
                             TRUSTPILOT_BOT_USER_ID)
@@ -753,7 +755,7 @@ def format_rca_slack(review, draft) -> str:
         lines = [f"*{label}:*"]
         for fr in frames:
             t = fr.get("time", "?")
-            said = fr.get("guestSaid") or fr.get("summary") or ""
+            said = _zd.guest_words(fr) or fr.get("summary") or ""
             did  = fr.get("weDid") or ""
             gap  = fr.get("gap") or ""
             row = f"• {t} — {said}"
@@ -1113,7 +1115,7 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
         # The contact's own line: what this exchange was, in one line. The
         # model's summary is about the contact; a frame's guestSaid is about
         # one message, so it is the fallback rather than the other way round.
-        summary = ((note or {}).get("summary") or first.get("guestSaid") or "").strip()
+        summary = ((note or {}).get("summary") or _zd.guest_words(first)).strip()
         head = f"\u2022 {n:02d}. {first.get('time') or '?'}"
         if ch:
             head += f" \u00b7 {ch}"
@@ -1125,7 +1127,7 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
             head += f" [{len(group)} events]"
         rows.append(head)
         for fr in group:
-            said = (fr.get("guestSaid") or "").strip()
+            said = _zd.guest_words(fr)
             did  = (fr.get("weDid") or "").strip()
             if not said and not did:
                 continue
@@ -1186,7 +1188,7 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
             note = _note_for(key, recs)
             if note:
                 used.add(key)
-            said = (fr.get("guestSaid") or (note or {}).get("summary") or "").strip()
+            said = (_zd.guest_words(fr) or (note or {}).get("summary") or "").strip()
             did  = (fr.get("weDid") or "").strip()
             line = f"\u2022 {fr.get('time') or '?'}" + (f" \u2014 {said}" if said else "")
             if did:

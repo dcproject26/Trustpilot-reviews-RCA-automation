@@ -1082,7 +1082,8 @@ def _support_tickets_block(frames) -> str:
                 f"{moved} system event(s) only, so nobody spoke to them)")
     out = []
     for f in convos[:20]:
-        said = str(f.get("guestSaid") or f.get("summary") or "").strip()
+        from server.services.zendesk import guest_words as _gw
+        said = (_gw(f) or str(f.get("summary") or "")).strip()
         did  = str(f.get("weDid") or "").strip()
         gap  = str(f.get("gap") or "").strip()
         zd   = str(f.get("ticket_id") or "").strip()

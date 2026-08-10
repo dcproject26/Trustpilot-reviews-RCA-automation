@@ -550,11 +550,16 @@ def _marked_frames(frames) -> list:
     filtered list and a guest who never wrote in must not read the same, which
     is the reason the split returns two lists rather than one.
     """
-    from server.services.zendesk import split_contact_frames
+    from server.services.zendesk import split_contact_frames, guest_words
     rows = [f for f in (frames or []) if isinstance(f, dict)]
     convo, _ = split_contact_frames(rows)
     keep = {id(f) for f in convo}
-    return [dict(f, is_contact=(id(f) in keep)) for f in rows]
+    # `guest_words` is stamped for the same reason `is_contact` is: the client
+    # would otherwise pick between guestSaid and guestReply in JavaScript, in
+    # five places, and that is the drift this function was created to end. The
+    # server decides; the page renders what it is given.
+    return [dict(f, is_contact=(id(f) in keep), guest_words=guest_words(f))
+            for f in rows]
 
 
 def _draft_dict(d: RcaDraft) -> dict:

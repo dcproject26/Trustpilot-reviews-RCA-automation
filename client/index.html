@@ -1965,7 +1965,11 @@ function mapSupportFrame(f) {
     type: f.thread || 'email',
     time: f.time || '',
     label: f.label || '',
-    guestSaid: f.guestSaid || f.summary || '—',
+    // guest_words is the SERVER's pick between guestSaid and guestReply —
+    // stamped in _marked_frames beside is_contact, for the same reason.
+    // A guest's REPLY lives in guestReply, and reading guestSaid alone
+    // drew an empty line under the guest's own name.
+    guestSaid: f.guest_words || f.guestSaid || f.guestReply || f.summary || '—',
     weDid: f.weDid || '—',
     guestReply: f.guestReply || '—',
     gap: f.gap || '',
@@ -4881,7 +4885,7 @@ function renderRcaCol() {
     // nulls - and precedence fixes that without the blank.
     const ch = (first.thread || '').trim() || String((row.note || {}).channel || '').trim();
     const tm = (first.time || '').trim() || String((row.note || {}).time || '').trim();
-    const summary = (row.note && row.note.summary) || first.guestSaid || '';
+    const summary = (row.note && row.note.summary) || first.guest_words || first.guestSaid || first.guestReply || '';
     return `
       <div class="convo-frame ${open ? 'open' : ''}">
         <div class="convo-frame-head" data-ix-toggle="${i}">
@@ -4899,7 +4903,7 @@ function renderRcaCol() {
           ${rows.map(fr => `
             <div class="convo-line">
               <span class="convo-ev-time">${esc(fr.time || '—')}</span>
-              <span class="convo-ev-body">${esc(fr.guestSaid || '')}${
+              <span class="convo-ev-body">${esc(fr.guest_words || fr.guestSaid || fr.guestReply || '')}${
                 fr.weDid ? ` <span class="convo-ev-we">we: ${esc(fr.weDid)}</span>` : ''}</span>
             </div>
             ${fr.gap ? `<div class="convo-gap">⚠ ${esc(fr.gap)}</div>` : ''}`).join('')}
@@ -4987,7 +4991,7 @@ function renderRcaCol() {
           <div class="sp-frame-body">
             <div class="sp-frame-summary">${nIdx >= 0
               ? edSpan(`sp_interaction_notes.records.${nIdx}.summary`, (note || {}).summary)
-              : esc(first.guestSaid || first.summary || '')}</div>
+              : esc(first.guest_words || first.guestSaid || first.guestReply || first.summary || '')}</div>
           </div>
         </div>`; }).join('')}
         ${spOrphans.map((rec) => {
@@ -5070,7 +5074,7 @@ function renderRcaCol() {
       if (!frames || !frames.length) return label + ': —';
       const lines = [label + ':'];
       for (const f of frames) {
-        let row = '• ' + (f.time || '?') + ' — ' + (f.guestSaid || f.summary || '');
+        let row = '• ' + (f.time || '?') + ' — ' + (f.guest_words || f.guestSaid || f.guestReply || f.summary || '');
         if (f.weDid) row += ' | we: ' + f.weDid;
         if (f.gap)   row += ' | ⚠ ' + f.gap;
         lines.push(row);
@@ -5086,7 +5090,7 @@ function renderRcaCol() {
           (x.zd_ref ? ' (' + x.zd_ref + ')' : '') +
           (x.ce_miss ? nl + '   ⚠ CE miss: ' + x.ce_miss : ''))
       : (rca.supportInteraction || []).map(f =>
-          '• ' + (f.time || '?') + ' — ' + (f.guestSaid || f.summary || '') +
+          '• ' + (f.time || '?') + ' — ' + (f.guest_words || f.guestSaid || f.guestReply || f.summary || '') +
           (f.weDid ? ' | we: ' + f.weDid : '') + (f.gap ? ' | ⚠ ' + f.gap : ''));
     const supportText = supLines.join(nl) || 'No guest contact found on this booking';
 

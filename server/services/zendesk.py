@@ -775,6 +775,68 @@ def _map_channel(via_channel: str) -> str:
     return "email"
 
 
+def guest_words(frame) -> str:
+    """What the guest actually said on this frame, from whichever field holds it.
+
+    THE MODEL FILLS ONE OF TWO FIELDS AND EVERY RENDERER READ ONE. A frame
+    carries `guestSaid` for a message the guest opened with and `guestReply`
+    for one answering an agent — both correct, and the prompt asks for exactly
+    that. Nine call sites then read `guestSaid` alone, so a guest's reply drew
+    as an EMPTY line under their own name:
+
+        07 Aug 18:32 IST  guest    (blank)      guestReply: "Thanked agent"
+        09 Aug 11:36 IST  guest    (blank)      guestReply: "Stated prices
+                                                paid do not match those on
+                                                official castle websites"
+
+    `guestReply` was carried all the way into the client and rendered by
+    nothing. This was masked for months because the model used to write
+    "N/A — this is the guest's reply event" into `guestSaid` — which was it
+    telling us the content was in the other field, printed as if the guest had
+    said it.
+
+    guestSaid FIRST: on the rare frame carrying both, the opening message is
+    what the row is about and the reply belongs to the next one.
+    """
+    if not isinstance(frame, dict):
+        return ""
+    return (str(frame.get("guestSaid") or "").strip()
+            or str(frame.get("guestReply") or "").strip())
+
+
+def sort_by_time_sort(rows) -> tuple[list, int]:
+    """Chronological by `time_sort`. Returns (rows, how many had no key).
+
+    THE LIST WAS NEVER SORTED. `time_sort` is built with care — bookends
+    rescued from the booking date and the review's publication date, display
+    strings normalised — and then the rows were returned in whatever order the
+    shaping model emitted them. That is usually chronological, which is what
+    made this survive: it looks correct until one run comes back out of order,
+    and then the timeline reads as a sequence of events that did not happen in
+    that sequence. Every case finding built on "X then Y" is downstream of it.
+
+    ROWS WITH NO KEY KEEP THEIR NEIGHBOURS. A row whose time nothing in the
+    record supports cannot be placed on the clock, and moving it to either end
+    would be inventing a placement — the failure the bookend rescue above
+    exists to prevent. So it inherits the key of the last row that had one,
+    which keeps it exactly where the model put it relative to its neighbours,
+    and a stable sort preserves that. The count comes back so the caller can
+    say a judgement was made rather than implying the whole list is dated.
+    """
+    keyed, unsorted, last = [], 0, ""
+    for r in rows:
+        k = str((r or {}).get("time_sort") or "").strip()
+        if k:
+            last = k
+        else:
+            unsorted += 1
+        keyed.append((last, r))
+    # Stable: rows sharing a key — a collapsed run, or an undated row pinned to
+    # its predecessor — stay in the order the model gave them.
+    keyed.sort(key=lambda p: p[0])
+    return [r for _, r in keyed], unsorted
+
+
 def _brand_matches(ticket, brand_env: str) -> bool:
     if not brand_env:
         return False
@@ -3007,6 +3069,7 @@ async def _shape_via_claude(
             "internal_reason": internal[0].get("internal_reason", "") if is_internal else "",
         })
     out = select_internal_notes(kept)
+    out, _unsorted = sort_by_time_sort(out)
     # RAW IN, SHAPED OUT. Collapsing is legitimate — the prompt asks for it —
     # but "10 events became 8" is a judgement the model made and the reader
     # cannot see. Stamped on the first row so the pipeline can put it on the
