@@ -2921,6 +2921,7 @@ async def _shape_via_claude(
 
     kept = []
     _dropped_by_model = 0
+    _actor_corrected = 0
     for ev in shaped:
         if not ev.get("keep", True):
             # COUNTED. The prompt says "KEEP EVERY EVENT — keep: false only
@@ -3013,9 +3014,37 @@ async def _shape_via_claude(
         if not time_sort and thread == "review":
             time_sort = _to_iso(review_pub_date or "")
         actor = ev.get("actor", "system")
+        _raw_actor = (srcs[0].get("actor") if srcs else "system") or "system"
         if actor not in _ACTORS:
             log.info(f"[zendesk] unknown shaped actor {actor!r} -> raw actor")
-            actor = (srcs[0].get("actor") if srcs else "system") or "system"
+            actor = _raw_actor
+        elif actor == "guest" and srcs and not any(
+                str(s.get("actor") or "").strip().lower() == "guest"
+                for s in srcs):
+            # THE MODEL DOES NOT GET TO INVENT A GUEST. `guest` is in _ACTORS,
+            # so the check above waves it through — and on one card 23 of 29
+            # frames came back labelled `guest` over vendor and internal
+            # traffic:
+            #
+            #   guest / api  "Vendor requested cancellation of all July bookings"
+            #   guest / api  "Internal escalation raised for urgent team review"
+            #
+            # Every one had no guest words in it, because no guest said
+            # anything. It surfaced as "wordless guest frames", which reads
+            # like a rendering fault and was actually our own internal
+            # escalation attributed to the customer on their case timeline.
+            #
+            # Who acted is a FACT in the raw event. The summariser writes the
+            # label and the summary; it gets no vote on this.
+            #
+            # A COLLAPSED ROW IS SAFE: `srcs` holds every raw event behind this
+            # entry, so a run that genuinely mixes a guest message with system
+            # rows still has a guest among them and keeps its label.
+            log.warning("[zendesk] shaped actor 'guest' on a row whose raw "
+                        "events are %s — using the record",
+                        sorted({str(s.get("actor") or "?") for s in srcs}))
+            actor = _raw_actor
+            _actor_corrected += 1
 
         # Machinery only when EVERY raw event behind this entry was machinery:
         # a collapsed entry that mixes a real guest message with a system row is
@@ -3074,10 +3103,15 @@ async def _shape_via_claude(
     # but "10 events became 8" is a judgement the model made and the reader
     # cannot see. Stamped on the first row so the pipeline can put it on the
     # trail; a shorter timeline and a complete one look identical otherwise.
-    if out and len(raw_events) != len(out):
+    # COUNTED EVEN WHEN NOTHING WAS COLLAPSED. The stamp used to be written
+    # only when the row count changed, so a run that re-attributed actors but
+    # dropped nothing carried no counts at all and the correction went
+    # unreported — a repair nobody can see is the same as no repair.
+    if out and (len(raw_events) != len(out) or _actor_corrected):
         out[0] = dict(out[0], _shape_counts={
             "raw": len(raw_events), "shown": len(out),
-            "dropped_by_model": _dropped_by_model})
+            "dropped_by_model": _dropped_by_model,
+            "actor_corrected": _actor_corrected})
     return out
 
 

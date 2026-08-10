@@ -3288,6 +3288,15 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 _bits.append(f"{_sc['dropped_by_model']} judged to have no "
                              f"readable content")
             _bits.append("the rest were collapsed as one action at one moment")
+            if _sc.get("actor_corrected"):
+                # A DIFFERENT KIND OF REPAIR from collapsing, so it gets its
+                # own clause. Collapsing is the model doing what it was asked;
+                # this is the model having been overruled on a fact, and a
+                # reader is entitled to know a row is not attributed the way
+                # it was written.
+                _bits.append(f"{_sc['actor_corrected']} row(s) the summariser "
+                             f"labelled as the guest were re-attributed from "
+                             f"the raw ticket — no guest acted on them")
             confidence_trail.append({"mark": "warn",
                 "text": "<strong>Events timeline:</strong> " + "; ".join(_bits)
                         + ". Nothing was deleted — open a ticket to see every "

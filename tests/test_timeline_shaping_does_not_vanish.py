@@ -110,7 +110,39 @@ def test_the_trail_reports_what_the_shaping_removed():
 
 def test_no_count_is_stamped_when_nothing_was_lost():
     """A count on every healthy booking is the noise that makes a reader stop
-    reading the ones that mean something."""
-    src = open("server/services/zendesk.py", encoding="utf-8").read()
-    assert "if out and len(raw_events) != len(out):" in src, \
-        "the stamp fires even when the timeline is complete"
+    reading the ones that mean something.
+
+    DRIVEN, NOT SPELLED. This asserted the literal condition
+    `if out and len(raw_events) != len(out):` appeared in the source. When a
+    second reason to stamp was added — an actor the summariser had invented —
+    the condition legitimately changed and this failed, while the behaviour it
+    protects was untouched. A source assertion on a POSITIVE behaviour pins the
+    wording rather than the rule, which is why CLAUDE.md allows them only for
+    negatives and for client-side JavaScript.
+    """
+    import asyncio
+    import json
+    from server.services import zendesk as Z
+    import server.services.claude as _cl
+
+    raws = [{"idx": 0, "actor": "guest", "thread": "email", "raw_body": "hi",
+             "time": "07 Aug 12:00", "time_sort": "2026-08-07T12:00:00+00:00",
+             "ticket_id": "1", "is_internal": False}]
+    shapes = [{"idx_range": [0], "actor": "guest", "label": "Guest wrote in",
+               "summary": "Asked a question", "keep": True,
+               "thread": "email", "time": "07 Aug 12:00"}]
+
+    async def _fake(prompt):
+        return json.dumps({"events": shapes})
+
+    old_fn = getattr(_cl, "shape_timeline_events", None)
+    _cl.shape_timeline_events = _fake
+    try:
+        out = asyncio.run(Z._shape_via_claude(raws, {}, "", ""))
+    finally:
+        if old_fn is not None:
+            _cl.shape_timeline_events = old_fn
+
+    assert len(out) == len(raws), "nothing should have been collapsed here"
+    assert not any(e.get("_shape_counts") for e in out if isinstance(e, dict)), \
+        "a complete, uncorrected timeline still carried a count"
