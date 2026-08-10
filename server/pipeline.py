@@ -1163,8 +1163,21 @@ def classification_entry(l1: str, l2: str, err: Exception | None,
             "lookup. Set the classification by hand, or re-run this review."}
 
 
-def zendesk_not_searched_entry() -> dict:
-    """The trail line for a review whose booking is not matched yet.
+# The two lookups keyed on a booking id, and what each one's silence would be
+# mistaken for. Held as data rather than two near-identical functions: this is
+# ONE rule about ONE guard, and "the same rule implemented twice" is the defect
+# this codebase keeps rediscovering — the Python/JS isConversation split, the
+# two Slack composers, the two Actions Taken generations.
+_NOT_SEARCHED = {
+    "zendesk": ("Zendesk", "ticket lookup",
+                "a guest who never wrote in", "the tickets"),
+    "slack":   ("Slack", "mention search",
+                "a booking nobody discussed internally", "the mentions"),
+}
+
+
+def not_searched_entry(which: str) -> dict:
+    """The trail line for a lookup skipped because there is no booking id yet.
 
     THE MOST COMMON STATE ON THE CARD, AND IT WAS SILENT. Every ticket search
     is keyed on a booking id, so `if bid_for_zd:` skips Zendesk entirely on the
@@ -1182,12 +1195,13 @@ def zendesk_not_searched_entry() -> dict:
     the alternative is asserting the sentence appears in pipeline.py, which
     passes just as happily against a build where the branch is unreachable.
     """
+    name, lookup, mistaken_for, what_loads = _NOT_SEARCHED[which]
     return {"mark": "warn",
-            "text": "<strong>Zendesk was not searched.</strong> Every ticket "
-                    "lookup is keyed on a booking id and this review has none "
-                    "yet, so no search ran — this is not a guest who never "
-                    "wrote in. Confirm a booking, or re-run once one is "
-                    "matched, and the tickets will load."}
+            "text": f"<strong>{name} was not searched.</strong> Every {lookup} "
+                    f"is keyed on a booking id and this review has none yet, "
+                    f"so no search ran — this is not {mistaken_for}. Confirm a "
+                    f"booking, or re-run once one is matched, and "
+                    f"{what_loads} will load."}
 
 
 def dss_entry(dss_rec, err: Exception | None, live: bool,
@@ -3240,7 +3254,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
             # fullest precisely when we had asked nobody anything.
             log.info("[pipeline] Zendesk NOT searched for %s — no booking id "
                      "yet", review_id)
-            confidence_trail.append(zendesk_not_searched_entry())
+            confidence_trail.append(not_searched_entry("zendesk"))
 
         # WHICH SEARCHES RAN, before the count of what they found. The card
         # said "one contact" with total confidence because the ticket search
@@ -3313,6 +3327,16 @@ async def process_review(review_id: str, force_candidates: bool = False):
                              f"{len(slack_mentions)}")
             except Exception as e:
                 log.warning(f"Slack mention search failed — continuing: {e}")
+        else:
+            # THE SAME MISSING ELSE, two blocks down. `is_search_unavailable`
+            # already covers Slack being unreachable, so a reader could
+            # reasonably believe every silent case was handled — but that
+            # sentinel is only ever produced by a search that RAN. With no
+            # booking id nothing is called at all, and an empty mentions list
+            # is indistinguishable from a booking nobody discussed.
+            log.info("[pipeline] Slack mentions NOT searched for %s — no "
+                     "booking id yet", review_id)
+            confidence_trail.append(not_searched_entry("slack"))
 
         # ── 6b. Ticket fact extraction (Claude, runs concurrently with support frames) ──
         ticket_facts = {}
