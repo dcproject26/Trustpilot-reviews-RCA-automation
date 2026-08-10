@@ -12,7 +12,7 @@ New methods added on top of the existing translate/generate_rca/draft_response:
   - draft_response_v2(...) — uses L1/L2 + resolution
 """
 import asyncio
-import json, logging, os
+import json, logging, os, re
 import time
 from anthropic import Anthropic
 
@@ -609,6 +609,44 @@ _EMPTY_FRAME = {"guestSaid": "", "weDid": "", "guestReply": "", "gap": ""}
 # which is an invitation to attribute a bookend to a person and to invent a gap.
 _BOOKEND_ACTORS = {"creation", "review"}
 
+# An answer ABOUT the field instead of an answer IN it.
+#
+# Every one of guestSaid / weDid / guestReply is rendered as what that person
+# said — on the card, and in quotation marks in the Slack post. Most events are
+# one-sided, so the model is regularly asked what the guest said about an
+# agent's reply, and it explains rather than leaving the field empty. These
+# shipped:
+#
+#     guest: N/A — this is the guest's reply event
+#     co:    Not applicable — this event is an outbound agent response
+#     co:    N/A — this is an agent response event, not a guest message
+#
+# Read on the card, those are the guest and the agent talking nonsense at each
+# other. ANCHORED at the start: a genuine message may well contain "not
+# applicable" partway through ("the refund policy is not applicable here"),
+# and blanking that would delete something a person actually wrote.
+_NOT_APPLICABLE = re.compile(
+    r"^\s*(?:n/?a\b|not\s+applicable\b|none\b|nil\b"
+    r"|(?:this|the)\s+(?:is|was|event)\b"
+    r"|no\s+guest\s+(?:message|reply)\b"
+    r"|does\s+not\s+apply\b)",
+    re.I)
+
+
+def _blank_meta(frame: dict) -> tuple[dict, list]:
+    """(frame with meta-commentary blanked, the field names that were blanked).
+
+    COUNTED, NOT SILENTLY CLEANED. A field emptied here and a field the model
+    correctly left empty are the same on screen, and only one of them means
+    the prompt is being misread. The names come back so the caller can say so.
+    """
+    out, hit = dict(frame), []
+    for k in ("guestSaid", "weDid", "guestReply"):
+        if _NOT_APPLICABLE.match(str(out.get(k) or "")):
+            out[k] = ""
+            hit.append(k)
+    return out, hit
+
 
 async def summarise_support_event(event: dict, prev: dict | None,
                                    next_: dict | None) -> dict:
@@ -621,7 +659,17 @@ async def summarise_support_event(event: dict, prev: dict | None,
                       max_tokens=500)
     try:
         parsed = json.loads(_strip_fences(raw))
-        return {k: str(parsed.get(k, "") or "") for k in _EMPTY_FRAME}
+        frame = {k: str(parsed.get(k, "") or "") for k in _EMPTY_FRAME}
+        frame, blanked = _blank_meta(frame)
+        if blanked:
+            # WARN, not info: this is us changing the model's answer, and the
+            # rule it is working around is in the prompt. A quiet coercion here
+            # would hide a prompt that has stopped being read.
+            log.warning("[frame] blanked meta-commentary in %s on ZD-%s — the "
+                        "model explained why the field did not apply instead "
+                        "of leaving it empty (prompt rule 2a)",
+                        ", ".join(blanked), (event or {}).get("ticket_id", "?"))
+        return frame
     except Exception:
         log.exception("Support event JSON parse failed")
         return {}

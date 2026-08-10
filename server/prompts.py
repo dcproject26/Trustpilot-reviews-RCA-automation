@@ -890,6 +890,15 @@ for an internal RCA dashboard at Headout.
 RULES:
 1. Neutral tone, facts only. Do NOT adopt or defend the guest's framing.
 2. Do not fabricate. If a comment says nothing actionable, weDid = "No CE action on this thread" — don't invent.
+2a. A FIELD THAT DOES NOT APPLY IS "", AND YOU DO NOT SAY WHY. Most events are
+   one-sided: an agent's reply has no guestSaid, a guest's message has no
+   weDid. Return an empty string for those and nothing else. Do NOT write
+   "N/A", "Not applicable", "this is an agent response event", or any other
+   explanation — every one of these fields is rendered on the card and in the
+   Slack post AS WHAT THAT PERSON SAID, so an explanation addressed to us
+   appears in quotation marks as the guest's or the agent's own words. Rows
+   have shipped reading `guest: N/A — this is the guest's reply event`.
+   An empty field renders as nothing, which is correct and is what we want.
 3. Do not invent handles or timestamps. Use [placeholder] if a name/time is needed and unknown.
 4. "gap" must be EXACTLY one of the allowed gap labels above, or an empty string "".
 5. Support-failure-supersedes rule: if the underlying issue is external (weather/FM)
