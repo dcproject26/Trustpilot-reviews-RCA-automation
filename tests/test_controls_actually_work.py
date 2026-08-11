@@ -1289,3 +1289,75 @@ def test_the_csv_button_recovers_to_its_label(page):
     page.wait_for_function(
         "() => { const b = document.querySelector('[data-export-csv]');"
         "return b.textContent.includes('CSV') && !b.disabled; }", timeout=8000)
+
+
+# ── a save that could not reach the server ──────────────────────────────────
+
+def test_a_network_failure_is_retried_and_a_refusal_is_not(page):
+    """DRIVEN IN THE BROWSER, by replacing fetch — the one part of this file's
+    remit that is not a click.
+
+    "Not saved — Failed to fetch" is what a person sees when the request never
+    reached the server: a restart, a sleeping tab, a dropped tunnel. It is
+    transient, and this app restarts constantly, so every restart turned a
+    typed edit into a red toast that vanished after seven seconds while the
+    words sat on screen looking saved.
+
+    A refusal is the opposite. The server received the patch and said no;
+    sending the same body to the same rule three times gets the same answer,
+    three times as slowly.
+    """
+    got = page.evaluate("""async () => {
+      const real = window.fetch;
+      let tries = 0;
+      // Network failure: fetch REJECTS. Succeeds on the third attempt.
+      window.fetch = async (u, o) => {
+        if (String(u).includes('/draft-v2')) {
+          tries++;
+          if (tries < 3) throw new TypeError('Failed to fetch');
+          return new Response('{}', {status: 200});
+        }
+        return real(u, o);
+      };
+      const ok = await saveDraft('tp_x', {stated_issue: 'x'}, null);
+      const netTries = tries;
+
+      // Refusal: the server answers 400. Must not be retried.
+      tries = 0;
+      window.fetch = async (u, o) => {
+        if (String(u).includes('/draft-v2')) { tries++; return new Response('bad', {status: 400}); }
+        return real(u, o);
+      };
+      const ok2 = await saveDraft('tp_x', {stated_issue: 'x'}, null);
+      window.fetch = real;
+      return {ok, netTries, ok2, refusedTries: tries,
+              toast: (document.getElementById('save-toast') || {}).textContent || ''};
+    }""")
+    assert got["ok"] is True, "a save that eventually connected was reported as failed"
+    assert got["netTries"] == 3, \
+        f"a network failure was tried {got['netTries']} time(s) — it must retry"
+    assert got["ok2"] is False
+    assert got["refusedTries"] == 1, (
+        f"a 400 was sent {got['refusedTries']} times — the server already "
+        f"refused it, so retrying only makes the wait longer")
+
+
+def test_an_unreachable_server_says_the_edit_is_not_saved(page):
+    """The message a person can act on. "Failed to fetch" is the browser's
+    phrase for its own plumbing and says nothing about their work; what they
+    need to know is that the words in front of them are not saved."""
+    got = page.evaluate("""async () => {
+      const real = window.fetch;
+      window.fetch = async (u, o) => {
+        if (String(u).includes('/draft-v2')) throw new TypeError('Failed to fetch');
+        return real(u, o);
+      };
+      await saveDraft('tp_x', {stated_issue: 'x'}, null);
+      window.fetch = real;
+      const t = document.getElementById('save-toast');
+      return t ? t.textContent : '';
+    }""")
+    assert "did not answer" in got, got
+    assert "NOT been saved" in got, got
+    assert "Failed to fetch" not in got, \
+        "the browser's own phrase is still what the reader is given"

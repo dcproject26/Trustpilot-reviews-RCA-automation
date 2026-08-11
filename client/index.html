@@ -4195,21 +4195,51 @@ const esc = s => String(s == null ? '' : s).replace(/</g, '&lt;').replace(/>/g, 
 // the tick appeared, and the change was gone on reload with nothing said.
 // Anything that cannot be saved has to say so while the words are still on
 // the screen to copy.
+//
+// A NETWORK FAILURE IS RETRIED; A REFUSAL IS NOT. fetch rejects only when the
+// request never completed — the server restarting, the tab asleep, the tunnel
+// dropping. That is transient by nature and the message the browser gives for
+// it, "Failed to fetch", says nothing a person can act on. This app is
+// restarted constantly, and every restart turned a typed edit into a red
+// toast that vanished after seven seconds while the words sat on screen
+// looking saved.
+//
+// An HTTP failure is the opposite: the server received the patch and refused
+// it. Retrying sends the same body to the same rule and gets the same answer,
+// three times as slowly, so those break out immediately.
 async function saveDraft(reviewId, patch, el) {
-  try {
-    const res = await fetch(`/api/reviews/${reviewId}/draft-v2`, {
-      method: 'PATCH', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(patch),
-    });
-    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`.slice(0, 200));
-    if (el && typeof el.dataset === 'object') _saveMark(el, true);
-    return true;
-  } catch (e) {
-    console.warn('draft save failed', patch, e);
-    if (el && typeof el.dataset === 'object') _saveMark(el, false);
-    _saveToast(String(e.message || e));
-    return false;
+  const MAX = 3;
+  let lastErr = null, refused = false;
+  for (let attempt = 1; attempt <= MAX; attempt++) {
+    try {
+      const res = await fetch(`/api/reviews/${reviewId}/draft-v2`, {
+        method: 'PATCH', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) {
+        refused = true;
+        throw new Error(`${res.status} ${await res.text()}`.slice(0, 200));
+      }
+      if (el && typeof el.dataset === 'object') _saveMark(el, true);
+      return true;
+    } catch (e) {
+      lastErr = e;
+      if (refused || attempt === MAX) break;
+      // 400ms, then 1200ms. A Replit restart is back inside two seconds; a
+      // longer wait would just hold the edit hostage for a server that is
+      // properly down.
+      await new Promise(r => setTimeout(r, attempt * 400));
+    }
   }
+  console.warn('draft save failed', patch, lastErr);
+  if (el && typeof el.dataset === 'object') _saveMark(el, false);
+  _saveToast(refused
+    ? String(lastErr && lastErr.message || lastErr)
+    : `the server did not answer after ${MAX} tries. Your edit is still on `
+      + `screen and has NOT been saved — it will save if you change it again `
+      + `once the server is back.`,
+    !refused);
+  return false;
 }
 
 function _saveMark(el, ok) {
@@ -4229,7 +4259,7 @@ function _saveMark(el, ok) {
 
 // Not every save is tied to an element on screen, and a save that failed with
 // nowhere to show it is the failure mode this is fixing.
-function _saveToast(msg) {
+function _saveToast(msg, sticky) {
   let t = document.getElementById('save-toast');
   if (!t) {
     t = document.createElement('div');
@@ -4242,7 +4272,11 @@ function _saveToast(msg) {
   t.textContent = 'Not saved — ' + msg;
   t.style.display = 'block';
   clearTimeout(t._h);
-  t._h = setTimeout(() => { t.style.display = 'none'; }, 7000);
+  // AN UNSAVED EDIT OUTLIVES SEVEN SECONDS. A refusal is actionable now and
+  // clears; an unreachable server leaves work on screen that is still not
+  // saved a minute later, and a toast that has already gone is the same as
+  // never having shown one.
+  t._h = setTimeout(() => { t.style.display = 'none'; }, sticky ? 30000 : 7000);
 }
 
 // "14:02" today, "3 Jul" before that. Used on buttons whose action already
