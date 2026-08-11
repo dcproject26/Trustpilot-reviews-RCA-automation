@@ -148,40 +148,46 @@ def _reset_guest(page):
       renderReviewCol(); }""")
 
 
-def test_a_missing_guest_name_says_which_lookup_failed(page):
-    """"[Guest name in Zendesk ticket]" was a sentence in the value column: it
-    looked like data, and it made three situations identical — the warehouse
-    holds a hash, the linked ticket has no requester, and no ticket was ever
-    matched. Only the first two are worth opening Zendesk for."""
+def test_the_primary_guest_row_is_not_rendered(page):
+    """REMOVED BY REQUEST, and asserted absent rather than deleted.
+
+    The row spent most of its life reading "— the warehouse stores this as a
+    hash — check the Zendesk ticket": a row whose job had become telling the
+    reader to go and do the lookup themselves.
+    fct_bookings.primary_guest_name is a PII hash for a large share of rows,
+    and the fallbacks resolve it often enough to look promising and rarely
+    enough to be useless.
+
+    A negative assertion, which is the kind CLAUDE.md permits: unreachability
+    cannot defeat "this does not appear". It exists so the row cannot drift
+    back in unnoticed — the data still ships, so restoring it is one template
+    line and easy to do by accident.
+    """
     _set_guest(page, "", "no Zendesk ticket was matched to this booking")
     got = _guest_row(page)
     _reset_guest(page)
-    assert got, "the Primary guest row did not render"
-    assert "[Guest name in Zendesk ticket]" not in got["text"]
-    assert "no Zendesk ticket was matched" in got["text"]
-    assert got["absent"], "the reason is styled as if it were the guest's name"
+    assert got is None, \
+        "the Primary guest row is back on the card — it was removed on purpose"
 
 
-def test_the_reason_is_not_styled_as_a_value(page):
-    _set_guest(page, "", "the warehouse stores this as a hash")
-    absent = _guest_row(page)
-    _set_guest(page, "Lewis MacAndrew", "")
-    real = _guest_row(page)
-    _reset_guest(page)
-    assert absent["colour"] != real["colour"], \
-        "an absence and a name are the same colour"
-    assert not real["absent"]
-    assert real["text"] == "Lewis MacAndrew"
+def test_neither_a_hash_nor_the_placeholder_reaches_the_screen(page):
+    """THE INVARIANT THAT OUTLIVES THE ROW.
 
+    Two tests used to own this and both read it out of the Primary guest row,
+    so removing that row took the guard with it. What actually matters is not
+    where the value was shown but that it is never shown: a PII hash printed
+    as a person's name, and the literal "[Guest name in Zendesk ticket]" that
+    older drafts still carry in primaryGuestName.
 
-def test_a_stale_placeholder_from_an_older_draft_is_not_shown_as_a_name(page):
-    """Drafts written before this change hold the literal placeholder string in
-    primaryGuestName. Rendering it verbatim would put the old bug back on
-    screen for every one of them."""
-    _set_guest(page, "[Guest name in Zendesk ticket]", "")
-    got = _guest_row(page)
-    _reset_guest(page)
-    assert "[Guest name in Zendesk ticket]" not in got["text"], got
+    Asserted over the WHOLE card, so it holds no matter which row does or does
+    not render it — including any future one.
+    """
+    for value in ("FjpJxbSfpb65bnyQwErTyUiOpAsDfGhJ",
+                  "[Guest name in Zendesk ticket]"):
+        _set_guest(page, value, "")
+        body = page.evaluate("() => document.body.innerText")
+        _reset_guest(page)
+        assert value not in body, f"{value!r} is rendered somewhere on the card"
 
 
 # ── + Add SP record, on the branch that actually decides it ─────────────────

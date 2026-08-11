@@ -1356,9 +1356,18 @@ def test_the_reason_there_is_no_guest_name_is_the_servers_reason(page):
               inDom: document.body.innerText.includes(
                 'no requester name on the linked Zendesk ticket')}; }""")
     assert got["note"] == "no requester name on the linked Zendesk ticket", \
-        (f"the card shows {got['note']!r} — that is the generic fallback, not "
-         f"the reason the server worked out")
-    assert got["inDom"], "the reason is on the model but never rendered"
+        (f"the payload carries {got['note']!r} — that is the generic fallback, "
+         f"not the reason the server worked out")
+    # THE ROW IS NO LONGER RENDERED, by request, until the hash problem is
+    # solved — see the comment where it used to be in client/index.html. What
+    # this test still guards is the half that matters for bringing it back:
+    # the server works out a SPECIFIC reason and puts it on the payload. The
+    # generic fallback reaching the client was the original bug, and it would
+    # return silently if only the template were checked.
+    assert not got["inDom"], (
+        "the Primary guest row is rendering again — it was removed "
+        "deliberately; if that is intended, this test needs rewriting rather "
+        "than the assertion flipping")
 
 
 def test_the_generic_fallback_is_not_what_a_specific_answer_renders_as(page):

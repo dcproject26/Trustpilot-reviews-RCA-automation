@@ -3586,17 +3586,23 @@ function renderReviewCol() {
              NO BACKTICKS IN HERE: this comment sits inside a JS template
              literal, so one would end the string. The first version of this
              comment did exactly that and broke the parse. -->
-        <!-- The placeholder is stripped HERE, not only where the name is
-             resolved: drafts written before this change hold the literal
-             string in primaryGuestName, so guarding the ingest path alone
-             would leave it on screen for every one of them. -->
-        <div class="detail-row"><span class="k">Primary guest</span><span class="v">${(() => {
-          const g = (b.primaryGuestName || '').trim();
-          const real = g && g !== '[Guest name in Zendesk ticket]';
-          return real ? esc(g)
-            : `<span class="v-absent">— ${esc(b.guestNameNote
-                 || 'no guest name on the booking or on any linked Zendesk ticket')}</span>`;
-        })()}</span></div>
+        <!-- PRIMARY GUEST IS NOT RENDERED, by request, until the hash
+             problem is actually solved. fct_bookings.primary_guest_name is a
+             PII hash for a large share of rows, and the fallbacks — the
+             Zendesk requester, the ticket custom field — resolve it often
+             enough to look promising and rarely enough to be useless. What
+             reached the card was a row that mostly read "— the warehouse
+             stores this as a hash — check the Zendesk ticket": a row whose
+             job had become telling the reader to go and do the lookup
+             themselves.
+
+             The DATA still ships. primaryGuestName and guestNameNote are on
+             the payload and the resolution still runs, so restoring this is
+             putting the row back and nothing else.
+
+             NO BACKTICKS IN HERE, for the reason the comment above gives.
+             The first version of THIS comment used them for three field
+             names and broke the parse — directly underneath the warning. -->
         <div class="detail-row"><span class="k">Visit date</span><span class="v">${b.experienceDate || '—'}</span></div>
         <div class="detail-row"><span class="k">Booking date</span><span class="v">${stampDetail(b.bookingDate || b.creationDate)}</span></div>
         <div class="detail-row"><span class="k">Review date</span><span class="v">${b.reviewDate || '—'}</span></div>

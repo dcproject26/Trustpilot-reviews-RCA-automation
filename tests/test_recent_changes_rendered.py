@@ -658,16 +658,17 @@ def test_a_booking_with_a_hash_for_a_name_says_so_instead(page):
       return r.booking.guestNameNote; }""")
     rows = _render_booking(page, dict(
         PARTIAL_ROW, primary_guest_name="FjpJxbSfpb65bnyQwErTyUiOpAsDfGhJ"))
-    guest = rows.get("Primary guest", "")
-    assert guest, "the Primary guest row did not render — NOT BUILT"
-    assert "FjpJxbSfpb65" not in guest, (
-        f"the PII hash is printed as the guest's name: {guest!r}")
-    assert guest.startswith("—"), (
-        f"a hashed name did not fall through to the absent state: {guest!r}")
+    # THE ROW IS GONE, by request — see client/index.html where it was. The
+    # assertion that mattered survives it and gets stronger: the hash must not
+    # appear ANYWHERE, not merely fall through to the absent state in one row.
+    assert "Primary guest" not in rows, (
+        "the Primary guest row is back — it was removed deliberately")
+    body = page.evaluate("() => document.body.innerText")
+    assert "FjpJxbSfpb65" not in body, "the PII hash is rendered on the card"
+    assert served is not None, (
+        "the server no longer computes guestNameNote — the row can be brought "
+        "back as a template change only while this still ships")
     assert served, "the server sent no reason for the missing name at all"
-    assert served in guest, (
-        f"the row shows {guest!r}, which is not the server's reason "
-        f"({served!r}) — the note is being read off the wrong object again")
 
 
 def test_a_raw_epoch_booking_date_is_rendered_as_a_date(page):
