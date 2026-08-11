@@ -1266,6 +1266,47 @@ def dss_entry(dss_rec, err: Exception | None, live: bool,
     return None
 
 
+def shape_counts_entry(timeline) -> dict | None:
+    """The trail line for what the timeline shaping collapsed, dropped or
+    re-attributed. `None` when no shaping happened.
+
+    EXTRACTED FROM `process_review` BECAUSE IT COULD NOT BE TESTED THERE. The
+    only guard on it was `assert "actor_corrected" in inspect.getsource(...)`,
+    and a mutation replacing the condition with `if False:` survived a full
+    suite: the string still appears in the source of a build where the clause
+    is unreachable. That is the spelling check this repo's second rule is
+    about, and it was sitting on the one clause that reports the model being
+    overruled on a fact.
+
+    A function rather than an inline block for the same reason `dss_entry` and
+    `not_searched_entry` are functions.
+    """
+    _sc = next((e.get("_shape_counts") for e in (timeline or [])
+                if isinstance(e, dict) and e.get("_shape_counts")), None)
+    if not _sc:
+        return None
+    # WHAT THE SHAPING COLLAPSED OR DROPPED. Legitimate, and invisible: a
+    # timeline that went from ten rows to eight looks exactly like a booking
+    # with eight events.
+    _bits = [f"{_sc['raw']} ticket event(s) read, {_sc['shown']} shown"]
+    if _sc.get("dropped_by_model"):
+        _bits.append(f"{_sc['dropped_by_model']} judged to have no "
+                     f"readable content")
+    _bits.append("the rest were collapsed as one action at one moment")
+    if _sc.get("actor_corrected"):
+        # A DIFFERENT KIND OF REPAIR from collapsing, so it gets its own
+        # clause. Collapsing is the model doing what it was asked; this is the
+        # model having been overruled on a fact, and a reader is entitled to
+        # know a row is not attributed the way it was written.
+        _bits.append(f"{_sc['actor_corrected']} row(s) the summariser "
+                     f"labelled as the guest were re-attributed from "
+                     f"the raw ticket — no guest acted on them")
+    return {"mark": "warn",
+            "text": "<strong>Events timeline:</strong> " + "; ".join(_bits)
+                    + ". Nothing was deleted — open a ticket to see every "
+                      "comment."}
+
+
 def _why(warnings: list) -> str:
     """The classifier's own account of what went wrong, or a note that it gave
     none. It records a precise reason for every failure — an L1 outside the
@@ -3315,30 +3356,12 @@ async def process_review(review_id: str, force_candidates: bool = False):
                         "usual descriptive ones. Nothing is missing; nothing has "
                         "been rewritten. Re-run to try again."})
 
-        # WHAT THE SHAPING COLLAPSED OR DROPPED. Legitimate, and invisible:
-        # a timeline that went from ten rows to eight looks exactly like a
-        # booking with eight events.
-        _sc = next((e.get("_shape_counts") for e in (timeline or [])
-                    if isinstance(e, dict) and e.get("_shape_counts")), None)
-        if _sc:
-            _bits = [f"{_sc['raw']} ticket event(s) read, {_sc['shown']} shown"]
-            if _sc.get("dropped_by_model"):
-                _bits.append(f"{_sc['dropped_by_model']} judged to have no "
-                             f"readable content")
-            _bits.append("the rest were collapsed as one action at one moment")
-            if _sc.get("actor_corrected"):
-                # A DIFFERENT KIND OF REPAIR from collapsing, so it gets its
-                # own clause. Collapsing is the model doing what it was asked;
-                # this is the model having been overruled on a fact, and a
-                # reader is entitled to know a row is not attributed the way
-                # it was written.
-                _bits.append(f"{_sc['actor_corrected']} row(s) the summariser "
-                             f"labelled as the guest were re-attributed from "
-                             f"the raw ticket — no guest acted on them")
-            confidence_trail.append({"mark": "warn",
-                "text": "<strong>Events timeline:</strong> " + "; ".join(_bits)
-                        + ". Nothing was deleted — open a ticket to see every "
-                          "comment."})
+        # WHAT THE SHAPING COLLAPSED, DROPPED OR RE-ATTRIBUTED. Built by
+        # `shape_counts_entry` so it can be driven by a test rather than
+        # spell-checked in this function's source.
+        _shape_line = shape_counts_entry(timeline)
+        if _shape_line:
+            confidence_trail.append(_shape_line)
 
         # HOW MANY INTERNAL NOTES CAME IN, and how many were set aside. A note
         # read and dropped and a note never fetched leave the same timeline.

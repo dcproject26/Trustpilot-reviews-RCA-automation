@@ -555,3 +555,55 @@ def test_the_shortlist_survives_a_confirmed_rerun_bigquery_did_verify(
     s.close()
     assert bid == "31246072", "the verified confirmation was lost"
     assert len(cands) == 2, f"the shortlist was discarded: {cands!r}"
+
+
+# ── the shaping report reaches the trail ───────────────────────────────────
+#
+# `shape_counts_entry` builds this line and is tested directly in
+# test_shaped_actor_is_not_invented.py. What is tested HERE is that
+# process_review calls it and the sentence lands on a stored draft — the call
+# site, which was previously guarded by nothing but
+# `assert "actor_corrected" in inspect.getsource(process_review)`. A mutation
+# swapping the condition for `if False:` survived a full suite against that.
+
+_SHAPED_TL = [{"time": "02 Aug 09:13", "actor": "co", "summary": "Agent replied",
+               "_shape_counts": {"raw": 4, "shown": 2, "dropped_by_model": 1,
+                                 "actor_corrected": 2}}]
+
+
+def _shape_line(trail):
+    return next((t for t in trail if "Events timeline:" in t), None)
+
+
+def test_the_shaping_report_lands_on_the_card(live_db, monkeypatch):
+    """Collapsing is invisible by construction: a timeline that went from four
+    rows to two looks exactly like a booking with two events."""
+    _stub(monkeypatch, {}, timeline=_SHAPED_TL)
+    _seed(live_db, "tp_shape", reference_number="32728059")
+    _, trail, _ = _run(live_db, "tp_shape")
+    said = _shape_line(trail)
+    assert said, trail
+    assert "4 ticket event(s) read, 2 shown" in said, said
+    assert "1 judged to have no readable content" in said, said
+
+
+def test_the_re_attribution_reaches_the_reader(live_db, monkeypatch):
+    """The model was OVERRULED ON A FACT here, not merely tidied. A reader is
+    entitled to know a row is not attributed the way the summariser wrote it,
+    and this clause was reachable-looking but untested."""
+    _stub(monkeypatch, {}, timeline=_SHAPED_TL)
+    _seed(live_db, "tp_shape_actor", reference_number="32728059")
+    _, trail, _ = _run(live_db, "tp_shape_actor")
+    said = _shape_line(trail)
+    assert said, trail
+    assert "2 row(s) the summariser labelled as the guest were re-attributed" \
+        in said, said
+    assert "no guest acted on them" in said, said
+
+
+def test_a_run_that_corrected_nothing_does_not_claim_it_did():
+    """Paired with the above so the clause cannot be made unconditional: a
+    repair reported on every card is one a reader learns to skip."""
+    from server.pipeline import shape_counts_entry
+    said = shape_counts_entry([{"_shape_counts": {"raw": 4, "shown": 2}}])
+    assert said and "re-attributed" not in said["text"], said

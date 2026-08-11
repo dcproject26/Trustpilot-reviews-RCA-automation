@@ -128,11 +128,69 @@ def test_a_clean_run_reports_no_correction():
     assert not c or c.get("actor_corrected") == 0
 
 
+def _entry(**counts):
+    from server.pipeline import shape_counts_entry
+    return shape_counts_entry([{"_shape_counts": counts}])
+
+
 def test_the_pipeline_puts_the_correction_on_the_trail():
-    """NEGATIVE-paired source assertion. The count existing is worth nothing if
-    nothing renders it — the failure this repo opens with."""
+    """The count existing is worth nothing if nothing renders it — the failure
+    this repo opens with.
+
+    THIS USED TO BE `assert "actor_corrected" in inspect.getsource(...)`, and a
+    mutation swapping the condition for `if False:` survived a full suite: the
+    string is still in the source of a build where the clause is unreachable.
+    Now it runs the thing."""
+    e = _entry(raw=4, shown=2, actor_corrected=2)
+    assert e, "no trail entry at all"
+    assert "2 row(s)" in e["text"], e["text"]
+    assert "re-attributed" in e["text"], e["text"]
+    assert "no guest acted on them" in e["text"], e["text"]
+
+
+def test_a_run_with_no_correction_does_not_claim_one():
+    """"Looked and found nothing" must not read like a repair. A clause on
+    every card teaches the reader to skip the line."""
+    e = _entry(raw=4, shown=2, actor_corrected=0)
+    assert e, "the collapse itself is still worth reporting"
+    assert "re-attributed" not in e["text"], e["text"]
+
+
+def test_the_line_is_a_warn_because_a_repair_is_not_a_step_succeeding():
+    e = _entry(raw=4, shown=2, actor_corrected=1)
+    assert e["mark"] == "warn", e
+
+
+def test_no_shaping_leaves_no_line():
+    """A booking whose timeline was never shaped must not carry a sentence
+    about shaping."""
+    assert _entry() is None
+    from server.pipeline import shape_counts_entry
+    assert shape_counts_entry([]) is None
+    assert shape_counts_entry(None) is None
+    assert shape_counts_entry([{"actor": "guest"}]) is None
+
+
+def test_the_reader_is_told_nothing_was_deleted():
+    e = _entry(raw=9, shown=3, dropped_by_model=2, actor_corrected=1)
+    assert "9 ticket event(s) read, 3 shown" in e["text"], e["text"]
+    assert "2 judged to have no readable content" in e["text"], e["text"]
+    assert "Nothing was deleted" in e["text"], e["text"]
+
+
+def test_process_review_no_longer_builds_this_inline():
+    """NEGATIVE source assertion — the one shape unreachability cannot defeat.
+    Two implementations of one rule is this project's other recurring defect,
+    so the inline copy must be GONE, not merely bypassed.
+
+    The positive half — that something still calls the builder — is deliberately
+    NOT asserted here, because `"shape_counts_entry(" in src` would pass against
+    a build where the call is unreachable, which is the failure that started
+    this. It is covered by driving the real pipeline instead, in
+    test_pipeline_validates_its_rca.py::test_the_re_attribution_reaches_the_reader.
+    """
     import inspect
     from server import pipeline
     src = inspect.getsource(pipeline.process_review)
-    assert "actor_corrected" in src, "the trail no longer reads the count"
-    assert "re-attributed" in src, "the trail no longer says what happened"
+    assert "re-attributed" not in src, \
+        "process_review is building the line itself again"
