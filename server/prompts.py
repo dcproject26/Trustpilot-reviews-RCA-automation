@@ -2132,6 +2132,24 @@ that turned out fine is silence — never a line in the output.
           we promised.
     One line each, with the `source` that shows it.
 
+    A SOURCE YOU COULD NOT READ IS NOT A FINDING. When the booking was never matched, or
+    Zendesk had nothing, or the experience page is unavailable, do NOT write a finding
+    saying so — and above all do not write one PER source. Cards have come back reading:
+
+        "No booking record exists for this guest."
+        "No Zendesk contact exists for this guest."
+        "No experience-page redemption data was provided."
+
+    Three lines, one fact: we could not look. The confidence trail already states which
+    lookup ran and which did not, in its own words, with the reason — that is its job and
+    it does it whether you write these or not. Repeating it here fills the section that is
+    supposed to hold what happened with a list of what we could not see, and a reader
+    scanning four near-identical negatives learns nothing they did not learn from the first.
+
+    If the records show NOTHING about this booking, return an EMPTY list. An empty §1 with
+    the trail explaining why is honest and readable. Four sentences agreeing that we have
+    no data is neither.
+
     `time` IS REQUIRED WHERE THE RECORD SHOWS WHEN IT HAPPENED, in the same "02 Aug 09:13"
     form the timeline uses. This section is ordered BY IT, and a finding without one cannot
     be placed — on a real card every finding came back with `time: null`, so §1 opened with

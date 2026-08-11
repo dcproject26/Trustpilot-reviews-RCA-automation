@@ -824,3 +824,125 @@ def test_a_claimless_issue_with_nothing_to_keep_it_is_still_flagged():
          "evidence": [{"text": "A record", "source": "zendesk"}]}]))
     assert out["what_went_wrong"]["guest_issues"] == []
     assert any("moved to flags" in n for n in notes), notes
+
+
+# ── a source we could not read is not a finding ────────────────────────────
+#
+# The complaint that started these: §1 coming back as a list of near-identical
+# negatives, one per lookup that returned nothing. All the strings quoted here
+# are off live cards.
+
+_ABSENT_TRIO = [
+    {"text": "No booking record exists for this guest.", "source": "booking"},
+    {"text": "No Zendesk contact exists for this guest.", "source": "zendesk"},
+    {"text": "No experience-page redemption data was provided.",
+     "source": "booking"},
+]
+
+
+def _absent_note(notes):
+    return next((n for n in notes
+                 if "source that could not be read" in n), None)
+
+
+def test_a_pile_of_absent_sources_is_counted_on_the_trail():
+    _, notes = validate(_wwr(case_findings=list(_ABSENT_TRIO)))
+    said = _absent_note(notes)
+    assert said, notes
+    assert "3 of 3" in said, said
+
+
+def test_they_are_kept_not_dropped():
+    """COUNTED, NEVER DELETED. These are recognised by wording, and a real
+    finding's wording is a hair away — a false positive here would delete
+    evidence, which reading the card cannot recover."""
+    out, _ = validate(_wwr(case_findings=list(_ABSENT_TRIO)))
+    assert len(_findings(out)) == 3, [r["text"] for r in _findings(out)]
+
+
+def test_one_on_its_own_is_a_fact_not_a_pile():
+    """A single 'no booking record' beside real findings is worth stating; it
+    is the repetition that reads badly, and warning on every one would put a
+    line on the trail of almost every untraceable card."""
+    _, notes = validate(_wwr(case_findings=[
+        _ABSENT_TRIO[0],
+        {"text": "Guest was charged twice on 02 Aug", "source": "bms"}]))
+    assert _absent_note(notes) is None, notes
+
+
+def test_a_negative_about_what_happened_is_a_real_finding():
+    """'No response was provided to the guest for six days' is the case, not a
+    lookup that failed. If this ever counts, the pattern has gone too wide."""
+    _, notes = validate(_wwr(case_findings=[
+        {"text": "No response was provided to the guest for six days",
+         "source": "zendesk"},
+        {"text": "No refund was issued after the cancellation",
+         "source": "bms"}]))
+    assert _absent_note(notes) is None, notes
+
+
+def test_an_unusable_ticket_is_the_guests_problem_not_a_missing_source():
+    """`ticket` is deliberately NOT a source noun: this is the guest unable to
+    use what they paid for, which is the case itself.
+
+    These open with `No` on purpose. The noun list only fires after a leading
+    No/Not/Nothing, so a "The QR code on the ticket…" phrasing never reaches
+    it — a mutation adding `ticket` to that list survived against exactly that
+    wording, passing for a reason that had nothing to do with the noun."""
+    _, notes = validate(_wwr(case_findings=[
+        {"text": "No ticket was available at the gate for the guest",
+         "source": "booking"},
+        {"text": "No ticket was present in the confirmation email",
+         "source": "booking"}]))
+    assert _absent_note(notes) is None, notes
+
+
+def test_a_ticket_phrasing_that_does_not_open_with_the_negative_is_also_kept():
+    """The other shape of the same fact, pinning the anchor rather than the
+    noun list."""
+    _, notes = validate(_wwr(case_findings=[
+        {"text": "The QR code on the ticket was not available at the gate",
+         "source": "booking"},
+        {"text": "The voucher on the ticket was not present in the email",
+         "source": "booking"}]))
+    assert _absent_note(notes) is None, notes
+
+
+def test_a_missing_contact_reads_as_absent_even_though_the_noun_is_not_record():
+    """Widening #1, added because a live card said `contact`, not `record`."""
+    _, notes = validate(_wwr(case_findings=[
+        {"text": "No Zendesk contact exists for this guest.", "source": "zendesk"},
+        {"text": "No support contact record exists for this booking",
+         "source": "zendesk"}]))
+    assert _absent_note(notes), notes
+
+
+def test_a_named_source_being_unavailable_reads_as_absent():
+    """Widening #2: the subject is a type and a method, so no source noun
+    precedes the predicate — the named source carries it instead."""
+    _, notes = validate(_wwr(case_findings=[
+        {"text": "Experience-page redemption type and delivery method are "
+                 "not available", "source": "booking"},
+        {"text": "Booking record data is unavailable for this reference",
+         "source": "booking"}]))
+    assert _absent_note(notes), notes
+
+
+def test_the_trail_says_they_were_kept():
+    """The reader must not think the card was edited. A count that reads like
+    a removal is the inverse of the bug this file exists to prevent."""
+    _, notes = validate(_wwr(case_findings=list(_ABSENT_TRIO)))
+    said = _absent_note(notes)
+    assert "KEPT, not dropped" in said, said
+
+
+def test_the_phrasing_only_counts_when_the_sentence_opens_with_it():
+    """An absent source is the WHOLE finding, not a clause inside one. An
+    agent who replied with 'no booking record exists' and closed the ticket is
+    an event — the sentence records what someone did."""
+    _, notes = validate(_wwr(case_findings=[
+        {"text": "The agent replied that no booking record exists, closing "
+                 "the ticket without checking", "source": "zendesk"},
+        {"text": "The vendor said no redemption data was provided and hung up",
+         "source": "zendesk"}]))
+    assert _absent_note(notes) is None, notes

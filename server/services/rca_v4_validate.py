@@ -1351,6 +1351,69 @@ def _is_repeat_of(text, existing_token_sets) -> bool:
     return False
 
 
+# A finding that reports an ABSENT SOURCE rather than something that happened.
+#
+# When the booking was never matched, or Zendesk had nothing, the model writes
+# one of these per source and §1 fills with near-identical negatives:
+#
+#     "No booking record exists for this guest."
+#     "No Zendesk contact exists for this guest."
+#     "No experience-page redemption data was provided."
+#
+# Three lines, one fact: we could not look. The prompt now forbids it and the
+# confidence trail already says which lookup ran.
+#
+# COUNTED, NEVER DROPPED, and that is a deliberate difference from the
+# guest's-account rows on the timeline. Those carry a marker the retired rule
+# stamped itself, so a match is certain. These are recognised by WORDING, and
+# the wording of a real finding can be a hair away:
+#
+#     "No response was provided to the guest for six days"   <- a real finding
+#     "No support contact record exists for this booking"    <- an absent source
+#
+# This file already learned that lesson on the evidence fold: "folding REMOVES
+# the row, so a false positive does not mis-attribute a ref, it DELETES A REAL
+# FINDING." A miscount is recoverable by reading the card. A deleted finding is
+# not recoverable by anything.
+#
+# BUILT AGAINST THE REAL STRINGS, and widened twice by them. A first version
+# missed "No Zendesk contact exists for this guest" (the noun is `contact`, not
+# `record`) and "Experience-page redemption type and delivery method are not
+# available" (the subject is a type and a method). Both are on live cards.
+#
+# `ticket` is deliberately NOT a source noun. "The QR code on the ticket was
+# not available" is the guest unable to use what they paid for — a real
+# finding, and the nearest thing to a false positive this pattern has.
+_ABSENT_SOURCE = re.compile(
+    # "No <source noun> ... <availability predicate>"
+    r"^\s*(?:no|not|nothing|there\s+(?:is|are)\s+no)\b"
+    r"[^.]*?\b(?:record|records|data|documentation|information|log|logs|"
+    r"entry|entries|instructions?|contact)\b"
+    r"[^.]*?\b(?:exists?|available|present|provided|recorded|on\s+file|found)\b"
+    # "<a named source> ... is/are absent | not available"
+    r"|^[^.]*?\b(?:experience[-\s]?page|booking\s+record|zendesk|warehouse|"
+    r"dss|redemption\s+data|record|records|data|documentation|information)\b"
+    r"[^.]*?\b(?:is|are|was|were)\s+(?:absent|unavailable|not\s+"
+    r"(?:available|present|recorded))\b",
+    re.I)
+
+
+def absent_source_findings(rows) -> list:
+    """Which rows report a source we could not read, rather than an event."""
+    out = []
+    for r in (rows or []):
+        if not isinstance(r, dict):
+            continue
+        # `text`, not `finding` — these rows have already been through
+        # `_case_findings`'s normalisation, which is the only shape this is
+        # ever called with. A second key here would be a branch no test can
+        # reach, which is its own kind of lie about what ran.
+        txt = str(r.get("text") or "")
+        if _ABSENT_SOURCE.search(txt):
+            out.append(txt)
+    return out
+
+
 def _case_findings(raw, issues, notes) -> list:
     """§1: the booking's story, evidenced — one ordered, deduplicated list.
 
@@ -1538,6 +1601,26 @@ def _case_findings(raw, issues, notes) -> list:
             f"sit at the end in the order they were written rather than in the "
             f"order they happened"
             + (" — this section is NOT a chronology" if _undated == len(rows) else ""))
+
+    # ABSENT SOURCES, COUNTED AND NAMED — never removed. Two or more of these
+    # is the repetition a reader complains about: one negative per source we
+    # could not read, all in the same sentence frame, filling the section that
+    # is supposed to hold what happened. The prompt now forbids them; this says
+    # whether it was listened to.
+    #
+    # Reported at TWO or more, not one. A single "no booking record" beside
+    # real findings is a fact worth stating; it is the pile-up that reads as
+    # repetition, and warning on every one would put a line on the trail of
+    # almost every untraceable card.
+    _absent = absent_source_findings(rows)
+    if len(_absent) > 1:
+        notes.append(
+            f"case_findings: {len(_absent)} of {len(rows)} finding(s) report a "
+            f"source that could not be read rather than something that "
+            f"happened — KEPT, not dropped: the wording of a real finding "
+            f"(\"no response was provided\") is a hair from an absent one "
+            f"(\"no support record was provided\"), and deleting the wrong one "
+            f"loses evidence. The trail already says which lookup ran")
     return rows
 
 
