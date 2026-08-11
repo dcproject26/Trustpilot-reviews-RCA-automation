@@ -27,7 +27,7 @@ from server import pipeline
 from server.pipeline import not_searched_entry as entry
 
 
-BOTH = ["zendesk", "slack"]
+BOTH = ["slack"]
 
 
 @pytest.mark.parametrize("which", BOTH)
@@ -39,15 +39,39 @@ def test_it_says_no_search_ran_rather_than_nothing_was_found(which):
     assert "no search ran" in t.lower()
 
 
-def test_each_rules_out_ITS_OWN_wrong_conclusion():
+def test_it_rules_out_the_wrong_conclusion_for_ITS_lookup():
     """Naming the cause is not enough if the reader's default reading survives
-    it — and the two defaults are different. An empty Zendesk reads as a guest
-    who never wrote in; empty Slack mentions read as a booking nobody
-    discussed. One shared sentence would rule out the wrong one half the time,
-    which is why the wording is per-lookup rather than generic."""
-    assert "never wrote in" in entry("zendesk")["text"]
+    it, and the default differs per lookup: empty Slack mentions read as a
+    booking nobody discussed internally."""
     assert "nobody discussed internally" in entry("slack")["text"]
-    assert entry("zendesk")["text"] != entry("slack")["text"]
+
+
+def test_zendesk_is_not_duplicated_here():
+    """IT WAS, AND IT SHOWED ON A LIVE CARD. `timeline_entry` has written the
+    no-booking-id line for the events timeline all along, and it tells FOUR
+    causes apart where this could only state one. Adding a second put the same
+    fact on the card twice in different wordings, which reads as two findings
+    and makes a reader wonder which is real.
+
+    A KeyError, not a silent pass, so the next person adding a lookup here has
+    to decide deliberately rather than inherit a duplicate."""
+    with pytest.raises(KeyError):
+        entry("zendesk")
+    import inspect
+    from server import pipeline
+    assert "not_searched_entry(\"zendesk\")" not in \
+        inspect.getsource(pipeline.process_review), \
+        "the duplicate Zendesk trail entry is back"
+
+
+def test_the_surviving_zendesk_line_carries_the_clause_that_was_worth_keeping():
+    """The fold, not a deletion. The wording added here said the thing
+    `timeline_entry` did not: that an empty timeline is not a guest who never
+    wrote in, and what makes the search run."""
+    from server.pipeline import timeline_entry
+    txt = timeline_entry("", [], [], None)["text"]
+    assert "not a guest who never wrote in" in txt
+    assert "confirm a booking" in txt.lower()
 
 
 @pytest.mark.parametrize("which", BOTH)
@@ -83,14 +107,12 @@ def test_the_pipeline_calls_it():
     sentence would drift, and the copy that renders would be the untested one.
     """
     src = inspect.getsource(pipeline.process_review)
-    assert 'not_searched_entry("zendesk")' in src, "the Zendesk call is gone"
     assert 'not_searched_entry("slack")' in src, "the Slack call is gone"
     assert "was not searched" not in src, \
         "the pipeline has grown its own copy of the sentence"
 
 
-@pytest.mark.parametrize("which,marker", [("zendesk", "get_timeline"),
-                                          ("slack", "search_mentions")])
+@pytest.mark.parametrize("which,marker", [("slack", "search_mentions")])
 def test_the_branch_it_lives_in_is_the_no_booking_id_one(which, marker):
     """WHERE it is called, not just that it is. Appended unconditionally it
     would fire on every review including ones whose search ran fine, and the

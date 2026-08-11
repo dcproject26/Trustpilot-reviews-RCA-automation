@@ -1008,7 +1008,9 @@ def timeline_entry(bid, events: list, ticket_ids: list,
     if not bid:
         head = ("<strong>Zendesk was not searched</strong> — this review has "
                 "no booking id or reference number to search on, so the empty "
-                "events timeline is a lookup that never ran")
+                "events timeline is a lookup that never ran. This is not a "
+                "guest who never wrote in: confirm a booking, or re-run once "
+                "one is matched, and the tickets will load")
     elif err is not None:
         msg = _human_error(err).strip().rstrip(".")
         head = (f"<strong>The Zendesk timeline lookup failed</strong> — {msg}. "
@@ -1169,9 +1171,11 @@ def classification_entry(l1: str, l2: str, err: Exception | None,
 # ONE rule about ONE guard, and "the same rule implemented twice" is the defect
 # this codebase keeps rediscovering — the Python/JS isConversation split, the
 # two Slack composers, the two Actions Taken generations.
+# ONLY SLACK. Zendesk's version of this lives in `timeline_entry`, which
+# already told the four no-events causes apart long before this function
+# existed; adding a second one here put the same sentence on the card twice.
+# The mention search had no equivalent, which is why this remains.
 _NOT_SEARCHED = {
-    "zendesk": ("Zendesk", "ticket lookup",
-                "a guest who never wrote in", "the tickets"),
     "slack":   ("Slack", "mention search",
                 "a booking nobody discussed internally", "the mentions"),
 }
@@ -3282,9 +3286,13 @@ async def process_review(review_id: str, force_candidates: bool = False):
             # empty record is what tips the RCA prompt into narrating the
             # guest's review instead of listing events — so the card looked
             # fullest precisely when we had asked nobody anything.
+            # NO TRAIL ENTRY HERE. `timeline_entry` below already writes
+            # one for this exact case, and it distinguishes four causes where
+            # this could only ever state one. Adding a second put the same
+            # fact on the card twice in two different wordings — a reader
+            # meeting both reasonably wonders which is the real one.
             log.info("[pipeline] Zendesk NOT searched for %s — no booking id "
                      "yet", review_id)
-            confidence_trail.append(not_searched_entry("zendesk"))
 
         # WHICH SEARCHES RAN, before the count of what they found. The card
         # said "one contact" with total confidence because the ticket search
