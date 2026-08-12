@@ -1191,15 +1191,39 @@ def _get_timeline_sync(_z, booking_id: str):
     extracted["ticket_mail_seen"] = ticket_mail_seen
 
     # ── Requester name from first ticket ─────────────────────────────────────
+    #
+    # WHY IT IS EMPTY, RECORDED. This was `except Exception: pass`, so a
+    # `users()` call that raised produced exactly the same empty string as a
+    # ticket with no requester on it — and the card went on to state "no
+    # requester name on the linked Zendesk ticket", which is a confirmed
+    # absence asserted on the strength of a lookup that threw. The first rule
+    # of CLAUDE.md, on a sentence a reader trusts.
+    #
+    # `""` for the reason means the name is present, or genuinely absent for a
+    # reason the reader does not need. Anything else names what stopped us.
     zendesk_requester_name = ""
-    if tickets:
+    requester_name_reason = ""
+    if not tickets:
+        requester_name_reason = "no ticket was matched, so no requester was read"
+    else:
         try:
             requester_id = getattr(tickets[0], "requester_id", None)
-            if requester_id:
+            if not requester_id:
+                requester_name_reason = ("the ticket carries no requester id, "
+                                         "so there was nobody to look up")
+            else:
                 u = _z.users(id=requester_id)
                 zendesk_requester_name = getattr(u, "name", "") or ""
-        except Exception:
-            pass
+                if not zendesk_requester_name:
+                    requester_name_reason = ("the Zendesk user record has no "
+                                             "name on it")
+        except Exception as e:
+            requester_name_reason = (f"the Zendesk requester lookup failed "
+                                     f"({type(e).__name__}), so this is a "
+                                     f"broken lookup rather than a ticket "
+                                     f"with no name")
+            log.warning(f"[zendesk] requester lookup failed: {e}")
+    extracted["requester_name_reason"] = requester_name_reason
 
     # ── User role cache for actor detection ──────────────────────────────────
     _role_cache: dict = {}

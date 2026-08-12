@@ -323,7 +323,18 @@ def parse_review(event: dict) -> dict:
         "slack_ts":         event["ts"],
         "slack_channel":    event["channel"],
         "rating":           stars or 1,
-        "language":         "en",
+        # NOT "en". THIS FIELD USED TO BE HARD-CODED TO "en" ON EVERY REVIEW,
+        # and nothing ever updated it, so `language == "en"` meant "nobody
+        # looked" while reading exactly like "this review is English". The
+        # card believed it: an Italian review whose inbound translation failed
+        # drew ONE English response box and no way to reach the guest's
+        # language, and the reply went out in English.
+        #
+        # None is the honest value at ingest — the payload carries no language
+        # and we have not looked yet. `reply_language.resolve_language()` fills
+        # it in from the guest's own words, and stores the NAME ("Italian",
+        # "English"), so a value that is present is a value somebody detected.
+        "language":         None,
         "author":           author or "Unknown",
         "body_original":    body,
         "reference_number": booking_id,

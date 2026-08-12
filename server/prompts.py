@@ -2132,6 +2132,28 @@ that turned out fine is silence — never a line in the output.
           we promised.
     One line each, with the `source` that shows it.
 
+    A TICKET EVENT IS NOT A CASE FINDING. The events timeline above the card already
+    lists every Zendesk comment with its time and its actor — that is its whole job. §1
+    restating them puts the same events on the screen twice in two wordings, and the
+    reader cannot tell which is the summary and which is the record, so both stop being
+    read. Cards have come back with §1 holding eight rows that were the timeline again:
+
+        "02 Aug 09:13 — agent replied asking for the booking reference"
+        "02 Aug 11:40 — guest resent the confirmation email"
+
+    Those are timeline rows. They belong to the timeline.
+
+    (a) to (d) are FOUR LINES, one each, and §1 is normally four rows or fewer. If you
+    are writing a fifth, sixth and seventh, you are transcribing rather than finding.
+    The test: could this line sit on the events timeline with a clock time next to it?
+    Then it IS a timeline row — leave it there. §1 says what the records SHOW, which is
+    a conclusion drawn across them: "tickets were sent to the wrong email", not "at
+    09:13 an agent said the tickets were sent".
+
+    THE SAME RULE BINDS `evidence` ON EACH ISSUE, because those rows are merged into
+    this section for rendering. Evidence that quotes a ticket comment verbatim arrives
+    in §1 as one more copy of the timeline.
+
     A SOURCE YOU COULD NOT READ IS NOT A FINDING. When the booking was never matched, or
     Zendesk had nothing, or the experience page is unavailable, do NOT write a finding
     saying so — and above all do not write one PER source. Cards have come back reading:

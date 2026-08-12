@@ -40,6 +40,21 @@ def _was_translated_inbound(review) -> bool:
     return bool(orig and eng and orig != eng)
 
 
+# THE INGEST DEFAULT, NOT A FINDING. `slack.parse_review()` stamped `"en"` on
+# every review and nothing ever updated it, so this exact string means "nobody
+# has looked" — it is the one value that must never be read as English. Ingest
+# now writes None; `"en"` is kept here because live rows still carry it.
+#
+# A DETECTED value is a NAME. `claude.detect_language()` answers "English",
+# "Italian", "Spanish" — so a name present in this column is a name somebody
+# established, and the two-letter code is the legacy default. That is the whole
+# distinction, and it is why nothing may write `"en"` back into this column.
+_NEVER_DETECTED = {"en", "eng", "auto", "unknown", "und", "n/a"}
+
+# What the detector says when the guest wrote in English. One box, correctly.
+_MEANS_ENGLISH = {"english"}
+
+
 def language_state(review) -> dict:
     """Which case this review is in, said out loud.
 
@@ -62,20 +77,35 @@ def language_state(review) -> dict:
     was not English and we do not know what it was.
     """
     lang = (getattr(review, "language", "") or "").strip()
-    translated_in = _was_translated_inbound(review)
-    if not lang:
+
+    # ONE BOX ONLY ON POSITIVE EVIDENCE. Everything else draws two, including
+    # "we could not tell" — because the failure this exists to stop is a
+    # NON-English review getting a single English box, and the safe direction
+    # is an extra box on a review that did not need one.
+    if not lang or lang.lower() in _NEVER_DETECTED:
         return {"state": "unknown", "language": "",
-                "why": "no language was recorded on this review, so this reply "
-                       "has not been shown to be in the guest's language"}
-    if lang.upper() == "EN":
-        if translated_in:
+                "why": "the language of this review has not been established "
+                       "yet, so the reply has not been shown to be in the "
+                       "guest's language"}
+    if lang.lower() in _MEANS_ENGLISH:
+        if _was_translated_inbound(review):
+            # A CONTRADICTION, RESOLVED TOWARDS TWO BOXES. The column says
+            # English and the review's own text says otherwise: `body_english`
+            # exists and DIFFERS from `body_original`, which only happens when
+            # the inbound model actually translated something — it answers
+            # ENGLISH_ALREADY for English and writes nothing.
+            #
+            # Detection is a model call and can be wrong. This is the record of
+            # a translation that demonstrably happened, so it wins. The cost of
+            # believing it wrongly is one unnecessary box; the cost of
+            # believing the column wrongly is an English reply to a guest who
+            # did not write in English.
             return {"state": "unknown", "language": "",
-                    "why": "this review is filed as English but its text was "
-                           "translated on the way in, so it is NOT English and "
-                           "no language code was recorded for it — the reply "
-                           "cannot be put into the guest's language "
-                           "automatically. Set the review's language, or write "
-                           "the reply in it directly."}
+                    "why": "this review is recorded as English, but its text "
+                           "was translated on the way in — so it is not "
+                           "English and the recorded language cannot be "
+                           "trusted. Both boxes are kept; name the guest's "
+                           "language, or write the top box in it directly"}
         return {"state": "english", "language": lang,
                 "why": "the review is in English, so the reply goes out as "
                        "written and there is nothing to translate"}
@@ -151,39 +181,102 @@ async def resolve_language(review) -> dict:
     asking. Gated on the translation being fresh, when the thing that matters
     is whether the LANGUAGE is unknown.
 
-    Returns a dict that distinguishes all four outcomes, because "did not run"
+    Returns a dict that keeps every outcome distinct, because "did not run"
     and "ran and could not tell" lead to different next steps for the reader:
 
         skipped_known    the language was already recorded — nothing to do
-        skipped_english  the text was never translated, so it IS English
         detected         ran, and named it (`language`)
-        undetected       ran, and could not tell — the column is left alone
+        undetected       ran, read the review, and could not name it
+        unavailable      COULD NOT RUN — no Anthropic connection, or the
+                         review has no stored text to read
+        failed           the call raised
 
-    `undetected` deliberately does NOT write a guess. A wrong language sends
-    the guest a reply they cannot read.
+    `skipped_english` USED TO BE A FIFTH, and it was the bug: it concluded
+    "this review is English" from `body_english` being empty, which is also
+    what a crashed translate call leaves behind. It is gone. Nothing here
+    reports English except the detector saying so.
+
+    Only `detected` writes to the column. The other four leave it alone, and
+    an unestablished language draws TWO response boxes — never one — so a
+    guest who did not write in English cannot receive an English-only reply
+    because a lookup was switched off.
     """
     lang = (getattr(review, "language", "") or "").strip()
-    if lang and lang.upper() != "EN":
+    if lang and lang.lower() not in _NEVER_DETECTED:
         return {"outcome": "skipped_known", "language": lang,
                 "why": f"the review already records {lang}"}
-    if not _was_translated_inbound(review):
-        return {"outcome": "skipped_english", "language": lang,
-                "why": "the review text was not translated on the way in, so "
-                       "it is English and there is nothing to detect"}
+
+    # THE SHORTCUT THAT STOOD HERE CONCLUDED "ENGLISH" FROM A FAILED LOOKUP.
+    # It was:
+    #
+    #     if not _was_translated_inbound(review):
+    #         return {"outcome": "skipped_english", ...
+    #                 "why": "the review text was not translated on the way
+    #                         in, so it is English and there is nothing to
+    #                         detect"}
+    #
+    # `_was_translated_inbound` is `body_original != body_english`, and
+    # `body_english` is EMPTY in three different situations that the card
+    # cannot tell apart: the model answered ENGLISH_ALREADY (genuinely
+    # English), the translate call raised (pipeline.py catches and logs it),
+    # or it returned nothing. Two of those three are failures, and all three
+    # took this branch and were announced as "it is English".
+    #
+    # That is the first rule of CLAUDE.md with a screen on the end of it: an
+    # Italian review whose translation failed drew one English box, offered no
+    # way to reach the guest's language, and sent English to a guest who did
+    # not write in English.
+    #
+    # So the detector runs whenever the language is unestablished, full stop.
+    # It reads `body_original`, which is always there, and answers "English"
+    # for an English review — one box, on evidence, rather than by default.
+    #
+    # THE TWO REASONS IT CANNOT EVEN RUN ARE CHECKED HERE, not inferred from
+    # its answer. `claude.detect_language()` returns "" for FOUR different
+    # situations — no Anthropic key, no text, the model said UNKNOWN, the model
+    # returned junk — and a caller reading only "" cannot tell "the detector is
+    # switched off on this server" from "it read the review and could not say".
+    # Those need different sentences on the card: one is a deployment problem
+    # an associate can escalate, the other is this review being genuinely hard.
+    body = (getattr(review, "body_original", "") or "").strip()
+    if not body:
+        return {"outcome": "unavailable", "language": "",
+                "why": "this review has no original text stored, so there is "
+                       "nothing to read the language from. The reply keeps "
+                       "both boxes"}
 
     from server.services import claude as claude_svc
     try:
-        found = (await claude_svc.detect_language(
-            getattr(review, "body_original", "") or "") or "").strip()
+        found = (await claude_svc.detect_language(body) or "").strip()
     except Exception as e:
         _log_translation_failure(getattr(review, "id", None), "detect", e)
-        found = ""
+        return {"outcome": "failed", "language": "",
+                "why": f"the language check itself failed ({e}), so nothing "
+                       f"was recorded. The reply keeps both boxes — this is a "
+                       f"broken lookup, not a review that is English"}
     if not found:
+        # NOT "it is English", and the two reasons for "" are told apart HERE
+        # rather than gating the call above — a gate would sit in front of the
+        # detector and could not be driven by a test that stubs it.
+        #
+        # `claude.detect_language()` answers "" for a switched-off Anthropic
+        # AND for a review it read and could not place, which are different
+        # problems with different next steps: one is a deployment fault to
+        # escalate, the other is this review being genuinely hard. `is_live` is
+        # consulted only to EXPLAIN the empty answer.
+        from server.config import is_live
+        if not is_live("anthropic"):
+            return {"outcome": "unavailable", "language": "",
+                    "why": "the language detector is not connected on this "
+                           "server, so nothing was read — this is not a review "
+                           "whose language is hard to place. The reply keeps "
+                           "both boxes; write the guest's language in the top "
+                           "box directly, or have Anthropic connected"}
         return {"outcome": "undetected", "language": "",
-                "why": "the review text is known NOT to be English — it was "
-                       "translated on the way in — but the language could not "
-                       "be named, so nothing was recorded rather than guessing "
-                       "one the guest may not read"}
+                "why": "the language could not be named from the review text, "
+                       "so nothing was recorded rather than guessing one the "
+                       "guest may not read — the reply keeps both boxes until "
+                       "it is established"}
     review.language = found
     return {"outcome": "detected", "language": found,
             "why": f"detected from the guest's own words as {found} "

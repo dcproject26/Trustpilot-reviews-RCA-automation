@@ -222,20 +222,19 @@ def _looks_like_hash(s: str) -> bool:
     A name is still a name: anything with a space is left alone, and so is
     anything short. The test is "long, unspaced, and drawn only from an
     encoding alphabet", which no person's name is.
+
+    AND THAT LAST CLAUSE WAS WRONG HERE, LIVE. This required one of `+ / = _`
+    before it would call a non-hex string a digest, so a plain ALPHANUMERIC
+    digest was not caught — `ab24TSVenneb4T3CkHFUFaGM`, the very value
+    `bigquery.py` records as having matched a guest called Sven, reached the
+    candidate picker as the guest's name, and `_draft_dict` shipped it with no
+    note. The matcher's copy of the rule caught it and this one did not, which
+    is the two-implementations failure with a screen on the end of it.
+
+    DELEGATES. See `names.looks_like_digest`.
     """
-    s = (s or "").strip()
-    if not s or " " in s:
-        return False
-    if len(s) < 16:
-        return False
-    if all(c in "0123456789abcdefABCDEF-" for c in s):
-        return True
-    # base64 / base64url, with or without padding. Requires at least one
-    # character a name could not contain, so "Christopherson" — long and
-    # unspaced — is not mistaken for a digest.
-    _B64 = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-               "0123456789+/-_=")
-    return all(c in _B64 for c in s) and any(c in "+/=_" for c in s)
+    from server.names import looks_like_digest
+    return looks_like_digest(s)
 
 
 _ABSENT = object()
@@ -655,6 +654,14 @@ def _draft_dict(d: RcaDraft) -> dict:
                            f"('{_internal_label_on(_tf, _bk)}'), not a guest "
                            f"name — no guest name is on this booking")
     elif d.zendesk_ticket_ids:
+        # STILL UNCONDITIONAL, AND STILL WRONG — recorded here rather than left
+        # to be rediscovered. `collect_tickets` now knows WHY the requester
+        # name is empty (a raised `users()` call reads differently from a
+        # ticket with no requester), but there is no column carrying that to
+        # the draft, so this sentence cannot yet say which happened. Wiring it
+        # needs a `requester_name_reason` column on RcaDraft — step 2 of the
+        # guest-name work, not a line to fake here by reading a field that
+        # does not exist.
         guest_name_note = "no requester name on the linked Zendesk ticket"
     else:
         guest_name_note = "no Zendesk ticket was matched to this booking"
@@ -3005,10 +3012,18 @@ async def apply_english_reply(review_id: str, body: EnglishReplyBody,
         # and every later render stop asking.
         named = (body.language or "").strip()
         if not named:
+            # WHAT ACTUALLY WORKS FROM HERE, first. This used to lead with
+            # "Name the guest's language on the card" — and the card has no
+            # field to name it in. The language input was deliberately removed
+            # when detection replaced it, so that sentence pointed the reader
+            # at a control that does not exist, which is worse than saying
+            # nothing. Editing the top box is the action that always works.
             raise HTTPException(
                 409, "The outgoing reply was left unchanged: " + st["why"] +
-                     " Name the guest's language on the card, or edit the "
-                     "outgoing reply directly in the guest's language.")
+                     " Type the reply in the guest's language in the top box "
+                     "— it is the text that gets sent, and it saves as you "
+                     "write. Re-running the review will try the language "
+                     "check again.")
         log.info(f"[apply-english] {review_id}: language set to {named!r} by "
                  f"the associate — it was unrecorded, not English")
         r.language = named
@@ -3086,17 +3101,45 @@ async def resolve_reply_language(review_id: str,
     res = await resolve_language(r)
     if res["outcome"] == "detected":
         db.commit()
-    if res["outcome"] in ("undetected", "skipped_english"):
-        # Not an error. The card shows the reason; an HTTP failure here would
-        # read as "the check broke" for a review that simply is English, or
-        # for one where we looked and genuinely could not tell.
+    if res["outcome"] in ("undetected", "unavailable", "failed"):
+        # EVERY OUTCOME THAT LEFT THE LANGUAGE UNESTABLISHED, listed rather
+        # than defaulted — `skipped_english` used to be in here and it was the
+        # bug: it meant "body_english was empty, so the review is English",
+        # which is equally what a crashed translate call leaves behind.
+        #
+        # Not an HTTP error. All three are answers: the detector is switched
+        # off on this server, or it read the review and could not name the
+        # language, or the call raised. `res["why"]` says which, the card
+        # prints it, and the reply keeps BOTH boxes either way — an
+        # unestablished language never collapses to a single English box.
         return {"ok": True, "outcome": res["outcome"], "translated": False,
                 "language": res["language"], "note": res["why"],
                 "response_language": language_state(r),
                 "english_view": english_view(r, d),
                 "outgoing": outgoing(d)}
 
-    lang = language_state(r)["language"]
+    _st = language_state(r)
+    if _st["state"] == "english":
+        # DETECTED AS ENGLISH, SO THERE IS NOTHING TO TRANSLATE. Without this
+        # the reply was sent to `translate_to(reply, "English")` — English into
+        # English — which is a model call that costs money, round-trips the
+        # associate's wording through a paraphrase, and stores the result as
+        # though it were the guest's-language version.
+        #
+        # It could not happen before because an English review never reached
+        # detection at all: the old shortcut returned `skipped_english` first.
+        # Removing that shortcut is what exposed this, and it is the reason
+        # the state is re-read here rather than only the language name.
+        return {"ok": True, "outcome": res["outcome"], "translated": False,
+                "language": _st["language"],
+                "note": f"{res['why']}. The review is in English, so the reply "
+                        f"goes out as written and there is nothing to "
+                        f"translate.",
+                "response_language": _st,
+                "english_view": english_view(r, d),
+                "outgoing": outgoing(d)}
+
+    lang = _st["language"]
     before = outgoing(d)
     already = (getattr(d, "response_english", "") or "").strip()
     if not before or already:

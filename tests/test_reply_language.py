@@ -23,12 +23,17 @@ from server.services.reply_language import (english_view, digest, is_english,
 def _review(language="IT"):
     """A review whose BODY matches its declared language.
 
-    An "EN" review whose body_original is Italian and body_english is not
+    "English" — the NAME — is what the detector writes, and is the only value
+    that means the review was established as English. The two-letter "en" is
+    the ingest default `slack.parse_review` used to stamp on everything, and
+    means NOBODY LOOKED; a review carrying it draws two boxes.
+
+    An English review whose body_original is Italian and body_english is not
     would be a review that was translated on the way in, which
     `language_state` correctly refuses to call English — see
     test_a_review_filed_as_en_but_translated_inbound_is_not_english.
     """
-    if (language or "").upper() == "EN":
+    if (language or "").lower() in ("en", "english"):
         return SimpleNamespace(id="tp_1", language=language, rating=2,
                                body_original="They never arrived",
                                body_english="They never arrived")
@@ -67,9 +72,9 @@ def test_outgoing_survives_a_missing_draft():
 # ── Which of the three cases a review is in ─────────────────────────────────
 
 def test_an_english_review_is_one_box_and_no_translation():
-    st = language_state(_review("EN"))
+    st = language_state(_review("English"))
     assert st["state"] == "english"
-    v = english_view(_review("EN"), _draft(final_response="Sorry about that"))
+    v = english_view(_review("English"), _draft(final_response="Sorry about that"))
     assert v["state"] == "same"
     assert v["text"] == "Sorry about that"
     assert v["text"] == v["outgoing"]
@@ -83,7 +88,7 @@ def test_a_missing_language_is_not_treated_as_english():
     st = language_state(_review(""))
     assert st["state"] == "unknown"
     assert st["state"] != "english"
-    assert "no language was recorded" in st["why"]
+    assert "has not been established" in st["why"]
 
 
 def test_a_non_english_review_reports_its_language():
@@ -169,7 +174,7 @@ def test_an_english_review_is_not_translated_and_says_so(fake_claude):
     review was English rather than leaving a reader to infer it."""
     fake = fake_claude("should not be used")
     out, eng, of, trail = asyncio.run(translate_outgoing(
-        "Sorry about that", _review("EN"), "tp_1"))
+        "Sorry about that", _review("English"), "tp_1"))
     assert out == "Sorry about that"
     assert fake.calls == 0
     assert eng == ""          # no projection: there is nothing to project
@@ -243,28 +248,59 @@ def test_a_review_filed_as_en_but_translated_inbound_is_not_english():
         "a review whose text was translated on the way in is being treated as "
         "English because of a column default")
     assert not is_english(_translated_in())
+    assert "has not been established" in st["why"]
+
+
+def test_a_detected_english_is_overruled_by_a_translation_that_happened():
+    """THE CONTRADICTION, resolved towards two boxes. The column says English
+    — a NAME, so something detected it — and the review's own text says
+    otherwise: body_english exists and DIFFERS, which only happens when the
+    inbound model actually translated something (it answers ENGLISH_ALREADY
+    for English and writes nothing).
+
+    Detection is a model call and can be wrong. A translation that
+    demonstrably happened is a record. The record wins, because the cost of
+    believing it wrongly is one spare box and the cost of believing the column
+    wrongly is an English reply to a guest who did not write in English."""
+    rv = SimpleNamespace(id="tp_c", language="English",
+                         body_original="Non sono mai arrivati",
+                         body_english="They never arrived")
+    st = language_state(rv)
+    assert st["state"] == "unknown", st
     assert "translated on the way in" in st["why"]
+    assert not is_english(rv)
 
 
 def test_the_two_english_decisions_cannot_disagree():
     """`is_english()` and `language_state()` must not each decide it their own
     way — one box on the card beside a send path that believes it owes a
     translation is a disagreement neither side would report."""
-    for rv in (_review("EN"), _review("IT"), _review(""), _translated_in()):
+    for rv in (_review("English"), _review("IT"), _review(""), _translated_in()):
         assert is_english(rv) == (language_state(rv)["state"] == "english")
 
 
 def test_a_genuinely_english_review_is_still_one_box():
     """The inverse bug: body_english equal to body_original (or absent) is a
     review that really is English, and must not be dragged into `unknown`."""
-    same = SimpleNamespace(id="tp_3", language="en",
+    same = SimpleNamespace(id="tp_3", language="English",
                            body_original="They never arrived",
                            body_english="They never arrived")
     assert language_state(same)["state"] == "english"
-    none_yet = SimpleNamespace(id="tp_4", language="en",
+    none_yet = SimpleNamespace(id="tp_4", language="English",
                                body_original="They never arrived",
                                body_english=None)
     assert language_state(none_yet)["state"] == "english"
+
+
+def test_the_ingest_default_is_never_one_box():
+    """`en` is what `parse_review` stamped on EVERY review, updated by
+    nothing. It means nobody looked, and a review carrying it draws two boxes
+    however English its text happens to be — one box is for evidence only."""
+    for body_en in ("They never arrived", None, ""):
+        rv = SimpleNamespace(id="tp_d", language="en",
+                             body_original="They never arrived",
+                             body_english=body_en)
+        assert language_state(rv)["state"] == "unknown", body_en
 
 
 def test_a_recorded_non_english_language_still_wins():
@@ -352,10 +388,13 @@ def test_the_detected_language_makes_the_card_draw_two_boxes():
     assert st["state"] == "translated" and st["language"] == "French"
 
 
-def test_an_undetectable_language_records_nothing_and_says_it_looked(fake_detector):
+def test_an_undetectable_language_records_nothing_and_says_it_looked(
+        fake_detector, monkeypatch):
     """A guess here sends the guest a reply they cannot read. The column is
     left alone — and the outcome is NOT the same word as "we did not run"."""
     fc = fake_detector("")
+    import server.config as _cfg
+    monkeypatch.setattr(_cfg, "is_live", lambda name: name == "anthropic")
     r = SimpleNamespace(id="tp_1", language="en",
                         body_original="....",
                         body_english="They never arrived")
@@ -372,22 +411,47 @@ def test_a_failed_detection_call_is_not_reported_as_english(fake_detector):
                         body_original="Ils ne sont jamais arrivés",
                         body_english="They never arrived")
     res = _resolve(r)
-    assert res["outcome"] == "undetected"
+    assert res["outcome"] == "failed", (
+        "a crashed lookup is reported as though it ran and found nothing")
     assert r.language == "en"
+    assert "failed" in res["why"]
 
 
-def test_an_actually_english_review_is_not_sent_for_detection(fake_detector):
-    """`body_original == body_english` means no inbound translation happened,
-    which is the positive evidence that it IS English. Asking anyway would
-    spend a model call per render on every English review on the board."""
-    fc = fake_detector("Spanish")
+def test_a_detector_that_is_not_connected_says_so_rather_than_undetected():
+    """"Switched off on this server" and "read it and could not place it" are
+    different problems with different next steps — one is escalated, the other
+    is this review being hard. `detect_language` returns "" for both."""
+    import server.config as _cfg
+    r = SimpleNamespace(id="tp_1", language="en",
+                        body_original="Ils ne sont jamais arrivés",
+                        body_english=None)
+    assert not _cfg.is_live("anthropic"), "this test needs Anthropic offline"
+    res = _resolve(r)
+    assert res["outcome"] == "unavailable", res
+    assert "not connected" in res["why"]
+    assert r.language == "en", "a language was invented with nothing to read it from"
+
+
+def test_an_english_review_is_asked_once_and_then_left_alone(fake_detector):
+    """IT IS ASKED, and that is the change. The old rule read
+    `body_original == body_english` as positive evidence of English, but that
+    is also what an empty body_english looks like after a crashed translate —
+    so it declared English on a failed lookup.
+
+    The cost of asking is ONE detect call per review, not one per render:
+    the answer is stored as a NAME and `skipped_known` covers it ever after."""
+    fc = fake_detector("English")
     r = SimpleNamespace(id="tp_1", language="en",
                         body_original="They never arrived",
                         body_english="They never arrived")
     res = _resolve(r)
-    assert res["outcome"] == "skipped_english"
-    assert not fc.calls, "an English review was sent to the detector"
-    assert r.language == "en"
+    assert res["outcome"] == "detected"
+    assert r.language == "English"
+    assert len(fc.calls) == 1
+
+    again = _resolve(r)
+    assert again["outcome"] == "skipped_known", "it was asked a second time"
+    assert len(fc.calls) == 1, "a stored language was sent for detection again"
 
 
 def test_a_review_that_already_names_its_language_is_left_alone(fake_detector):

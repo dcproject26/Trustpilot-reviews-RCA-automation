@@ -26,6 +26,7 @@ from server.config import (
     BIGQUERY_BOOKINGS_TABLE, BIGQUERY_REVIEWS_TABLE, BIGQUERY_FULFILMENTS_TABLE,
     BIGQUERY_SUPPORT_TABLE,
 )
+from server.names import looks_like_digest
 from server.services.mock_data import MOCK_BOOKINGS, MOCK_INSIGHTS
 
 log = logging.getLogger(__name__)
@@ -235,18 +236,20 @@ def is_hashed_name(s: str) -> bool:
     is a hash that contains the letters 'SVen', and a substring search for a
     guest called Sven matched it - a Barcelona walking tour returned as the
     match for a review about a musical.
+
+    DELEGATES. This held its own copy of the rule and so did `api` and
+    `pipeline`, and the three disagreed — this one called `Papadopoulopoulos`
+    a hash, while api's let 'ab24TSVenneb4T3CkHFUFaGM' through to the picker
+    as a guest's name. See `names.looks_like_digest`.
     """
-    s = (s or "").strip()
-    if not s or " " in s:
-        return False
-    return len(s) >= 16 and bool(_re_mod.fullmatch(r"[A-Za-z0-9+/=_\-]+", s))
+    return looks_like_digest(s)
 
 
-# SQL for the same test, so hashed rows never even reach the name comparison.
-NOT_A_HASH_SQL = """NOT (NOT REGEXP_CONTAINS(b.primary_guest_name, r'\\s')
-                         AND LENGTH(b.primary_guest_name) >= 16
-                         AND REGEXP_CONTAINS(b.primary_guest_name,
-                                             r'^[A-Za-z0-9+/=_-]+$'))"""
+# `NOT_A_HASH_SQL` STOOD HERE AND WAS INTERPOLATED INTO NO QUERY. It was the
+# rule a fourth time, in SQL, referenced by nothing — a guard shaped like
+# protection, wired into no path, which is the first bullet of CLAUDE.md. It is
+# gone rather than maintained; `names.looks_like_digest` is the only copy, and
+# `test_one_digest_rule.py` asserts this name does not reappear.
 
 
 def verify_identifiers(booking, indicators, first=None, last=None) -> dict:

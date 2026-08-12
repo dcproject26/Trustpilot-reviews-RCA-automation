@@ -24,10 +24,12 @@ BEFORE_EN = "We are very sorry about the wait."
 
 def _seed(db, language="IT", final=BEFORE_IT, english=None, of=None):
     s = db.SessionLocal()
-    # The body has to MATCH the declared language: a review filed as EN whose
-    # text was translated on the way in is not English, and language_state
-    # says so — see test_reply_language.py.
-    _orig = ("They never arrived" if (language or "").upper() == "EN"
+    # The body has to MATCH the declared language: a review recorded as
+    # English whose text was translated on the way in is NOT English, and
+    # language_state says so — see test_reply_language.py. "en" is the ingest
+    # default and means nobody looked, so it lands in `unknown` either way.
+    _orig = ("They never arrived"
+             if (language or "").lower() in ("en", "english")
              else "Non sono mai arrivati")
     s.add(db.Review(id="tp_x", slack_ts="9.0", slack_channel="C_MOCK_ORM",
                     rating=2, author="Luca", language=language,
@@ -201,7 +203,7 @@ def test_an_english_review_stores_the_text_and_translates_nothing(api_db, monkey
         return "should not happen"
     monkeypatch.setattr(claude, "translate_to", _t)
 
-    _seed(api_db, language="EN", final="Sorry about that.")
+    _seed(api_db, language="English", final="Sorry about that.")
     out = _call("We are sorry about the wait.")
     assert out["translated"] is False
     assert calls == []
@@ -213,7 +215,7 @@ def test_an_english_review_stores_the_text_and_translates_nothing(api_db, monkey
 
 
 def test_an_english_review_says_nothing_was_translated(api_db, monkeypatch):
-    _seed(api_db, language="EN", final="Sorry.")
+    _seed(api_db, language="English", final="Sorry.")
     out = _call("Sorry about the wait.")
     assert "nothing was translated" in out["note"]
     assert out["english_state"] == "same"
@@ -236,7 +238,7 @@ def test_no_language_refuses_and_leaves_the_reply_alone(api_db, monkeypatch):
     with pytest.raises(Exception) as e:
         _call()
     assert calls == []
-    assert "no language" in str(e.value).lower()
+    assert "has not been established" in str(e.value).lower()
     assert "unchanged" in str(e.value)
     assert _stored(api_db)[0] == BEFORE_IT
 
@@ -251,15 +253,38 @@ def test_no_language_names_what_would_fix_it(api_db):
     rather than at a database field they cannot reach — and it still names the
     fallback of writing the reply in the guest's language directly.
 
-    Asserted on both routes rather than on one phrase, because the phrase is
-    what changed and the routes are what matter.
+    THE REMEDY MOVED A SECOND TIME, and this is why. The message went on to
+    say "Name the guest's language on the card" long after the card's language
+    input had been deleted in favour of automatic detection — so it named a
+    control the reader cannot find. Pointing someone at a field that is not
+    there is worse than saying nothing: they look for it, and conclude the
+    page is broken.
+
+    The route that always works is typing the reply in the top box, which is
+    the text that gets sent and saves as it is written.
     """
     _seed(api_db, language="")
     with pytest.raises(Exception) as e:
         _call()
     msg = str(e.value)
-    assert "Name the guest's language" in msg, msg
-    assert "edit the outgoing reply directly" in msg, msg
+    assert "top box" in msg, msg
+    assert "gets sent" in msg, msg
+    assert "Name the guest's language on the card" not in msg, (
+        "the message points at a control the card does not have")
+
+
+def test_the_card_really_has_no_language_field_to_point_at():
+    """NEGATIVE source assertion on CLIENT-SIDE JAVASCRIPT, which has no test
+    harness here — the only shape of source assertion this repo allows besides
+    a negative, and it is both.
+
+    This is the fact the message above depends on. If a language input is ever
+    added back, the wording should point at it again, and this fails to say
+    so."""
+    html = open("client/index.html", encoding="utf-8").read()
+    assert "apply-english-reply" in html, "the call site moved; re-check this"
+    assert "data-lang-input" not in html, \
+        "a language field exists again — the 409 message should name it"
 
 
 def test_naming_the_language_on_the_card_unblocks_the_rewrite(api_db):
@@ -297,7 +322,7 @@ def test_a_blank_language_is_not_taken_as_an_answer(api_db):
     _seed(api_db, language="")
     with pytest.raises(Exception) as e:
         _call(language="   ")
-    assert "Name the guest's language" in str(e.value)
+    assert "top box" in str(e.value)
 
 
 # ── Empty input ─────────────────────────────────────────────────────────────

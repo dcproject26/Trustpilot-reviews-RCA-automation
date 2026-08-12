@@ -77,11 +77,13 @@ def _is_hashed_name(s: str) -> bool:
     """
     True for a base64/hex PII hash rather than a human name. BigQuery returns
     primary_guest_name hashed, so any name comparison against it is noise.
+
+    DELEGATES — this held its own copy, and its copy called any long unspaced
+    run of `[A-Za-z0-9+/=_-]` a hash, so `Papadopoulopoulos` was refused for
+    comparison as a digest. See `names.looks_like_digest`.
     """
-    s = (s or "").strip()
-    if not s or " " in s:
-        return False
-    return len(s) >= 16 and bool(re.fullmatch(r"[A-Za-z0-9+/=_\-]+", s))
+    from server.names import looks_like_digest
+    return looks_like_digest(s)
 
 
 # How far back the broad Zendesk searches look, from the review's own date.

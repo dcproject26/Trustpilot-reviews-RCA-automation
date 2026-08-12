@@ -172,19 +172,39 @@ def test_an_empty_translation_is_a_failure_not_an_empty_reply(api_db, detects):
 
 # ── what it declines to do ──────────────────────────────────────────────────
 
-def test_an_english_review_is_left_completely_alone(api_db, detects):
-    """No inbound translation happened, so the review IS English. Detecting
-    would spend a model call per render on every English review on the board,
-    and translating would put the reply into a language nobody needs."""
-    calls = detects("Spanish")
+def test_an_english_review_is_detected_once_and_then_left_alone(api_db, detects):
+    """IT IS ASKED NOW, and that is the change. The old rule read "no inbound
+    translation happened" as positive evidence of English — but an empty
+    body_english is equally what a CRASHED translate leaves behind, so it
+    declared English on a failed lookup and drew one box for a guest who may
+    not read English.
+
+    Asking costs one detect call per review, not one per render: the answer is
+    stored as a NAME and every later call skips on `skipped_known`. Nothing is
+    translated, because the review really is English."""
+    calls = detects("English")
     _seed(api_db, orig="They never arrived.", eng_body="They never arrived.")
     out = _call()
-    assert out["outcome"] == "skipped_english"
-    assert not calls["detect"] and not calls["translate"]
+    assert out["outcome"] == "detected"
+    assert out["language"] == "English"
+    assert len(calls["detect"]) == 1
+    assert not calls["translate"], "an English reply was sent for translation"
     assert _stored(api_db)[1] == REPLY_EN
 
+    out2 = _call()
+    assert out2["outcome"] == "skipped_known"
+    assert len(calls["detect"]) == 1, "a stored language was detected again"
 
-def test_an_undetectable_language_is_reported_and_nothing_is_written(api_db, detects):
+
+def test_an_undetectable_language_is_reported_and_nothing_is_written(
+        api_db, detects, monkeypatch):
+    """Anthropic is deliberately forced LIVE here. `detect_language` returns
+    "" both when it is switched off and when it read the review and could not
+    place it, and those are different problems — one is escalated, the other
+    is this review being hard. Without this the sandbox's offline Anthropic
+    would make every empty answer read as `unavailable`."""
+    import server.config as _cfg
+    monkeypatch.setattr(_cfg, "is_live", lambda name: name == "anthropic")
     calls = detects("")
     _seed(api_db)
     out = _call()
@@ -194,6 +214,21 @@ def test_an_undetectable_language_is_reported_and_nothing_is_written(api_db, det
     lang, final, eng = _stored(api_db)
     assert lang == "en" and final == REPLY_EN
     assert "could not be named" in out["note"], out["note"]
+
+
+def test_a_detector_that_is_not_connected_is_not_an_undetectable_review(
+        api_db, detects):
+    """The sandbox's own state, asserted rather than tolerated: Anthropic is
+    offline, so this must come back as a DEPLOYMENT problem naming itself, not
+    as a review whose language is hard."""
+    import server.config as _cfg
+    assert not _cfg.is_live("anthropic"), "this test needs Anthropic offline"
+    detects("")
+    _seed(api_db)
+    out = _call()
+    assert out["outcome"] == "unavailable", out
+    assert "not connected" in out["note"], out["note"]
+    assert _stored(api_db)[0] == "en", "a language was invented"
 
 
 def test_an_existing_english_copy_is_not_overwritten(api_db, detects):

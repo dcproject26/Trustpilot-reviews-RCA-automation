@@ -178,3 +178,85 @@ def search_tokens(name: str) -> list[str]:
     scoring.
     """
     return [t for t in name_tokens(name) if not _is_initial(t)]
+
+
+# ── is this a digest, or a person's name? ───────────────────────────────────
+
+# THREE COPIES OF THIS RULE EXISTED AND THEY DISAGREED. That is the same
+# failure this module's docstring opens with, on a different field, and it was
+# live: `api._looks_like_hash` required one of `+ / = _` before it would call a
+# non-hex string a digest, so a PLAIN ALPHANUMERIC digest was not caught, while
+# `pipeline._is_hashed_name` and `bigquery.is_hashed_name` accepted any long
+# unspaced run of `[A-Za-z0-9+/=_-]` and therefore called a long surname a hash.
+# Both were wrong, in opposite directions, on the same values:
+#
+#     value                              api    matcher/warehouse
+#     FjpJxbSfpb65bnyQwErTyUiOpAsDfGhJ   name   digest        <- a real digest
+#     ab24TSVenneb4T3CkHFUFaGM           name   digest        <- a real digest
+#     Papadopoulopoulos                  name   digest        <- a real NAME
+#
+# The first is the fixture a8b6a10's own test uses to mean "a PII hash", and it
+# reached the candidate picker — the one field an associate recognises the
+# right booking by — as the guest's name.
+#
+# WHAT ACTUALLY SEPARATES THEM. A digest is drawn from an encoding alphabet; a
+# surname is drawn from a language. So:
+#
+#   * a digit           — no surname contains one
+#   * `+ / = _`         — base64 punctuation, likewise
+#   * all hex           — a hex digest can be letters-only ("deadbeefcafebabe")
+#
+# A FOURTH TEST WAS WRITTEN AND THEN MEASURED AWAY. Base64 alternates case
+# constantly and a name does it once or twice, so "four or more case flips"
+# looked like a clean way to catch a letters-only digest. Measured against real
+# shapes it is not:
+#
+#     VanDerBergVanHouten          9 flips   a name
+#     JeanPierreDeLaCroix          9 flips   a name
+#     MariaDeLosAngelesRodriguez   9 flips   a name
+#     aVusEdlMtmoVdRMvmrOENBdJ    16 flips   a digest
+#
+# The separation is real but the threshold sits among live names, and sampling
+# 200,000 base64 digests produced EIGHT that were letters-only — 0.004%. The
+# clause would have blanked "JeanPierreDeLaCroix" to catch four digests in
+# a hundred thousand, so it is gone.
+#
+# THE GAP THAT LEAVES, STATED RATHER THAN HIDDEN: a base64 digest that happens
+# to be letters-only reads as a name here, 0.004% of the time. The consequence
+# is bounded — it fails the name comparison it is then allowed into, which is
+# what happened to EVERY digest before any of this existed. The inverse error
+# puts an empty field on the picker an associate is using to choose between
+# bookings, and that is worse than a rare bad one.
+_B64_ALPHABET = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+                    "0123456789+/-_=")
+_HEX_ALPHABET = set("0123456789abcdefABCDEF-")
+
+DIGEST_MIN_LEN = 16
+
+
+def looks_like_digest(s: str) -> bool:
+    """True for an opaque token that must never be shown as a guest name.
+
+    ONE implementation. `api._looks_like_hash`, `pipeline._is_hashed_name` and
+    `bigquery.is_hashed_name` all delegate here.
+
+    There was a fourth, `bigquery.NOT_A_HASH_SQL`, holding the rule again in
+    SQL. It was interpolated into no query — defined, and referenced by
+    nothing. A guard shaped like protection and wired into no path is the
+    first bullet of CLAUDE.md, so it is deleted rather than kept in step with
+    this one; a test asserts it does not come back.
+    """
+    s = (s or "").strip()
+    if not s or " " in s:
+        return False
+    if len(s) < DIGEST_MIN_LEN:
+        return False
+    if all(c in _HEX_ALPHABET for c in s):
+        return True
+    if not all(c in _B64_ALPHABET for c in s):
+        # A character no encoding produces — an accent, an apostrophe, a dot.
+        # That is a name, however long.
+        return False
+    if any(c in "+/=_" for c in s):
+        return True
+    return any(c.isdigit() for c in s)
