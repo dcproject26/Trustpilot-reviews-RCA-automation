@@ -68,8 +68,16 @@ class D:
     booking = {"id": "32885089", "tid": "19354", "vid": "4045",
                "tgid": "15406", "experienceName": "Auschwitz tour",
                "vendorName": "Krakville"}
-    insights = {"tgidRating": {"value": "4.2"},
-                "similarReviews": {"value": "41"}}
+    # THE SHAPE `insights.compute()` ACTUALLY STORES. This fixture used to be
+    # {"tgidRating": {"value": "4.2"}, "similarReviews": {"value": "41"}} —
+    # camelCase keys with a "value" node, a payload the real system has never
+    # produced. The export read those names, this test built those names, and
+    # both agreed with each other while the cell was EMPTY on every real
+    # draft. A test that constructs its own version of the thing under test is
+    # testing its own version; see CLAUDE.md. Keys verified against
+    # insights.py:1213-1245.
+    insights = {"rating_tgid": {"avg": "4.2", "n": 12},
+                "similar_reviews_30d": "41"}
     rca_v3 = {"what_went_wrong": {"guest_issues": []}, "flags": [],
               "takedown": {"verdict": "No"}}
     l1, l2 = "Operations Issue", "Ticket Issues"
@@ -130,7 +138,7 @@ def test_the_completed_row_carries_the_booking_and_the_classification():
 def test_the_insights_are_a_cell_a_person_can_read():
     """A JSON dump is not something anyone pivots on."""
     got = _cell(X.row_for(R(), D(), stage=X.DONE), "insights")
-    assert got == "TGID rating 4.2; Similar reviews 41", got
+    assert got == "TGID rating 4.2 (n=12); Similar reviews 30d 41", got
 
 
 def test_the_arrival_facts_survive_the_second_write():

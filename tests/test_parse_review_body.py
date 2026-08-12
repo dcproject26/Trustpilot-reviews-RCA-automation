@@ -60,3 +60,36 @@ def test_stars_and_bid_still_extracted():
     out = parse_review(ev)
     assert out["rating"] == 1
     assert out["reference_number"] == "32908218"
+
+
+# ── the language field ─────────────────────────────────────────────────────
+
+def test_ingest_records_no_language_rather_than_guessing_english():
+    """`"en"` WAS HARD-CODED HERE ON EVERY REVIEW and nothing ever updated it,
+    so the column said "English" about reviews nobody had looked at. The card
+    believed it: an Italian review whose inbound translation failed drew ONE
+    English response box, with no route to the guest's language, and the reply
+    went out in English.
+
+    None is the honest value at ingest — the payload carries no language and
+    we have not looked. `reply_language.resolve_language()` fills it in from
+    the guest's own words and stores the NAME, so a value that is present is
+    one somebody established.
+
+    A DETECTED VALUE MUST NEVER BE A TWO-LETTER CODE, because `"en"` is
+    precisely what `language_state` reads as "nobody looked"."""
+    out = parse_review(_ev(blocks=[
+        {"type": "section", "text": {"text": "*Luca Rossi*"}},
+        {"type": "section", "text": {"text": "Non sono mai arrivati i biglietti."}},
+    ]))
+    assert out["language"] is None, (
+        f"ingest recorded {out['language']!r} — a language nobody detected, "
+        f"which the card reads as a finding")
+
+
+def test_a_non_english_body_does_not_make_ingest_claim_a_language():
+    """The inverse: ingest must not start guessing either. Detection is a
+    separate step with its own outcomes, and a guess here would be indistinguishable
+    from one."""
+    out = parse_review(_ev(text="Ils ne sont jamais arrivés"))
+    assert out["language"] is None

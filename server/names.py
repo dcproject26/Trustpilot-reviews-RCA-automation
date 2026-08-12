@@ -247,10 +247,16 @@ def looks_like_digest(s: str) -> bool:
     this one; a test asserts it does not come back.
     """
     s = (s or "").strip()
-    if not s or " " in s:
+    if not s:
         return False
     if len(s) < DIGEST_MIN_LEN:
         return False
+    # NO `" " in s` TEST. There was one, and mutation testing showed removing
+    # it changed no answer at all: neither alphabet below contains a space, so
+    # a spaced value falls out at the encoding-alphabet guard and is a name
+    # either way. A branch that cannot change an outcome is one more thing to
+    # keep in step for nothing, and it reads as though it is doing work.
+    # `test_a_spaced_value_is_a_name_however_long` still holds the guarantee.
     if all(c in _HEX_ALPHABET for c in s):
         return True
     if not all(c in _B64_ALPHABET for c in s):

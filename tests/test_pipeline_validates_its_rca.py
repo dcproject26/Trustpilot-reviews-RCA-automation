@@ -607,3 +607,66 @@ def test_a_run_that_corrected_nothing_does_not_claim_it_did():
     from server.pipeline import shape_counts_entry
     said = shape_counts_entry([{"_shape_counts": {"raw": 4, "shown": 2}}])
     assert said and "re-attributed" not in said["text"], said
+
+
+# ── the guest-name lookup is actually reached ──────────────────────────────
+#
+# `ensure_zendesk_guest_name` is covered thoroughly on its own in
+# test_the_guest_name_is_asked_for_on_every_path.py. What is covered HERE is
+# that process_review calls it — a mutation short-circuiting the call survived
+# a full 3558-test suite, exactly as the `shape_counts_entry` call site did
+# before it was driven.
+
+def test_the_pipeline_actually_asks_for_the_guest_name(live_db, monkeypatch):
+    import server.pipeline as P
+    _stub(monkeypatch, {})
+    seen = []
+
+    async def _fake(booking, fallback_bid=""):
+        seen.append(fallback_bid)
+        return {"asked": True, "name": "Gianmarco Lucia", "reason": ""}
+    monkeypatch.setattr(P, "ensure_zendesk_guest_name", _fake)
+
+    _seed(live_db, "tp_gn", reference_number="32728059")
+    _, trail, _ = _run(live_db, "tp_gn")
+    assert seen, ("process_review never asked for the guest name — the lookup "
+                  "is back to being unreachable outside Tier-1")
+    said = next((t for t in trail if "Guest name read from Zendesk" in t), None)
+    assert said, trail
+    assert "Gianmarco Lucia" in said, said
+
+
+def test_a_lookup_that_found_nothing_still_reaches_the_trail(live_db, monkeypatch):
+    """"Asked and Zendesk had none" is the sentence the whole function exists
+    to make distinguishable from "never asked". It is worth nothing if the
+    pipeline drops it."""
+    import server.pipeline as P
+    _stub(monkeypatch, {})
+
+    async def _fake(booking, fallback_bid=""):
+        return {"asked": True, "name": "",
+                "reason": "the Zendesk ticket for this booking carries no "
+                          "readable guest name"}
+    monkeypatch.setattr(P, "ensure_zendesk_guest_name", _fake)
+
+    _seed(live_db, "tp_gn2", reference_number="32728059")
+    _, trail, _ = _run(live_db, "tp_gn2")
+    said = next((t for t in trail if "asked for the guest name" in t), None)
+    assert said, trail
+    assert "a lookup that ran" in said, said
+
+
+def test_a_run_that_never_asked_says_nothing(live_db, monkeypatch):
+    """Paired, so the trail line cannot be made unconditional — a card that
+    reports a Zendesk lookup on every review teaches the reader to skip it."""
+    import server.pipeline as P
+    _stub(monkeypatch, {})
+
+    async def _fake(booking, fallback_bid=""):
+        return {"asked": False, "name": "", "reason": ""}
+    monkeypatch.setattr(P, "ensure_zendesk_guest_name", _fake)
+
+    _seed(live_db, "tp_gn3", reference_number="32728059")
+    _, trail, _ = _run(live_db, "tp_gn3")
+    assert not any("guest name" in t.lower() and "Zendesk" in t for t in trail), \
+        [t for t in trail if "guest name" in t.lower()]

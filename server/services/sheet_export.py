@@ -178,18 +178,54 @@ def _s(v) -> str:
     if isinstance(v, (list, tuple)):
         return "; ".join(_s(x) for x in v if x is not None and x != "")
     if isinstance(v, dict):
-        return json.dumps(v, ensure_ascii=False, default=str)[:2000]
-    return str(v)
+        return _defuse(json.dumps(v, ensure_ascii=False, default=str)[:2000])
+    return _defuse(str(v))
+
+
+# Characters a spreadsheet treats as the start of a FORMULA rather than text.
+# Tab and CR are here because Excel strips leading whitespace before deciding.
+_FORMULA_LEAD = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _defuse(s: str) -> str:
+    """Stop a cell being executed as a formula when the file is opened.
+
+    THE CONTENT IS GUEST-WRITTEN. `author` is the Trustpilot reviewer's own
+    display name and `review_text` is their review; both reach this file
+    unaltered, and a cell beginning `=`, `+`, `-`, `@` or a tab is evaluated by
+    Excel and Google Sheets on open. `=cmd|' /C calc'!A0` in a display name is
+    the classic version, and it survived this export byte-for-byte.
+
+    A LEADING APOSTROPHE, NOT STRIPPING THE CHARACTER. Stripping would silently
+    alter what the guest wrote — a review opening "- they never arrived" would
+    lose its dash and nobody could tell it had been edited. The apostrophe is
+    the spreadsheet's own "treat this as text" marker: Excel and Sheets consume
+    it on display, so the cell READS exactly as written and simply does not
+    execute. `csv.reader` sees it, which is the honest trade — the alternative
+    is a file that runs code.
+    """
+    return "'" + s if s[:1] in _FORMULA_LEAD else s
 
 
 # The five the card's Experience insights panel shows, with the label it uses.
 # Same five, same words: a sheet column and a card panel that disagree about
 # what "Same-day issues" counts is a reconciliation nobody can win.
-_INSIGHT_ROWS = (("tgidRating", "TGID rating"),
-                 ("completion", "Completion rate"),
-                 ("sameDayIssues", "Same-day issues"),
-                 ("similarReviews", "Similar reviews"),
-                 ("similarQueries", "Similar queries"))
+# THESE KEYS DID NOT EXIST. They were camelCase — `tgidRating`, `completion`,
+# `sameDayIssues`, `similarReviews`, `similarQueries` — and the payload
+# `insights.compute()` actually stores is snake_case. NOT ONE of the five ever
+# matched, so this cell was `""` on every real draft, and an empty cell reads
+# as "the warehouse had nothing for this booking".
+#
+# That is the contact-note join from CLAUDE.md exactly: `"ZD-4491"` against
+# `ticket_id "4491"`, matching nothing, indistinguishable from an honest empty.
+# Verified against `insights.py:1213-1245`, which is the one place the payload
+# is built.
+_INSIGHT_ROWS = (("rating_tgid",                 "TGID rating"),
+                 ("tgid_completion_rate",        "TGID completion"),
+                 ("vid_completion_rate",         "VID completion"),
+                 ("similar_reviews_30d",         "Similar reviews 30d"),
+                 ("similar_support_queries_30d", "Similar queries 30d"),
+                 ("redemption",                  "Redemption"))
 
 
 def _insights_cell(ins) -> str:
@@ -200,16 +236,35 @@ def _insights_cell(ins) -> str:
     the ones the warehouse had nothing for — a cell of five em-dashes says
     less than an empty one.
     """
-    if not isinstance(ins, dict):
+    if not isinstance(ins, dict) or not ins:
         return ""
     out = []
     for key, label in _INSIGHT_ROWS:
         node = ins.get(key)
-        val = (node or {}).get("value") if isinstance(node, dict) else node
-        val = str(val or "").strip()
-        if val and val != "\u2014":
+        if isinstance(node, dict):
+            # `rating_tgid` is {"avg": 4.2, "n": 31}; the old code reached for
+            # a "value" key that this payload has never had.
+            avg = node.get("avg", node.get("value"))
+            n = node.get("n")
+            val = "" if avg in (None, "") else (
+                f"{avg} (n={n})" if n else str(avg))
+        else:
+            val = node
+        val = str(val if val is not None else "").strip()
+        if val and val not in ("\u2014", "N/A", "None"):
             out.append(f"{label} {val}")
-    return "; ".join(out)
+    if out:
+        return "; ".join(out)
+    # A PAYLOAD THAT EXISTS AND MATCHED NOTHING IS NOT AN EMPTY PAYLOAD. This
+    # is the state the camelCase keys left every row in, silently. If the keys
+    # drift again, the cell says so instead of looking like a booking the
+    # warehouse knew nothing about.
+    log.warning(f"[sheet] insights payload has {len(ins)} key(s) and none of "
+                f"{[k for k, _ in _INSIGHT_ROWS]} \u2014 the export is reading "
+                f"names this payload does not use")
+    return (f"(insights present but unreadable: none of "
+            f"{len(_INSIGHT_ROWS)} expected fields found in "
+            f"{len(ins)} stored keys)")
 
 
 def slack_link(review) -> str:
@@ -242,7 +297,25 @@ def row_for(review, draft, now: datetime | None = None,
     be a second place for a column to be forgotten.
     """
     d = draft
-    v3 = (getattr(d, "rca_v3", None) or {}) if d else {}
+    # THE RESOLVED v3, NOT THE RAW BLOB. `_resolve_v3_sections` folds the v4
+    # projection COLUMNS (guest_issues, flags, takedown) over the `rca_v3`
+    # blob, and its own docstring names this export as one of the readers that
+    # must agree with the card. It did not go through it: a draft carrying the
+    # columns and an empty blob exported issue_count 0 and blank flags while
+    # the card and the Slack post showed them. Two stores for one fact, and
+    # the export read the one that is not always written.
+    #
+    # Imported here rather than at module scope: `server.api` imports this
+    # module, so a top-level import is a cycle.
+    v3 = {}
+    if d is not None:
+        try:
+            from server.api import _resolve_v3_sections
+            v3 = _resolve_v3_sections(d)[0] or {}
+        except Exception as e:      # never fail an export over a projection
+            log.warning(f"[sheet] v3 resolution failed, falling back to the "
+                        f"raw blob: {e}")
+            v3 = getattr(d, "rca_v3", None) or {}
     bk = (getattr(d, "booking", None) or {}) if d else {}
     issues = (v3.get("what_went_wrong") or {}).get("guest_issues") or []
     takedown = v3.get("takedown") or {}
@@ -264,7 +337,16 @@ def row_for(review, draft, now: datetime | None = None,
         "vid":           bk.get("vid") or "",
         "tgid":          bk.get("tgid") or "",
         "experience":    bk.get("experienceName") or "",
-        "vendor":        bk.get("vendorName") or "",
+        # BOTH KEYS, because the booking reaches here from two builders and
+        # they disagree. `bigquery._row_to_dict` writes `partner`; only
+        # `verify_bid` writes `vendorName`, and `complete_booking_row` merges
+        # the two — so whenever that lookup returns nothing or raises, this
+        # cell was blank and read as "no vendor". `experienceName` beside it
+        # matched, which is why the column looked healthy.
+        #
+        # Every other reader in the tree already does exactly this
+        # (api.py, pipeline.py, slack.py); the export was the one that did not.
+        "vendor":        bk.get("vendorName") or bk.get("partner") or "",
         "visit_date":    bk.get("date_of_visit") or bk.get("visitDate") or "",
         "match_tier":    getattr(d, "match_tier", None) if d else None,
         "match_method":  getattr(d, "match_method", "") if d else "",
@@ -277,11 +359,18 @@ def row_for(review, draft, now: datetime | None = None,
         # The count AND the titles. A count alone cannot be checked against the
         # card; the titles alone cannot be summed.
         "issue_count":   len(issues),
+        # THREE PARALLEL LISTS THAT DID NOT LINE UP. `owners` and
+        # `claim_accuracy` filtered out the blanks while `issues` kept every
+        # row, so three issues whose middle one had no owner exported 3, 2 and
+        # 2 entries — and a reader pairing them by position attributed issue
+        # two's title to issue three's owner. `_s()` drops empty list entries
+        # as well, so padding here would not have survived either; the missing
+        # value is spelled out instead.
         "issues":        [i.get("issue") for i in issues if isinstance(i, dict)],
-        "owners":        [i.get("owner") for i in issues
-                          if isinstance(i, dict) and i.get("owner")],
-        "claim_accuracy": [i.get("claim_accuracy") for i in issues
-                           if isinstance(i, dict) and i.get("claim_accuracy")],
+        "owners":        [(i.get("owner") or "(none)") for i in issues
+                          if isinstance(i, dict)],
+        "claim_accuracy": [(i.get("claim_accuracy") or "(none)")
+                           for i in issues if isinstance(i, dict)],
 
         # THE INSIGHTS AS A SENTENCE, not the raw block. The sheet is read
         # across rows; a JSON dump in a cell is not something anyone pivots on.

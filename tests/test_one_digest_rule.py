@@ -41,6 +41,23 @@ DIGESTS = [
     "aGVsbG8gd29ybGQgdGhpcw==".replace(" ", ""),
     "deadbeefcafebabe1234",                          # hex
     "a3f9c2d1b4e5f6a7b8c9d0e1",                       # hex
+    # EACH OF THE NEXT THREE EXISTS BECAUSE A MUTANT SURVIVED WITHOUT IT.
+    # The corpus above is caught by the digit test alone, so removing the
+    # all-hex branch, or the base64-punctuation branch, changed no answer and
+    # no test failed. A rule with three tests needs a value that only ONE of
+    # them catches, or two of the three are decoration.
+    "deadbeefcafebabe",         # all hex, NO digit -> only the hex branch
+    "AbCdEfGhIjKlMnOp==",       # base64 padding, NO digit -> only the punctuation branch
+    "cafebabedeadbeefface",     # all hex, letters only
+]
+
+# A name carrying BOTH a character no encoding produces AND a digit. Without
+# the encoding-alphabet guard the digit test would call this a digest and the
+# picker would blank it. Booking labels of this shape are real.
+AWKWARD_NAMES = [
+    "Château-Neuf-2024-VIP",
+    "Müller-Straße-17-Suite",
+    "O'Brien-Party-of-12-VIP",
 ]
 
 NAMES = [
@@ -108,7 +125,33 @@ def test_a_short_token_is_never_a_digest():
 
 
 def test_a_spaced_value_is_a_name_however_long():
+    """The explicit space test was DELETED — mutation showed removing it
+    changed no answer, because neither alphabet contains a space and such a
+    value falls out at the encoding-alphabet guard. The guarantee is kept
+    here; only the redundant branch went."""
     assert looks_like_digest("Maria de los Angeles Fernandez Rodriguez") is False
+    assert looks_like_digest("Jean Pierre 1234567890 de la Croix") is False
+
+
+@pytest.mark.parametrize("name", AWKWARD_NAMES)
+def test_a_name_with_an_accent_and_a_digit_is_still_a_name(name):
+    """The encoding-alphabet guard, which a surviving mutant proved untested.
+    An accent, an umlaut or an apostrophe is a character no encoding produces,
+    so the value is a label however many digits it carries — and blanking it
+    empties the field an associate picks a booking by."""
+    assert looks_like_digest(name) is False
+
+
+def test_the_hex_branch_catches_what_the_digit_branch_cannot():
+    """`deadbeefcafebabe` is a digest with no digit in it. Removing the
+    all-hex branch survived a full suite because every hex fixture in the
+    corpus also had a digit."""
+    assert looks_like_digest("deadbeefcafebabe") is True
+
+
+def test_the_punctuation_branch_catches_what_the_digit_branch_cannot():
+    """Likewise: base64 padding with no digit anywhere."""
+    assert looks_like_digest("AbCdEfGhIjKlMnOp==") is True
 
 
 def test_a_digit_gives_a_letters_and_digits_token_away():

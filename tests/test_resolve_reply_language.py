@@ -223,12 +223,20 @@ def test_a_detector_that_is_not_connected_is_not_an_undetectable_review(
     as a review whose language is hard."""
     import server.config as _cfg
     assert not _cfg.is_live("anthropic"), "this test needs Anthropic offline"
-    detects("")
+    calls = detects("")
     _seed(api_db)
     out = _call()
     assert out["outcome"] == "unavailable", out
     assert "not connected" in out["note"], out["note"]
     assert _stored(api_db)[0] == "en", "a language was invented"
+    # THE ASSERTION THAT WAS MISSING. A mutant narrowing the endpoint's guard
+    # to `("undetected",)` survived a full suite: `outcome` and `note` come
+    # from resolve_language either way, so both assertions above still passed
+    # while the request fell through and translated the reply into a language
+    # it did not have — `translate_to(reply, "")`.
+    assert not calls["translate"], (
+        "the reply was sent for translation into an unestablished language")
+    assert out["translated"] is False, out
 
 
 def test_an_existing_english_copy_is_not_overwritten(api_db, detects):

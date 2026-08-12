@@ -397,6 +397,66 @@ def gate_name_check(booking_name, zendesk_name, zendesk_why, author_first,
             source, "")
 
 
+async def ensure_zendesk_guest_name(booking, fallback_bid="") -> dict:
+    """Ask Zendesk for the booking's guest name when the warehouse has none.
+
+    ONE CALL SITE IS NOT EVERY PATH. `zendesk.guest_name_for_bid()` existed,
+    worked, and was called from exactly one place: the Tier-1 gate, inside the
+    branch that runs when the guest quoted a booking id in their own review.
+    Tier-2 auto-promote, associate confirmation, manual entry and the
+    attachment path never called it — so on all of those the card printed
+    "the warehouse stores this as a hash — check the Zendesk ticket", telling
+    the reader to go and perform a lookup THIS SYSTEM CAN PERFORM and simply
+    had not attempted.
+
+    That also makes the judgement it was retired on unsafe: "the fallbacks
+    resolve it rarely" was measured, if at all, over Tier-1 traffic only.
+
+    So it runs here, at the point every path has converged on one booking and
+    just before the draft is written. Returns a dict rather than a bare name,
+    because "we asked and Zendesk had nothing" and "we never asked" are the
+    two things this whole function exists to keep apart:
+
+        asked   False when the warehouse name was fine, or there was no id
+        name    "" whenever nothing readable came back
+        reason  why it is empty, in `GUEST_NAME_UNAVAILABLE`'s words
+
+    NEVER RAISES and never blocks a run — a guest name is a nicety and the
+    RCA is not. A failure is recorded as a failure and the run continues.
+    """
+    out = {"asked": False, "name": "", "reason": ""}
+    if not isinstance(booking, dict):
+        return out
+    unusable = gate_unusable_reason(booking.get("primary_guest_name"))
+    if not unusable:
+        return out                      # the warehouse answered; do not ask
+    if (booking.get("zendesk_guest_name") or "").strip():
+        return out                      # already found, on the Tier-1 path
+    bid = str(booking.get("booking_id") or booking.get("id")
+              or fallback_bid or "").strip()
+    if not bid:
+        out["reason"] = ("there is no booking id to look a guest name up by, "
+                         "so Zendesk was not asked")
+        booking["zendesk_guest_name_reason"] = out["reason"]
+        return out
+
+    out["asked"] = True
+    try:
+        name, why = await zendesk.guest_name_for_bid(bid)
+    except Exception as e:
+        out["reason"] = (f"the Zendesk guest-name lookup raised "
+                         f"({type(e).__name__}), so the booking's name is "
+                         f"unchecked rather than absent")
+        log.warning(f"[pipeline] guest-name lookup failed for {bid}: {e}")
+        booking["zendesk_guest_name_reason"] = out["reason"]
+        return out
+    out["name"], out["reason"] = name or "", why or ""
+    if out["name"]:
+        booking["zendesk_guest_name"] = out["name"]
+    booking["zendesk_guest_name_reason"] = out["reason"]
+    return out
+
+
 def gate_unusable_reason(booking_name):
     """WHICH kind of unusable the booking's own name was. A hash and a desk
     label call for different responses — one is a PII policy, the other a
@@ -3240,6 +3300,27 @@ async def process_review(review_id: str, force_candidates: bool = False):
             if not _d:
                 _d = RcaDraft(id=f"draft_{review_id}", review_id=review_id)
                 db.add(_d)
+            # EVERY PATH ASKS, not only Tier-1. See ensure_zendesk_guest_name:
+            # the lookup existed and had one call site, so four of the five
+            # ways a booking gets confirmed printed "check the Zendesk ticket"
+            # for a lookup nobody had attempted. This is where they converge.
+            _gn = await ensure_zendesk_guest_name(
+                booking, fallback_bid=review.reference_number or "")
+            if _gn["asked"]:
+                _why_bq = gate_unusable_reason(
+                    (booking or {}).get("primary_guest_name"))
+                confidence_trail.append({
+                    "mark": "pass" if _gn["name"] else "warn",
+                    "text": (f"<strong>Guest name read from Zendesk</strong> "
+                             f"— the warehouse stores {_why_bq}, so the ticket "
+                             f"was asked instead and answered "
+                             f"<strong>{_html.escape(_gn['name'])}</strong>.")
+                            if _gn["name"] else
+                            ("<strong>Zendesk was asked for the guest name "
+                             "and had none.</strong> "
+                             + _html.escape(_gn["reason"] or "")
+                             + " This is a lookup that ran, not one that was "
+                               "skipped.")})
             _m = (booking or {}).get("_match", {})
             _d.booking            = {k: v for k, v in (booking or {}).items()
                                      if k != "_match"}

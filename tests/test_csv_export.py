@@ -298,3 +298,138 @@ def test_a_guarded_serve_does_not_cry_wolf(client, monkeypatch, caplog):
                           headers={"X-Export-Key": "s3cret"}).status_code == 200
     said = " ".join(r.message for r in caplog.records)
     assert "NO key" not in said, f"a guarded serve warned anyway: {said!r}"
+
+
+# ── the vendor column matched nothing ──────────────────────────────────────
+
+def _bare_review():
+    from types import SimpleNamespace as NS
+    from datetime import datetime
+    return NS(id="tp_v", received_at=datetime(2026, 8, 1), author="A", rating=1,
+              language="English", status="draft", slack_channel="C1",
+              slack_ts="1.0", close_reason=None, sent_route=None,
+              body_original="x", body_english="x", reference_number="32728059")
+
+
+def _bare_draft(booking):
+    from types import SimpleNamespace as NS
+    return NS(booking=booking, rca_v3={}, insights={}, scenarios=[],
+              sub_themes=[], l1="", l2="", match_tier=None, match_method=None,
+              resolution="", final_response="", suggested_response="",
+              rca_prompt_version="", zendesk_ticket_ids=[], rca_posted_at=None,
+              sent_at=None, guest_issues=[], flags=[], takedown=None,
+              primary_scenario=None, overlay_scenarios=[])
+
+
+def test_a_warehouse_booking_still_names_its_vendor():
+    """THE JOIN THAT MATCHED NOTHING. `bigquery._row_to_dict` writes `partner`;
+    this export read `vendorName`, which only `verify_bid` writes. So whenever
+    that second lookup returned nothing the cell was blank and read as "no
+    vendor" — indistinguishable from a booking with none.
+
+    `experienceName` beside it DOES match, which is why the column looked
+    healthy in every eyeball check."""
+    from server.services.sheet_export import row_for
+    row = row_for(_bare_review(), _bare_draft(
+        {"id": "32728059", "partner": "Vendor Ltd",
+         "experienceName": "Colosseum Tour"}))
+    assert row["vendor"] == "Vendor Ltd", row
+    assert row["experience"] == "Colosseum Tour", row
+
+
+def test_the_verified_shape_still_names_its_vendor():
+    """The other builder, so the fix cannot regress into reading only
+    `partner` — two shapes reach this function and both must work."""
+    from server.services.sheet_export import row_for
+    row = row_for(_bare_review(), _bare_draft(
+        {"id": "32728059", "vendorName": "Vendor Ltd"}))
+    assert row["vendor"] == "Vendor Ltd", row
+
+
+def test_a_booking_with_no_vendor_at_all_is_still_empty():
+    """Paired, so the cell cannot be made unconditionally non-empty."""
+    from server.services.sheet_export import row_for
+    row = row_for(_bare_review(), _bare_draft({"id": "32728059"}))
+    assert row["vendor"] == ""
+
+
+# ── insights: five keys that never matched ─────────────────────────────────
+
+REAL_INSIGHTS = {"similar_reviews_30d": 4, "rating_tgid": {"avg": 4.2, "n": 31},
+                 "tgid_completion_rate": 0.87, "redemption": "QR",
+                 "similar_support_queries_30d": 2, "review_ratio": 0.1}
+
+
+def test_the_insights_cell_reads_the_payload_that_is_actually_stored():
+    """IT READ NONE OF IT. The five keys were camelCase — `tgidRating`,
+    `completion`, `sameDayIssues`, `similarReviews`, `similarQueries` — and
+    `insights.compute()` stores snake_case. Not one matched, so the cell was
+    "" on every real draft, which reads as "the warehouse had nothing".
+
+    The contact-note join from CLAUDE.md, again: "ZD-4491" against "4491"."""
+    from server.services.sheet_export import _insights_cell
+    cell = _insights_cell(REAL_INSIGHTS)
+    assert "TGID rating 4.2 (n=31)" in cell, cell
+    assert "Similar reviews 30d 4" in cell, cell
+    assert "Redemption QR" in cell, cell
+
+
+def test_an_empty_payload_is_an_empty_cell():
+    from server.services.sheet_export import _insights_cell
+    assert _insights_cell({}) == ""
+    assert _insights_cell(None) == ""
+
+
+def test_a_payload_that_matches_nothing_says_so_rather_than_looking_empty():
+    """THE INVERSE BUG, and the one that hid this for so long. A stored
+    payload whose keys we cannot read is a BROKEN JOIN; an absent payload is a
+    booking the warehouse knew nothing about. They must not produce the same
+    cell — that is the whole first rule of this codebase."""
+    from server.services.sheet_export import _insights_cell
+    cell = _insights_cell({"tgidRating": {"value": 4.2}, "completion": "87%"})
+    assert cell != "", "a broken join produced an honest-looking empty cell"
+    assert "unreadable" in cell, cell
+
+
+# ── the parallel lists lined up ────────────────────────────────────────────
+
+def test_issues_owners_and_accuracy_stay_in_step():
+    """They did not. `owners` and `claim_accuracy` filtered blanks while
+    `issues` kept every row, so three issues with a middle one lacking an
+    owner exported 3, 2 and 2 — and a reader pairing them by position gave
+    issue two's title issue three's owner."""
+    from server.services.sheet_export import row_for
+    v3 = {"what_went_wrong": {"guest_issues": [
+        {"issue": "A", "owner": "OPS", "claim_accuracy": "Accurate"},
+        {"issue": "B"},
+        {"issue": "C", "owner": "TECH", "claim_accuracy": "Inaccurate"}]}}
+    d = _bare_draft({})
+    d.rca_v3 = v3
+    row = row_for(_bare_review(), d)
+    assert len(row["issues"]) == 3, row["issues"]
+    assert len(row["owners"]) == 3, row["owners"]
+    assert len(row["claim_accuracy"]) == 3, row["claim_accuracy"]
+    assert row["owners"][1] == "(none)", row["owners"]
+    assert row["owners"][2] == "TECH", row["owners"]
+
+
+# ── a cell must not be executable ──────────────────────────────────────────
+
+@pytest.mark.parametrize("evil", ["=cmd|' /C calc'!A0", "+1+1", "@SUM(A1)",
+                                  "-1+1", "\t=1+1"])
+def test_a_formula_in_a_guest_written_cell_is_not_executable(evil):
+    """`author` is the reviewer's own display name and `review_text` is their
+    review. Both reach the file unaltered, and Excel and Sheets evaluate a cell
+    beginning `=`, `+`, `-`, `@` or a tab when the file is opened."""
+    from server.services.sheet_export import _s
+    out = _s(evil)
+    assert out.startswith("'"), out
+    assert evil in out, "the guest's text was altered, not just defused"
+
+
+def test_ordinary_text_is_left_exactly_as_written():
+    """Paired, so the guard cannot be made unconditional — an apostrophe on
+    every cell would be a new kind of wrong."""
+    from server.services.sheet_export import _s
+    for ok in ["Ioan Popescu", "They never arrived", "4.2", ""]:
+        assert _s(ok) == ok
