@@ -433,3 +433,35 @@ def test_ordinary_text_is_left_exactly_as_written():
     from server.services.sheet_export import _s
     for ok in ["Ioan Popescu", "They never arrived", "4.2", ""]:
         assert _s(ok) == ok
+
+
+def test_a_draft_with_only_the_v4_columns_still_exports_its_issues():
+    """TWO STORES FOR ONE FACT, and the export read the one that is not
+    always written. It took the raw `rca_v3` blob, so a draft carrying the v4
+    projection COLUMNS and an empty blob exported issue_count 0 with blank
+    flags and takedown — while the card and the Slack post showed all three
+    off the same object. `_resolve_v3_sections`' own docstring names this
+    export as a reader that must agree with them."""
+    from server.services.sheet_export import row_for
+    d = _bare_draft({})
+    d.rca_v3 = {}                        # the blob is empty …
+    d.guest_issues = [{"issue": "Tickets never arrived", "owner": "OPS",
+                       "claim_accuracy": "Accurate"}]
+    d.flags = [{"flag": "No follow-up", "team": "CO"}]
+    d.takedown = {"verdict": "Yes"}      # … and the columns are not
+    row = row_for(_bare_review(), d)
+    assert row["issue_count"] == 1, row["issue_count"]
+    assert row["issues"] == ["Tickets never arrived"], row["issues"]
+    assert row["flags"] == ["No follow-up"], row["flags"]
+    assert row["takedown"] == "Yes", row["takedown"]
+
+
+def test_the_blob_still_wins_when_it_is_the_one_that_is_populated():
+    """Paired: resolving must not start ignoring the blob, which is what
+    every older draft has."""
+    from server.services.sheet_export import row_for
+    d = _bare_draft({})
+    d.rca_v3 = {"what_went_wrong": {"guest_issues": [
+        {"issue": "From the blob", "owner": "TECH"}]}}
+    row = row_for(_bare_review(), d)
+    assert row["issues"] == ["From the blob"], row["issues"]
