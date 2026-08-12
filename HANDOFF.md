@@ -43,10 +43,14 @@ Plus the standing order: **mutation-run the diff before every push** —
 | Head | `b202e7c` |
 | State | tree clean, 0 ahead of the remote |
 
-`origin` used to point at `dcproject26/Claude`, an unrelated repo, which made
-the stop hook report ~586 phantom "unpushed commits" — a stale local tracking
-ref pinned at `56754f3`. Both remotes were repointed at the canonical
-capitalised URL; `trustpilot` is now a redundant alias and can be deleted.
+**PUSH TO `trustpilot`.** `origin` points at `dcproject26/Claude`, an
+unrelated repo that has never held this branch — pushing there fails with 403.
+It was repointed at the canonical URL during this session and **the environment
+reset it back**, so check `git remote -v` before every push rather than trusting
+it. The stale `origin` is also why the stop hook reports ~586 phantom "unpushed
+commits": a local tracking ref pinned at `56754f3`, divergent from this history.
+
+    git push -u trustpilot claude/vectorshift-pipeline-review-coj74p
 
 ### Test suite
 
