@@ -39,8 +39,8 @@ Plus the standing order: **mutation-run the diff before every push** —
 | | |
 |---|---|
 | Branch | `claude/vectorshift-pipeline-review-coj74p` |
-| Remote | `origin` **and** `trustpilot`, both → `https://github.com/dcproject26/Trustpilot-reviews-RCA-automation.git` |
-| Head | `b202e7c` |
+| Remote | **`trustpilot`** → `https://github.com/dcproject26/Trustpilot-reviews-RCA-automation.git` (see the warning below) |
+| Head | `88157d6` |
 | State | tree clean, 0 ahead of the remote |
 
 **PUSH TO `trustpilot`.** `origin` points at `dcproject26/Claude`, an
