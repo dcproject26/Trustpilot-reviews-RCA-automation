@@ -57,6 +57,16 @@ Confirmed three separate times in one session: repointing `origin` does not
 stick. If the hook reports phantom unpushed commits, this is why — verify with
 `git rev-list --count trustpilot/<branch>..HEAD` before believing it.
 
+### Verify the fixes without credentials
+
+    python3 tools/verify_session_fixes.py
+
+41 driven checks over every fix from this session — no database, no
+connectors. It prints the value the OLD code produced beside the new one, so
+the difference is visible rather than a dot, and it ends with an explicit list
+of what it could NOT check because the connectors are offline. Exits non-zero
+on any failure.
+
 ### The mutation specs are in the repo
 
 `tools/mutations/` holds all twelve specs from this session with a README
@@ -66,7 +76,8 @@ actually checked, which a passing suite cannot tell you.
 
 ### Test suite
 
-**3576 passed, 2 skipped.** 184 test files.
+**3578 passed, 2 skipped.** 184 test files. Plus
+`python3 tools/verify_session_fixes.py` → 41 passed.
 
 **One test fails environmentally and always will in a sandbox:**
 `tests/test_db_migration.py::test_an_unopenable_database_is_a_sentence_not_a_traceback`
@@ -165,7 +176,14 @@ costs a lot.
    reply **English → English** — a paid call that paraphrased the associate's
    wording. Guarded in `api.py`.
 2. The contradiction above had no resolution.
-3. The 409 said *"Name the guest's language on the card"* — that input was
+3. **A LOOP THAT REPORTED SUCCESS**, found by the final code review.
+   `detect_language` filters blanks, UNKNOWN, over-long answers and anything
+   with a space — but a bare two-letter code passes all four. Stored, the
+   outcome said `detected` and the column looked filled, while `language_state`
+   read it straight back as UNESTABLISHED (because `"en"` is exactly the ingest
+   default). The card then re-fired the check on every render, spending a model
+   call each time, never settling. A code is now refused with a named reason.
+4. The 409 said *"Name the guest's language on the card"* — that input was
    **deleted** when detection replaced it. Verified: the client only ever posts
    `{english}`, and the sole match for a language field is a comment recording
    its removal. The message now names what works (type in the top box), with a
