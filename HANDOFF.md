@@ -5,6 +5,47 @@ lost. Everything below is verified against the repository, not recalled.
 
 ---
 
+## 0.0 BEFORE YOU TRANSFER — the short checklist (updated 13 Aug 2026)
+
+The code is done and on `main`; the deployment is durable. What remains is
+operational and Slack-side — code cannot do it. Do these, in order, before
+handing the project on.
+
+**The two coordinates the new owner/account needs (and nothing else):**
+- **Code:** `github.com/dcproject26/Trustpilot-reviews-RCA-automation`.
+  `main` is now the live, deployed line. `archive/main-v4-line-2026-08-01`
+  holds the superseded Aug-1 v4/dashboard line if it is ever wanted.
+- **Runtime:** the Replit project — the deployment plus the **Production
+  Postgres** (`neondb`) it now uses. Replit deploys from the repo above.
+- The `github.com/dcproject26/Claude` repo is an **empty scaffold** — nothing
+  lives there. Ignore or delete it. (It is also the cause of the
+  `stop-hook-git-check.sh` "N unpushed commits" warnings — the hook watches
+  that empty repo; `git rev-list --left-right --count trustpilot/<branch>...HEAD`
+  reads `0 0`, i.e. everything is pushed. Cosmetic; it does not follow the
+  transfer.)
+
+**Open operational items — verify each is green:**
+1. **Slack ingestion webhook (IMPORTANT — currently broken).** The diagnostic
+   showed **0 webhook deliveries in 72h**: new reviews are not auto-arriving.
+   Fix in the Slack app config, not in code:
+   - **Event Subscriptions → Request URL** →
+     `https://trustpilot-rca.replit.app/webhook/slack` → confirm **Verified**.
+   - **OAuth & Permissions** → add `channels:read`, `groups:read`, `mpim:read`,
+     `im:read` → reinstall the app.
+   Until this is done, reviews only arrive via a manual `refresh-slack`.
+2. **Confirm the review recovery is complete.** Production went 12 → 37 after
+   re-ingest, so it works. If older reviews are still missing, widen the window:
+   `curl -X POST "https://trustpilot-rca.replit.app/api/reviews/refresh-slack?hours=720"`
+3. **(Optional, non-urgent) Redeploy** to pick up the fail-loud DB guard
+   (`a819248`). Production currently runs `38b0276`, two commits behind `main`;
+   the database is already durable via the Postgres env, so this only makes the
+   *guard code* live. Nothing is lost by waiting for the next routine deploy.
+
+Deeper detail on the database incident is in §0.5; the recovery runbook is
+there too.
+
+---
+
 ## 0. Read this first
 
 **`CLAUDE.md` in the repo root is the contract.** Read it before touching
