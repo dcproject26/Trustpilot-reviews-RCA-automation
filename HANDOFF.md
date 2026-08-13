@@ -68,6 +68,45 @@ Manual edits/RCAs on the lost reviews are gone; only the reviews come back.
 
 Tests: `tests/test_deploy_db_is_durable.py`.
 
+**STATUS — 2026-08-13: RESOLVED. Production is on durable Postgres.**
+Confirmed from the deployment's own `/api/version`:
+`"environment":"deployment"`, `"dialect":"postgresql"`, target
+`ep-lively-breeze-azd6oe2u.c-3.ap-southeast-1.aws.neon.tech/neondb`
+(Neon, cluster identity `7668292953428363858`), reviews climbing again (12 → 37
+after the first refresh). The dev repl is on a **separate** Postgres
+(`helium/heliumdb`, Replit's Development Database) — that Production ≠ Development
+split is correct and intended; both are durable. A redeploy no longer wipes data.
+
+**Recovery runbook — if reviews look missing after a deploy (do in order):**
+1. **Confirm the deployment is on Postgres, not sqlite.** Open
+   `https://trustpilot-rca.replit.app/api/version` in a browser and read
+   `db.dialect`. Must be `postgresql`. (A command-line `curl` from some hosts
+   fails cert verification against the `.replit.app` chain — that is a client
+   trust-store issue, not the deployment being down; a browser is the reliable
+   check.) If it somehow reads `sqlite`, the deployment env is missing
+   `DATABASE_URL` — the guard should have refused boot, so a *running* site is
+   almost certainly already Postgres.
+2. **Only once step 1 says `postgresql`, re-ingest from Slack** (source of
+   truth). Dashboard **↻ Refresh**, or:
+   `curl -X POST "https://trustpilot-rca.replit.app/api/reviews/refresh-slack?hours=336"`
+   Use a wide window (336 h = 14 days) — after an ingestion outage the gap can be
+   more than a day. Doing this while still on sqlite re-loses everything on the
+   next deploy, hence the ordering.
+3. **If new reviews stopped arriving on their own** (not just a redeploy loss),
+   the Slack webhook is the cause, *not* the database. `tools/diagnose.py`
+   reports `webhook deliveries in 72h: 0` when Slack cannot reach the server —
+   a redeploy can change the public URL or leave Event Subscriptions unverified.
+   Fix in the Slack app config: **Event Subscriptions → Request URL** →
+   `https://trustpilot-rca.replit.app/webhook/slack` → confirm **Verified**; and
+   under **OAuth & Permissions** add `channels:read`, `groups:read`, `mpim:read`,
+   `im:read` and reinstall (needed to verify the bot's channel membership).
+   Until this is fixed, `refresh-slack` is a manual stopgap, not a cure.
+
+**Fastest single diagnosis:** run `python3 tools/diagnose.py --url
+https://trustpilot-rca.replit.app` in the Replit shell — its VERDICT block
+separates "configuration someone must change" from an actual code fault, and
+lists the broken links in order.
+
 ---
 
 ## 1. Where the work lives
