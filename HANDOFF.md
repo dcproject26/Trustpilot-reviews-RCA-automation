@@ -76,15 +76,8 @@ actually checked, which a passing suite cannot tell you.
 
 ### Test suite
 
-**3578 passed, 2 skipped.** 184 test files. Plus
-`python3 tools/verify_session_fixes.py` → 41 passed.
-
-**One test fails environmentally and always will in a sandbox:**
-`tests/test_db_migration.py::test_an_unopenable_database_is_a_sentence_not_a_traceback`
-— it cannot reach `127.0.0.1:1`, so the migrator refuses on "identity unknown"
-before reaching the path under test. **It fails identically on unmodified
-`b5c22ad`.** It blocks mutation runs with `BASELINE IS RED`, so every run in
-this session used:
+**3580 passed, 2 skipped, ZERO failures.** 184 test files. Plus
+`python3 tools/verify_session_fixes.py` → 42 passed.
 
 ```
 # On Replit, pip is blocked by the immutable Nix store, so use a venv that
@@ -97,9 +90,31 @@ python3 -m venv --system-site-packages .venv
 python3 -m pip install -r requirements-dev.txt    # pytest is NOT in requirements.txt
 python3 -m pytest tests/ -q
 
-python3 tools/mutate.py <spec>.json \
-  -k "not test_an_unopenable_database_is_a_sentence_not_a_traceback" --fail-fast
+python3 tools/mutate.py <spec>.json --fail-fast
 ```
+
+**A CORRECTION, because an earlier version of this file said the opposite.**
+`test_db_migration.py::test_an_unopenable_database_is_a_sentence_not_a_traceback`
+was called an environmental failure for a whole session, and every mutation run
+was handed `-k "not test_an_unopenable_database..."` to work around it.
+
+It was not environmental. It was a BROKEN TEST: it passed an unreachable HOST
+and asserted `"cannot open the"`, but `create_engine()` does not connect — it
+builds lazily and succeeds for any dead host so long as the driver imports, and
+psycopg2-binary is in requirements.txt. The run went past that branch to the
+identity probe and printed "Refusing to copy on a guess". The assertion could
+not pass on any machine that had installed this project.
+
+The reasoning that hid it was **"it fails on unmodified `b5c22ad` too"**. That
+establishes it is not a REGRESSION. It says nothing about whose fault it is,
+and the two were treated as the same thing about fifteen times. A test that
+fails identically before and after a change is a reason to go and read it, not
+a reason to name it environmental and move on.
+
+Fixed — it now names a driver this project genuinely does not install, so the
+missing-driver path actually runs — and the case it was accidentally exercising
+(a live driver against a dead host must refuse rather than guess) is kept as
+its own test. **The `-k` exclusion is no longer needed by anything.**
 
 **`pytest` is not a runtime dependency and was not declared anywhere.** The
 sandbox this was developed in had it preinstalled, so the suite ran there and
@@ -111,7 +126,7 @@ machine. `requirements-dev.txt` now carries it.
 `tests/test_rca_ui_rendered.py` (65 tests) drives a real server and Chromium.
 Observed in this session: **17 failures on a machine running two other pytest
 processes, and 65/65 passing in 15 seconds in isolation.** A clean full run
-was 3578 passed / 2 skipped / 1 failed (the environmental db_migration one).
+was 3580 passed / 2 skipped / 0 failed.
 
 So a red run of THAT FILE specifically is not evidence of a regression until
 it has been re-run alone:

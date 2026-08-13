@@ -171,7 +171,45 @@ def test_one_side_identifying_is_not_enough(pair, monkeypatch):
 
 def test_an_unopenable_database_is_a_sentence_not_a_traceback(tmp_path):
     """A missing driver is a setup problem with a one-line fix, and it used to
-    arrive as a forty-line traceback that reads like the migration broke."""
+    arrive as a forty-line traceback that reads like the migration broke.
+
+    THE URL HERE NAMES A DRIVER THAT IS NOT INSTALLED, and that is the whole
+    point of the test. It used to say `postgresql://u@127.0.0.1:1/x` — an
+    unreachable HOST — and asserted "cannot open the". That string comes from
+    `_engine()`, which only fails when `create_engine()` itself raises, and
+    `create_engine()` does not connect: it builds lazily and succeeds for any
+    unreachable host as long as the driver is importable. psycopg2-binary is
+    in requirements.txt, so it always was.
+
+    The run therefore went past `_engine()` to the identity probe, printed
+    "Refusing to copy on a guess", and the assertion could not pass on any
+    machine WITH psycopg2 — which is every machine that installed this
+    project. It was called an environmental failure for a whole session; it
+    was a test asserting an outcome its own input cannot produce.
+
+    `psycopg2cffi` is a real postgres driver that this project does not
+    install, so `create_engine` raises ModuleNotFoundError and the
+    missing-driver path — the one the docstring is about — actually runs."""
+    import os
+    r = subprocess.run(
+        [sys.executable, "tools/migrate_db.py",
+         "--from", "postgresql+psycopg2cffi://u@127.0.0.1:1/x",
+         "--to", "postgresql+psycopg2cffi://u@127.0.0.1:2/y"],
+        capture_output=True, text=True, env=dict(os.environ))
+    out = r.stdout + r.stderr
+    assert r.returncode == 2, out
+    assert "Traceback" not in out, out
+    assert "cannot open the" in out, out
+    assert "row(s) would be copied" not in out, "it planned a copy anyway"
+
+
+def test_an_unreachable_host_refuses_rather_than_guessing(tmp_path):
+    """The path the old version of the test above was ACTUALLY exercising,
+    kept because it is a real guarantee and nothing else covered it.
+
+    A reachable driver and a dead host gets past `_engine()`. The identity
+    probe then cannot name either side, and copying between two databases you
+    cannot tell apart is how a migration overwrites the wrong one."""
     import os
     r = subprocess.run(
         [sys.executable, "tools/migrate_db.py",
@@ -181,7 +219,7 @@ def test_an_unopenable_database_is_a_sentence_not_a_traceback(tmp_path):
     out = r.stdout + r.stderr
     assert r.returncode == 2, out
     assert "Traceback" not in out, out
-    assert "cannot open the" in out
+    assert "Refusing to copy on a guess" in out, out
     assert "row(s) would be copied" not in out, "it planned a copy anyway"
 
 

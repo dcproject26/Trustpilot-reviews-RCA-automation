@@ -4,13 +4,15 @@ Every spec run against this tree in the 11–12 Aug 2026 session, kept because
 they are the record of *which guarantees were checked* — a passing suite does
 not tell you that, and re-deriving these costs an afternoon.
 
-    python3 tools/mutate.py tools/mutations/<spec>.json \
-      -k "not test_an_unopenable_database_is_a_sentence_not_a_traceback" \
-      --fail-fast
+    python3 tools/mutate.py tools/mutations/<spec>.json --fail-fast
 
-The `-k` is not optional in a sandbox. `test_db_migration.py::test_an_unopenable_database_is_a_sentence_not_a_traceback`
-cannot reach `127.0.0.1:1`, fails identically on unmodified `b5c22ad`, and a
-red baseline aborts the run with `BASELINE IS RED`.
+The specs were RUN with an extra
+`-k "not test_an_unopenable_database_is_a_sentence_not_a_traceback"`, because
+that test was believed to be an environmental failure that reddened the
+baseline. It was not — it was a broken test, now fixed, and the suite is at
+3580 passed / 0 failed. **The exclusion is no longer needed, and re-running any
+spec without it is the stronger check**: every run in this session left that
+one test unexercised.
 
 ## Validate anchors before you run
 
