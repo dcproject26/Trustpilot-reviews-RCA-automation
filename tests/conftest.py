@@ -101,7 +101,32 @@ import socket
 import subprocess
 import sys
 
-CHROME = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
+# WHERE CHROMIUM IS, ON WHATEVER MACHINE THIS IS.
+#
+# This was one hardcoded string: "/opt/pw-browsers/chromium-1194/chrome-linux/
+# chrome" — the path in ONE container image, pinned to ONE build number. On any
+# other machine it does not exist, `ui_browser` skipped with "bundled chromium
+# not present", and all 533 dashboard tests vanished from the run. A user who
+# had just installed playwright to get exactly those tests still saw the same
+# count, with nothing explaining why.
+#
+# So: take the pinned path if it is there, then any build under
+# PLAYWRIGHT_BROWSERS_PATH, and otherwise hand playwright None and let it find
+# its own — which is what it does by default in ~/.cache/ms-playwright.
+def _chrome_path():
+    import glob
+    pinned = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
+    if os.path.exists(pinned):
+        return pinned
+    root = os.getenv("PLAYWRIGHT_BROWSERS_PATH") or ""
+    if root:
+        for c in sorted(glob.glob(f"{root}/chromium-*/chrome-linux/chrome")):
+            if os.path.exists(c):
+                return c
+    return None          # playwright resolves its own install
+
+
+CHROME = _chrome_path()
 
 
 def _free_port():
@@ -161,13 +186,24 @@ def _serve_on(port, env):
 def ui_browser():
     """One Chromium for the whole run."""
     pytest.importorskip("playwright.sync_api", reason="playwright not installed")
-    if not os.path.exists(CHROME):
-        pytest.skip("bundled chromium not present")
     from playwright.sync_api import sync_playwright
     pw = sync_playwright().start()
     # --no-sandbox because this runs as root in a container, where the sandbox
     # cannot initialise and the launch hangs rather than failing.
-    br = pw.chromium.launch(executable_path=CHROME, args=["--no-sandbox"])
+    #
+    # executable_path=None is not "no browser" — it is "you find it", which is
+    # the right answer on a machine where playwright installed chromium itself.
+    try:
+        br = pw.chromium.launch(executable_path=CHROME, args=["--no-sandbox"])
+    except Exception as e:
+        # NAMES THE FIX. The old skip said "bundled chromium not present" for
+        # every cause, including a machine where the browser simply had not
+        # been downloaded yet — which is a one-command problem the reader
+        # could not have guessed from that sentence.
+        pw.stop()
+        pytest.skip(f"chromium would not launch ({type(e).__name__}: "
+                    f"{str(e).splitlines()[0][:120]}) — if it is not installed, "
+                    f"run: python -m playwright install chromium")
     try:
         yield br
     finally:
