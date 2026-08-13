@@ -105,11 +105,56 @@ CHROME = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
 
 
 def _free_port():
+    """A port that was free A MOMENT AGO, which is not the same as free.
+
+    THE RACE THIS LEAVES OPEN, AND WHY IT MATTERS HERE. The socket is closed
+    before uvicorn binds, so anything else on the machine can take the number
+    in between — including a SECOND pytest run, which is exactly the situation
+    a developer creates by running the suite while another one is going.
+
+    Two runs then seed IDENTICAL fixture data, so a browser that reaches the
+    wrong server sees plausible rows and never notices, while that run's
+    per-module `reseed()` rewrites the data underneath it mid-assertion. The
+    observed shape was 17 failures in test_rca_ui_rendered.py on a busy
+    machine and 65/65 passing on a quiet one.
+
+    The number cannot be made safe here — `ui_server` detects the loss
+    instead, by checking that ITS OWN uvicorn is still alive before trusting
+    whatever answered on the port.
+    """
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
     p = s.getsockname()[1]
     s.close()
     return p
+
+
+def _serve_on(port, env):
+    """Start uvicorn, and return it only once IT is the thing listening."""
+    srv = subprocess.Popen([sys.executable, "-m", "uvicorn", "server.main:app",
+                            "--port", str(port), "--log-level", "warning"],
+                           env=dict(env, SEED_MOCK="0"),
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(80):
+        # OUR PROCESS FIRST, THE PORT SECOND. uvicorn exits immediately when
+        # the port is already taken, so a dead child means we lost the race —
+        # and the connection below would then succeed against SOMEBODY ELSE'S
+        # server. Connecting first and asking questions later is how a run
+        # ends up driving another run's database.
+        if srv.poll() is not None:
+            return None
+        try:
+            socket.create_connection(("127.0.0.1", port), 0.2).close()
+            return srv
+        except OSError:
+            time.sleep(0.25)
+    # Ran out of patience rather than lost the race: kill it, say which.
+    srv.terminate()
+    try:
+        srv.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        srv.kill()
+    return None
 
 
 @pytest.fixture(scope="session")
@@ -186,20 +231,20 @@ def ui_server():
     subprocess.run([sys.executable, "-c", seed_script(url)],
                    check=True, capture_output=True, env=env)
 
-    port = _free_port()
-    srv = subprocess.Popen([sys.executable, "-m", "uvicorn", "server.main:app",
-                            "--port", str(port), "--log-level", "warning"],
-                           env=dict(env, SEED_MOCK="0"),
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # RETRIED, because losing the port is not a reason to give up — it is a
+    # reason to pick another number. A single attempt made the whole browser
+    # block fail whenever a second pytest happened to be running, which reads
+    # as a regression and is not one.
+    srv = port = None
+    for _ in range(5):
+        port = _free_port()
+        srv = _serve_on(port, env)
+        if srv is not None:
+            break
+    if srv is None:
+        pytest.skip("could not get a port to ourselves after 5 attempts — "
+                    "another server kept taking it, or uvicorn would not start")
     try:
-        for _ in range(80):
-            try:
-                socket.create_connection(("127.0.0.1", port), 0.2).close()
-                break
-            except OSError:
-                time.sleep(0.25)
-        else:
-            pytest.skip("server did not start")
         yield _UiServer(port, url, env)
     finally:
         srv.terminate()

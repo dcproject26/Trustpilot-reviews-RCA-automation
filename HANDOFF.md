@@ -118,6 +118,16 @@ it has been re-run alone:
 
     python3 -m pytest tests/test_rca_ui_rendered.py -q
 
+**NOT REPRODUCED, and the obvious hypothesis was tested and killed.** The
+suspicion was a port race in `_free_port()` — it closes the socket before
+uvicorn binds, so two runs can be handed the same number, and since both seed
+IDENTICAL fixture data a browser could drive the wrong server without noticing.
+Tested properly: the OLD code passed **5 concurrent single-file runs**, then
+**2 concurrent FULL suites** (6 pytest processes alive), 3578 passed each.
+So the race is real but is not the cause of what was seen, and the trigger
+remains unknown. `conftest.py` now checks `srv.poll()` before trusting whatever
+answered on the port — kept as hardening, NOT as a fix for this symptom.
+
 **This is unfixed and it matters more than it looks.** Someone runs the suite
 on a busy laptop, sees 17 red, and either burns an afternoon or learns to
 ignore failures — and a suite that cries wolf is worse than no suite. The
