@@ -75,3 +75,33 @@ applied is not evidence of anything.
 
 Run the whole suite, not a subset. Cherry-pick to `tmp-main` off
 `trustpilot/main` and run it again there before pushing to `main`.
+
+## 3. The deployment database must outlive a redeploy
+
+A day's ingested reviews vanished on a routine redeploy. The deployment is
+**autoscale** — stateless, a fresh container per instance and per deploy — and
+`DATABASE_URL` fell back to `sqlite:///./local.db`, a file inside that
+container. So every redeploy started every instance on an empty database and
+everything ingested since the last deploy was gone. There was a startup
+warning. It happened anyway, because a warning is not a stop.
+
+The rules this leaves:
+
+- **A deployment on a container-local database is data loss on a timer.**
+  `db.assert_durable_on_deploy()` now REFUSES to boot a deployment
+  (`REPLIT_DEPLOYMENT` set) on sqlite — fail loud, not warn quiet. The dev repl
+  has no `REPLIT_DEPLOYMENT`, so local sqlite development is untouched.
+  `ALLOW_EPHEMERAL_DB=1` is the deliberate escape hatch.
+- **The fix is operational, and code cannot do it for you.** Provision Replit
+  Postgres and make sure the *deployment* environment carries `DATABASE_URL`
+  (or the `PG*` vars — `config._resolve_database_url()` builds the URL from
+  them when `DATABASE_URL` is not propagated, which is the exact gap that bit
+  us). Then redeploy.
+- **The reviews are recoverable because Slack is the source of truth.**
+  `POST /api/reviews/refresh-slack?hours=N` re-reads channel history and
+  re-ingests anything with no Review row. But switch to Postgres FIRST, or the
+  re-ingested rows land in the same ephemeral DB and vanish on the next deploy.
+  Manual edits/RCAs on the lost reviews do not come back — only the reviews do.
+- **A silent fallback that "works" in dev and loses data in production is the
+  first rule of this file wearing a deployment hat.** Ran-and-found-nothing vs
+  did-not-run, applied to the database itself.

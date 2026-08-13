@@ -130,8 +130,35 @@ RCA_CHECKLIST_GID      = os.getenv("RCA_CHECKLIST_GID", "1186061023")
 # Google Sheets API key (optional — used only to resolve tab names via metadata)
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").strip()
 
-# Database (auto-injected by Replit Postgres)
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./local.db")
+# Database.
+#
+# DATABASE_URL is set by Replit's Postgres integration — BUT it is not always
+# propagated into an autoscale DEPLOYMENT even when the dev repl has it, and an
+# autoscale deployment on the sqlite fallback loses every ingested review on
+# each redeploy (a fresh container per instance, per deploy). So if DATABASE_URL
+# is not set, build it from the PG* vars Replit's Postgres also exports, before
+# falling back to the container-local file. This is what makes "provision
+# Postgres and redeploy" actually persist without hand-setting a URL.
+def _resolve_database_url() -> str:
+    explicit = os.getenv("DATABASE_URL", "").strip()
+    if explicit:
+        return explicit
+    host = os.getenv("PGHOST", "").strip()
+    db   = os.getenv("PGDATABASE", "").strip()
+    user = os.getenv("PGUSER", "").strip()
+    if host and db and user:
+        pw   = os.getenv("PGPASSWORD", "")
+        port = os.getenv("PGPORT", "5432").strip() or "5432"
+        from urllib.parse import quote_plus
+        return (f"postgresql://{quote_plus(user)}:{quote_plus(pw)}"
+                f"@{host}:{port}/{db}")
+    # Last resort: a file inside this container. Fine for the dev repl, fatal
+    # for an autoscale deployment — db.assert_durable_on_deploy() refuses to
+    # boot on that combination rather than lose data silently.
+    return "sqlite:///./local.db"
+
+
+DATABASE_URL = _resolve_database_url()
 
 # Ingestion accepts events ONLY from SLACK_CHANNEL_ORM.
 # SLACK_CHANNEL_ALERT is optional and intentionally unused for ingestion.

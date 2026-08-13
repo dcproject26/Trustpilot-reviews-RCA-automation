@@ -34,6 +34,42 @@ Plus the standing order: **mutation-run the diff before every push** —
 
 ---
 
+## 0.5 THE DEPLOYMENT DATABASE — READ BEFORE ANY REDEPLOY
+
+**Incident:** a day's ingested reviews vanished on a routine redeploy; only ~12
+remained. Not a code bug — none of this session's commits delete data. The
+deployment is **autoscale** (`.replit`: `deploymentTarget = "autoscale"`) —
+stateless, a fresh container per instance and per deploy — and `DATABASE_URL`
+fell back to `sqlite:///./local.db`, a file inside that container. So every
+redeploy wiped the runtime database.
+
+**What was done in code (committed):**
+- `config._resolve_database_url()` — when `DATABASE_URL` is unset it builds the
+  URL from Replit's `PGHOST/PGDATABASE/PGUSER/PGPASSWORD/PGPORT`, so a
+  provisioned Postgres is picked up even when `DATABASE_URL` is not propagated
+  into the deployment (the exact gap here).
+- `db.assert_durable_on_deploy()` — a deployment (`REPLIT_DEPLOYMENT` set) on
+  sqlite now **refuses to boot**, with a message naming the fix. Fail loud, not
+  warn quiet. Dev repl is untouched (no `REPLIT_DEPLOYMENT`).
+  `ALLOW_EPHEMERAL_DB=1` is the escape hatch.
+
+**What the USER still must do — code cannot:**
+1. Provision Replit Postgres (Tools → Database) — the `postgresql-16` module is
+   already in `.replit`.
+2. Make sure the **deployment's** environment carries `DATABASE_URL` or the
+   `PG*` vars — not just the dev repl's.
+3. Redeploy. (Until Postgres is attached, the deployment will now REFUSE to
+   boot — that is intended, better down than silently losing data.)
+
+**Recovery of the lost reviews** — Slack is the source of truth:
+`POST /api/reviews/refresh-slack?hours=N` re-ingests anything with no Review
+row. **Switch to Postgres FIRST**, or they vanish again on the next deploy.
+Manual edits/RCAs on the lost reviews are gone; only the reviews come back.
+
+Tests: `tests/test_deploy_db_is_durable.py`.
+
+---
+
 ## 1. Where the work lives
 
 | | |

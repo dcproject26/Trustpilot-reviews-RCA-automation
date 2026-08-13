@@ -370,7 +370,57 @@ def _WANTED_DRAFT_COLUMNS(is_pg: bool) -> dict:
     }
 
 
+def assert_durable_on_deploy(backend: str = None):
+    """Refuse to boot a DEPLOYMENT on a database that a redeploy will wipe.
+
+    `backend` defaults to the live engine's backend; it is a parameter so the
+    guard can be driven without rebuilding the module engine.
+
+    THE FAILURE THIS TURNS FROM SILENT TO LOUD. The deployment is autoscale —
+    stateless, multi-instance, a fresh container per instance and per deploy —
+    and the DATABASE_URL fallback is a sqlite file INSIDE that container. So
+    every redeploy started every instance on an empty database and the reviews
+    ingested since the last deploy were gone, with only a log line to say so.
+    A team using the dashboard daily would lose a day's work to a routine
+    redeploy and have no way to see it coming.
+
+    A warning was not enough — it happened anyway. So on a deployment
+    (REPLIT_DEPLOYMENT is set by Replit only there, never in the dev repl) with
+    a sqlite database, this RAISES and the deployment does not come up. The
+    message says the one thing that fixes it: point DATABASE_URL at Postgres.
+
+    The dev repl is untouched — it has no REPLIT_DEPLOYMENT — so local sqlite
+    development keeps working. ALLOW_EPHEMERAL_DB=1 is a deliberate escape hatch
+    for anyone who really wants a throwaway deployment, so this can never leave
+    someone permanently unable to boot.
+    """
+    is_deploy = bool(os.getenv("REPLIT_DEPLOYMENT", "").strip()
+                     or os.getenv("REPLIT_DEPLOYMENT_ID", "").strip())
+    if not is_deploy:
+        return
+    if os.getenv("ALLOW_EPHEMERAL_DB", "").strip() in ("1", "true", "yes"):
+        import logging
+        logging.getLogger(__name__).error(
+            "[db] ALLOW_EPHEMERAL_DB is set — running a DEPLOYMENT on an "
+            "ephemeral database ON PURPOSE. Every redeploy will wipe it.")
+        return
+    if backend is None:
+        backend = engine.url.get_backend_name()
+    if backend.startswith("sqlite"):
+        raise RuntimeError(
+            "REFUSING TO START. This is a deployment (REPLIT_DEPLOYMENT is set) "
+            "and DATABASE_URL is a sqlite file inside the container. Autoscale "
+            "gives every "
+            "instance and every redeploy a fresh empty copy, so ingested "
+            "reviews are lost on the next deploy — which is what just happened. "
+            "Provision Replit Postgres and set DATABASE_URL (or the PGHOST / "
+            "PGDATABASE / PGUSER / PGPASSWORD / PGPORT it exports) on the "
+            "deployment, then redeploy. To run a throwaway deployment on a "
+            "disposable database anyway, set ALLOW_EPHEMERAL_DB=1.")
+
+
 def init_db():
+    assert_durable_on_deploy()
     Base.metadata.create_all(bind=engine)
     _ensure_columns()
     _warn_if_container_local()
