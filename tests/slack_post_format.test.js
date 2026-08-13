@@ -92,8 +92,20 @@ const v3d = {
 };
 const spV3 = v3d.sp_interaction;
 const r = {id: 'tp_1', rating: 1, author: 'David',
+           // The PLACEHOLDER shape (all fields, seeded values) — what the
+           // composer used to read, and always '—' in production.
            insights: {tgidRating: {value: '4.2', sub: '90d'},
                       completion: {value: '57%', sub: 'vendor'}},
+           // The REAL payload, snake_case, what the composer must read now.
+           // The insights section went out empty for months because it read
+           // `insights` (placeholder) instead of this.
+           liveInsights: {rating_tgid: {avg: 4.2, n: 31},
+                          rating_tidvid: {avg: 3.8, n: 12},
+                          vidCompletionRate: '57%',
+                          sameDaySameVidIssues: 4,
+                          similar_reviews_30d: 6,
+                          similar_support_queries_30d: 2,
+                          _window_days: 90},
            insightsRaw: {_window_days: 90}};
 const b = {bid: '32908218'};
 const rca = {v3: v3d, issueL1: 'Operations Issue', issueL2: 'Ticket Issues',
@@ -148,6 +160,21 @@ const must = ['1. 22 Jul 15:22 — Booking-in-progress email sent',
 for (const m of must) {
   check(out.indexOf(m) !== -1, `missing from the post: ${m}`);
 }
+
+// ── The REAL insight numbers reach the post ───────────────────────────────
+// The Experience-insights section read `r.insights`, the placeholder
+// view-model seeded to '—', so the numbers never went out — the same
+// camelCase-vs-payload mismatch the CSV export had. These are off r.liveInsights.
+for (const needle of ['4.2 (31)', '3.8 (12)', 'Completion (VID)', '57%',
+                      'Similar reviews', '6', 'Same-day issues']) {
+  check(out.indexOf(needle) !== -1,
+    `the insight "${needle}" did not reach the Slack post — the composer is ` +
+    `reading the placeholder r.insights, not r.liveInsights`);
+}
+// And it must be under the real heading, not a bare dash.
+check(out.indexOf('*Experience insights*') !== -1
+      && out.indexOf('*Experience insights*\n\n—') === -1,
+  'the Experience insights section is empty (—) despite real liveInsights');
 
 // Pointer arrays must never print as "a,b,c" comma runs.
 check(out.indexOf('Surface delivery window at checkout,') === -1,

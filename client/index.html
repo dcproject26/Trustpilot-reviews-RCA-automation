@@ -4692,11 +4692,35 @@ function renderRcaCol() {
              told the reader nothing they had not just read. -->
         <div class="untr-lead">No booking matched this review. Ask the guest for a booking
           reference; it stays in this tab until it matches.</div>
-        <!-- Approved copy, sent unchanged. There is nothing case-specific to
-             say until the guest gives us a reference, so nothing here is
-             generated - only the name is filled in. -->
-        <div class="untr-template editable-text" contenteditable="true" spellcheck="false"
-             data-untraceable-template>${esc(UNTRACEABLE_REPLY(r.firstName))}</div>
+        <!-- IN THE GUEST'S LANGUAGE, when the pipeline put it there. The
+             server already selects this approved macro AND translates it to
+             the review's language (server/pipeline.py step 13b), storing it as
+             the draft's reply. This card used to throw that away and render a
+             hardcoded ENGLISH macro, so a Spanish guest got an English "ask
+             for your booking reference" note with no way to reach Spanish —
+             the exact complaint. It now shows the stored, translated reply
+             when there is one, and falls back to the English macro only when
+             no reply was stored (nothing ran, or Zendesk/translation was
+             offline). Only the first name is still filled in either way. -->
+        ${(() => {
+          const _stored = (r.rca && (r.rca.reply || '')).trim();
+          const _lang = (r.lang || '').toUpperCase();
+          const _foreign = _lang && _lang !== 'EN';
+          const _reply = _stored || UNTRACEABLE_REPLY(r.firstName);
+          const _langNote = (_foreign && _stored)
+            ? `<div class="hint" style="font-size:11px;color:var(--dim);margin-bottom:4px">Reply in the guest's language (${esc(r.lang)}) — copy this. The English is below.</div>`
+            : (_foreign && !_stored)
+              ? `<div class="hint" style="font-size:11px;color:var(--warn,#c93);margin-bottom:4px">This guest wrote in ${esc(r.lang)}, but the reply below is the English macro — re-run so it is translated, or translate before sending.</div>`
+              : '';
+          const _englishBox = (_foreign && _stored && (r.rca.englishView || {}).text)
+            ? `<div class="hint" style="font-size:11px;color:var(--dim);margin:8px 0 4px">English working copy — not sent</div>
+               <div class="untr-template editable-text" contenteditable="true" spellcheck="false" style="opacity:.85">${esc(r.rca.englishView.text)}</div>`
+            : '';
+          return _langNote
+               + `<div class="untr-template editable-text" contenteditable="true" spellcheck="false"
+                    data-untraceable-template>${esc(_reply)}</div>`
+               + _englishBox;
+        })()}
         <div class="untraceable-actions">
           <!-- Copy, not send: this reply is pasted into the Slack thread by
                hand like every other response in this app. -->
@@ -5176,17 +5200,34 @@ function renderRcaCol() {
     })();
 
     // Insights as an aligned block so Slack's monospace renders it as a table.
-    const ins = r.insights || {};
+    //
+    // FROM liveInsights, THE REAL NUMBERS. This read `r.insights`, which is
+    // the placeholder view-model seeded to '—' for EVERY field (see the row
+    // built in refreshInbox). The real figures arrive in `r.liveInsights` —
+    // snake_case, the same shape the card tiles render and the server's
+    // format_rca_slack reads. Reading the placeholder meant every row filtered
+    // out, insText was always '—', and the Experience-insights section of the
+    // Slack post went out empty on every review. Same camelCase-vs-payload
+    // mismatch the CSV export had; this is the third place it lived.
+    //
+    // Keys mirror server/services/slack.py::format_rca_slack so the client
+    // preview and the server's own composer cannot disagree about the numbers.
+    const li = r.liveInsights || {};
+    const _ratT  = li.rating_tgid   || li.rating_15d || {};
+    const _ratTv = li.rating_tidvid || li.rating_30d || {};
+    const _pct = v => v == null ? null
+      : (typeof v === 'number' ? Math.round(v * 100) + '%' : String(v));
     const insRows = [
-      ['TGID rating',     ins.tgidRating && ins.tgidRating.value, ins.tgidRating && ins.tgidRating.sub],
-      ['Completion rate', ins.completion && ins.completion.value, ins.completion && ins.completion.sub],
-      ['Same-day issues', ins.sameDayIssues && ins.sameDayIssues.value, ins.sameDayIssues && ins.sameDayIssues.sub],
-      ['Similar reviews', ins.similarReviews && ins.similarReviews.value, ins.similarReviews && ins.similarReviews.sub],
-      ['Similar queries', ins.similarQueries && ins.similarQueries.value, ins.similarQueries && ins.similarQueries.sub],
-    ].filter(x => x[1] && x[1] !== '—');
+      ['TGID rating',      _ratT.avg  != null ? `${_ratT.avg} (${_ratT.n  || 0})` : null],
+      ['TID·VID rating',   _ratTv.avg != null ? `${_ratTv.avg} (${_ratTv.n || 0})` : null],
+      ['Completion (VID)', li.vidCompletionRate || _pct(li.vid_completion_rate)],
+      ['Same-day issues',  li.sameDaySameVidIssues],
+      ['Similar reviews',  li.similar_reviews_30d],
+      ['Similar queries',  li.similar_support_queries_30d],
+    ].filter(x => x[1] != null && x[1] !== '—' && x[1] !== 'N/A' && x[1] !== '');
     const insText = insRows.length
-      ? '```' + nl + insRows.map(([k, v, sub]) =>
-          k.padEnd(17) + String(v) + (sub ? '  (' + sub + ')' : '')).join(nl) +
+      ? '```' + nl + insRows.map(([k, v]) =>
+          k.padEnd(17) + String(v)).join(nl) +
         nl + 'window: ' + _insightsWindowLabel(r) + '```'
       : '—';
 
