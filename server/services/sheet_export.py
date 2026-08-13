@@ -143,10 +143,23 @@ COLUMNS = [
     "review_id", "stage", "received_at", "slack_link",
     "author", "rating", "language", "review_text",
     "status",
-    "booking_id", "tid", "vid", "tgid", "experience", "vendor", "visit_date",
-    "match_tier", "match_method",
-    "l1", "l2", "sub_themes", "scenarios",
+    "booking_id", "reference_number", "tid", "vid", "vid_name", "tgid",
+    "experience", "vendor", "visit_date", "booked_on", "pax",
+    "fulfilment_type", "booking_status", "guest_name",
+    "match_tier", "match_method", "match_confidence",
+    "l1", "l2", "sub_themes", "scenarios", "overlay_scenarios",
+    "stated_issue",
     "issue_count", "issues", "owners", "claim_accuracy",
+    # §1 AND THE REST OF THE CARD. The export carried issue TITLES and none of
+    # the RCA itself: the booking's story, what we would fix, the gaps, the
+    # contact notes, what each team did. A reader could count issues and not
+    # read one. Every list renders as a readable "; "-joined cell, because a
+    # JSON dump in a spreadsheet is not something anyone pivots on.
+    "case_findings", "fixes", "gaps", "area_of_improving",
+    "issue_answers", "booking_logs",
+    "contact_notes", "sp_notes", "support_summary",
+    "actions_taken",
+    "dss_prescribes", "dss_ref", "dss_followed",
     "insights",
     "resolution", "takedown", "flags",
     "zendesk_tickets", "rca_posted_at", "sent_at",
@@ -156,13 +169,75 @@ COLUMNS = [
     # with nothing to send. An export that shows only "sent" merges all three
     # and quietly overstates how many replies were written.
     "sent_route", "close_reason",
-    "final_response", "rca_prompt_version", "exported_at",
+    # THE REPLY, ALL THREE OF IT. `final_response` is what goes to the guest;
+    # `suggested_response` is what the model drafted before anyone edited it,
+    # and the difference between them is the whole record of human review.
+    # `response_english` is the working copy for a non-English guest.
+    "final_response", "suggested_response", "response_english", "reply_language",
+    "closed_at", "rca_prompt_version", "exported_at",
     # LAST, AND USUALLY EMPTY. A row that could not be built lands here with
     # the reason in it rather than being dropped: a missing row and a row that
     # failed to build are different facts, and an export that silently drops
     # the second reports a smaller, cleaner month than actually happened.
     "export_error",
 ]
+
+
+def _rows_cell(rows, *keys, prefix="") -> str:
+    """A list of dicts as one readable cell: the named keys, joined.
+
+    A JSON dump is not something anyone pivots on, and it is what these
+    sections would otherwise become. Each row renders as its keys in order,
+    " — "-separated, and rows are "; "-separated. Empty keys are dropped so a
+    finding with no time does not read as "— — text".
+    """
+    out = []
+    for r in (rows or []):
+        if isinstance(r, str):
+            out.append(r.strip())
+            continue
+        if not isinstance(r, dict):
+            continue
+        bits = [str(r.get(k) or "").strip() for k in keys]
+        bits = [b for b in bits if b]
+        if bits:
+            out.append(" — ".join(bits))
+    return "; ".join(f"{prefix}{o}" for o in out if o)
+
+
+def _actions_cell(actions) -> str:
+    """Every team's actions, LABELLED BY TEAM.
+
+    `actions_taken` is ten lists keyed by team, and flattening them loses the
+    only thing that makes an action answerable: who owns it. "Refund issued"
+    means something different under FINANCE than under CO.
+    """
+    if not isinstance(actions, dict):
+        return ""
+    out = []
+    for team, rows in actions.items():
+        got = _rows_cell(rows, "action", "text", "detail")
+        if got:
+            out.append(f"{str(team).upper()}: {got}")
+    return " | ".join(out)
+
+
+def _guest_name_cell(bk, tf) -> str:
+    """The guest's name, or "" — NEVER a digest.
+
+    fct_bookings.primary_guest_name is a PII hash on a large share of rows, and
+    a hash in a spreadsheet column headed "guest_name" is worse than a blank:
+    it looks like a value somebody could search on. `names.looks_like_digest`
+    is the one rule for that, and this export goes through it rather than
+    keeping a fourth copy.
+    """
+    from server.names import is_internal_booking_name, looks_like_digest
+    for v in (tf.get("guest_name"), bk.get("guestName"),
+              bk.get("primary_guest_name"), bk.get("primaryGuestName")):
+        v = str(v or "").strip()
+        if v and not looks_like_digest(v) and not is_internal_booking_name(v):
+            return v
+    return ""
 
 
 def _s(v) -> str:
@@ -317,8 +392,13 @@ def row_for(review, draft, now: datetime | None = None,
                         f"raw blob: {e}")
             v3 = getattr(d, "rca_v3", None) or {}
     bk = (getattr(d, "booking", None) or {}) if d else {}
-    issues = (v3.get("what_went_wrong") or {}).get("guest_issues") or []
+    _wwr = v3.get("what_went_wrong") or {}
+    issues = _wwr.get("guest_issues") or []
     takedown = v3.get("takedown") or {}
+    _dss = v3.get("dss") if isinstance(v3.get("dss"), dict) else {}
+    _tf = (getattr(d, "ticket_facts", None) or {}) if d else {}
+    if not isinstance(_tf, dict):
+        _tf = {}
 
     return {
         "review_id":     getattr(review, "id", ""),
@@ -348,7 +428,16 @@ def row_for(review, draft, now: datetime | None = None,
         # (api.py, pipeline.py, slack.py); the export was the one that did not.
         "vendor":        bk.get("vendorName") or bk.get("partner") or "",
         "visit_date":    bk.get("date_of_visit") or bk.get("visitDate") or "",
+        "reference_number": getattr(review, "reference_number", "") or "",
+        "vid_name":      bk.get("vidName") or "",
+        "booked_on":     bk.get("bookedOn") or bk.get("booked_on") or "",
+        "pax":           bk.get("pax") or _tf.get("pax") or "",
+        "fulfilment_type": bk.get("fulfilmentType") or bk.get("fulfilment_type") or "",
+        "booking_status": (_tf.get("booking_status") or bk.get("status")
+                           or bk.get("bookingStatus") or ""),
+        "guest_name":    _guest_name_cell(bk, _tf),
         "match_tier":    getattr(d, "match_tier", None) if d else None,
+        "match_confidence": getattr(d, "match_confidence", None) if d else None,
         "match_method":  getattr(d, "match_method", "") if d else "",
 
         "l1":            getattr(d, "l1", "") if d else "",
@@ -374,6 +463,32 @@ def row_for(review, draft, now: datetime | None = None,
 
         # THE INSIGHTS AS A SENTENCE, not the raw block. The sheet is read
         # across rows; a JSON dump in a cell is not something anyone pivots on.
+        "overlay_scenarios": (getattr(d, "overlay_scenarios", None) or []) if d else [],
+        "stated_issue":  v3.get("stated_issue") or (
+            getattr(d, "stated_issue", "") if d else "") or "",
+
+        # THE CARD ITSELF, which the export did not carry at all. It had issue
+        # TITLES and no §1, no fixes, no gaps, no contact notes — a reader
+        # could count the issues on a review and not read one of them.
+        "case_findings": _rows_cell(_wwr.get("case_findings"), "time", "text", "source"),
+        "fixes":         _rows_cell(_wwr.get("fixes"), "action", "owner"),
+        "gaps":          _rows_cell(_wwr.get("gaps"), "gap", "team", "source_ref"),
+        "area_of_improving": _rows_cell(v3.get("area_of_improving"),
+                                        "area", "text", "team"),
+        "issue_answers": _rows_cell(v3.get("issue_specific_answers"),
+                                    "question", "answer"),
+        "booking_logs":  _rows_cell(v3.get("booking_logs"), "time", "text", "event"),
+        "contact_notes": _rows_cell(v3.get("support_interaction_notes"),
+                                    "zd_ref", "time", "note", "text"),
+        "sp_notes":      _rows_cell((v3.get("sp_interaction_notes") or {}).get("records")
+                                    if isinstance(v3.get("sp_interaction_notes"), dict)
+                                    else None, "time", "note", "text"),
+        "support_summary": getattr(d, "support_summary", "") if d else "",
+        "actions_taken": _actions_cell(v3.get("actions_taken")),
+        "dss_prescribes": _dss.get("prescribes") or "",
+        "dss_ref":       _dss.get("ref") or "",
+        "dss_followed":  _dss.get("followed") or "",
+
         "insights":      _insights_cell(getattr(d, "insights", None) if d else None),
 
         "resolution":    getattr(d, "resolution", "") if d else "",
@@ -392,6 +507,10 @@ def row_for(review, draft, now: datetime | None = None,
 
         "final_response": (getattr(d, "final_response", "")
                            or getattr(d, "suggested_response", "") or "") if d else "",
+        "suggested_response": (getattr(d, "suggested_response", "") if d else "") or "",
+        "response_english": (getattr(d, "response_english", "") if d else "") or "",
+        "reply_language": getattr(review, "language", "") or "",
+        "closed_at":     getattr(review, "closed_at", None),
         "rca_prompt_version": getattr(d, "rca_prompt_version", "") if d else "",
         "exported_at":   now or datetime.utcnow(),
     }

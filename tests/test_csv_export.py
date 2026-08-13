@@ -465,3 +465,150 @@ def test_the_blob_still_wins_when_it_is_the_one_that_is_populated():
         {"issue": "From the blob", "owner": "TECH"}]}}
     row = row_for(_bare_review(), d)
     assert row["issues"] == ["From the blob"], row["issues"]
+
+
+# ── the card's own sections, which the export did not carry ────────────────
+
+_FULL_V3 = {
+    "stated_issue": "Tickets never arrived",
+    "what_went_wrong": {
+        "guest_issues": [{"issue": "Tickets late", "owner": "OPS"}],
+        "case_findings": [{"time": "02 Aug 09:13",
+                           "text": "Tickets sent to the wrong email",
+                           "source": "bms"}],
+        "fixes": [{"action": "Alert on delivery failure", "owner": "TECH"}],
+        "gaps": [{"gap": "No alerting", "team": "TECH", "source_ref": "ZD-1"}]},
+    "area_of_improving": [{"area": "Delivery checks", "team": "OPS"}],
+    "issue_specific_answers": [{"question": "Was it resent?", "answer": "Yes"}],
+    "support_interaction_notes": [{"zd_ref": "ZD-1", "note": "Agent resent"}],
+    "sp_interaction_notes": {"records": [{"note": "Vendor confirmed"}]},
+    "actions_taken": {"co": [{"action": "Apologised"}],
+                      "tech": [{"action": "Raised alert"}]},
+    "dss": {"prescribes": "Resend", "ref": "DSS-12", "followed": "followed"},
+}
+
+
+def _full_row():
+    from server.services.sheet_export import row_for
+    d = _bare_draft({"id": "1", "partner": "Krakville", "bookedOn": "2026-07-30",
+                     "pax": 2, "fulfilmentType": "QR", "vidName": "Main gate"})
+    d.rca_v3 = _FULL_V3
+    d.support_summary = "The arc"
+    d.match_confidence = 0.9
+    d.ticket_facts = {"booking_status": "CONFIRMED"}
+    d.suggested_response = "We are sorry"
+    d.response_english = "We are sorry"
+    d.overlay_scenarios = ["Refund"]
+    r = _bare_review()
+    return row_for(r, d)
+
+
+def test_the_rca_itself_reaches_the_export():
+    """It carried issue TITLES and none of the RCA: no §1, no fixes, no gaps,
+    no contact notes. A reader could count the issues on a review and not read
+    one of them."""
+    row = _full_row()
+    assert "Tickets sent to the wrong email" in row["case_findings"], row["case_findings"]
+    assert "02 Aug 09:13" in row["case_findings"]
+    assert "Alert on delivery failure" in row["fixes"]
+    assert "No alerting" in row["gaps"]
+    assert "Delivery checks" in row["area_of_improving"]
+    assert "Was it resent?" in row["issue_answers"]
+    assert "Agent resent" in row["contact_notes"]
+    assert "Vendor confirmed" in row["sp_notes"]
+    assert row["support_summary"] == "The arc"
+    assert row["stated_issue"] == "Tickets never arrived"
+
+
+def test_actions_stay_attached_to_the_team_that_owns_them():
+    """Flattening them loses the only thing that makes an action answerable.
+    "Refund issued" means something different under FINANCE than under CO."""
+    row = _full_row()
+    assert "CO: Apologised" in row["actions_taken"], row["actions_taken"]
+    assert "TECH: Raised alert" in row["actions_taken"], row["actions_taken"]
+
+
+def test_the_booking_details_are_all_there():
+    row = _full_row()
+    assert row["booked_on"] == "2026-07-30"
+    assert row["pax"] == 2
+    assert row["fulfilment_type"] == "QR"
+    assert row["vid_name"] == "Main gate"
+    assert row["booking_status"] == "CONFIRMED"
+    assert row["reference_number"] == "32728059"
+    assert row["match_confidence"] == 0.9
+    assert row["dss_prescribes"] == "Resend"
+    assert row["dss_ref"] == "DSS-12"
+
+
+def test_the_draft_and_the_sent_reply_are_both_kept():
+    """The difference between them is the whole record of human review."""
+    row = _full_row()
+    assert row["suggested_response"] == "We are sorry"
+    assert row["response_english"] == "We are sorry"
+
+
+def test_a_digest_never_reaches_the_guest_name_column():
+    """A hash in a column headed `guest_name` is worse than a blank: it looks
+    like a value somebody could search on. One rule for that lives in
+    names.looks_like_digest and this export goes through it."""
+    from server.services.sheet_export import row_for
+    d = _bare_draft({"id": "1", "primary_guest_name": "ab24TSVenneb4T3CkHFUFaGM"})
+    assert row_for(_bare_review(), d)["guest_name"] == ""
+
+
+def test_a_real_guest_name_does_reach_it():
+    """Paired, so the column cannot be made unconditionally empty."""
+    from server.services.sheet_export import row_for
+    d = _bare_draft({"id": "1", "guestName": "Gianmarco Lucia"})
+    assert row_for(_bare_review(), d)["guest_name"] == "Gianmarco Lucia"
+
+
+def test_every_column_is_produced_by_the_row_builder():
+    """A column in COLUMNS that row_for never writes shifts nothing — csv
+    writes it blank — but it reads as a fact we did not have, on every row."""
+    from server.services.sheet_export import COLUMNS
+    row = _full_row()
+    missing = [c for c in COLUMNS if c not in row and c != "export_error"]
+    assert missing == [], missing
+
+
+# ── every download carries the header ──────────────────────────────────────
+
+def test_the_first_line_is_the_header_exactly():
+    """The file gets imported into a sheet. Without a header row the columns
+    are unlabelled and the first REVIEW becomes the header — 66 cells of
+    someone's review text as column names."""
+    import csv
+    import io
+
+    from server.services.sheet_export import COLUMNS, to_csv
+    first = next(csv.reader(io.StringIO(to_csv([{"review_id": "tp_1"}]))))
+    assert first == list(COLUMNS), first
+
+
+def test_an_empty_export_is_still_a_header_not_an_empty_file():
+    """A month with no reviews must download as COLUMNS and nothing else. An
+    empty file imports as nothing at all, which reads as "the export is
+    broken" rather than "there were no rows"."""
+    import csv
+    import io
+
+    from server.services.sheet_export import COLUMNS, to_csv
+    parsed = list(csv.reader(io.StringIO(to_csv([]))))
+    assert len(parsed) == 1, parsed
+    assert parsed[0] == list(COLUMNS)
+
+
+def test_the_header_survives_a_row_that_failed_to_build():
+    """The failed-row path writes fewer keys. The header is COLUMNS either
+    way, or the file misaligns from that row onward."""
+    import csv
+    import io
+
+    from server.services.sheet_export import COLUMNS, to_csv
+    out = to_csv([{"review_id": "tp_1", "export_error": "ValueError: boom"}])
+    parsed = list(csv.reader(io.StringIO(out)))
+    assert parsed[0] == list(COLUMNS)
+    assert len(parsed[1]) == len(COLUMNS), "the row is not header-width"
+    assert parsed[1][COLUMNS.index("export_error")] == "ValueError: boom"
