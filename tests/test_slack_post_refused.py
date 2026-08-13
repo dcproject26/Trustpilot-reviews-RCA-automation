@@ -189,7 +189,7 @@ def refusing(monkeypatch):
 
 def _post(S):
     import asyncio
-    return asyncio.run(S.post_to_thread("C1", "1.0", "body", as_user=True))
+    return asyncio.run(S.post_to_thread("C1", "1.0", "body"))
 
 
 def test_a_refusal_records_the_code_it_was_given(refusing):
@@ -230,7 +230,9 @@ def test_a_later_successful_post_clears_the_recorded_failure(monkeypatch):
 
     S.last_post_failure.update(post_failure_sentence("ratelimited"))
     monkeypatch.setattr(S, "MOCK_MODE", False)
-    monkeypatch.setattr(S, "_user", _OK())
+    # `_bot`, not `_user`: posting is the app now, and a test that stubs the
+    # client posting no longer uses proves nothing about a successful post.
+    monkeypatch.setattr(S, "_bot", _OK())
     assert asyncio.run(S.post_to_thread("C1", "1.0", "body")) == "1.5"
     assert S.last_post_failure["why"] == "", S.last_post_failure
 
@@ -245,3 +247,69 @@ def test_mock_mode_is_not_recorded_as_a_refusal(monkeypatch):
     assert asyncio.run(S.post_to_thread("C1", "1.0", "body")) is None
     assert S.last_post_failure["code"] == "", S.last_post_failure
     assert S.last_post_failure["why"] == "", S.last_post_failure
+
+
+# ── the app posts, never a person ──────────────────────────────────────────
+
+def test_posting_uses_the_bot_and_never_the_user_token(monkeypatch):
+    """THE HUMAN'S NAME WAS ON THE RCA. `post_to_thread` took `as_user=True` by
+    default and that selected `_user`, a client built on SLACK_USER_TOKEN — an
+    `xoxp-` token, which Slack attributes to whoever authorised the app. So the
+    RCA and the guest reply arrived in the thread under a colleague's name and
+    face, while flag-to-biz came from the app, because it was the one call site
+    that passed False.
+
+    The parameter is gone. There is no argument to get wrong."""
+    import asyncio
+
+    from server.services import slack as S
+
+    class _Recorder:
+        def __init__(self, name):
+            self.name, self.calls = name, []
+
+        def chat_postMessage(self, **kw):
+            self.calls.append(kw)
+            return {"ts": "9.9"}
+
+    bot, user = _Recorder("bot"), _Recorder("user")
+    monkeypatch.setattr(S, "MOCK_MODE", False)
+    monkeypatch.setattr(S, "_bot", bot)
+    monkeypatch.setattr(S, "_user", user)
+
+    ts = asyncio.run(S.post_to_thread("C1", "1.0", "the RCA"))
+    assert ts == "9.9"
+    assert len(bot.calls) == 1, "the app did not post"
+    assert not user.calls, \
+        "posted with the USER token — that goes out under a person's name"
+
+
+def test_there_is_no_way_to_ask_for_the_user_token(monkeypatch):
+    """Paired with the above. A caller that still passes the old flag must
+    FAIL rather than quietly post as a person again."""
+    import asyncio
+
+    import pytest as _pytest
+
+    from server.services import slack as S
+    monkeypatch.setattr(S, "MOCK_MODE", False)
+    monkeypatch.setattr(S, "_bot", None)
+    with _pytest.raises(TypeError):
+        asyncio.run(S.post_to_thread("C1", "1.0", "x", as_user=True))
+
+
+def test_a_missing_bot_token_is_a_fault_not_a_dry_run(monkeypatch):
+    """It logged "[MOCK] Would post…" — the same sentence MOCK_MODE prints — so
+    a production run with no SLACK_BOT_TOKEN sent nothing and read exactly like
+    a deliberate dry run."""
+    import asyncio
+
+    from server.services import slack as S
+    monkeypatch.setattr(S, "MOCK_MODE", False)
+    monkeypatch.setattr(S, "_bot", None)
+    monkeypatch.setattr(S, "_user", object())      # present, and irrelevant now
+    assert asyncio.run(S.post_to_thread("C1", "1.0", "x")) is None
+    f = S.last_post_failure
+    assert f["code"] == "no_bot_token", f
+    assert "SLACK_BOT_TOKEN" in f["next"], f
+    assert "invited to the channel" in f["next"], f

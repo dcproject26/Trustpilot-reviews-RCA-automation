@@ -184,12 +184,38 @@ def test_mock_mode_stops_slack_posts_leaving_the_machine():
     tokens are present in any environment configured for real use — so a run
     started with MOCK_MODE=true posted to the live Slack API. It failed on
     demo data with an invalid channel and thread_ts; against a real thread it
-    would have posted, from a run whose whole point was that it could not."""
-    slack = open("server/services/slack.py", encoding="utf-8").read()
-    i = slack.find("async def post_to_thread(")
-    assert i > 0
-    body = slack[i:i + 1400]
-    guard = body.find("if MOCK_MODE:")
-    call = body.find("chat_postMessage")
-    assert guard > 0, "post_to_thread does not check MOCK_MODE"
-    assert guard < call, "the MOCK_MODE guard is after the call it should prevent"
+    would have posted, from a run whose whole point was that it could not.
+
+    DRIVEN NOW, BECAUSE THE SOURCE VERSION BROKE ON A COMMENT. It used to read
+    slack.py, take the 1400 characters after `async def post_to_thread(`, and
+    assert "if MOCK_MODE:" appeared before "chat_postMessage". Adding a
+    docstring pushed the call outside that window, so the test failed while the
+    guard sat exactly where it belongs — and it would have stayed green just as
+    happily if the guard had been left in place and made unreachable. That is
+    CLAUDE.md's second rule, inside the file about IO contracts.
+
+    It runs the thing instead: MOCK_MODE on, both clients recording, and the
+    assertion is that neither was touched.
+    """
+    import asyncio
+
+    from server.services import slack as S
+
+    class _Recorder:
+        def __init__(self):
+            self.calls = []
+
+        def chat_postMessage(self, **kw):
+            self.calls.append(kw)
+            return {"ts": "should.not.happen"}
+
+    bot, user = _Recorder(), _Recorder()
+    _prev = (S.MOCK_MODE, S._bot, S._user)
+    S.MOCK_MODE, S._bot, S._user = True, bot, user
+    try:
+        got = asyncio.run(S.post_to_thread("C_REAL", "1.0", "this must not go"))
+    finally:
+        S.MOCK_MODE, S._bot, S._user = _prev
+    assert got is None, got
+    assert not bot.calls, "MOCK_MODE posted to Slack with the bot token"
+    assert not user.calls, "MOCK_MODE posted to Slack with the user token"

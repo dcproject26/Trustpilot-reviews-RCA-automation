@@ -676,8 +676,24 @@ async def fetch_message(channel: str, ts: str) -> dict | None:
         return None
 
 
-async def post_to_thread(channel: str, thread_ts: str, text: str,
-                          as_user: bool = True) -> str | None:
+async def post_to_thread(channel: str, thread_ts: str, text: str) -> str | None:
+    """Post into a review's Slack thread AS THE APP, never as a person.
+
+    THE `as_user` PARAMETER IS GONE, and that is the fix. It defaulted to True,
+    which selected `_user` — a WebClient built on SLACK_USER_TOKEN, an `xoxp-`
+    token — and Slack attributes anything sent with one to THE HUMAN WHO
+    AUTHORISED THE APP. So the RCA and the guest reply went into the thread
+    under a colleague's name and face, while flag-to-biz (the one call site
+    that passed False) came from the app. Same function, two identities,
+    decided by a default nobody was looking at.
+
+    A parameter that can be set wrongly will be. There is no argument now:
+    posting is the bot.
+
+    SLACK_USER_TOKEN IS STILL REQUIRED, and not for this. `search_mentions`
+    calls `search_messages`, which Slack does not accept a bot token for at
+    all. The user token stays for reading; it no longer writes.
+    """
     # MOCK_MODE must mean nothing leaves this machine. This checked only
     # whether a client object existed, and the tokens are present in any
     # environment configured for real use - so a run started with
@@ -691,10 +707,24 @@ async def post_to_thread(channel: str, thread_ts: str, text: str,
     if MOCK_MODE:
         log.info(f"[MOCK] not posting to {channel}/{thread_ts}: {text[:120]}…")
         return None
-    client = _user if as_user and _user else _bot
-    if not client:
-        log.info(f"[MOCK] Would post to {channel}/{thread_ts}: {text[:120]}…")
+    if not _bot:
+        # NOT THE MOCK SENTENCE. This used to log "[MOCK] Would post…", which
+        # is the same line MOCK_MODE prints above — so a production run with no
+        # SLACK_BOT_TOKEN posted nothing and read exactly like a dry run that
+        # was never meant to post. A missing credential is a fault; say so, and
+        # say what fixes it.
+        last_post_failure.update({
+            "code": "no_bot_token",
+            "why": "SLACK_BOT_TOKEN is not set, so there is no app identity to "
+                   "post as. Nothing was sent.",
+            "verdict": "not posted",
+            "next": "Set SLACK_BOT_TOKEN (an xoxb- token) and make sure the app "
+                    "is invited to the channel.",
+        })
+        log.error(f"[slack] NOT posting to {channel}/{thread_ts}: "
+                  f"SLACK_BOT_TOKEN is not set")
         return None
+    client = _bot
     try:
         res = client.chat_postMessage(
             channel=channel, thread_ts=thread_ts, text=text,

@@ -174,7 +174,13 @@ def is_live(service: str) -> bool:
                                os.getenv("AI_INTEGRATIONS_ANTHROPIC_API_KEY"))
                               or os.getenv("ANTHROPIC_API_KEY")),
         "slack_inbound":  bool(SLACK_SIGNING_SECRET and SLACK_BOT_TOKEN),
-        "slack_outbound": bool(SLACK_USER_TOKEN),
+        # THE TOKEN THAT ACTUALLY POSTS. This measured SLACK_USER_TOKEN, which
+        # posting no longer uses — so after the move to the bot it would have
+        # reported outbound "live" on the strength of a token that only reads,
+        # while SLACK_BOT_TOKEN was missing and nothing could be sent.
+        # SLACK_USER_TOKEN is covered by `slack_search`, which is what needs it.
+        "slack_outbound": bool(SLACK_BOT_TOKEN),
+        "slack_search":   bool(SLACK_USER_TOKEN),
         "bigquery":       bool(BIGQUERY_BOOKINGS_TABLE and
                                (GCP_SERVICE_ACCOUNT_JSON or _bq_connector_available())),
         "zendesk":        bool((ZENDESK_SUBDOMAIN and ZENDESK_API_TOKEN)

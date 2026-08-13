@@ -2660,7 +2660,7 @@ async def flag_to_biz(review_id: str, body: FlagToBiz,
         full_msg = "\n".join(x for x in (tag, _biz_facts(body), body.message)
                              if x and x.strip()).strip()
         try:
-            ts = await post_to_thread(channel, parent, full_msg, as_user=False)
+            ts = await post_to_thread(channel, parent, full_msg)
             d.flag_to_biz_state = "sent"
             d.flag_to_biz_message = body.message
 
@@ -2823,7 +2823,7 @@ async def send_review(review_id: str, db: Session = Depends(get_session)):
         log.info(f"[send] {review_id}: no RCA to post, marked sent only")
     else:
         rca_text = (d.slack_thread_override or "").strip() or format_rca_slack(r, d)
-        ts = await post_to_thread(r.slack_channel, r.slack_ts, rca_text, as_user=True)
+        ts = await post_to_thread(r.slack_channel, r.slack_ts, rca_text)
         if ts:
             d.rca_posted_at = datetime.utcnow()
         else:
@@ -3238,7 +3238,7 @@ async def post_rca_to_thread(review_id: str, force: bool = False,
         # Posting is also a save. Otherwise the thread and the dashboard show
         # different posts and neither is wrong about what it holds.
         d.slack_thread_override = sent
-    ts = await post_to_thread(r.slack_channel, r.slack_ts, text, as_user=True)
+    ts = await post_to_thread(r.slack_channel, r.slack_ts, text)
     if ts is None and not MOCK_MODE:
         # NOTHING WAS POSTED, SO NOTHING IS MARKED. The review stays exactly
         # where it is — rca_posted_at is not set below, and the Sent tab never
