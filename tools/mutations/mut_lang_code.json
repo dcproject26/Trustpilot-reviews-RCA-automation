@@ -1,0 +1,14 @@
+[
+ {
+  "file": "server/services/reply_language.py",
+  "name": "a language code is stored again, so the card never settles",
+  "find": "    if found.lower() in _NEVER_DETECTED:",
+  "replace": "    if False:"
+ },
+ {
+  "file": "server/services/reply_language.py",
+  "name": "the guard swallows real language names too",
+  "find": "    if found.lower() in _NEVER_DETECTED:",
+  "replace": "    if True:"
+ }
+]

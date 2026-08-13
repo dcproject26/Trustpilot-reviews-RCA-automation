@@ -277,6 +277,26 @@ async def resolve_language(review) -> dict:
                        "so nothing was recorded rather than guessing one the "
                        "guest may not read — the reply keeps both boxes until "
                        "it is established"}
+    if found.lower() in _NEVER_DETECTED:
+        # THE INVARIANT THIS FILE STATES, NOW ENFORCED. The comment on
+        # `_NEVER_DETECTED` says nothing may write `"en"` back into this
+        # column, and nothing stopped it: `detect_language` filters UNKNOWN,
+        # blanks, over-long answers and anything containing a space, but a
+        # bare two-letter code passes every one of those.
+        #
+        # Storing it is worse than storing nothing. The outcome says
+        # `detected`, the column looks filled, and `language_state` then reads
+        # it straight back as UNESTABLISHED — so the card fires the language
+        # check again on the next render, and the next, spending a model call
+        # each time and never settling. A loop that reports success.
+        _log_translation_failure(getattr(review, "id", None), "detect",
+                                 f"answered {found!r}, which is a code rather "
+                                 f"than a language name")
+        return {"outcome": "undetected", "language": "",
+                "why": f"the detector answered {found!r} — a language code, "
+                       f"not a name — and a code cannot be told apart from "
+                       f"the ingest default, so nothing was recorded. The "
+                       f"reply keeps both boxes"}
     review.language = found
     return {"outcome": "detected", "language": found,
             "why": f"detected from the guest's own words as {found} "

@@ -465,3 +465,38 @@ def test_a_review_that_already_names_its_language_is_left_alone(fake_detector):
     assert res["outcome"] == "skipped_known"
     assert not fc.calls
     assert r.language == "Italian"
+
+
+def test_a_language_CODE_is_refused_rather_than_stored(fake_detector):
+    """A LOOP THAT REPORTS SUCCESS, found by code review.
+
+    `detect_language` filters UNKNOWN, blanks, over-long answers and anything
+    with a space — but a bare two-letter code passes all four. Stored, the
+    outcome says `detected` and the column looks filled, while
+    `language_state` reads it straight back as UNESTABLISHED, because that is
+    exactly what `en` means. The card then fires the language check again on
+    every render, spending a model call each time and never settling.
+
+    Storing nothing is strictly better: the card still shows two boxes, and it
+    stops asking a detector that cannot answer usefully."""
+    fc = fake_detector("en")
+    r = SimpleNamespace(id="tp_1", language="en",
+                        body_original="Non sono mai arrivati",
+                        body_english=None)
+    res = _resolve(r)
+    assert res["outcome"] == "undetected", res
+    assert r.language == "en", "a code was written into the column"
+    assert "code" in res["why"], res["why"]
+    assert len(fc.calls) == 1
+
+
+def test_a_real_language_name_is_still_stored(fake_detector):
+    """Paired, so the guard cannot swallow good answers."""
+    fc = fake_detector("Italian")
+    r = SimpleNamespace(id="tp_2", language="en",
+                        body_original="Non sono mai arrivati",
+                        body_english=None)
+    res = _resolve(r)
+    assert res["outcome"] == "detected"
+    assert r.language == "Italian"
+    assert language_state(r)["state"] == "translated"
