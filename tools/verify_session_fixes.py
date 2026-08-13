@@ -156,13 +156,35 @@ try:
         check("a raised lookup is `failed`, never English",
               resolve(review("en"))["outcome"], "failed")
 
+        # THE ONE CHECK WHOSE CORRECT ANSWER DEPENDS ON THE ENVIRONMENT, and
+        # that is the whole point of it. `detect_language` returns "" both for
+        # a switched-off Anthropic and for a review it read and could not
+        # place. Those are different problems — one is escalated, the other is
+        # this review being hard — so the outcome MUST differ by which is true.
+        #
+        # An earlier version of this script asserted `unavailable`
+        # unconditionally, having been written on a sandbox where Anthropic is
+        # offline. It then failed on a workspace where Anthropic is LIVE and
+        # the code was answering correctly. A check that only holds in one
+        # environment is the same defect this script exists to catch.
+        from server.config import is_live
+        _live = is_live("anthropic")
         claude_svc.detect_language = asyncio.get_event_loop().run_until_complete(says(""))
         out = resolve(review("en"))
-        check("an empty answer is `unavailable` when Anthropic is offline",
-              out["outcome"], "unavailable",
-              "distinguishes a switched-off detector from a hard review")
-        check("  and it names the deployment fault",
-              "not connected" in out["why"], True)
+        if _live:
+            check("Anthropic IS connected -> an empty answer is `undetected`",
+                  out["outcome"], "undetected",
+                  "the detector read the review and could not name the language")
+            check("  and it does not blame the deployment",
+                  "not connected" in out["why"], False)
+        else:
+            check("Anthropic is NOT connected -> an empty answer is `unavailable`",
+                  out["outcome"], "unavailable",
+                  "a switched-off detector is not a review that is hard to place")
+            check("  and it names the deployment fault",
+                  "not connected" in out["why"], True)
+        check("  either way, nothing is recorded and both boxes stay",
+              (out["language"], out["outcome"] != "detected"), ("", True))
 
         check("a review with no text says so",
               resolve(review("en", orig=""))["outcome"], "unavailable")
@@ -343,9 +365,20 @@ except Exception:
 
 # ─────────────────────────────────────────────────────────────────────────────
 section("WHAT THIS SCRIPT COULD NOT CHECK")
+try:
+    from server.config import is_live as _il
+    _svc = {n: _il(n) for n in ("anthropic", "bigquery", "zendesk",
+                                "slack_outbound")}
+    print("  connectors on THIS machine: " +
+          ", ".join(f"{n}={'live' if v else 'off'}" for n, v in _svc.items()))
+    print("  (every check above is stubbed, so none of them called out —")
+    print("   this line is here so you know which environment you just ran in)")
+    print()
+except Exception:
+    pass
 for line in [
-    "BigQuery / Zendesk / Anthropic / Slack are offline here, so nothing that",
-    "needs a live lookup was exercised. Specifically NOT verified by this run:",
+    "Whatever is off above was not exercised at all. Specifically NOT",
+    "verified by this run, live connectors or not:",
     "  - the real shape of production PII digests (tools/check_support_search.py",
     "    ::_hashed_name_share answers this with live BigQuery)",
     "  - that guest_name_for_bid resolves on real tickets",
