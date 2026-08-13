@@ -95,6 +95,29 @@ is the part other people actually touch. To include them:
 Two caveats before you do: it pulls ~150MB, and these are the tests recorded
 below as flaky under load.
 
+**ON REPLIT THEY STILL WILL NOT RUN, and that is not a code problem.** With
+playwright installed the modules now COLLECT (3585, up from 3059 — the
+collection bug is fixed), but every browser test then skips with:
+
+    TargetClosedError: BrowserType.launch: Target page, context or browser
+    has been closed
+
+That is chromium starting and dying immediately, which on a Nix container means
+missing shared libraries (libnss3, libatk, libgbm...). `playwright install-deps
+chromium` fixes it with apt, and Nix has no apt. Confirm with:
+
+    ldd ~/.cache/ms-playwright/chromium-*/chrome-linux64/chrome | grep 'not found'
+
+**So the 513 dashboard tests need a different runner** — CI, or a local machine,
+or a Replit image with those libraries added via replit.nix. They pass here.
+Until they run somewhere on every change, the dashboard is the part of this
+project with the least standing coverage, and it is the part other people
+touch. That is worth solving properly, not worth another workaround.
+
+The skip message names which of the two failures it is, because "not installed"
+and "installed and will not start" need opposite actions — the first version of
+it told a user who had just downloaded 184MB of browser to download it again.
+
 ```
 # On Replit, pip is blocked by the immutable Nix store, so use a venv that
 # inherits the app deps and adds only the test runner:

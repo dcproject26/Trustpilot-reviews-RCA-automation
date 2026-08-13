@@ -207,9 +207,30 @@ def ui_browser():
         # been downloaded yet — which is a one-command problem the reader
         # could not have guessed from that sentence.
         pw.stop()
+        # WHICH OF THE TWO, because they need opposite actions and the first
+        # version of this message asserted the wrong one. "Not installed" and
+        # "installed but will not start" both surface as a launch failure, and
+        # telling somebody who has just downloaded 184MB of browser to download
+        # it again is the same class of unhelpful as the sentence this replaced.
+        #
+        # TargetClosedError specifically means the process STARTED AND DIED —
+        # on a Nix or minimal container that is almost always missing shared
+        # libraries (libnss3, libatk, libgbm...), which `playwright
+        # install-deps` fixes with apt and Nix therefore cannot.
+        _found = _chrome_path()
+        _binary = _found or "(playwright's own install)"
+        if type(e).__name__ == "TargetClosedError":
+            _fix = (f"the browser STARTED AND DIED, so it is installed and "
+                    f"cannot run — usually missing system libraries. Check "
+                    f"with: ldd {_found or '<chromium>'} | grep 'not found'. "
+                    f"On apt systems: python -m playwright install-deps "
+                    f"chromium. On Nix/Replit apt is unavailable, so these "
+                    f"tests need a different runner")
+        else:
+            _fix = ("if the browser is not installed, run: "
+                    "python -m playwright install chromium")
         pytest.skip(f"chromium would not launch ({type(e).__name__}: "
-                    f"{str(e).splitlines()[0][:120]}) — if it is not installed, "
-                    f"run: python -m playwright install chromium")
+                    f"{str(e).splitlines()[0][:100]}) using {_binary} — {_fix}")
     try:
         yield br
     finally:
