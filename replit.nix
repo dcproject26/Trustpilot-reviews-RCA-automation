@@ -3,22 +3,15 @@
     pkgs.python311
     pkgs.python311Packages.pip
     pkgs.postgresql
-    # FOR THE 513 DASHBOARD TESTS, and for nothing the app itself does.
+    # NO CHROMIUM HERE, DELIBERATELY. The 513 browser tests need one and
+    # playwright's own cannot start on this container — `ldd` reports 26
+    # missing libraries and `playwright install-deps` needs apt, which Nix does
+    # not have. `pkgs.chromium` was added to solve that and did not take
+    # effect, so it is gone rather than left costing ~150MB of image for
+    # nothing.
     #
-    # playwright ships its own chromium, and on this Nix container that binary
-    # cannot start: `ldd` reports 26 missing libraries (libnss3, libgbm,
-    # libX11, libatk...). `playwright install-deps` supplies them with apt,
-    # which Nix does not have. So the browser tests collected and every one of
-    # them skipped, leaving the dashboard — the part other people use — as the
-    # least covered thing in the project.
-    #
-    # Nix's chromium comes with its libraries resolved. Point the harness at it:
-    #
-    #     CHROME_BIN=$(which chromium) python -m pytest tests/ -q
-    #
-    # IT COSTS SPACE IN THE IMAGE, roughly 150MB, for something only the tests
-    # use. If that matters more than running these tests here, delete this line
-    # and run them in CI instead — they pass on any ordinary Linux host.
-    pkgs.chromium
+    # THE BROWSER TESTS RUN IN CI. They pass on any ordinary Linux host; the
+    # obstacle is this environment, not the tests. `conftest._chrome_path()`
+    # honours CHROME_BIN, so a CI job only has to point it at a chromium.
   ];
 }

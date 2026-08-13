@@ -1,0 +1,50 @@
+# The full suite, INCLUDING the 513 browser tests that cannot run on Replit.
+#
+# playwright's chromium needs 26 system libraries that `playwright
+# install-deps` installs with apt. The Replit container is Nix and has no apt,
+# so those tests collect and skip there — every one of them. They pass on an
+# ordinary Linux host, which is what this runner is.
+#
+# Without this, the dashboard — the part other people actually use — is the
+# least covered thing in the project, and nothing announces it.
+name: tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Install playwright and its system libraries
+        # install-deps is the step Nix cannot do; on ubuntu it is one command.
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Run the suite
+        # No -k exclusions. Every one this session used was working around a
+        # test that turned out to be broken rather than environmental.
+        run: python -m pytest tests/ -q
+
+      - name: Say how many actually ran
+        # A suite that quietly collects 15% less looks identical to a green
+        # one. This session shipped for weeks with 513 tests silently absent,
+        # so the count is printed rather than assumed.
+        if: always()
+        run: python -m pytest tests/ --collect-only -q | tail -1
