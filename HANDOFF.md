@@ -106,6 +106,31 @@ sandbox this was developed in had it preinstalled, so the suite ran there and
 a fresh clone answered `No module named pytest` — a suite that only guards one
 machine. `requirements-dev.txt` now carries it.
 
+### KNOWN FLAKY: the browser tests fail under load
+
+`tests/test_rca_ui_rendered.py` (65 tests) drives a real server and Chromium.
+Observed in this session: **17 failures on a machine running two other pytest
+processes, and 65/65 passing in 15 seconds in isolation.** A clean full run
+was 3578 passed / 2 skipped / 1 failed (the environmental db_migration one).
+
+So a red run of THAT FILE specifically is not evidence of a regression until
+it has been re-run alone:
+
+    python3 -m pytest tests/test_rca_ui_rendered.py -q
+
+**This is unfixed and it matters more than it looks.** Someone runs the suite
+on a busy laptop, sees 17 red, and either burns an afternoon or learns to
+ignore failures — and a suite that cries wolf is worse than no suite. The
+likely cause is CPU/port contention around the `ui_server` fixture
+(`conftest.py:179`), which already skips with "server did not start" when it
+times out; the failures may simply be that timeout being too tight under load.
+Worth a real diagnosis, not a guess.
+
+**When reading a suite run, do not `tail` the output.** Write it to a file and
+grep `^FAILED`. This session reported "17 failed" from a truncated tail that
+carried no failure reasons and only 14 of the 17 names — a number with no
+evidence attached, which is the same defect the codebase is full of.
+
 ---
 
 ## 2. What shipped, and what it fixes
