@@ -1,0 +1,29 @@
+# Everything needed to RUN THE TESTS, which requirements.txt does not carry.
+#
+# It did not, and the gap was invisible: the sandbox this was developed in had
+# pytest preinstalled, so the suite ran there and `python3 -m pytest tests/ -q`
+# on a fresh clone answered "No module named pytest". A test suite nobody else
+# can run is a test suite that only guards one machine.
+#
+#     python3 -m pip install -r requirements-dev.txt
+#     python3 -m pytest tests/ -q
+#
+# `tools/verify_session_fixes.py` deliberately needs NONE of this — it imports
+# only the app and the standard library, so it runs on a bare deployment.
+#
+# Versions pinned to what the suite is known green on: 3578 passed, 2 skipped.
+pytest==9.1.1
+pytest-timeout==2.4.0
+
+# httpx is already in requirements.txt (the app uses it) and fastapi's
+# TestClient needs it too, so it is not repeated here.
+#
+# NOT INCLUDED, on purpose: playwright. The browser tests SKIP without it —
+# `conftest.py:118` uses `pytest.importorskip("playwright.sync_api")`, and
+# skips again at 120 if the bundled chromium is missing. They are also sorted
+# to the end of the run (`_needs_browser`), which is a reordering, not a
+# deselection: without playwright they still appear, as skips.
+#
+# So a run without it is green and honest, and the 2 skipped in "3578 passed,
+# 2 skipped" are unrelated. Install it if you want the browser coverage:
+#     python3 -m pip install playwright && playwright install chromium

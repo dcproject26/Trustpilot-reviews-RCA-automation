@@ -87,9 +87,17 @@ before reaching the path under test. **It fails identically on unmodified
 this session used:
 
 ```
+python3 -m pip install -r requirements-dev.txt    # pytest is NOT in requirements.txt
+python3 -m pytest tests/ -q
+
 python3 tools/mutate.py <spec>.json \
   -k "not test_an_unopenable_database_is_a_sentence_not_a_traceback" --fail-fast
 ```
+
+**`pytest` is not a runtime dependency and was not declared anywhere.** The
+sandbox this was developed in had it preinstalled, so the suite ran there and
+a fresh clone answered `No module named pytest` — a suite that only guards one
+machine. `requirements-dev.txt` now carries it.
 
 ---
 
