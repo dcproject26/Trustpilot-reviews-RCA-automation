@@ -131,10 +131,21 @@ def test_the_fallback_table_is_not_reported_as_edit_distance_failing():
 # Without these two, `explain_failure` could be correct, tested, and called by
 # nothing — the exact shape CLAUDE.md §1 opens with.
 
-def test_resolve_records_a_reason_rather_than_leaving_it_blank():
-    """BigQuery is unreachable in the test environment, so this lands on the
-    "no table" branch. WHICH branch is not the point — that `last_failure` is
-    populated by a real resolve() at all is."""
+def test_resolve_records_a_reason_rather_than_leaving_it_blank(monkeypatch):
+    """That `last_failure` is populated by a real resolve() at all.
+
+    THE UNREACHABLE WAREHOUSE IS FORCED, not assumed. This used to open "BigQuery
+    is unreachable in the test environment, so this lands on the no-table
+    branch" — an assumption about the machine, and it is false on any workspace
+    with BigQuery connected. There it reached a real warehouse, got a 400 back,
+    took the spelling-pass branch instead, and failed on a comparison that had
+    nothing to do with what it asserts.
+
+    A test whose branch depends on whether a credential happens to be present
+    is a test that tells two different stories on two machines."""
+    monkeypatch.setattr(vr.bq, "run_query",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            RuntimeError("warehouse unreachable (forced)")))
     vr._WORKING_TABLE = None
     _resolve(["premo tickets for collosseum"])
     assert vr.last_failure["why"], "resolve() left no reason behind"

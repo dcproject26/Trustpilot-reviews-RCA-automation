@@ -26,9 +26,24 @@ def client(monkeypatch):
     monkeypatch.setenv("GCP_SERVICE_ACCOUNT_JSON", "{}")
     monkeypatch.delenv("ZENDESK_API_TOKEN", raising=False)
     monkeypatch.delenv("ZENDESK_SUBDOMAIN", raising=False)
+    # THE ENV VARS ARE ONLY HALF OF IT. `is_live("zendesk")` is
+    # `(SUBDOMAIN and API_TOKEN) or _zd_connector_available()` — this project
+    # authenticates through Replit connectors as well as through credentials,
+    # so clearing the environment leaves the connector still reporting live.
+    #
+    # This test failed on a real workspace for exactly that reason, while
+    # passing in a sandbox where nothing is connected. A test that asserts
+    # "this connector is dead" must MAKE it dead, not inherit it from whatever
+    # machine happens to be running — the same defect as asserting a value
+    # that only holds in one environment.
     import importlib
     import server.config as cfg
     importlib.reload(cfg)
+    # AFTER THE RELOAD, not before. `importlib.reload` re-executes the module
+    # and rebinds every name in it, so a patch applied first is silently
+    # undone — and the test then passes only on a machine where nothing was
+    # connected anyway, which is the state it was already failing to detect.
+    monkeypatch.setattr(cfg, "_zd_connector_available", lambda: False)
     import server.db as db
     importlib.reload(db)
     db.init_db()
