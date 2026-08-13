@@ -22,10 +22,25 @@ from datetime import datetime
 
 import pytest
 
-CHROME = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
-if not os.path.exists(CHROME):
-    pytest.skip("bundled chromium not present", allow_module_level=True)
+
+# THE SECOND COPY OF THE CHROMIUM PATH, and it was the one that mattered.
+# `conftest.py` had the same hardcoded "/opt/pw-browsers/chromium-1194/..."
+# string and was fixed to resolve properly; this module kept its own copy and
+# skipped AT MODULE LEVEL when the pinned path was missing — so the module was
+# never collected at all, and the 34 other browser modules that import from it
+# went with it. 533 tests, invisible, on every machine but one.
+#
+# A user who installed playwright to get exactly these tests saw the identical
+# count twice, because the fix landed in one of the two places the rule lived.
+# RE-EXPORTED, because 33 OTHER MODULES DO `from tests.test_rca_ui_rendered
+# import CHROME`. Deleting the name here — after grepping only this file and
+# seeing it unused — broke collection of all 33 at once. A name is not unused
+# because the file that defines it does not use it.
+#
+# It is now conftest's single resolver, re-exported for those importers rather
+# than redefined, so there is still exactly one rule for where Chromium is.
+from tests.conftest import CHROME  # noqa: E402,F401
 
 
 def _free_port():

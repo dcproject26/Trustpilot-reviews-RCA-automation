@@ -120,9 +120,15 @@ def _chrome_path():
         return pinned
     root = os.getenv("PLAYWRIGHT_BROWSERS_PATH") or ""
     if root:
-        for c in sorted(glob.glob(f"{root}/chromium-*/chrome-linux/chrome")):
-            if os.path.exists(c):
-                return c
+        # BOTH LAYOUTS. Older builds unpack to chrome-linux/chrome; "Chrome for
+        # Testing" (what `playwright install chromium` fetches now) unpacks to
+        # chrome-linux64/chrome. Matching only the first is how a freshly
+        # installed browser stays invisible.
+        for pat in ("chromium-*/chrome-linux/chrome",
+                    "chromium-*/chrome-linux64/chrome"):
+            for c in sorted(glob.glob(f"{root}/{pat}")):
+                if os.path.exists(c):
+                    return c
     return None          # playwright resolves its own install
 
 
