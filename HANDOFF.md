@@ -108,8 +108,19 @@ chromium` fixes it with apt, and Nix has no apt. Confirm with:
 
     ldd ~/.cache/ms-playwright/chromium-*/chrome-linux64/chrome | grep 'not found'
 
-**So the 513 dashboard tests need a different runner** — CI, or a local machine,
-or a Replit image with those libraries added via replit.nix. They pass here.
+**THE WAY THROUGH ON NIX: give it a chromium that already works.** Nix cannot
+install playwright's dependencies, but it can supply the browser itself, with
+its libraries resolved. Add the `chromium` package to the Nix config, then:
+
+    CHROME_BIN=$(which chromium) .venv/bin/python -m pytest tests/ -q
+
+`conftest._chrome_path()` honours `CHROME_BIN` before anything else, and shouts
+if it points at nothing rather than falling through to the same skip the reader
+was trying to escape. Verified here: with the override set, 65/65 browser tests
+pass; with a bad path, the run says which variable is wrong.
+
+Failing that, the 513 need a different runner — CI, or a local machine. They
+pass here.
 Until they run somewhere on every change, the dashboard is the part of this
 project with the least standing coverage, and it is the part other people
 touch. That is worth solving properly, not worth another workaround.

@@ -115,6 +115,29 @@ import sys
 # its own — which is what it does by default in ~/.cache/ms-playwright.
 def _chrome_path():
     import glob
+    # AN EXPLICIT OVERRIDE FIRST, because on a Nix box playwright's own
+    # chromium cannot run at all: it ships a binary that needs 26 system
+    # libraries (libnss3, libgbm, libX11...) which `playwright install-deps`
+    # installs with apt, and Nix has no apt. Verified on a live Replit
+    # workspace — every one of the 26 reported "not found".
+    #
+    # Nix CAN supply chromium, with its libraries already resolved. Add the
+    # `chromium` package and point CHROME_BIN at it:
+    #
+    #     CHROME_BIN=$(which chromium) python -m pytest tests/ -q
+    #
+    # That is the difference between the dashboard tests running on that
+    # machine and not existing there.
+    override = (os.getenv("CHROME_BIN") or "").strip()
+    if override:
+        if os.path.exists(override):
+            return override
+        # SAID, NOT SWALLOWED. Falling through silently would leave the reader
+        # with the same skip they were trying to fix, and no clue that the
+        # variable they set was the reason it did not help.
+        raise RuntimeError(
+            f"CHROME_BIN is set to {override!r} and there is no file there. "
+            f"Unset it, or point it at a real chromium binary.")
     pinned = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
     if os.path.exists(pinned):
         return pinned
