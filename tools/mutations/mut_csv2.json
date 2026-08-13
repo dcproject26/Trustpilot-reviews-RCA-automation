@@ -1,0 +1,14 @@
+[
+ {
+  "file": "server/services/sheet_export.py",
+  "name": "an unreadable insights payload looks empty again (properly written this time)",
+  "find": "    return (f\"(insights present but unreadable: none of \"\n            f\"{len(_INSIGHT_ROWS)} expected fields found in \"\n            f\"{len(ins)} stored keys)\")",
+  "replace": "    return \"\""
+ },
+ {
+  "file": "server/services/sheet_export.py",
+  "name": "the export reads the raw blob instead of the resolved v3",
+  "find": "            from server.api import _resolve_v3_sections\n            v3 = _resolve_v3_sections(d)[0] or {}",
+  "replace": "            v3 = getattr(d, \"rca_v3\", None) or {}"
+ }
+]

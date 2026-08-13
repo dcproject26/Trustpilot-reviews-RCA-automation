@@ -1,0 +1,37 @@
+[
+ {"file":"server/pipeline.py","name":"the trail stops reporting the re-attribution",
+  "find":"    if _sc.get(\"actor_corrected\"):",
+  "replace":"    if False:"},
+
+ {"file":"server/pipeline.py","name":"the re-attribution clause fires on every run",
+  "find":"    if _sc.get(\"actor_corrected\"):",
+  "replace":"    if True:"},
+
+ {"file":"server/pipeline.py","name":"process_review stops calling the builder",
+  "find":"        _shape_line = shape_counts_entry(timeline)",
+  "replace":"        _shape_line = None"},
+
+ {"file":"server/pipeline.py","name":"the built line is never appended to the trail",
+  "find":"        if _shape_line:\n            confidence_trail.append(_shape_line)",
+  "replace":"        if False:\n            confidence_trail.append(_shape_line)"},
+
+ {"file":"server/pipeline.py","name":"a run with no shaping still gets a line",
+  "find":"    if not _sc:\n        return None",
+  "replace":"    if not _sc:\n        _sc = {\"raw\": 0, \"shown\": 0}"},
+
+ {"file":"server/pipeline.py","name":"the dropped-by-model count goes unreported",
+  "find":"    if _sc.get(\"dropped_by_model\"):",
+  "replace":"    if False:"},
+
+ {"file":"server/pipeline.py","name":"a repair is marked as a step that passed",
+  "find":"    return {\"mark\": \"warn\",\n            \"text\": \"<strong>Events timeline:</strong> \"",
+  "replace":"    return {\"mark\": \"pass\",\n            \"text\": \"<strong>Events timeline:</strong> \""},
+
+ {"file":"server/pipeline.py","name":"the reader is no longer told nothing was deleted",
+  "find":"                    + \". Nothing was deleted — open a ticket to see every \"\n                      \"comment.\"}",
+  "replace":"                    + \".\"}"},
+
+ {"file":"server/pipeline.py","name":"the counts are read from the wrong place, so shaping looks absent",
+  "find":"    _sc = next((e.get(\"_shape_counts\") for e in (timeline or [])\n                if isinstance(e, dict) and e.get(\"_shape_counts\")), None)",
+  "replace":"    _sc = (timeline or [{}])[0].get(\"_shape_countz\") if timeline else None"}
+]

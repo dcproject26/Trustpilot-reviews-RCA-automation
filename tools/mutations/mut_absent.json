@@ -1,0 +1,45 @@
+[
+ {"file":"server/services/rca_v4_validate.py","name":"the matcher never matches anything",
+  "find":"        if _ABSENT_SOURCE.search(txt):",
+  "replace":"        if False and _ABSENT_SOURCE.search(txt):"},
+
+ {"file":"server/services/rca_v4_validate.py","name":"the matcher matches every row",
+  "find":"        if _ABSENT_SOURCE.search(txt):",
+  "replace":"        if txt or _ABSENT_SOURCE.search(txt):"},
+
+ {"file":"server/services/rca_v4_validate.py","name":"one absence is reported as a pile",
+  "find":"    if len(_absent) > 1:",
+  "replace":"    if len(_absent) > 0:"},
+
+ {"file":"server/services/rca_v4_validate.py","name":"the trail note never fires",
+  "find":"    if len(_absent) > 1:",
+  "replace":"    if False:"},
+
+ {"file":"server/services/rca_v4_validate.py","name":"counted becomes deleted",
+  "find":"    _absent = absent_source_findings(rows)",
+  "replace":"    _absent = absent_source_findings(rows)\n    rows = [r for r in rows if not _ABSENT_SOURCE.search(str(r.get(\"text\") or \"\"))]"},
+
+ {"file":"server/services/rca_v4_validate.py","name":"the trail stops saying they were kept",
+  "find":"            f\"happened — KEPT, not dropped: the wording of a real finding \"",
+  "replace":"            f\"happened: the wording of a real finding \""},
+
+ {"file":"server/services/rca_v4_validate.py","name":"widening 1 reverted: `contact` is not a source noun",
+  "find":"    r\"entry|entries|instructions?|contact)\\b\"",
+  "replace":"    r\"entry|entries|instructions?)\\b\""},
+
+ {"file":"server/services/rca_v4_validate.py","name":"widening 2 reverted: a named source being unavailable no longer counts",
+  "find":"    r\"|^[^.]*?\\b(?:experience[-\\s]?page|booking\\s+record|zendesk|warehouse|\"\n    r\"dss|redemption\\s+data|record|records|data|documentation|information)\\b\"\n    r\"[^.]*?\\b(?:is|are|was|were)\\s+(?:absent|unavailable|not\\s+\"\n    r\"(?:available|present|recorded))\\b\",",
+  "replace":"    ,"},
+
+ {"file":"server/services/rca_v4_validate.py","name":"the anchor is dropped, so a clause inside a finding counts",
+  "find":"    r\"^\\s*(?:no|not|nothing|there\\s+(?:is|are)\\s+no)\\b\"",
+  "replace":"    r\"\\s*(?:no|not|nothing|there\\s+(?:is|are)\\s+no)\\b\""},
+
+ {"file":"server/services/rca_v4_validate.py","name":"`ticket` becomes a source noun, so an unusable ticket reads as a failed lookup",
+  "find":"    r\"entry|entries|instructions?|contact)\\b\"",
+  "replace":"    r\"entry|entries|instructions?|contact|ticket)\\b\""},
+
+ {"file":"server/services/rca_v4_validate.py","name":"case-insensitivity is dropped, so a capitalised `No` never matches",
+  "find":"    r\"(?:available|present|recorded))\\b\",\n    re.I)",
+  "replace":"    r\"(?:available|present|recorded))\\b\")"}
+]

@@ -40,7 +40,7 @@ Plus the standing order: **mutation-run the diff before every push** —
 |---|---|
 | Branch | `claude/vectorshift-pipeline-review-coj74p` |
 | Remote | **`trustpilot`** → `https://github.com/dcproject26/Trustpilot-reviews-RCA-automation.git` (see the warning below) |
-| Head | `88157d6` |
+| Head | `git log --oneline -1` — do not trust a hash written here, it goes stale every commit |
 | State | tree clean, 0 ahead of the remote |
 
 **PUSH TO `trustpilot`.** `origin` points at `dcproject26/Claude`, an
@@ -50,7 +50,19 @@ reset it back**, so check `git remote -v` before every push rather than trusting
 it. The stale `origin` is also why the stop hook reports ~586 phantom "unpushed
 commits": a local tracking ref pinned at `56754f3`, divergent from this history.
 
+    git remote -v                     # CHECK FIRST, every time
     git push -u trustpilot claude/vectorshift-pipeline-review-coj74p
+
+Confirmed three separate times in one session: repointing `origin` does not
+stick. If the hook reports phantom unpushed commits, this is why — verify with
+`git rev-list --count trustpilot/<branch>..HEAD` before believing it.
+
+### The mutation specs are in the repo
+
+`tools/mutations/` holds all twelve specs from this session with a README
+explaining what each covers and what the runs found. They were in a scratchpad
+that dies with the session; they are the record of which guarantees were
+actually checked, which a passing suite cannot tell you.
 
 ### Test suite
 

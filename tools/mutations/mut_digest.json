@@ -1,0 +1,61 @@
+[
+ {"file":"server/names.py","name":"the rule never calls anything a digest",
+  "find":"    if len(s) < DIGEST_MIN_LEN:\n        return False",
+  "replace":"    if True:\n        return False"},
+
+ {"file":"server/names.py","name":"the length floor drops, so short names are blanked",
+  "find":"DIGEST_MIN_LEN = 16",
+  "replace":"DIGEST_MIN_LEN = 4"},
+
+ {"file":"server/names.py","name":"the length floor rises, so real digests get through",
+  "find":"DIGEST_MIN_LEN = 16",
+  "replace":"DIGEST_MIN_LEN = 64"},
+
+ {"file":"server/names.py","name":"the digit test goes, so alphanumeric digests read as names again",
+  "find":"    return any(c.isdigit() for c in s)",
+  "replace":"    return False"},
+
+ {"file":"server/names.py","name":"the base64-punctuation test goes",
+  "find":"    if any(c in \"+/=_\" for c in s):\n        return True",
+  "replace":"    if False:\n        return True"},
+
+ {"file":"server/names.py","name":"the all-hex test goes",
+  "find":"    if all(c in _HEX_ALPHABET for c in s):\n        return True",
+  "replace":"    if False:\n        return True"},
+
+ {"file":"server/names.py","name":"a spaced value is no longer automatically a name",
+  "find":"    if not s or \" \" in s:\n        return False",
+  "replace":"    if not s:\n        return False"},
+
+ {"file":"server/names.py","name":"the encoding-alphabet guard goes, so accented and apostrophed names are caught",
+  "find":"    if not all(c in _B64_ALPHABET for c in s):\n        # A character no encoding produces — an accent, an apostrophe, a dot.\n        # That is a name, however long.\n        return False",
+  "replace":"    if False:\n        return False"},
+
+ {"file":"server/api.py","name":"the card's predicate stops delegating and keeps its own weak rule",
+  "find":"    from server.names import looks_like_digest\n    return looks_like_digest(s)",
+  "replace":"    s = (s or \"\").strip()\n    if not s or \" \" in s or len(s) < 16:\n        return False\n    if all(c in \"0123456789abcdefABCDEF-\" for c in s):\n        return True\n    _B = set(\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/-_=\")\n    return all(c in _B for c in s) and any(c in \"+/=_\" for c in s)"},
+
+ {"file":"server/pipeline.py","name":"the matcher's predicate stops delegating and keeps its own broad rule",
+  "find":"    from server.names import looks_like_digest\n    return looks_like_digest(s)",
+  "replace":"    s = (s or \"\").strip()\n    if not s or \" \" in s:\n        return False\n    return len(s) >= 16 and bool(re.fullmatch(r\"[A-Za-z0-9+/=_\\-]+\", s))"},
+
+ {"file":"server/services/bigquery.py","name":"the warehouse predicate stops delegating",
+  "find":"    return looks_like_digest(s)",
+  "replace":"    s = (s or \"\").strip()\n    if not s or \" \" in s:\n        return False\n    return len(s) >= 16 and bool(_re_mod.fullmatch(r\"[A-Za-z0-9+/=_\\-]+\", s))"},
+
+ {"file":"server/api.py","name":"the candidate picker stops scrubbing the name",
+  "find":"            if v and _looks_like_hash(v):",
+  "replace":"            if False:"},
+
+ {"file":"server/api.py","name":"a key the model does not declare stops being dropped",
+  "find":"class DraftPatchV2(BaseModel):",
+  "replace":"class DraftPatchV2(BaseModel, extra=\"allow\"):"},
+
+ {"file":"server/api.py","name":"a duplicate manual review makes a second row",
+  "find":"    if db.query(Review).filter(Review.id == review_id).first():\n        return {\"ok\": True, \"review_id\": review_id, \"duplicate\": True}",
+  "replace":"    if False:\n        return {\"ok\": True, \"review_id\": review_id, \"duplicate\": True}"},
+
+ {"file":"server/api.py","name":"a manual review loses its arrival time",
+  "find":"        received_at=datetime.utcnow(),\n        reference_number=data.reference_number, status=\"new\",",
+  "replace":"        reference_number=data.reference_number, status=\"new\","}
+]

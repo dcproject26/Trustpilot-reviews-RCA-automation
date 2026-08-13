@@ -1,0 +1,49 @@
+[
+ {"file":"server/services/reply_language.py","name":"the ingest default `en` is read as English again",
+  "find":"_NEVER_DETECTED = {\"en\", \"eng\", \"auto\", \"unknown\", \"und\", \"n/a\"}",
+  "replace":"_NEVER_DETECTED = {\"auto\", \"unknown\", \"und\", \"n/a\"}"},
+
+ {"file":"server/services/reply_language.py","name":"a detected English never gets one box",
+  "find":"_MEANS_ENGLISH = {\"english\"}",
+  "replace":"_MEANS_ENGLISH = set()"},
+
+ {"file":"server/services/reply_language.py","name":"`en` becomes English rather than unknown",
+  "find":"    if not lang or lang.lower() in _NEVER_DETECTED:",
+  "replace":"    if not lang:"},
+
+ {"file":"server/services/reply_language.py","name":"the inbound-translation contradiction is ignored",
+  "find":"        if _was_translated_inbound(review):",
+  "replace":"        if False:"},
+
+ {"file":"server/services/reply_language.py","name":"the skipped_english shortcut comes back",
+  "find":"    body = (getattr(review, \"body_original\", \"\") or \"\").strip()\n    if not body:",
+  "replace":"    body = (getattr(review, \"body_original\", \"\") or \"\").strip()\n    if not _was_translated_inbound(review):\n        return {\"outcome\": \"skipped_english\", \"language\": lang,\n                \"why\": \"the review text was not translated on the way in\"}\n    if not body:"},
+
+ {"file":"server/services/reply_language.py","name":"a disconnected detector reads as an undetectable review",
+  "find":"        from server.config import is_live\n        if not is_live(\"anthropic\"):",
+  "replace":"        from server.config import is_live\n        if False:"},
+
+ {"file":"server/services/reply_language.py","name":"a crashed detection call reads as `undetected`",
+  "find":"        return {\"outcome\": \"failed\", \"language\": \"\",",
+  "replace":"        return {\"outcome\": \"undetected\", \"language\": \"\","},
+
+ {"file":"server/services/reply_language.py","name":"a failed detection writes a guess into the column",
+  "find":"    review.language = found\n    return {\"outcome\": \"detected\", \"language\": found,",
+  "replace":"    review.language = found or \"English\"\n    return {\"outcome\": \"detected\", \"language\": found,"},
+
+ {"file":"server/services/slack.py","name":"ingest hard-codes `en` again",
+  "find":"        \"language\":         None,",
+  "replace":"        \"language\":         \"en\","},
+
+ {"file":"server/api.py","name":"an English review is translated into English",
+  "find":"    if _st[\"state\"] == \"english\":",
+  "replace":"    if False:"},
+
+ {"file":"server/api.py","name":"an unestablished language is treated as an error rather than an answer",
+  "find":"    if res[\"outcome\"] in (\"undetected\", \"unavailable\", \"failed\"):",
+  "replace":"    if res[\"outcome\"] in (\"undetected\",):"},
+
+ {"file":"server/api.py","name":"the refusal points at a control the card does not have",
+  "find":"                     \" Type the reply in the guest's language in the top box \"",
+  "replace":"                     \" Name the guest's language on the card, or edit the \""}
+]

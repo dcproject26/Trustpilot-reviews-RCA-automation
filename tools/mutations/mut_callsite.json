@@ -1,0 +1,20 @@
+[
+ {
+  "file": "server/pipeline.py",
+  "name": "the guest name is never asked for outside Tier-1",
+  "find": "            _gn = await ensure_zendesk_guest_name(",
+  "replace": "            _gn = {\"asked\": False, \"name\": \"\", \"reason\": \"\"} or await ensure_zendesk_guest_name("
+ },
+ {
+  "file": "server/pipeline.py",
+  "name": "the trail line is dropped",
+  "find": "            if _gn[\"asked\"]:",
+  "replace": "            if False:"
+ },
+ {
+  "file": "server/pipeline.py",
+  "name": "the trail line fires on every run",
+  "find": "            if _gn[\"asked\"]:",
+  "replace": "            if True:"
+ }
+]

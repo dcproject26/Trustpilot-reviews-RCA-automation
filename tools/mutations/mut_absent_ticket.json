@@ -1,0 +1,5 @@
+[
+ {"file":"server/services/rca_v4_validate.py","name":"`ticket` becomes a source noun, so an unusable ticket reads as a failed lookup",
+  "find":"    r\"entry|entries|instructions?|contact)\\b\"",
+  "replace":"    r\"entry|entries|instructions?|contact|ticket)\\b\""}
+]

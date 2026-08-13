@@ -1,0 +1,23 @@
+[
+ {"file":"server/services/zendesk.py","name":"the guest label is never corrected",
+  "find":"        elif actor == \"guest\" and srcs and not any(",
+  "replace":"        elif False and srcs and not any("},
+ {"file":"server/services/zendesk.py","name":"a collapsed row with a real guest is corrected too",
+  "find":"                str(s.get(\"actor\") or \"\").strip().lower() == \"guest\"\n                for s in srcs):",
+  "replace":"                str(s.get(\"actor\") or \"\").strip().lower() == \"nobody\"\n                for s in srcs):"},
+ {"file":"server/services/zendesk.py","name":"every actor is second-guessed, not just guest",
+  "find":"        elif actor == \"guest\" and srcs and not any(",
+  "replace":"        elif actor in _ACTORS and srcs and not any("},
+ {"file":"server/services/zendesk.py","name":"the correction is not counted",
+  "find":"            _actor_corrected += 1",
+  "replace":"            pass"},
+ {"file":"server/services/zendesk.py","name":"counts revert to collapse-only stamping",
+  "find":"    if out and (len(raw_events) != len(out) or _actor_corrected):",
+  "replace":"    if out and len(raw_events) != len(out):"},
+ {"file":"server/services/zendesk.py","name":"the count is stamped on every run",
+  "find":"    if out and (len(raw_events) != len(out) or _actor_corrected):",
+  "replace":"    if out:"},
+ {"file":"server/pipeline.py","name":"the trail stops reporting the re-attribution",
+  "find":"            if _sc.get(\"actor_corrected\"):",
+  "replace":"            if False:"}
+]

@@ -1,0 +1,38 @@
+[
+ {
+  "file": "server/services/slack.py",
+  "name": "ingest hard-codes `en` again",
+  "find": "        \"language\":         None,",
+  "replace": "        \"language\":         \"en\","
+ },
+ {
+  "file": "server/api.py",
+  "name": "an unestablished language is treated as an error rather than an answer",
+  "find": "    if res[\"outcome\"] in (\"undetected\", \"unavailable\", \"failed\"):",
+  "replace": "    if res[\"outcome\"] in (\"undetected\",):"
+ },
+ {
+  "file": "server/pipeline.py",
+  "name": "the guest name is never asked for outside Tier-1",
+  "find": "            _gn = await ensure_zendesk_guest_name(",
+  "replace": "            _gn = {\"asked\": False, \"name\": \"\", \"reason\": \"\"} or await ensure_zendesk_guest_name("
+ },
+ {
+  "file": "server/pipeline.py",
+  "name": "a usable warehouse name is looked up anyway",
+  "find": "    if not unusable:\n        return out                      # the warehouse answered; do not ask",
+  "replace": "    if False:\n        return out"
+ },
+ {
+  "file": "server/pipeline.py",
+  "name": "asking and finding nothing stops being recorded",
+  "find": "    out[\"asked\"] = True",
+  "replace": "    out[\"asked\"] = False"
+ },
+ {
+  "file": "server/pipeline.py",
+  "name": "a raised lookup is not distinguished from an absent name",
+  "find": "    except Exception as e:\n        out[\"reason\"] = (f\"the Zendesk guest-name lookup raised \"",
+  "replace": "    except Exception as e:\n        out[\"reason\"] = (f\"no readable guest name (\""
+ }
+]

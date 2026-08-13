@@ -1,0 +1,74 @@
+[
+ {
+  "file": "server/services/sheet_export.py",
+  "name": "vendor goes back to reading only vendorName",
+  "find": "        \"vendor\":        bk.get(\"vendorName\") or bk.get(\"partner\") or \"\",",
+  "replace": "        \"vendor\":        bk.get(\"vendorName\") or \"\","
+ },
+ {
+  "file": "server/services/sheet_export.py",
+  "name": "vendor reads only partner, breaking the other builder",
+  "find": "        \"vendor\":        bk.get(\"vendorName\") or bk.get(\"partner\") or \"\",",
+  "replace": "        \"vendor\":        bk.get(\"partner\") or \"\","
+ },
+ {
+  "file": "server/services/sheet_export.py",
+  "name": "the insights keys go back to camelCase",
+  "find": "_INSIGHT_ROWS = ((\"rating_tgid\",                 \"TGID rating\"),",
+  "replace": "_INSIGHT_ROWS = ((\"tgidRating\",                  \"TGID rating\"),"
+ },
+ {
+  "file": "server/services/sheet_export.py",
+  "name": "an unreadable insights payload looks empty again",
+  "find": "    return (f\"(insights present but unreadable: none of \"",
+  "replace": "    return \"\" or (f\"(insights present but unreadable: none of \""
+ },
+ {
+  "file": "server/services/sheet_export.py",
+  "name": "the rating node stops reporting its average",
+  "find": "            avg = node.get(\"avg\", node.get(\"value\"))",
+  "replace": "            avg = node.get(\"value\")"
+ },
+ {
+  "file": "server/services/sheet_export.py",
+  "name": "owners filter blanks again and shift out of step",
+  "find": "        \"owners\":        [(i.get(\"owner\") or \"(none)\") for i in issues\n                          if isinstance(i, dict)],",
+  "replace": "        \"owners\":        [i.get(\"owner\") for i in issues\n                          if isinstance(i, dict) and i.get(\"owner\")],"
+ },
+ {
+  "file": "server/services/sheet_export.py",
+  "name": "claim_accuracy filters blanks again",
+  "find": "        \"claim_accuracy\": [(i.get(\"claim_accuracy\") or \"(none)\")\n                           for i in issues if isinstance(i, dict)],",
+  "replace": "        \"claim_accuracy\": [i.get(\"claim_accuracy\") for i in issues\n                           if isinstance(i, dict) and i.get(\"claim_accuracy\")],"
+ },
+ {
+  "file": "server/services/sheet_export.py",
+  "name": "the export reads the raw blob instead of the resolved v3",
+  "find": "            from server.api import _resolve_v3_sections\n            v3 = _resolve_v3_sections(d)[0] or {}",
+  "replace": "            v3 = getattr(d, \"rca_v3\", None) or {}"
+ },
+ {
+  "file": "server/services/sheet_export.py",
+  "name": "formula injection is no longer defused",
+  "find": "    return \"'\" + s if s[:1] in _FORMULA_LEAD else s",
+  "replace": "    return s"
+ },
+ {
+  "file": "server/services/sheet_export.py",
+  "name": "every cell is prefixed, not only the executable ones",
+  "find": "    return \"'\" + s if s[:1] in _FORMULA_LEAD else s",
+  "replace": "    return \"'\" + s"
+ },
+ {
+  "file": "server/services/sheet_export.py",
+  "name": "the minus sign drops out of the formula leads",
+  "find": "_FORMULA_LEAD = (\"=\", \"+\", \"-\", \"@\", \"\\t\", \"\\r\")",
+  "replace": "_FORMULA_LEAD = (\"=\", \"+\", \"@\", \"\\t\", \"\\r\")"
+ },
+ {
+  "file": "server/services/sheet_export.py",
+  "name": "the defusing stops applying to plain strings",
+  "find": "    return _defuse(str(v))",
+  "replace": "    return str(v)"
+ }
+]
