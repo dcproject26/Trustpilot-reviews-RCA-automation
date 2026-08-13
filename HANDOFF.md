@@ -87,6 +87,13 @@ before reaching the path under test. **It fails identically on unmodified
 this session used:
 
 ```
+# On Replit, pip is blocked by the immutable Nix store, so use a venv that
+# inherits the app deps and adds only the test runner:
+python3 -m venv --system-site-packages .venv
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest tests/ -q
+
+# Anywhere else:
 python3 -m pip install -r requirements-dev.txt    # pytest is NOT in requirements.txt
 python3 -m pytest tests/ -q
 

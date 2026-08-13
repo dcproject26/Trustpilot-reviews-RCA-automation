@@ -8,6 +8,21 @@
 #     python3 -m pip install -r requirements-dev.txt
 #     python3 -m pytest tests/ -q
 #
+# ON REPLIT, THAT PIP CALL FAILS: the Nix store is immutable and pip refuses
+# with `externally-managed-environment`. Do NOT reach for
+# `--break-system-packages` — it is exactly the flag whose warning says it can
+# break the interpreter the app runs on. Use a virtualenv that INHERITS the
+# already-installed app dependencies, so only the test runner is added:
+#
+#     python3 -m venv --system-site-packages .venv
+#     .venv/bin/pip install -r requirements-dev.txt
+#     .venv/bin/python -m pytest tests/ -q
+#
+# `--system-site-packages` is the load-bearing flag: without it the venv is
+# empty and every app dependency has to be reinstalled. `.venv/` is already
+# gitignored. Verified to inherit fastapi, sqlalchemy and httpx before being
+# written down here.
+#
 # `tools/verify_session_fixes.py` deliberately needs NONE of this — it imports
 # only the app and the standard library, so it runs on a bare deployment.
 #
