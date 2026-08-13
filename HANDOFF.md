@@ -79,6 +79,22 @@ actually checked, which a passing suite cannot tell you.
 **3580 passed, 2 skipped, ZERO failures.** 184 test files. Plus
 `python3 tools/verify_session_fixes.py` → 42 passed.
 
+**WITHOUT PLAYWRIGHT YOU RUN 3049, NOT 3582, AND NOTHING SAYS SO.** 35 test
+modules — **533 tests, 15% of the suite** — are skipped at import when
+playwright is absent, so they never appear in the count at all. Verified on
+two machines: 3582 collected here, 3059 on a workspace without it.
+
+Those 533 are the DASHBOARD tests: the controls, inbox search, card
+rendering, merged timeline, scenario chips, takedown reason. A green
+"3057 passed" is a green run of everything EXCEPT the user interface, which
+is the part other people actually touch. To include them:
+
+    .venv/bin/pip install playwright
+    .venv/bin/playwright install chromium
+
+Two caveats before you do: it pulls ~150MB, and these are the tests recorded
+below as flaky under load.
+
 ```
 # On Replit, pip is blocked by the immutable Nix store, so use a venv that
 # inherits the app deps and adds only the test runner:
