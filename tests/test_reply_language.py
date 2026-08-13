@@ -88,7 +88,7 @@ def test_a_missing_language_is_not_treated_as_english():
     st = language_state(_review(""))
     assert st["state"] == "unknown"
     assert st["state"] != "english"
-    assert "has not been established" in st["why"]
+    assert "translated into English on the way in" in st["why"]
 
 
 def test_a_non_english_review_reports_its_language():
@@ -248,7 +248,7 @@ def test_a_review_filed_as_en_but_translated_inbound_is_not_english():
         "a review whose text was translated on the way in is being treated as "
         "English because of a column default")
     assert not is_english(_translated_in())
-    assert "has not been established" in st["why"]
+    assert "translated into English on the way in" in st["why"]
 
 
 def test_a_detected_english_is_overruled_by_a_translation_that_happened():
@@ -292,15 +292,27 @@ def test_a_genuinely_english_review_is_still_one_box():
     assert language_state(none_yet)["state"] == "english"
 
 
-def test_the_ingest_default_is_never_one_box():
-    """`en` is what `parse_review` stamped on EVERY review, updated by
-    nothing. It means nobody looked, and a review carrying it draws two boxes
-    however English its text happens to be — one box is for evidence only."""
-    for body_en in ("They never arrived", None, ""):
-        rv = SimpleNamespace(id="tp_d", language="en",
-                             body_original="They never arrived",
-                             body_english=body_en)
-        assert language_state(rv)["state"] == "unknown", body_en
+def test_the_ingest_default_is_decided_by_whether_it_was_translated():
+    """`en` is what `parse_review` stamped on EVERY review, so it cannot be
+    read as "English" on its own — but it must not force two boxes onto every
+    review either, or every genuinely English review grows a translate panel
+    it does not need. The free signal decides it: `body_english` is written
+    only when the inbound step actually translated something.
+
+    A Spanish review filed as `en` (body_english differs) is NOT English and
+    draws two boxes. A review nothing translated IS English and draws one.
+    This is the responses-are-broken regression, both directions."""
+    spanish = SimpleNamespace(id="tp_es", language="en",
+                              body_original="No devuelven el dinero.",
+                              body_english="They don't refund the money.")
+    assert language_state(spanish)["state"] == "unknown", "a Spanish review got one box"
+
+    for body_en in (None, "", "They never arrived"):
+        english = SimpleNamespace(id="tp_en", language="en",
+                                  body_original="They never arrived",
+                                  body_english=body_en)
+        assert language_state(english)["state"] == "english", (
+            f"a genuinely English review got two boxes (body_english={body_en!r})")
 
 
 def test_a_recorded_non_english_language_still_wins():

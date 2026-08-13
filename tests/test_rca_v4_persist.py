@@ -769,3 +769,75 @@ def test_every_note_is_logged_so_a_coercion_is_greppable_in_prod():
     seen = []
     record_validation(["a", "b"], [], seen.append)
     assert seen == ["a", "b"], seen
+
+
+# ── the empty-timeline re-run loads the events instead of looping ──────────
+
+def test_a_bid_with_no_timeline_runs_the_full_pipeline(app_env, monkeypatch):
+    """THE MULTIPLE-RERUNS BUG. A booking confirmed after the first run leaves
+    the timeline empty and stored. regenerate-rca reuses stored data, so it
+    reused the empty timeline and the Zendesk events never appeared however
+    many times it was clicked. When there is a bid and no timeline, it must run
+    the full pipeline once instead — which is the only path that fetches
+    Zendesk and summarises the frames."""
+    db, api = app_env
+    rid = _seed(db)          # booking={"id": ...}, no timeline
+
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "is_live", lambda n: n == "zendesk")
+    import server.api as _api
+    monkeypatch.setattr(_api, "is_live", lambda n: n == "zendesk")
+
+    called = {}
+    import server.pipeline as P
+
+    async def _fake_process(review_id):
+        called["rid"] = review_id
+        s = db.SessionLocal()
+        try:
+            d = s.query(db.RcaDraft).filter_by(review_id=review_id).first()
+            d.timeline = [{"time": "02 Aug 09:13", "actor": "co",
+                           "summary": "Agent replied"}]
+            s.commit()
+        finally:
+            s.close()
+    monkeypatch.setattr(P, "process_review", _fake_process)
+
+    s = db.SessionLocal()
+    try:
+        out = asyncio.run(api.regenerate_rca(rid, api.ScenarioRegen(scenarios=[]), db=s))
+    finally:
+        s.close()
+
+    assert called.get("rid") == rid, "the full pipeline was not run"
+    assert out.get("reprocessed") is True, out
+    assert _reload(db, rid).timeline, "the events were not loaded"
+
+
+def test_a_populated_timeline_takes_the_cheap_path(app_env, monkeypatch):
+    """Paired: the reprocess must fire ONLY on the broken state. A review that
+    already has its events must not pay for a full pipeline run on every
+    prompt tweak."""
+    db, api = app_env
+    rid = _seed(db)
+    s = db.SessionLocal()
+    try:
+        d = s.query(db.RcaDraft).filter_by(review_id=rid).first()
+        d.timeline = [{"time": "02 Aug", "actor": "co", "summary": "already here"}]
+        s.commit()
+    finally:
+        s.close()
+
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "is_live", lambda n: n == "zendesk")
+    import server.api as _api
+    monkeypatch.setattr(_api, "is_live", lambda n: n == "zendesk")
+
+    import server.pipeline as P
+
+    async def _boom(review_id):
+        raise AssertionError("the full pipeline ran on a populated timeline")
+    monkeypatch.setattr(P, "process_review", _boom)
+
+    out = _regenerate(db, api, rid)
+    assert out.get("reprocessed") is not True, out

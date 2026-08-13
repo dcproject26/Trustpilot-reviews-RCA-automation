@@ -238,7 +238,7 @@ def test_no_language_refuses_and_leaves_the_reply_alone(api_db, monkeypatch):
     with pytest.raises(Exception) as e:
         _call()
     assert calls == []
-    assert "has not been established" in str(e.value).lower()
+    assert "translated into english on the way in" in str(e.value).lower()
     assert "unchanged" in str(e.value)
     assert _stored(api_db)[0] == BEFORE_IT
 

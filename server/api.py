@@ -2350,6 +2350,40 @@ async def regenerate_rca(review_id: str, body: ScenarioRegen,
     if not r or not d:
         raise HTTPException(404, "Not found")
 
+    # THE ZENDESK EVENTS THAT WOULD NEVER LOAD, no matter how many times this
+    # is clicked. regenerate-rca is the CHEAP path — it reuses stored data and
+    # does not touch Zendesk. That is right when the timeline is already there.
+    # But a booking confirmed AFTER the first run leaves the timeline empty and
+    # stored, and reusing an empty timeline means the events never appear: the
+    # associate re-runs, sees nothing, re-runs again — the "multiple reruns"
+    # with no result.
+    #
+    # When there IS a booking id now and the stored timeline is empty, this is
+    # that exact state. Route to the FULL pipeline once — it fetches Zendesk,
+    # summarises the support frames and rebuilds the RCA on real events, which
+    # a partial refetch here could not do (the frame summarisation lives in the
+    # pipeline). Guarded so it is a no-op in every other case: a populated
+    # timeline is left alone, an untraceable review has no id to search, and a
+    # server with Zendesk not connected would only re-empty it.
+    _bid_for_zd = (d.booking or {}).get("id") or getattr(r, "reference_number", None)
+    if _bid_for_zd and not (d.timeline or []) and is_live("zendesk"):
+        log.info(f"[regenerate-rca] {review_id}: booking {_bid_for_zd} has no "
+                 f"stored timeline — running the full pipeline once so the "
+                 f"Zendesk events load, rather than reusing an empty timeline")
+        from server.pipeline import process_review
+        try:
+            await process_review(review_id)
+        except Exception as e:
+            log.exception(f"[regenerate-rca] full reprocess failed: {e}")
+            raise HTTPException(502, f"The re-run could not fetch the Zendesk "
+                                     f"events ({type(e).__name__}: {e}). The "
+                                     f"draft is unchanged."[:300])
+        d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
+        return {"ok": True, "draft": _draft_dict(d) if d else None,
+                "reprocessed": True,
+                "note": "The booking had no events stored, so the full pipeline "
+                        "ran and fetched them from Zendesk."}
+
     scenarios, _p, _o = settle_scenarios(
         [s for s in (body.scenarios or []) if s in SCENARIO_CHECKS])
     if scenarios:

@@ -78,15 +78,36 @@ def language_state(review) -> dict:
     """
     lang = (getattr(review, "language", "") or "").strip()
 
-    # ONE BOX ONLY ON POSITIVE EVIDENCE. Everything else draws two, including
-    # "we could not tell" — because the failure this exists to stop is a
-    # NON-English review getting a single English box, and the safe direction
-    # is an extra box on a review that did not need one.
+    # THE INGEST DEFAULT, DECIDED BY THE ONE SIGNAL WE HAVE FOR FREE.
+    #
+    # `"en"` and a blank both mean "nobody named the language" — but we do not
+    # have to leave it there, and we must not turn EVERY such review into two
+    # boxes: that made every genuinely English review (all of them carry the
+    # `"en"` default from ingest) draw a translate panel it did not need, which
+    # is the "responses are broken" a reader sees.
+    #
+    # `body_english` is written by the inbound step ONLY when it actually
+    # translated something — it answers ENGLISH_ALREADY for English and writes
+    # nothing. So body_english differing from body_original is positive, free
+    # evidence the review was NOT English, and body_english empty/equal is
+    # positive evidence it WAS. No model call, and it is right for every review
+    # except one whose inbound translation crashed (body_english empty on a
+    # non-English review) — which the detector then corrects on the next run.
     if not lang or lang.lower() in _NEVER_DETECTED:
-        return {"state": "unknown", "language": "",
-                "why": "the language of this review has not been established "
-                       "yet, so the reply has not been shown to be in the "
-                       "guest's language"}
+        if _was_translated_inbound(review):
+            # Translated on the way in, so not English, and the code did not
+            # name what it is — a Spanish review filed as "en" is exactly this.
+            # Two boxes, and the card resolves the language from body_original.
+            return {"state": "unknown", "language": "",
+                    "why": "this review was translated into English on the way "
+                           "in, so it is NOT English, and no language was "
+                           "recorded for it. The reply is kept in both boxes; "
+                           "the card names the guest's language from their own "
+                           "words so the reply can go out in it"}
+        # Nothing was translated inbound, so the review IS English. One box.
+        return {"state": "english", "language": "English",
+                "why": "the review was not translated on the way in, so it is "
+                       "in English and the reply goes out as written"}
     if lang.lower() in _MEANS_ENGLISH:
         if _was_translated_inbound(review):
             # A CONTRADICTION, RESOLVED TOWARDS TWO BOXES. The column says
