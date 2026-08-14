@@ -3982,6 +3982,15 @@ async def process_review(review_id: str, force_candidates: bool = False):
         _pol, _pol_why = policy_from_events(timeline or [])
         booking_to_save["cancellation_policy"] = _pol
         booking_to_save["cancellation_policy_note"] = "" if _pol else _pol_why
+
+        # The SP escalation email, resolved with provenance: the booking
+        # record's own field first, the warehouse ESCALATIONS contact next, and
+        # - the bug this closes - "we never fetched it" (not_fetched) kept
+        # distinct from "the SP has none" (none_found), so no card states a
+        # blank we never actually looked for. See ticket_notes.
+        from server.ticket_notes import resolve_sp_escalation_email
+        resolve_sp_escalation_email(booking_to_save,
+                                    zd_meta.get("timeline_raw", []))
         draft.booking              = booking_to_save
         draft.match_tier           = match_tier or _match.get("tier")
         draft.match_confidence     = _match.get("confidence")

@@ -2522,6 +2522,12 @@ async function loadDraftOverlays() {
         r.booking.isPartnered      = db.isPartnered ?? db.is_partnered ?? null;
         r.booking.escalationEmail  = db.escalationEmail || '';
         r.booking.escalationType   = db.escalationType || '';
+        // The provenance the server resolved: booking_record / vendor_escalations
+        // when an address was found, none_found when both sources were read and
+        // empty, not_fetched when a source was never consulted. Kept so the
+        // render can tell "the SP has none" from "we did not look" - the two
+        // used to render identically as "No".
+        r.booking.escalationEmailSource = db.escalationEmailSource || '';
         r.booking.contactCount     = db.contactCount ?? null;
         r.booking.contactTypes     = db.contactTypes || '';
 
@@ -3611,7 +3617,9 @@ function renderReviewCol() {
           b.escalationEmail
             ? `<a href="mailto:${b.escalationEmail}" style="color:var(--accent)">${b.escalationEmail}</a>`
               + (b.escalationType ? `<span class="tile-n"> · ${b.escalationType}</span>` : '')
-            : `<span class="pill-sm pill-grey">No</span>`}</span></div>
+            : b.escalationEmailSource === 'none_found'
+              ? `<span class="pill-sm pill-grey">None on record</span>`
+              : `<span class="placeholder">not retrieved</span>`}</span></div>
         <div class="detail-row"><span class="k">Booking status</span><span class="v">${b.status ? `<span class="booking-status-pill status-${b.status}">${b.status}</span>` : '—'}</span></div>
         <div class="detail-row"><span class="k">Lead time</span><span class="v">${b.leadTime || '—'}</span></div>
       </div>

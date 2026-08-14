@@ -282,6 +282,104 @@ def policy_from_events(events) -> tuple[str, str]:
                 f"cancellation terms")
 
 
+# ── the supply-partner escalation email ────────────────────────────────────
+#
+# The booking-info dump lists the SP's own contacts as labelled fields, and two
+# of them look almost alike:
+#   Booking Intimation Email  - where booking notifications go
+#   Booking Escalation Email  - where a formal SP escalation is sent
+# The escalation one is what an associate emails to raise a case with the
+# partner. It was NEVER read: booking["escalationEmail"] came only off BigQuery
+# dim_vendors (type ESCALATIONS), a different source, so a booking whose record
+# carries the email but whose vendor row has no ESCALATIONS contact reported it
+# blank - and the card then said "a formal SP escalation email could not be
+# sent", which was false.
+
+# The address only, and never the next label's value. A blank field followed by
+# "Booking Escalation Number:" must parse as blank, not swallow what comes
+# after - so the VALUE pattern requires an actual email, and the LABEL pattern
+# proves the field was there even when empty.
+# The email sub-pattern is the same one `_EMAIL` uses below; inlined because
+# `_EMAIL` is defined further down and this block reads earliest.
+_BOOKING_ESC_VALUE = re.compile(
+    r"Booking\s+Escalation\s+Email\s*:\s*([\w.+-]+@[\w-]+\.[\w.-]+)", re.I)
+_BOOKING_ESC_LABEL = re.compile(r"Booking\s+Escalation\s+Email\s*:", re.I)
+
+
+def booking_record_escalation_email(timeline_raw) -> tuple[str, str]:
+    """(email, state) for the SP escalation email as written on the booking-info
+    dump carried in `timeline_raw`.
+
+    state distinguishes four things a bare "" cannot, which is the whole point:
+      present - a Booking Escalation Email field with an address (email is set)
+      blank   - the field is on the record but empty (the SP has none there)
+      absent  - the record was read and carries no such field
+      no_text - there was no booking-info text to read it from at all
+
+    'blank'/'absent' are facts about the supply partner; 'no_text' is a gap on
+    our side. Merging them is the "ran and found nothing" vs "did not run" bug,
+    so they are returned apart.
+    """
+    texts = [str(t) for t in (timeline_raw or []) if t]
+    if not texts:
+        return "", "no_text"
+    saw_label = False
+    for t in texts:
+        m = _BOOKING_ESC_VALUE.search(t)
+        if m:
+            return m.group(1).strip().rstrip(".,;"), "present"
+        if _BOOKING_ESC_LABEL.search(t):
+            saw_label = True
+    return "", ("blank" if saw_label else "absent")
+
+
+def resolve_sp_escalation_email(booking: dict, timeline_raw) -> None:
+    """Set booking['escalationEmail'] and booking['escalationEmailSource'] by
+    precedence, in place.
+
+    Precedence: the booking record's own field FIRST, then the BigQuery
+    dim_vendors ESCALATIONS contact _get_booking_extra() attached, then none.
+
+    escalationEmailSource is the fix for the failure that prompted this:
+      booking_record     - read off the booking record's own field
+      vendor_escalations - the vendor's ESCALATIONS contact in dim_vendors
+      none_found         - BOTH sources were consulted and neither has an email
+      not_fetched        - a source was never consulted (the warehouse
+                           enrichment does not run on every match path, and it
+                           swallows errors into {}), so we DID NOT LOOK
+
+    'not_fetched' and 'none_found' must never collapse. "a formal SP escalation
+    email could not be sent" is only true for 'none_found'; on 'not_fetched' the
+    honest statement is that we did not retrieve it - our gap, not the SP's.
+    """
+    if not isinstance(booking, dict):
+        return
+    # Whether the warehouse enrichment ran, recorded BEFORE we overwrite the
+    # key. _get_booking_extra() always sets escalationEmail (even to "") and
+    # contactCount when it runs, and leaves both absent when it did not.
+    bq_ran   = ("escalationEmail" in booking) or ("contactCount" in booking)
+    bq_email = str(booking.get("escalationEmail") or "").strip()
+
+    rec_email, rec_state = booking_record_escalation_email(timeline_raw)
+    if rec_email:
+        booking["escalationEmail"]       = rec_email
+        booking["escalationEmailSource"] = "booking_record"
+        return
+    if bq_email:
+        booking["escalationEmail"]       = bq_email
+        booking["escalationEmailSource"] = "vendor_escalations"
+        return
+
+    booking["escalationEmail"] = ""
+    # none_found only when we actually looked in BOTH places. The record counts
+    # as read unless there was no text (no_text); the warehouse counts as read
+    # only if it ran. Anything short of both is not_fetched - the safe
+    # under-claim, so a blank is never asserted about a place we did not open.
+    record_read = rec_state != "no_text"
+    booking["escalationEmailSource"] = (
+        "none_found" if (bq_ran and record_read) else "not_fetched")
+
+
 # ── vendor names, phone numbers and addresses ──────────────────────────────
 #
 # The prompt tells the model to write "the supply partner" and never a trading

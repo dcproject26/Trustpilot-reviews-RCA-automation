@@ -1255,6 +1255,11 @@ THE TEAMS, so you attribute correctly:
 - SP (Supply Partner): the vendor. Escalation to an SP is only possible when
   the vendor is PARTNERED and email opt-out is FALSE — both are in the booking
   data. A blocked escalation is a fact to state, not a miss.
+  When the booking has no escalation email, read `escalation_email_status`
+  before writing anything about it: "NOT retrieved" means we did not fetch it
+  (our gap) — do NOT write that the SP has no escalation email, that the field
+  is blank, or that a formal SP escalation could not be sent. Only state the SP
+  has none when the status says it was checked and none is on record.
 
 WHERE FACTS LIVE — the only sources you may verify against, routed by claim.
 Each maps to a `source` value used in `evidence[]`:
@@ -2548,6 +2553,25 @@ def _readable_booking(bk: dict) -> dict:
         if pretty and pretty not in ("unknown", "unreadable timestamp") \
                 and pretty != str(v):
             out[k] = pretty
+
+    # The SP escalation email, said in words the model cannot misread. When we
+    # have an address the model gets it as-is. When we do not, an empty
+    # "escalationEmail" read to the model as "the supply partner has none" —
+    # true only for none_found. not_fetched is OUR gap (the warehouse
+    # enrichment does not run on every match path and swallows errors), and a
+    # finding that the SP could not be emailed is wrong there. Converted here,
+    # not left to an instruction, for the reason the dates are: an instruction
+    # can be ignored, a value cannot. The enum itself is dropped — it is for the
+    # code and the UI, not for the model to interpret.
+    _src = out.pop("escalationEmailSource", "")
+    if _src and not str(out.get("escalationEmail") or "").strip():
+        out["escalation_email_status"] = {
+            "none_found":  "checked the booking record and the vendor contacts; "
+                           "the supply partner has no escalation email on record",
+            "not_fetched": "NOT retrieved on this run — a gap on our side, NOT "
+                           "evidence the supply partner lacks one; do not state "
+                           "the escalation email is blank or missing",
+        }.get(_src, "")
     return out
 
 
