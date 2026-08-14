@@ -140,6 +140,19 @@ def test_evidence_for_a_guest_claim_is_kept_even_if_it_restates_the_timeline():
     assert rows[0]["backs_claim"] == 0
 
 
+def test_a_short_finding_that_adds_a_judgement_is_not_a_restatement():
+    """THE FALSE POSITIVE THAT SET THE THRESHOLD.
+
+    "Booking confirmed email sent late" reuses the words it needs to name the
+    event, so containment (which divides by the SMALLER set) scores it 0.80
+    against the long timeline row. But "late" is the whole finding and the
+    timeline never says it. At the first threshold of 0.7 this row was DELETED.
+    """
+    rows = _case_findings(
+        [{"text": "Booking confirmed email sent late"}], [], [], events=EVENTS)
+    assert _texts(rows) == ["Booking confirmed email sent late"]
+
+
 def test_no_events_means_nothing_is_dropped_as_a_restatement():
     # A missing timeline must not read as "everything is a duplicate".
     rows = _case_findings([

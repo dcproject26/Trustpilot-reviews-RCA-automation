@@ -1486,11 +1486,27 @@ def _split_leading_time(text) -> tuple:
 # carrying `backs_claim` is doing the second of §1's two jobs — settling
 # something the guest said — and the timeline cannot do that job for it.
 #
-# 0.7 containment, not the 0.6 used between findings: these are near-verbatim
-# copies (measured on tp_1785752933_701109, where four evidence rows reproduce
-# their timeline summaries word for word), so the bar can sit above the level
-# where two different events on one booking start to look alike.
-_TIMELINE_RESTATEMENT_OVERLAP = 0.7
+# 0.85, AND IT WAS MEASURED RATHER THAN CHOSEN. Set to 0.7 first by eye, which
+# was wrong for the reason this file keeps rediscovering. Scored on
+# tp_1785752933_701109 against its real timeline:
+#
+#   1.00  "Automated Selenium run attempted ticket retrieval…"   verbatim copy
+#   1.00  "Booking confirmed email sent to guest with tickets…"  verbatim copy
+#   0.93  "Automated email sent to guest confirming booking…"    verbatim copy
+#   0.80  "Booking confirmed email sent late"                    A REAL FINDING
+#   0.50  "Tickets were never delivered before the visit"        real
+#   0.30  "The guest was not told before paying…"                real
+#   0.25  "Guest reached out asking for immediate delivery…"     real
+#
+# The 0.80 row is the one that matters and it is why 0.7 could not stand: its
+# words ARE a subset of a long timeline event, but "late" is the entire finding
+# and the timeline never says it. Containment divides by the SMALLER set, so a
+# short finding that adds a judgement to a long event scores high on the words
+# it had to reuse to name the event at all. At 0.7 that row was deleted.
+#
+# The copies sit at 0.93 and above, the nearest false positive at 0.80, so the
+# bar goes in the gap between them. Nothing below near-verbatim is dropped.
+_TIMELINE_RESTATEMENT_OVERLAP = 0.85
 
 
 def _event_token_sets(events) -> list:
