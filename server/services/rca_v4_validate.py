@@ -960,7 +960,10 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
     # SOP gaps, improvements, DSS misses — are NOT lost. Each already renders
     # in its own section, and routing them here as well is what put one
     # remediation on a card twice.
-    _findings = _case_findings(wwr.get("case_findings"), issues, notes)
+    # `events` is the real timeline rendered above §1 on the same card, so a
+    # finding that restates one is a duplicate the reader can still see — it is
+    # the only source here that can be compared against rather than guessed at.
+    _findings = _case_findings(wwr.get("case_findings"), issues, notes, events)
     _fixes = _fix_rows(wwr.get("fixes"), issues, notes)
     _actions, _ar = actions_from_gaps(wwr.get("gaps"), keep=keep_actions)
     notes.extend(_ar["notes"])
@@ -1414,7 +1417,107 @@ def absent_source_findings(rows) -> list:
     return out
 
 
-def _case_findings(raw, issues, notes) -> list:
+# A CLOCK TIME BELONGS TO THE EVENTS TIMELINE, NOT TO §1's TEXT.
+#
+# The card renders a finding's `text` and its `ref` — never `time`, which is
+# carried only to order the section. But the model writes the timestamp INSIDE
+# the text anyway, and then the clock is on the card through the back door:
+#
+#     "22 Jul 15:28 IST — 'Automated Selenium run attempted ticket retrieval'"
+#
+# which is a timeline row wearing a finding's clothes. Split here rather than
+# asked for in the prompt, for the reason the dates and the vendor scrub are:
+# an instruction can be ignored, a transform cannot.
+#
+# THE TIME IS NOT DISCARDED. It moves into `time`, where it orders the row —
+# so a finding whose clock was trapped in its prose stops sinking to the end as
+# undated. One transform fixes the noise and the ordering together.
+_LEADING_TIME = re.compile(
+    r"^\s*(?:\[[a-z_ -]{2,20}\]\s*)?"          # an optional [timeline] marker
+    r"("
+    r"\d{1,2}\s+[A-Za-z]{3}[a-z]*(?:\s+\d{1,2}:\d{2})?"   # 22 Jul 15:28
+    r"|\d{4}-\d{2}-\d{2}(?:[T ]\d{1,2}:\d{2})?"           # 2026-07-22 15:28
+    r")"
+    r"(?:\s*(?:IST|UTC|GMT))?"
+    r"\s*(?:[—–\-]{1,2}|:)\s*", re.I)
+
+
+def _split_leading_time(text) -> tuple:
+    """(text with its leading clock time removed, that time as a string).
+
+    Returns the text UNCHANGED when stripping would leave nothing worth
+    rendering — a row that is only a timestamp is not improved by deleting its
+    only content, and a finding must never be emptied by a cosmetic rule.
+    """
+    s = " ".join(str(text or "").split())
+    m = _LEADING_TIME.match(s)
+    if not m:
+        return s, ""
+    rest = s[m.end():].strip()
+    # The model often quotes the restated event; the quotes go with the prefix.
+    if len(rest) > 1 and rest[0] == rest[-1] and rest[0] in "\"'":
+        rest = rest[1:-1].strip()
+    # Only refuse when stripping would leave nothing to read. An earlier bar of
+    # three tokens was too greedy: "22 Jul 15:50 — Guest was refunded" kept its
+    # clock AND stayed undated, so a short, real finding was punished twice for
+    # being brief.
+    if not _tokens(rest):
+        return s, ""
+    return rest, m.group(1).strip()
+
+
+# A FINDING THAT RESTATES A ROW ALREADY ON THE EVENTS TIMELINE.
+#
+# The prompt's own test: "could this line sit on the events timeline with a
+# clock time next to it? Then it IS a timeline row — leave it there." Cards
+# came back with §1 holding eight rows that were the timeline again, and the
+# reader cannot tell which copy is the record.
+#
+# WHY THIS ONE MAY DROP WHERE THE WORDING RULES MAY NOT. Every other fold in
+# this file compares findings to EACH OTHER, so a false positive deletes a fact
+# that then exists nowhere — which is why `_EVIDENCE_FOLD_OVERLAP` sits high
+# and `_ABSENT_SOURCE` only ever counts. This compares a finding to the REAL
+# events timeline that is rendered directly above it on the same card. A row
+# that matches is not lost by being dropped: it is still on screen, in the
+# section whose whole job is to carry it, with its clock time. That makes the
+# cost of a false positive a duplicate removed, not evidence destroyed.
+#
+# EVIDENCE FOR A GUEST'S CLAIM IS NEVER DROPPED, whatever it restates. A row
+# carrying `backs_claim` is doing the second of §1's two jobs — settling
+# something the guest said — and the timeline cannot do that job for it.
+#
+# 0.7 containment, not the 0.6 used between findings: these are near-verbatim
+# copies (measured on tp_1785752933_701109, where four evidence rows reproduce
+# their timeline summaries word for word), so the bar can sit above the level
+# where two different events on one booking start to look alike.
+_TIMELINE_RESTATEMENT_OVERLAP = 0.7
+
+
+def _event_token_sets(events) -> list:
+    """Token sets for the timeline rows §1 must not restate."""
+    out = []
+    for e in (events or []):
+        if not isinstance(e, dict):
+            continue
+        txt = " ".join(str(e.get(k) or "") for k in ("summary", "label"))
+        got = _tokens(txt)
+        if len(got) >= 4:
+            out.append(got)
+    return out
+
+
+def _restates_an_event(text, event_token_sets) -> bool:
+    """Is this finding a row the events timeline already carries?"""
+    want = _tokens(text)
+    if len(want) < 4:
+        return False
+    for got in event_token_sets:
+        if len(want & got) / min(len(want), len(got)) >= _TIMELINE_RESTATEMENT_OVERLAP:
+            return True
+    return False
+
+
+def _case_findings(raw, issues, notes, events=None) -> list:
     """§1: the booking's story, evidenced — one ordered, deduplicated list.
 
     THE EVIDENCE ROWS MOVE HERE. They were per-issue, so a fact cited by two
@@ -1432,11 +1535,30 @@ def _case_findings(raw, issues, notes) -> list:
     """
     rows, seen, token_sets = [], set(), []
     collapsed = 0
+    _events = _event_token_sets(events)
+    restated = detimed = 0
 
     def _add(text, source, time, why, ref=None, backs=None):
-        nonlocal collapsed
+        nonlocal collapsed, restated, detimed
         text = _clean(text)
         if not text:
+            return
+        # THE CLOCK COMES OFF THE TEXT AND GOES INTO THE ORDER. §1 renders no
+        # time, so a timestamp in the prose is the events timeline leaking onto
+        # this section; kept as `time` it does the one job it is good for —
+        # putting this row in the right place. Chronology preserved, clock
+        # removed from the card.
+        _stripped, _found_time = _split_leading_time(text)
+        if _found_time:
+            text = _stripped
+            detimed += 1
+            if not _clean(time):
+                time = _found_time
+        # A ROW THE EVENTS TIMELINE ALREADY CARRIES, unless it settles a guest's
+        # claim. Dropped rather than counted-and-kept because the row is not
+        # lost: it is on the same card, in the timeline, with its clock.
+        if backs is None and _restates_an_event(text, _events):
+            restated += 1
             return
         key = _case_finding_key(text)
         if not key or key in seen:
@@ -1580,6 +1702,16 @@ def _case_findings(raw, issues, notes) -> list:
     if collapsed:
         notes.append(f"{collapsed} case finding(s) repeated a point already "
                      f"in the list in different words and were collapsed")
+    if restated:
+        notes.append(f"{restated} case finding(s) restated a row the events "
+                     f"timeline already carries and were dropped from §1 — "
+                     f"they remain on the timeline, with their clock time, "
+                     f"which is the section whose job it is to carry them")
+    if detimed:
+        notes.append(f"{detimed} case finding(s) carried a clock time in their "
+                     f"text — moved into the ordering key, so the section still "
+                     f"reads in the order things happened without repeating the "
+                     f"timeline's clock on the card")
 
     # Rows carrying a time lead, in time order; the rest keep the order they
     # were written in. `sorted` is stable, so an undated row never jumps.
