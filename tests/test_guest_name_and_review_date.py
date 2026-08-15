@@ -8,6 +8,7 @@ import pytest
 from datetime import datetime
 
 from scripts.backfill_received_at import classify, slack_time
+from tests.conftest import read_source
 
 
 # ── the guest name: the warehouse writes primary_guest_name ────────────────
@@ -66,7 +67,7 @@ def test_the_client_no_longer_re_derives_the_name():
     (`length <= 20 || contains a space`) beside three server-side copies of
     the same rule. They disagreed, which is why the name looked intermittent
     rather than simply absent."""
-    src = open("client/index.html").read()
+    src = read_source("client/index.html")
     assert "rawGuest.length <= 20" not in src, \
         "the client's own hash heuristic is back"
     assert "draft.guest_name" in src, \
@@ -79,7 +80,7 @@ def test_the_prompt_no_longer_orders_the_review_last():
     """NEGATIVE source assertion on the prompt text. Rule 6 said "Review
     posted last" while the bookend rule twenty lines up said "NOT necessarily
     last". A review published BEFORE a later CE reply then rendered after it."""
-    src = open("server/prompts.py").read()
+    src = read_source("server/prompts.py")
     assert "events as given, Review posted last" not in src
 
 
@@ -87,7 +88,7 @@ def test_the_actor_rule_no_longer_hands_back_a_closed_vocabulary():
     """NEGATIVE source assertion. The descriptive-labels rule was cancelled
     twenty lines later by an actor rule prefaced "outranks all of this" that
     prescribed the exact six nouns the table forbids."""
-    src = open("server/prompts.py").read()
+    src = read_source("server/prompts.py")
     assert 'actor "co"      -> "CE response"' not in src
     assert 'actor "sp"      -> "SP response"' not in src
 
@@ -168,7 +169,7 @@ def test_the_backfill_runs_as_a_program(tmp_path):
                    capture_output=True)
 
     dry = subprocess.run([sys.executable, "scripts/backfill_received_at.py"],
-                         env=env, capture_output=True, text=True)
+                         env=env, capture_output=True, text=True, encoding="utf-8")
     assert dry.returncode == 0, dry.stderr[-800:]
     assert "1 review(s) examined" in dry.stdout, dry.stdout
     assert "dry run — nothing written" in dry.stdout, dry.stdout
@@ -186,9 +187,33 @@ def test_the_backfill_runs_as_a_program(tmp_path):
 
     hot = subprocess.run(
         [sys.executable, "scripts/backfill_received_at.py", "--apply"],
-        env=env, capture_output=True, text=True)
+        env=env, capture_output=True, text=True, encoding="utf-8")
     assert hot.returncode == 0, hot.stderr[-800:]
     assert "dry run" not in hot.stdout, hot.stdout
     after = subprocess.run([sys.executable, "-c", read], env=env,
                            capture_output=True, text=True).stdout.strip()
     assert after.startswith("2025-07-26"), (before, after)
+
+
+def test_the_backfill_report_is_utf8_on_a_cp1252_stdout(tmp_path):
+    """The report prints em dashes. Left to a cp1252 stdout — the Windows
+    default the reader hits — the bytes are not utf-8, and a reader (or a caller
+    decoding utf-8) sees mojibake instead of the line. Force the child's stdout
+    to cp1252 and the report must STILL arrive as utf-8, because main()
+    reconfigures stdout. Without that line, the em-dash line comes back as
+    cp1252 bytes and this utf-8 read cannot recover it."""
+    import os
+    import subprocess
+    import sys
+
+    db = tmp_path / "t.db"
+    env = dict(os.environ, DATABASE_URL=f"sqlite:///{db}",
+               PYTHONIOENCODING="cp1252")
+    subprocess.run(
+        [sys.executable, "-c",
+         "import sys; sys.path.insert(0, '.'); import server.db as db; db.init_db()"],
+        check=True, env=env, capture_output=True)
+    r = subprocess.run([sys.executable, "scripts/backfill_received_at.py"],
+                       env=env, capture_output=True, text=True, encoding="utf-8")
+    assert r.returncode == 0, r.stderr[-800:]
+    assert "dry run — nothing written" in r.stdout, r.stdout

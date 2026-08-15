@@ -16,6 +16,7 @@ and "no ticket event states the terms" send a reader to different places.
 import pytest
 
 from server.ticket_notes import cancellation_policy, policy_from_events
+from tests.conftest import read_source
 
 
 @pytest.mark.parametrize("text,want", [
@@ -115,7 +116,7 @@ def test_the_cancellation_row_is_not_rendered_for_now():
     unreachability cannot defeat "this string appears nowhere" — and this is
     client-side JavaScript with no harness besides.
     """
-    src = open("client/index.html").read()
+    src = read_source("client/index.html")
     assert 'Cancellation</span>' not in src, \
         "the Cancellation row is back on the booking card"
 
@@ -125,7 +126,7 @@ def test_the_value_is_still_computed_and_still_reaches_the_client():
     the value still runs, so restoring it later is putting one row back rather
     than rebuilding this file — and a computation with no consumer would
     otherwise rot silently until someone tried."""
-    src = open("client/index.html").read()
+    src = read_source("client/index.html")
     assert "cancellationPolicy" in src, \
         "the client stopped carrying the value, so restoring the row would " \
         "mean rebuilding the pipeline for it"

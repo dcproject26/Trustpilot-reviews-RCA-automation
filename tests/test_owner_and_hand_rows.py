@@ -24,6 +24,7 @@ import pytest
 from server.checklist import actions_raised, actions_for, _ALL_GUIDELINE_ACTIONS
 from server.services.rca_v4_validate import OWNERS, _fix_obj
 from server.taxonomy import ACTION_TABS
+from tests.conftest import read_source
 
 
 # ── fix.owner speaks the nine ──────────────────────────────────────────────
@@ -72,7 +73,7 @@ def test_the_prompt_asks_for_the_same_nine():
     every draft arrives needing translation. Negative-ish assertion: the two
     retired names must not still be offered."""
     import pathlib
-    schema = pathlib.Path("server/prompts.py").read_text()
+    schema = read_source("server/prompts.py")
     i = schema.find('"owner":    "<')
     line = schema[i:i + 200]
     assert "GUEST" in line and "FINANCE" in line, line

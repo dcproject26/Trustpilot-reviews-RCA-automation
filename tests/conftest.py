@@ -6,11 +6,37 @@ line has become unreachable. Driving process_review against a throwaway SQLite
 database costs a second and cannot pass for that reason.
 """
 import os
+import pathlib
 import signal
 import tempfile
 import time
 
 import pytest
+from fastapi.testclient import TestClient
+
+
+def read_source(path) -> str:
+    """Read a source file for a content assertion — on Windows as well as POSIX.
+
+    `open(path).read()` and `pathlib.Path(path).read_text()` both default to the
+    platform's locale encoding: utf-8 on Linux, cp1252 on Windows. Every source
+    file here that carries a non-ASCII byte — the em dash in client/index.html,
+    the box-drawing run in a prompt — then raises UnicodeDecodeError at READ
+    time on Windows, before the assertion it was guarding ever runs. That is how
+    a suite that is green on Linux came back with two dozen errors on a Windows
+    checkout of byte-for-byte identical files. Reading utf-8 explicitly is the
+    whole fix, and it is why the reads route through here rather than each
+    growing its own `encoding=` argument that the next one will forget.
+
+    Newlines need no handling: text mode already folds CRLF to "\\n" on read
+    (universal newlines), so a `core.autocrlf` Windows checkout reads the same
+    "\\n"-joined string a Linux checkout does. Encoding was the only real
+    platform difference; CRLF was a red herring.
+
+    Accepts a str or a Path so a globbed `Path` reads the same way a literal
+    path does.
+    """
+    return pathlib.Path(path).read_text(encoding="utf-8")
 
 
 def drop_temp_db(path) -> bool:
@@ -139,6 +165,43 @@ def live_db(monkeypatch):
     db.init_db()
     yield db
     drop_temp_db(tmp.name)
+
+
+@pytest.fixture()
+def client(live_db):
+    """A TestClient whose app is bound to THIS test's `live_db`.
+
+    `server/main.py` binds `init_db`/`SessionLocal` BY VALUE at import
+    (`from server.db import init_db, SessionLocal, ...`), and `app` is a module
+    singleton. So once any earlier module reloads `server.db` and then reloads
+    `server.main` — `test_dss_is_correctable` does exactly this to exercise the
+    edit endpoint — the cached `app` is left pointing at THAT module's database.
+    A later test that just did `from server.main import app` would inherit it,
+    and the app's lifespan then runs `init_db()` and the mock-seed count against
+    a database this test never populated: `sqlite3.OperationalError: no such
+    table: reviews` at `TestClient(app).__enter__`, an ERROR at setup that only
+    appears in a full run and never in isolation.
+
+    So reload `server.api` and `server.main` here, AFTER `live_db` has reloaded
+    `server.db` onto its own throwaway file. That rebinds the singleton to the
+    same freshly-created database `live_db.SessionLocal()` uses — the identical
+    reload sequence the passing standalone test already relies on — instead of
+    whatever the previous module happened to leave behind. Isolation the fixture
+    owns, rather than isolation that depends on running first.
+    """
+    import importlib
+    import sys
+    for name in ("server.api", "server.main"):
+        if name in sys.modules:
+            importlib.reload(sys.modules[name])
+    from server.main import app
+    from server.db import get_session
+    app.dependency_overrides[get_session] = lambda: live_db.SessionLocal()
+    try:
+        with TestClient(app) as c:
+            yield c
+    finally:
+        app.dependency_overrides.clear()
 
 
 # ── the browser-driven UI tests ────────────────────────────────────────────

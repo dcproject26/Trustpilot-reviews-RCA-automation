@@ -7,6 +7,7 @@ import re
 from datetime import datetime
 
 from server.services.zendesk import _clip
+from tests.conftest import read_source
 
 
 # ── 1. the label cap fired on every descriptive label ──────────────────────
@@ -66,7 +67,7 @@ def test_the_review_timestamp_keeps_its_clock_time():
 
     NEGATIVE source assertion — client-side ordering has no harness here, and
     unreachability cannot defeat "this string appears nowhere"."""
-    src = open("server/pipeline.py").read()
+    src = read_source("server/pipeline.py")
     i = src.index("_zd_pub_date  = ")
     line = src[i:i + 200]
     assert '"%Y-%m-%d %H:%M"' in line, line
@@ -76,7 +77,7 @@ def test_the_review_timestamp_keeps_its_clock_time():
 def test_the_bigquery_date_parameter_stays_a_date():
     """The OTHER copy is a BigQuery date param and must not grow a time —
     they are two different facts that happen to share a source."""
-    src = open("server/pipeline.py").read()
+    src = read_source("server/pipeline.py")
     i = src.index("pub_date = (review.received_at")
     assert '.strftime("%Y-%m-%d")' in src[i:i + 120], src[i:i + 120]
 

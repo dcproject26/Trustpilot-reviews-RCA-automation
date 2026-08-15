@@ -12,6 +12,8 @@ client-side test files with no harness of their own.
 import pathlib
 import re
 
+from tests.conftest import read_source
+
 FILES = sorted(pathlib.Path("tests").glob("test_*.py"))
 
 
@@ -22,7 +24,7 @@ def _browser_files():
     # This file names both patterns in order to describe them, so it cannot
     # scan itself without always failing.
     return [f for f in FILES
-            if f.name != SELF and "(page)" in f.read_text()]
+            if f.name != SELF and "(page)" in read_source(f)]
 
 
 def test_no_browser_test_waits_for_networkidle():
@@ -31,7 +33,7 @@ def test_no_browser_test_waits_for_networkidle():
     un-timeout-able evaluate it wedges the run outright. Wait for the element
     the test actually needs."""
     bad = [f.name for f in FILES
-           if f.name != SELF and 'wait_until="networkidle"' in f.read_text()]
+           if f.name != SELF and 'wait_until="networkidle"' in read_source(f)]
     assert not bad, (
         f"{bad} wait on networkidle. Use wait_until='load' plus an explicit "
         f"wait_for_selector for the thing the test needs.")
@@ -45,7 +47,7 @@ def test_no_test_awaits_an_async_client_function_through_evaluate():
     Wrap the call in braces so the arrow returns undefined:
     `page.evaluate("() => { someAsyncFn(); }")`, and wait explicitly.
     """
-    src = pathlib.Path("client/index.html").read_text()
+    src = read_source("client/index.html")
     async_fns = set(re.findall(r"async function ([A-Za-z_$][\w$]*)", src))
     assert async_fns, "no async client functions found — the scan is broken"
 
@@ -57,7 +59,7 @@ def test_no_test_awaits_an_async_client_function_through_evaluate():
     offenders = []
     for f in _browser_files():
         try:
-            tree = ast.parse(f.read_text())
+            tree = ast.parse(read_source(f))
         except SyntaxError:
             continue
         for node in ast.walk(tree):
@@ -80,7 +82,7 @@ def test_no_test_awaits_an_async_client_function_through_evaluate():
 def test_the_scan_would_actually_catch_one():
     """A guard that cannot fail is the thing this repo keeps shipping. Prove
     the matcher fires on the exact line that caused the stall."""
-    src = pathlib.Path("client/index.html").read_text()
+    src = read_source("client/index.html")
     async_fns = set(re.findall(r"async function ([A-Za-z_$][\w$]*)", src))
     assert "refreshAfterScenarioChange" in async_fns, \
         "the function that caused the stall is no longer async — update this"

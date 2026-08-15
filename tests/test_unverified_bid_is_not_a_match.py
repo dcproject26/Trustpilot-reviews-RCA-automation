@@ -30,6 +30,8 @@ the condition is the thing that was wrong, so the condition is what is tested.
 """
 import pytest
 
+from tests.conftest import read_source
+
 
 def _floor_fires(booking, candidate_state, reference_number, bid_source, bq_live):
     """The floor's condition, as the pipeline now evaluates it.
@@ -93,8 +95,7 @@ def test_the_floor_claims_tier_two_not_tier_one():
     the warehouse was never asked. Read off the source because the value is a
     literal in a branch that needs a live BigQuery outage to reach.
     """
-    import pathlib
-    src = pathlib.Path("server/pipeline.py").read_text()
+    src = read_source("server/pipeline.py")
     i = src.find("_bq_could_not_be_asked = not is_live")
     assert i > 0, "the floor's guard is gone — the condition above is untested"
     block = src[i:i + 2200]
@@ -107,8 +108,7 @@ def test_the_trail_does_not_call_an_unchecked_id_verified():
     """Negative assertion, which unreachability cannot defeat: the old
     sentence said "NOT verified", which reads as "we checked and it failed".
     Nothing was checked."""
-    import pathlib
-    src = pathlib.Path("server/pipeline.py").read_text()
+    src = read_source("server/pipeline.py")
     i = src.find("_bq_could_not_be_asked = not is_live")
     block = src[i:i + 2200]
     assert "and NOT checked" in block, block[:400]
@@ -122,7 +122,6 @@ def test_the_trail_does_not_call_an_unchecked_id_verified():
 def test_untraceable_names_both_failures():
     """A denied id and an indicator search that found nothing are different
     facts. Reporting only the first reads as though nothing else was tried."""
-    import pathlib
-    src = pathlib.Path("server/pipeline.py").read_text()
+    src = read_source("server/pipeline.py")
     assert "so it is not a match. The indicator search" in src
     assert "had no usable venue, date or name" in src

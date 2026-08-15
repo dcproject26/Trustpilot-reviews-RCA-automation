@@ -17,6 +17,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tests.test_tier_sorting import CASES   # noqa: E402
+from tests.conftest import read_source       # noqa: E402
 
 
 def _fn(html: str, name: str) -> str:
@@ -34,8 +35,8 @@ def _client_fallback_source() -> str:
     straight into a ReferenceError, which is a truthful failure and not the
     one this file is about.
     """
-    html = open(os.path.join(os.path.dirname(__file__), "..",
-                             "client", "index.html")).read()
+    html = read_source(os.path.join(os.path.dirname(__file__), "..",
+                                    "client", "index.html"))
     return _fn(html, "_matchBucket") + "\n" + _fn(html, "_bucketFallback")
 
 
@@ -74,7 +75,7 @@ def test_client_fallback_matches_the_server_rule():
 def test_the_api_sends_every_fact_the_fallback_needs():
     """If the payload stops carrying one of these, the fallback silently
     degrades to guessing."""
-    api = open(os.path.join(os.path.dirname(__file__), "..", "server", "api.py")).read()
+    api = read_source(os.path.join(os.path.dirname(__file__), "..", "server", "api.py"))
     for field in ('"bucket"', '"has_booking"', '"has_candidates"', '"confirmed"',
                   '"tier_label"', '"unverified"', '"has_draft"',
                   '"processing_state"'):

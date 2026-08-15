@@ -8,18 +8,11 @@ Driven through the real endpoints, because "it saves" is a claim about a
 request and nothing else can check it.
 """
 import pytest
-from fastapi.testclient import TestClient
 
-
-@pytest.fixture()
-def client(live_db):
-    from server.main import app
-    from server.db import get_session
-    app.dependency_overrides[get_session] = lambda: live_db.SessionLocal()
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
-
+# `client` (a TestClient bound to this test's live_db) is defined in
+# tests/conftest.py. It was duplicated here and in test_gaps_survive_storage.py,
+# and neither copy rebound the app singleton after an earlier module reloaded
+# server.main — so both errored at setup in a full run. One fixture, one fix.
 
 V3 = {"what_went_wrong": {
         "guest_issues": [{"issue": "Tickets late", "claim": "two hours",

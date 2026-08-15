@@ -20,7 +20,6 @@ containing gaps in the same request: the value never makes a round trip
 through the database, which is the only place it was being lost.
 """
 import pytest
-from fastapi.testclient import TestClient
 
 from server.services.rca_v4_validate import validate
 from server.checklist import hand_typed_actions, actions_from_gaps
@@ -141,14 +140,8 @@ def test_an_empty_column_needs_no_note_either_way():
 
 # ── driven through the endpoint, because that is where it was lost ─────────
 
-@pytest.fixture()
-def client(live_db):
-    from server.main import app
-    from server.db import get_session
-    app.dependency_overrides[get_session] = lambda: live_db.SessionLocal()
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
+# `client` is the shared fixture in tests/conftest.py — it rebinds the app
+# singleton to this test's live_db, which the copy that stood here did not.
 
 
 def test_a_patch_rebuilds_the_tab_from_gaps_it_stored_earlier(live_db, client):

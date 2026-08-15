@@ -7,6 +7,7 @@ matching being wrong.
 import pytest
 
 from server.api import _looks_like_hash, _scrub_candidate_names
+from tests.conftest import read_source
 
 B64 = "jVwe+fjfm48WSok1xEK+I/8fnIoV+kY8P8z7xxk+NM8="
 HEX = "a3f9c2e7b1d84f60a9c2"
@@ -83,7 +84,7 @@ def test_the_client_carries_every_score_term():
     stated exception. The remap builds a fixed shape and drops anything not
     named in it; it carried venue and date only, so the card printed two terms
     of a five-term sum and the order looked inverted."""
-    src = open("client/index.html").read()
+    src = read_source("client/index.html")
     i = src.index("r.candidatesList = draft.candidates_list.map(c => ({")
     remap = src[i:src.index("}));", i)]   # to the end of the block, not a fixed slice
     for field in ("score_ticket", "score_both", "score_name"):
@@ -92,7 +93,7 @@ def test_the_client_carries_every_score_term():
 
 def test_the_two_term_label_is_gone():
     """NEGATIVE assertion — unreachability cannot defeat it."""
-    src = open("client/index.html").read()
+    src = read_source("client/index.html")
     assert "venue ${c.scoreVenue} + date ${c.scoreDate}" not in src
 
 
@@ -100,7 +101,7 @@ def test_the_banner_no_longer_claims_date_only_ranking():
     """It said "Ranked by visit-date proximity only" while the sort was the
     full five-term score. By the rule the banner claimed, the ordering on
     screen genuinely was wrong."""
-    src = open("client/index.html").read()
+    src = read_source("client/index.html")
     assert "Ranked by visit-date proximity only" not in src
     assert "Ranked on the whole match score" in src
 
@@ -113,7 +114,7 @@ def test_the_score_helper_names_all_five_terms():
     deleting one from the helper survived the rest of this file. The ranking
     is pipeline._score = venue + date + ticket + both + name; the label has to
     be able to name each one."""
-    src = open("client/index.html").read()
+    src = read_source("client/index.html")
     i = src.index("function _candScore(c) {")
     helper = src[i:src.index("\nfunction ", i + 10)]
     for term in ("scoreVenue", "scoreDate", "scoreTicket", "scoreBoth",

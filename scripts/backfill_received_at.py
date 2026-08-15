@@ -82,6 +82,13 @@ def classify(received_at, slack_ts, tolerance_s=90):
 
 
 def main(argv=None):
+    # The report prints em dashes. On a cp1252 stdout (a Windows console, or a
+    # pipe on Windows) those bytes are ambiguous or unencodable; force utf-8 so
+    # the output is identical on every platform. A no-op where stdout is already
+    # utf-8.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true",
                     help="write the changes (default is a dry report)")

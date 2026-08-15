@@ -126,7 +126,8 @@ def test_a_sent_review_is_never_bulk_reprocessed():
     went to the guest, and flipping its status back to draft, would drag it out
     of Sent as if nothing had been sent."""
     import server.api as api
-    src = open(api.__file__).read()
+    from tests.conftest import read_source
+    src = read_source(api.__file__)
     i = src.index("if scope == \"incomplete\":")
     block = src[i:i + 500]
     assert 'r.status == "sent"' in block, (
@@ -135,7 +136,8 @@ def test_a_sent_review_is_never_bulk_reprocessed():
 
 def test_the_pipeline_does_not_downgrade_a_sent_review():
     import server.pipeline as P
-    src = open(P.__file__).read()
+    from tests.conftest import read_source
+    src = read_source(P.__file__)
     assert 'if review.status != "sent":' in src, (
         "a re-run sets status back to draft unconditionally, which pulls a "
         "sent review out of the Sent tab")

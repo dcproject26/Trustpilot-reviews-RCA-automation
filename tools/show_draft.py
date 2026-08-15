@@ -145,6 +145,15 @@ def _enum_problems(rca):
 
 
 def main():
+    # This tool prints box-drawing rules and em dashes. Piped or run in a
+    # Windows console, `sys.stdout` defaults to cp1252, which has no `─`: the
+    # first such print raises UnicodeEncodeError and the tool dies mid-audit
+    # rather than showing the draft it was asked for. Force utf-8 so the output
+    # is the same bytes on every platform — a no-op where stdout is already
+    # utf-8 (Linux, the Replit shell), the fix where it is not.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser()
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--review", help="review id")

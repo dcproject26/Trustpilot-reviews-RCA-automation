@@ -15,6 +15,7 @@ import pytest
 
 from server.services.wwr_post import compose
 from server.services.rca_v4_validate import validate
+from tests.conftest import read_source
 
 ISSUE = {"issue": "Tickets arrived late", "claim": "They came two hours late",
          "claim_accuracy": "Accurate", "root_cause": "The run failed silently"}
@@ -189,12 +190,12 @@ def test_area_of_improvement_is_off_the_card_but_still_in_the_post():
     The card half is a NEGATIVE source assertion — client-side JS with no
     harness, CLAUDE.md's stated exception.
     """
-    src = open("client/index.html").read()
+    src = read_source("client/index.html")
     assert '<span>Area of improvement</span>' not in src, \
         "the Area of improvement card is back"
     import inspect
     import server.services.rca_v4_validate as v
     assert "_improvements(" in inspect.getsource(v.validate), \
         "the backend stopped deriving improvement points"
-    assert "area_of_improving" in open("server/services/slack.py").read(), \
+    assert "area_of_improving" in read_source("server/services/slack.py"), \
         "the points stopped reaching the Slack post"

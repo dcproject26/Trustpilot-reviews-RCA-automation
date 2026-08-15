@@ -89,8 +89,12 @@ def seeded(monkeypatch):
 
 def _run(url, *args):
     env = dict(os.environ, DATABASE_URL=url)
+    # show_draft.py emits utf-8 (box rules, em dashes). `text=True` alone decodes
+    # with the parent's locale encoding — cp1252 on Windows — turning "──" into
+    # "â”€â”€" and every trail assertion into a false failure. Decode utf-8 to
+    # match what the tool emits, on either platform.
     r = subprocess.run([sys.executable, "tools/show_draft.py", *args],
-                       capture_output=True, text=True, env=env)
+                       capture_output=True, text=True, encoding="utf-8", env=env)
     return r.returncode, r.stdout + r.stderr
 
 
@@ -215,6 +219,22 @@ def test_the_trail_is_readable_in_a_terminal(seeded):
     _, out = _run(seeded, "--bid", "32908218", "--detail")
     assert "claim_accuracy 'X' → Unknown" in out
     assert "&#x27;" not in out
+
+
+def test_the_tool_survives_a_cp1252_stdout(seeded):
+    """The audit prints box rules and em dashes. On a Windows console — or any
+    pipe whose encoding is cp1252 — those characters are unencodable, and the
+    first such print raises UnicodeEncodeError and kills the tool mid-audit,
+    showing nothing. Force the child's stdout to cp1252 (the Windows default the
+    reader hits) and it must STILL finish and STILL print the rule, because
+    main() reconfigures stdout to utf-8. Without that line this test sees the
+    crash the reconfigure exists to prevent."""
+    env = dict(os.environ, DATABASE_URL=seeded, PYTHONIOENCODING="cp1252")
+    r = subprocess.run(
+        [sys.executable, "tools/show_draft.py", "--bid", "32908218", "--detail"],
+        capture_output=True, text=True, encoding="utf-8", env=env)
+    assert r.returncode == 0, r.stderr[-800:]
+    assert "── dss ──" in r.stdout
 
 
 # ── which build is a host running ───────────────────────────────────────────
