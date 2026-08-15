@@ -7,7 +7,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from server.config import MOCK_MODE, is_live
-from server.db import init_db, SessionLocal, Review, RcaDraft, ReviewMetric
+# Reach the database through the module, never by value. `SessionLocal` is a
+# sessionmaker BOUND to an engine object; `from server.db import SessionLocal`
+# freezes it to the engine that existed at this import. A test that reloads
+# server.db onto its own throwaway file rebinds server.db.SessionLocal but not
+# this copy, so the app's lifespan (seed_mocks, the heartbeat) went on opening
+# the engine from a database that had since been deleted — "no such table:
+# reviews" at startup for any later harness that stood the app up. `_db.X`
+# resolves the CURRENT binding at call time (reload re-executes into the same
+# module object), so the app always follows whatever database is live now, and
+# no fixture has to reload server.main to keep it honest.
+import server.db as _db
 from server.webhook import router as webhook_router
 from server.api     import router as api_router
 from server.services.mock_data import (
@@ -40,13 +50,13 @@ logging.getLogger().addHandler(_error_buf)
 
 
 def seed_mocks():
-    db = SessionLocal()
+    db = _db.SessionLocal()
     try:
-        if db.query(Review).count() > 0:
+        if db.query(_db.Review).count() > 0:
             return
         log.info("Seeding mock reviews…")
         for r in MOCK_REVIEWS:
-            review = Review(
+            review = _db.Review(
                 id=r["id"], slack_ts=r["slack_ts"], slack_channel=r["slack_channel"],
                 rating=r["rating"], language=r["language"],
                 author=r.get("author"),
@@ -62,7 +72,7 @@ def seed_mocks():
             fields = dict(MOCK_RCA_FIELDS.get(r["id"], {}))
             signals = fields.pop("signals", [])
 
-            draft = RcaDraft(
+            draft = _db.RcaDraft(
                 id=f"draft_{r['id']}", review_id=r["id"],
                 booking=booking_raw,
                 match_tier=match_meta.get("tier"),
@@ -77,7 +87,7 @@ def seed_mocks():
             )
             db.add(draft)
 
-            db.add(ReviewMetric(
+            db.add(_db.ReviewMetric(
                 review_id=r["id"],
                 received_at=datetime.fromisoformat(r["received_at"]),
                 channel=r["slack_channel"], rating=r["rating"],
@@ -100,10 +110,10 @@ async def _heartbeat_loop() -> None:
     while True:
         try:
             uptime = int(time.time() - _app_start)
-            db = SessionLocal()
+            db = _db.SessionLocal()
             try:
                 cutoff = datetime.utcnow() - timedelta(minutes=5)
-                recent = db.query(Review).filter(Review.received_at >= cutoff).count()
+                recent = db.query(_db.Review).filter(_db.Review.received_at >= cutoff).count()
             finally:
                 db.close()
             errs = _error_buf.count_recent(300)
@@ -123,7 +133,7 @@ async def _heartbeat_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
+    _db.init_db()
     log.info("Database ready")
     if MOCK_MODE:
         seed_mocks()

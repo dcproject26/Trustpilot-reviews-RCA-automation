@@ -169,31 +169,21 @@ def live_db(monkeypatch):
 
 @pytest.fixture()
 def client(live_db):
-    """A TestClient whose app is bound to THIS test's `live_db`.
+    """A TestClient whose app talks to THIS test's `live_db`.
 
-    `server/main.py` binds `init_db`/`SessionLocal` BY VALUE at import
-    (`from server.db import init_db, SessionLocal, ...`), and `app` is a module
-    singleton. So once any earlier module reloads `server.db` and then reloads
-    `server.main` — `test_dss_is_correctable` does exactly this to exercise the
-    edit endpoint — the cached `app` is left pointing at THAT module's database.
-    A later test that just did `from server.main import app` would inherit it,
-    and the app's lifespan then runs `init_db()` and the mock-seed count against
-    a database this test never populated: `sqlite3.OperationalError: no such
-    table: reviews` at `TestClient(app).__enter__`, an ERROR at setup that only
-    appears in a full run and never in isolation.
-
-    So reload `server.api` and `server.main` here, AFTER `live_db` has reloaded
-    `server.db` onto its own throwaway file. That rebinds the singleton to the
-    same freshly-created database `live_db.SessionLocal()` uses — the identical
-    reload sequence the passing standalone test already relies on — instead of
-    whatever the previous module happened to leave behind. Isolation the fixture
-    owns, rather than isolation that depends on running first.
+    No module reloading here, deliberately. An earlier version of this fixture
+    reloaded server.api/server.main to force the app singleton onto `live_db`.
+    That rebound the singleton for the duration of the test — but teardown only
+    clears the dependency overrides, and `live_db` then deletes its temp file,
+    so the app was left pointing at a database that no longer exists. Every
+    later harness that did its own `from server.main import app` + TestClient
+    (`_draft_with` in test_guest_name_and_review_date, for one) inherited the
+    dead binding and died in the lifespan. The fix moved to the root cause:
+    server.main now resolves the database through the module at call time
+    (`_db.SessionLocal()`), so `app` follows whatever database is live without
+    anyone reloading it. This fixture just points requests at `live_db` and
+    leaves module state alone.
     """
-    import importlib
-    import sys
-    for name in ("server.api", "server.main"):
-        if name in sys.modules:
-            importlib.reload(sys.modules[name])
     from server.main import app
     from server.db import get_session
     app.dependency_overrides[get_session] = lambda: live_db.SessionLocal()
