@@ -13,6 +13,7 @@ review got an English reply while a card labelled the Italian text "what the
 guest receives".
 """
 import hashlib
+import re
 
 
 def is_english(review) -> bool:
@@ -53,6 +54,85 @@ _NEVER_DETECTED = {"en", "eng", "auto", "unknown", "und", "n/a"}
 
 # What the detector says when the guest wrote in English. One box, correctly.
 _MEANS_ENGLISH = {"english"}
+
+
+# ── the crashed inbound translation ────────────────────────────────────────
+#
+# THE HOLE THIS CLOSES. `body_english` empty means the inbound step either
+# answered ENGLISH_ALREADY (the review IS English) or never ran / crashed (the
+# review may be anything). Those two are the same bytes, so the free signal
+# alone read an Italian review whose translation crashed as English and drew
+# ONE box — an English reply to a guest who did not write in English, which is
+# the exact failure this module exists to stop.
+#
+# POSITIVE EVIDENCE ONLY, and that direction is the whole design. Asking "does
+# this look English?" and treating NO as foreign flags "Great tour guide" and
+# "Terrible experience overall" — real English reviews carrying no function
+# word — and putting a translate panel on those is the "responses are broken"
+# complaint that caused the previous swing. So this asks the opposite: is
+# there something here that English does not do? Only then do we say it is not
+# English. Absence of evidence stays one box, exactly as before.
+#
+# NO MODEL CALL. `claude.detect_language()` still runs and still wins; this is
+# the cheap guard for the window before it answers, and for when it cannot.
+
+# A script English never uses is proof on its own.
+_NON_LATIN = ("Ѐ-ӿ"      # Cyrillic
+              "Ͱ-Ͽ"      # Greek
+              "֐-׿"      # Hebrew
+              "؀-ۿ"      # Arabic
+              "ऀ-ॿ"      # Devanagari
+              "฀-๿"      # Thai
+              "぀-ヿ"      # Kana
+              "一-鿿"      # CJK
+              "가-힯")     # Hangul
+
+# Function words common in other languages and NOT English words themselves.
+#
+# EVERY COLLISION WITH ENGLISH IS DELIBERATELY ABSENT, because one costs a
+# false foreign call on a real English review: `war`/`man`/`die` (German),
+# `is`/`met`/`we` (Dutch), `no`/`son`/`con` (Spanish), `come`/`male` (Italian),
+# `plus` (French). Place names cost the same and are gone too — `los`, `las`,
+# `del`, `san` would flag "Los Angeles"; `est` would flag "9am EST"; `mit`
+# would flag "MIT"; `les`/`des` would flag a guest named Les.
+_FOREIGN_MARKERS = {
+    # Spanish / Portuguese
+    "que", "pero", "una", "muy", "más", "está", "están", "porque", "cuando",
+    "nosotros", "ellos", "fueron", "não", "muito", "foi", "mas", "então",
+    # Italian
+    "sono", "non", "mai", "della", "delle", "degli", "molto", "questo",
+    "questa", "siamo", "erano", "perché", "anche", "abbiamo", "nostro",
+    "sempre", "però", "niente",
+    # French
+    "nous", "vous", "pour", "avec", "mais", "très", "était", "cette",
+    "notre", "jamais", "rien", "tout", "aucun", "une", "ils", "elles",
+    # German
+    "und", "ist", "nicht", "wir", "aber", "sehr", "dass", "eine", "keine",
+    "für", "auch", "sind", "haben", "wurde", "wurden", "oder", "ich", "nur",
+    # Dutch
+    "het", "een", "niet", "maar", "zijn", "voor", "ook", "hebben", "werd",
+}
+
+
+def _looks_non_english(text) -> bool:
+    """Is there positive evidence this text is NOT English?
+
+    False means "nothing here says foreign" — NOT "this is English". The
+    distinction is the point: the caller keeps its existing one-box behaviour
+    on False and only changes course on True.
+    """
+    s = str(text or "").strip()
+    if not s:
+        return False
+    if re.search(f"[{_NON_LATIN}]", s):
+        return True
+    words = re.findall(r"[^\W\d_]+", s.lower(), re.UNICODE)
+    # Three words before a marker counts. A one- or two-word review is too
+    # little to read a language off, and "Mai" is a name as often as it is
+    # Italian.
+    if len(words) < 3:
+        return False
+    return any(w in _FOREIGN_MARKERS for w in words)
 
 
 def language_state(review) -> dict:
@@ -104,6 +184,18 @@ def language_state(review) -> dict:
                            "recorded for it. The reply is kept in both boxes; "
                            "the card names the guest's language from their own "
                            "words so the reply can go out in it"}
+        # NOTHING WAS TRANSLATED INBOUND — which means English, OR that the
+        # inbound step never ran. Those two write the same empty body_english,
+        # so before calling it English we ask the guest's own words whether
+        # anything in them says otherwise.
+        if _looks_non_english(getattr(review, "body_original", "")):
+            return {"state": "unknown", "language": "",
+                    "why": "no language was recorded and nothing was "
+                           "translated on the way in, but the guest's own "
+                           "words are not English — so the inbound "
+                           "translation did not run, rather than finding "
+                           "English. Both boxes are kept; name the guest's "
+                           "language, or write the top box in it directly"}
         # Nothing was translated inbound, so the review IS English. One box.
         return {"state": "english", "language": "English",
                 "why": "the review was not translated on the way in, so it is "
