@@ -24,6 +24,7 @@ build where the call is unreachable.
 import pytest
 
 from server.pipeline import dss_entry
+from tests.conftest import drop_temp_db
 
 MATCHED = {"action": "Refund where tickets were sent too late.",
            "dss_type": "delay_fulfilment", "match_score": 7}
@@ -157,7 +158,7 @@ def test_the_pipeline_puts_the_line_on_the_trail(rec, err, live, monkeypatch):
     d = s.query(db.RcaDraft).filter_by(review_id="tp_dss").first()
     trail = [e.get("text", "") for e in (d.confidence_trail or [])]
     s.close()
-    os.unlink(tmp.name)
+    drop_temp_db(tmp.name)
 
     expected = dss_entry(rec, err, live, "Operations Issue", "Ticket Issues")
     assert expected is not None

@@ -29,6 +29,7 @@ import tempfile
 from datetime import datetime
 
 import pytest
+from tests.conftest import drop_temp_db
 
 
 @pytest.fixture()
@@ -43,7 +44,7 @@ def env(monkeypatch):
     import server.main as main; importlib.reload(main)
     from fastapi.testclient import TestClient
     yield TestClient(main.app), db, api
-    os.unlink(tmp.name)
+    drop_temp_db(tmp.name)
 
 
 RCA = {"l1": "Operations Issue", "stated_issue": "Tickets were late.",

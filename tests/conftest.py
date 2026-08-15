@@ -13,6 +13,64 @@ import time
 import pytest
 
 
+def drop_temp_db(path) -> bool:
+    """Delete a throwaway SQLite file — on Windows as well as on POSIX.
+
+    WHY THIS IS NOT `os.unlink`. POSIX lets you unlink a file another handle
+    still holds open. Windows does not: it raises
+
+        PermissionError: [WinError 32] The process cannot access the file
+        because it is being used by another process
+
+    SQLAlchemy's connection pool keeps the sqlite file open after the last
+    statement, so the bare `os.unlink(tmp.name)` these teardowns used raised on
+    every Windows run. A teardown that raises is reported by pytest as an ERROR, not
+    a failure — so a machine with nothing whatsoever wrong with it came back
+    with 314 errors, and the suite could not be used to check a change there at
+    all. Fifteen teardowns had the bug and one had the cure.
+
+    THE UNLINK COMES FIRST, AND THAT ORDER IS THE WHOLE DESIGN. Disposing the
+    engine up front looks tidier and broke 14 tests: on POSIX an unlinked file
+    stays alive as long as a handle is open, and several fixtures go on reading
+    through that handle after teardown has "deleted" the database. `dispose()`
+    closes it, the inode goes, and the next read finds an empty database — so
+    the tidy version silently swapped a Windows error for a POSIX one.
+
+    So: try the delete plainly, which is what POSIX has always done and needs no
+    help. Only when the OS refuses — the Windows lock, and nothing else reaches
+    this — release the pool and try once more. The dispose then runs on the
+    platform that needs it, at the moment it is needed, and never on the one
+    where it does harm.
+
+    RETURNS WHETHER THE FILE IS GONE. A leftover temp file is harmless (the OS
+    reclaims the temp directory) and is never worth failing a passing test
+    over. But "we could not delete it" and "we deleted it" are different
+    outcomes, so the caller is told which happened rather than nothing.
+    """
+    try:
+        os.unlink(path)
+        return True
+    except FileNotFoundError:
+        return True          # already gone is the outcome we wanted
+    except OSError:
+        pass                 # locked — Windows. Fall through and release it.
+
+    try:
+        import server.db as _db
+        _engine = getattr(_db, "engine", None)
+        if _engine is not None:
+            _engine.dispose()
+    except Exception:
+        # server.db is not imported by every test that makes a temp database,
+        # and a pool that cannot be disposed must not stop the retry below.
+        pass
+    try:
+        os.unlink(path)
+        return True
+    except OSError:
+        return False         # still locked; the OS will reclaim it
+
+
 # ── the browser tests run LAST, and it is not tidiness ─────────────────────
 #
 # Playwright's SYNC api runs its asyncio loop IN THE MAIN THREAD, driven by
@@ -80,7 +138,7 @@ def live_db(monkeypatch):
     importlib.reload(db)
     db.init_db()
     yield db
-    os.unlink(tmp.name)
+    drop_temp_db(tmp.name)
 
 
 # ── the browser-driven UI tests ────────────────────────────────────────────
@@ -343,7 +401,7 @@ def ui_server():
             srv.kill()
             srv.wait(timeout=5)
         try:
-            os.unlink(tmp.name)
+            drop_temp_db(tmp.name)
         except OSError:
             pass
 

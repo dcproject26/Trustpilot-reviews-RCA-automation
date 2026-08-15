@@ -35,6 +35,7 @@ import pytest
 
 from server.tiers import (QUEUE_STALL_AFTER_S, STALL_AFTER_S, liveness,
                           processing_state)
+from tests.conftest import drop_temp_db
 
 
 class NS:
@@ -459,7 +460,7 @@ def live_db(monkeypatch):
     import server.pipeline as P
     importlib.reload(P)
     yield db, P
-    os.unlink(tmp.name)
+    drop_temp_db(tmp.name)
 
 
 def _seed_draft(db, rid="tp_rec"):
@@ -617,7 +618,7 @@ def api_client(monkeypatch):
     app.include_router(api.router)
     with TestClient(app) as c:
         yield c
-    os.unlink(tmp.name)
+    drop_temp_db(tmp.name)
 
 
 def test_the_ingest_hands_the_whole_batch_to_one_supervised_task(monkeypatch):

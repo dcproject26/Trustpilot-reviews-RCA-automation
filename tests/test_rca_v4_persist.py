@@ -17,6 +17,7 @@ import os
 import tempfile
 
 import pytest
+from tests.conftest import drop_temp_db
 
 
 PIPE = open("server/pipeline.py", encoding="utf-8").read()
@@ -66,7 +67,7 @@ def app_env(monkeypatch):
     import server.api as api
     importlib.reload(api)
     yield db, api
-    os.unlink(tmp.name)
+    drop_temp_db(tmp.name)
 
 
 def _seed(db, rid="tp_v4_1"):

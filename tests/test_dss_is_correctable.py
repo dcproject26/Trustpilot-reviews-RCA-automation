@@ -28,6 +28,7 @@ import pytest
 
 from server.api import _dss_for_prompt
 from server.db import RcaDraft
+from tests.conftest import drop_temp_db
 
 
 def _d(**kw):
@@ -141,4 +142,4 @@ def test_the_edit_survives_a_round_trip_through_the_api():
             "the marker did not persist, so a corrected row renders as a "
             "matched one on the next load")
     finally:
-        os.unlink(tmp.name)
+        drop_temp_db(tmp.name)

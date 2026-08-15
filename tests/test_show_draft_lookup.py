@@ -18,6 +18,7 @@ import pytest
 
 sys.path.insert(0, "tools")
 import show_draft                                          # noqa: E402
+from tests.conftest import drop_temp_db
 
 
 class _D:
@@ -83,7 +84,7 @@ def seeded(monkeypatch):
     s.commit()
     s.close()
     yield url
-    os.unlink(tmp.name)
+    drop_temp_db(tmp.name)
 
 
 def _run(url, *args):

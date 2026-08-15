@@ -14,6 +14,7 @@ import tempfile
 from datetime import datetime
 
 import pytest
+from tests.conftest import drop_temp_db
 
 
 @pytest.fixture()
@@ -57,7 +58,7 @@ def client(monkeypatch):
     app.include_router(api.router)
     with TestClient(app) as c:
         yield c
-    os.unlink(tmp.name)
+    drop_temp_db(tmp.name)
 
 
 def _by_id(client, tab=None):

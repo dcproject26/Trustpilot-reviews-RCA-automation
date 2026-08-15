@@ -19,6 +19,7 @@ import os
 import tempfile
 
 import pytest
+from tests.conftest import drop_temp_db
 
 
 API_SRC = open("server/api.py", encoding="utf-8").read()
@@ -38,7 +39,7 @@ def app_env(monkeypatch):
     import server.api as api
     importlib.reload(api)
     yield db, api
-    os.unlink(tmp.name)
+    drop_temp_db(tmp.name)
 
 
 FLAG = {"team": "CE", "flag": "First reply after SLA", "evidence": "40 minutes."}

@@ -14,6 +14,7 @@ import tempfile
 from datetime import datetime
 
 import pytest
+from tests.conftest import drop_temp_db
 
 
 @pytest.fixture()
@@ -59,7 +60,7 @@ def client(monkeypatch):
         c.sent = sent
         c.db = db
         yield c
-    os.unlink(tmp.name)
+    drop_temp_db(tmp.name)
 
 
 def test_the_text_in_the_request_is_the_text_that_is_posted(client):

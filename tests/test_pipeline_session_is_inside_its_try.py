@@ -18,6 +18,7 @@ import os
 import tempfile
 
 import pytest
+from tests.conftest import drop_temp_db
 
 
 @pytest.fixture()
@@ -33,7 +34,7 @@ def db_env(monkeypatch):
     importlib.reload(db)
     db.init_db()
     yield db
-    os.unlink(tmp.name)
+    drop_temp_db(tmp.name)
 
 
 class PoolExhausted(RuntimeError):
