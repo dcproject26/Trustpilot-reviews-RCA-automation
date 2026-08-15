@@ -228,21 +228,59 @@ def _slack_call(fn, what: str):
 def sec_slack(hours: int):
     from server.config import (SLACK_BOT_TOKEN, SLACK_CHANNEL_ORM,
                                TRUSTPILOT_BOT_USER_ID)
-    from server.db import SessionLocal, Review, SlackEventSeen
+    from server.db import SessionLocal, Review, SlackEventSeen, engine
     line(INFO, f"channel = {SLACK_CHANNEL_ORM or 'EMPTY'} | "
                f"trustpilot bot id = {TRUSTPILOT_BOT_USER_ID or '(matching by ★)'}")
+
+    # WHICH DATABASE THIS SECTION MEASURES, said out loud. Slack posts to the
+    # published DEPLOYMENT (Production Postgres, neondb); the dev repl talks to a
+    # SEPARATE Development database Slack never reaches. A delivery count — or a
+    # "not ingested" comparison — read anywhere but the deployment says NOTHING
+    # about whether Slack is arriving: the dev repl reads zero whether the
+    # webhook is perfect or dead. This exact confusion put "0 deliveries in 72h,
+    # webhook broken" into a handoff on the strength of a dev-repl count. So name
+    # the database and environment, and refuse to draw a conclusion from the
+    # wrong one — the honest line here is worth more than the number.
+    url = engine.url
+    is_sqlite = url.get_backend_name().startswith("sqlite")
+    db_name = url.database if is_sqlite else f"{url.host}/{url.database}"
+    is_deploy = any(os.environ.get(k) for k in
+                    ("REPLIT_DEPLOYMENT", "REPL_DEPLOYMENT",
+                     "REPLIT_DEPLOYMENT_ID", "REPLIT_CLUSTER_DEPLOYMENT"))
+    env = "deployment" if is_deploy else "dev"
+    measures_prod = is_deploy and not is_sqlite   # only here is a count evidence
+    line(INFO, f"measuring: {url.get_backend_name()} {db_name} (environment: {env})")
+    if not measures_prod:
+        where = "dev repl" if not is_deploy else "deployment on a container-local file"
+        line(WARN, "this is NOT the database Slack delivers to",
+             f"Slack posts to the published DEPLOYMENT's Postgres (neondb); this "
+             f"process is the {where}, which Slack never reaches. Everything below "
+             f"about deliveries and ingestion is measured HERE, so a zero proves "
+             f"nothing about the webhook. Read the deployment's /api/version "
+             f"`webhook` block, or run this on the deployment, to actually settle it.")
+
     s = SessionLocal()
     try:
         cutoff = datetime.utcnow() - timedelta(hours=hours)
         hits = s.query(SlackEventSeen).filter(SlackEventSeen.seen_at > cutoff).count()
-        line(OK if hits else WARN, f"webhook deliveries in {hours}h: {hits}",
-             "" if hits else "Slack is not reaching this server. Check the app's "
-                             "Event Subscriptions URL points at this host's "
-                             "/webhook/slack and shows Verified.")
-        if not hits:
+        last = s.query(SlackEventSeen).order_by(SlackEventSeen.seen_at.desc()).first()
+        last_txt = last.seen_at.isoformat() if last and last.seen_at else "never"
+        line(OK if hits else WARN,
+             f"webhook deliveries in {hours}h: {hits} "
+             f"(in {env} db {db_name}; most recent ever: {last_txt})",
+             "" if hits or not measures_prod else
+             "Slack is not reaching this deployment. Check the app's Event "
+             "Subscriptions URL points at /webhook/slack and shows Verified.")
+        # A count is grounds for action ONLY from the environment Slack posts to.
+        if not hits and measures_prod:
             _config_actions.append(
-                f"point the Slack app's Event Subscriptions URL at this host's "
-                f"/webhook/slack - 0 deliveries arrived in the last {hours}h")
+                f"point the Slack app's Event Subscriptions URL at the deployment's "
+                f"/webhook/slack - 0 deliveries in {env} db {db_name} in the last {hours}h")
+        elif not hits:
+            line(INFO, "not recommending a webhook fix from here",
+                 "a zero from a database Slack does not post to is not evidence of a "
+                 "fault, and recommending a config change on it is how the last one "
+                 "got mis-filed")
     finally:
         s.close()
 
@@ -281,11 +319,15 @@ def sec_slack(hours: int):
                        Review.id == f"tp_{str(m.get('ts','')).replace('.', '_')}").first()]
     finally:
         s.close()
-    line(OK if not missing else BAD,
+    line(OK if not missing else (BAD if measures_prod else WARN),
          f"channel history {hours}h: {len(msgs)} messages, {len(tp)} Trustpilot, "
-         f"{len(missing)} not ingested",
-         "" if not missing else "press ↻ Refresh in the dashboard, or POST "
-                                "/api/reviews/refresh-slack, to pull them in")
+         f"{len(missing)} not in {env} db {db_name}",
+         "" if not missing else
+         ("press ↻ Refresh in the dashboard, or POST /api/reviews/refresh-slack, "
+          "to pull them in" if measures_prod else
+          f"but this is the {env} database, not the deployment's — these rows may "
+          f"well be present in Production. This comparison only means something on "
+          f"the deployment; do not conclude anything is missing from here"))
 
 
 # ── 6. reviews ──────────────────────────────────────────────────────────────

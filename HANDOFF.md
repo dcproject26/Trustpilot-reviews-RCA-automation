@@ -25,41 +25,65 @@ handing the project on.
   transfer.)
 
 **Open operational items — verify each is green:**
-1. **Slack ingestion webhook (IMPORTANT — currently broken).** The diagnostic
-   showed **0 webhook deliveries in 72h**: new reviews are not auto-arriving.
-   Fix in the Slack app config, not in code:
-   - **Event Subscriptions → Request URL** →
-     `https://trustpilot-rca.replit.app/webhook/slack` → confirm **Verified**.
-   - **OAuth & Permissions** → add `channels:read`, `groups:read`, `mpim:read`,
-     `im:read` → reinstall the app.
-   Until this is done, reviews only arrive via a manual `refresh-slack`.
-2. **Confirm the review recovery is complete.** Production went 12 → 37 after
+1. **Slack ingestion webhook — status UNKNOWN, not broken.** An earlier version
+   of this handoff called it broken on the strength of "0 webhook deliveries in
+   72h" from `diagnose.py`. **That number was measured in the dev repl, against
+   `helium/heliumdb` — a database Slack never posts to.** Slack delivers to the
+   *deployment* (`neondb`); the dev repl reads zero whether the webhook works
+   perfectly or not at all. So the count proved nothing, and neither did the
+   `24 not ingested` line, which compared the channel against the dev database
+   while production held 37. Do not repeat this: a count is only evidence when
+   read where Slack actually posts.
+   **How to actually settle it** (either is decisive):
+   - Read the **deployment's** own report:
+     `https://trustpilot-rca.replit.app/api/version` → the `webhook` block now
+     carries `recent_deliveries` and `last_seen_at`. A non-zero count, or a
+     recent `last_seen_at`, means events are arriving. (`recent_deliveries:
+     null` with an `error` means the read failed — *not* zero.)
+   - Or post a review in the ORM channel and watch whether it reaches the
+     production dashboard **with no manual refresh**.
+   Running `diagnose.py` on the deployment also settles it — it now names the
+   database and environment it measured and refuses to conclude from the wrong
+   one.
+2. **Missing Slack scopes (genuine, environment-independent).** Regardless of
+   the webhook question above, the app is missing scopes it needs to verify
+   channel membership and pull history: under **OAuth & Permissions** add
+   `channels:read`, `groups:read`, `mpim:read`, `im:read` and reinstall. This is
+   real and worth doing on its own.
+3. **Confirm the review recovery is complete.** Production went 12 → 37 after
    re-ingest, so it works. If older reviews are still missing, widen the window:
    `curl -X POST "https://trustpilot-rca.replit.app/api/reviews/refresh-slack?hours=720"`
-3. **Redeploy to make the current code live.** Production runs **`38b0276`**;
-   `main` is **`5bd3a51`**. Everything in §0.1 below — the SP escalation email,
-   the case-findings rebuild, the crashed-translation guard — is therefore
-   NOT live yet. The database is already durable via the Postgres env, so this
-   is about the code, not the data.
+4. **Redeploy to make the current code live.** Production runs **`38b0276`**;
+   `main` is well past it (last cross-platform-verified: **`69d4990`**).
+   Everything in §0.1 below — the SP escalation email, the case-findings
+   rebuild, the crashed-translation guard, the Windows suite fixes, the
+   `/api/version` webhook block — is therefore NOT live yet. The database is
+   already durable via the Postgres env, so this is about the code, not the data.
 
 Deeper detail on the database incident is in §0.5; the recovery runbook is
 there too.
 
 ---
 
-## 0.1 PICKING THIS UP IN A FRESH SESSION (13 Aug 2026, `main` = `5bd3a51`)
+## 0.1 PICKING THIS UP IN A FRESH SESSION (last cross-platform-verified `main` = `69d4990`)
 
 Everything a new session needs to keep working on this without re-deriving it.
 
 ### Start here, in this order
 
-1. `git pull` — a clone made before `5bd3a51` is missing four fixes. **If a
-   local server is running, restart it**; it booted on the old code.
+1. `git pull` — a clone made before `69d4990` is missing the Windows-suite
+   fixes and the webhook-observability work. **If a local server is running,
+   restart it**; it booted on the old code.
 2. Read **`CLAUDE.md`** (the contract) and §0 below. The three rules there each
    describe a bug that shipped here and passed review.
 3. Before committing anything:
 
-       python3 -m pytest tests/ -q              # 3653 collected: 3651 pass, 2 skip
+       # verified green on BOTH platforms at 69d4990:
+       #   Linux   3661 passed, 2 skipped   |   Windows 3139 passed, 35 skipped
+       # (the gap is the ~520 browser tests, which skip without playwright —
+       #  see §0.1 "Running the suite on Windows"; neither platform is the
+       #  whole story, so a fix is not done until both have run it)
+       python3 -m pytest tests/ -q
        python3 tools/verify_session_fixes.py    # 42 passed, 0 failed, exit 0
        python3 tools/mutate.py <spec>.json      # mutation-run THE DIFF, every push
 
@@ -256,8 +280,12 @@ split is correct and intended; both are durable. A redeploy no longer wipes data
    more than a day. Doing this while still on sqlite re-loses everything on the
    next deploy, hence the ordering.
 3. **If new reviews stopped arriving on their own** (not just a redeploy loss),
-   the Slack webhook is the cause, *not* the database. `tools/diagnose.py`
-   reports `webhook deliveries in 72h: 0` when Slack cannot reach the server —
+   the Slack webhook may be the cause, *not* the database. **Measure it where
+   Slack posts** — the deployment, `neondb` — not the dev repl: read the
+   deployment's `/api/version` `webhook` block, or run `tools/diagnose.py` **on
+   the deployment** (it now names the database and environment it measured, and
+   a `webhook deliveries: 0` read against any other database is not evidence of
+   anything). A genuine deployment-side zero points at the config below —
    a redeploy can change the public URL or leave Event Subscriptions unverified.
    Fix in the Slack app config: **Event Subscriptions → Request URL** →
    `https://trustpilot-rca.replit.app/webhook/slack` → confirm **Verified**; and

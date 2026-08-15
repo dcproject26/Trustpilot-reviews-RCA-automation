@@ -1363,6 +1363,52 @@ _BUILD_SHA = _read_head_sha()   # frozen at import, like the code itself
 _BUILD_FINGERPRINT = _source_fingerprint()
 
 
+def _webhook_health(window_hours: int = 72) -> dict:
+    """Delivery health for the Slack ingest webhook, for /api/version.
+
+    The question this answers is "has THIS server received Slack events?" — the
+    one that could not be asked over HTTP before, so it got answered instead by
+    running diagnose.py in the DEV repl and counting `helium/heliumdb`, a
+    database Slack never posts to. Slack posts to the deployment (`neondb`), so
+    the dev repl reads zero whether the webhook works or not. Exposed here, a
+    caller can ask the production deployment itself.
+
+    Rule 1, and it is the entire point: "zero events arrived" and "we could not
+    read the table" must not render the same. A readable table returns an
+    integer `recent_deliveries` and no `error`; an unreadable one returns
+    `error` and leaves `recent_deliveries` null. `last_seen_at` is the most
+    recent delivery of any age, so "no deliveries ever" (null) also reads
+    differently from "deliveries, but not lately" (an old timestamp, count 0).
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    try:
+        from server.db import SessionLocal, SlackEventSeen
+        s = SessionLocal()
+        try:
+            cutoff = _dt.utcnow() - _td(hours=window_hours)
+            recent = (s.query(SlackEventSeen)
+                        .filter(SlackEventSeen.seen_at > cutoff).count())
+            last = (s.query(SlackEventSeen)
+                      .order_by(SlackEventSeen.seen_at.desc()).first())
+            return {
+                "window_hours": window_hours,
+                "recent_deliveries": recent,
+                "last_seen_at": last.seen_at.isoformat()
+                                if last and last.seen_at else None,
+            }
+        finally:
+            s.close()
+    except Exception as e:
+        # NOT recent_deliveries: 0 — we did not read a zero, we failed to read.
+        # Collapsing the two is the exact bug this endpoint exists to avoid.
+        return {
+            "window_hours": window_hours,
+            "recent_deliveries": None,
+            "last_seen_at": None,
+            "error": str(e)[:200],
+        }
+
+
 @router.get("/api/version")
 def get_version():
     """
@@ -1523,6 +1569,11 @@ def get_version():
         "commit":     sha,
         "short":      sha[:7],
         "db":         db_info,
+        # Slack webhook delivery health, so production can be asked directly
+        # whether events are arriving — the question that was previously
+        # answered against the wrong database. Read-only; never fails the
+        # endpoint, and a broken read reads as `error`, not as zero.
+        "webhook":    _webhook_health(),
         "connectors": connectors,
         # What is checked out right now. If it differs from commit, the files
         # have moved on and this process has not - which is the entire failure
