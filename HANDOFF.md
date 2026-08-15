@@ -36,13 +36,100 @@ handing the project on.
 2. **Confirm the review recovery is complete.** Production went 12 → 37 after
    re-ingest, so it works. If older reviews are still missing, widen the window:
    `curl -X POST "https://trustpilot-rca.replit.app/api/reviews/refresh-slack?hours=720"`
-3. **(Optional, non-urgent) Redeploy** to pick up the fail-loud DB guard
-   (`a819248`). Production currently runs `38b0276`, two commits behind `main`;
-   the database is already durable via the Postgres env, so this only makes the
-   *guard code* live. Nothing is lost by waiting for the next routine deploy.
+3. **Redeploy to make the current code live.** Production runs **`38b0276`**;
+   `main` is **`5bd3a51`**. Everything in §0.1 below — the SP escalation email,
+   the case-findings rebuild, the crashed-translation guard — is therefore
+   NOT live yet. The database is already durable via the Postgres env, so this
+   is about the code, not the data.
 
 Deeper detail on the database incident is in §0.5; the recovery runbook is
 there too.
+
+---
+
+## 0.1 PICKING THIS UP IN A FRESH SESSION (13 Aug 2026, `main` = `5bd3a51`)
+
+Everything a new session needs to keep working on this without re-deriving it.
+
+### Start here, in this order
+
+1. `git pull` — a clone made before `5bd3a51` is missing four fixes. **If a
+   local server is running, restart it**; it booted on the old code.
+2. Read **`CLAUDE.md`** (the contract) and §0 below. The three rules there each
+   describe a bug that shipped here and passed review.
+3. Before committing anything:
+
+       python3 -m pytest tests/ -q              # 3653 collected: 3651 pass, 2 skip
+       python3 tools/verify_session_fixes.py    # 42 passed, 0 failed, exit 0
+       python3 tools/mutate.py <spec>.json      # mutation-run THE DIFF, every push
+
+   `tools/mutate.py` works on a copy of the tree — never mutate the tree you are
+   about to commit. A spec is `[{file, name, find, replace}]`; a `find` that
+   does not match exactly once reports SKIP, and a SKIP is not a pass.
+
+### What the last session changed, and why it must not be undone
+
+- **`8c6dc27` — the supply-partner escalation email.** It was read only from
+  BigQuery `dim_vendors`; the booking record's own `Booking Escalation Email`
+  field was never parsed. On match paths where the warehouse enrichment does not
+  run, the card asserted the SP *had no* escalation email — false. Resolution is
+  now booking record → warehouse → none, carrying `escalationEmailSource`
+  (`booking_record` / `vendor_escalations` / `none_found` / `not_fetched`).
+  **`not_fetched` must never collapse into `none_found`** — that distinction is
+  rule 1 applied to the SP contact, and the UI and the prompt both depend on it.
+
+- **`0b029c8` — case findings had become a second copy of the events timeline.**
+  The model wrote the timestamp INSIDE the finding text
+  (`22 Jul 15:28 IST — 'Automated Selenium run…'`), which is verbatim a timeline
+  row, so the clock reached the card even though §1 renders no `time` field. The
+  clock is now split into `time` (orders the section, never rendered — §1 still
+  reads chronologically) and a finding that restates a REAL timeline event is
+  dropped. **Evidence backing a guest claim is never dropped**, whatever it
+  restates: settling what the guest said is a job the timeline cannot do.
+
+- **`18a0d82` — that drop threshold, measured rather than eyeballed.** 0.7 was
+  chosen by eye and deleted a real finding: `"Booking confirmed email sent late"`
+  scores 0.80 because its words are a subset of a long timeline event, yet
+  *"late"* is the entire finding. Verbatim copies score ≥ 0.93, so the bar sits
+  at **0.85**, in the measured gap. A test pins the 0.80 case.
+
+- **`5bd3a51` — a crashed inbound translation is not English.** `body_english`
+  empty means EITHER the review is English OR the inbound step never ran — the
+  same bytes. An Italian review whose translation crashed drew ONE box and would
+  have sent an English reply to a guest who did not write in English.
+  The guard uses **positive evidence of not-English only**: a script English does
+  not use, or another language's function word.
+  **Do not "improve" this by asking "does this look English?"** — that flags
+  `"Great tour guide"` and `"Terrible experience overall"` (real English reviews
+  carrying no function word) and puts a translate panel on every plain English
+  review, which is the regression `912e03c` was written to undo. Absence of
+  evidence stays one box.
+  Markers that collide with English are deliberately absent and pinned by tests:
+  `war`/`man`/`die`, `is`/`met`/`we`, `no`/`son`/`con`, `come`/`male`, `plus`,
+  and the place names and abbreviations `los`/`las`/`del`, `est`, `mit`, `les` —
+  so "Los Angeles", "9am EST", "MIT" and a guest named "Les" all stay one box.
+  `verify_session_fixes.py` had been reporting 40/2 against this rule; it is 42/0
+  again.
+
+### Running locally
+
+Local dev uses `./local.db` (sqlite). That is correct and safe — the durability
+guard only refuses to boot when `REPLIT_DEPLOYMENT` is set, which never happens
+off Replit. The connectors are offline on a local machine
+(`bq=False, zd=False, ant=False, slack=False`): the dashboard browses fine, but
+ingesting reviews, generating RCAs and language detection are inert.
+
+**`ant=False` matters for the reply-language work specifically.** The async
+language detector cannot run locally, so the `5bd3a51` guard is the only thing
+standing between a non-English review and a one-box English reply on that
+machine — which also makes it the easiest place to see the guard working.
+
+### The fastest whole-system diagnosis
+
+    python3 tools/diagnose.py --url https://trustpilot-rca.replit.app
+
+Its VERDICT block separates "configuration someone must change" from an actual
+code fault, and lists the broken links in order.
 
 ---
 
