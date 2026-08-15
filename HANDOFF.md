@@ -124,6 +124,41 @@ language detector cannot run locally, so the `5bd3a51` guard is the only thing
 standing between a non-English review and a one-box English reply on that
 machine — which also makes it the easiest place to see the guard working.
 
+### Running the suite on Windows — three defects, and a cross-platform loop
+
+The suite was Linux-only by accident and hid three Windows-specific bugs. All
+three are fixed (`706ac42`, `7411419`, `e41c01f`) and the suite now passes on
+both platforms on the same commit — but the failure *shapes* recur, so know them:
+
+1. **File locking.** `os.unlink` on a SQLite file SQLAlchemy still holds open
+   raises `PermissionError: [WinError 32]` on Windows (POSIX allows it). A
+   teardown that raises is reported as an **ERROR, not a failure** — 314 of them
+   from healthy code. Delete throwaway databases with `drop_temp_db()`
+   (conftest), never `os.unlink`.
+2. **Encoding.** `open(path).read()` and `Path(path).read_text()` default to the
+   locale encoding — **cp1252 on Windows**, utf-8 on Linux — and raise
+   `UnicodeDecodeError` at **read time**, before the assertion runs, on any
+   non-ASCII byte (an em dash, a box rule). Read source through `read_source()`
+   (conftest). Tools that print non-ASCII (`show_draft.py`, `backfill_received_at.py`)
+   `reconfigure(stdout, utf-8)` in `main()`, and their test harnesses decode utf-8.
+   **CRLF is NOT a factor** — text mode folds `\r\n` to `\n` on read; that
+   hypothesis cost a session real time, do not re-run it.
+3. **Module-reload leaks.** `server/main.py` resolves the database THROUGH the
+   module (`import server.db as _db`; `_db.SessionLocal()`), not by value at
+   import, so the app follows whatever database a test reloaded `server.db` onto.
+   Consequences that bite: a fixture must **not** reload `server.main` (an
+   earlier version did, and left the app singleton bound to a since-deleted temp
+   db — `no such table: reviews` in the lifespan of every later app harness).
+   Anything that reloads `server.config`/`server.db`/`server.main` or mutates
+   global module state **must restore it** at teardown, or it leaks into the
+   next module (this even caught a *test* about the leak leaking).
+
+**The working constraint, stated plainly: this machine runs Windows only, and
+the reviewing session runs Linux only.** A cross-platform fix is NOT done until
+BOTH have run the suite on the same commit. The loop is push → the other side
+verifies → confirm. Two regressions here passed on one platform and failed on
+the other; skipping the loop is how they ship. Do not call green on one OS done.
+
 ### The fastest whole-system diagnosis
 
     python3 tools/diagnose.py --url https://trustpilot-rca.replit.app
