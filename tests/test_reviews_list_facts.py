@@ -39,13 +39,17 @@ def client(monkeypatch):
         s.add(db.Review(id="tp_queued", slack_ts="1.0", slack_channel="C1",
                         rating=1, author="Queued", body_original="x",
                         status="new", received_at=datetime.utcnow()))
+        # status="draft" = the run FINISHED (searched, found nothing). A draft
+        # with the review still "new" now means a run that died mid-way (A1), so
+        # a genuinely-searched review has to carry the finished status or it
+        # reads as dead.
         s.add(db.Review(id="tp_missed", slack_ts="2.0", slack_channel="C1",
                         rating=1, author="Missed", body_original="x",
-                        status="new", received_at=datetime.utcnow()))
+                        status="draft", received_at=datetime.utcnow()))
         s.add(db.RcaDraft(id="d_missed", review_id="tp_missed", booking={}))
         s.add(db.Review(id="tp_found", slack_ts="3.0", slack_channel="C1",
                         rating=1, author="Found", body_original="x",
-                        status="new", received_at=datetime.utcnow()))
+                        status="draft", received_at=datetime.utcnow()))
         s.add(db.RcaDraft(id="d_found", review_id="tp_found", match_tier=1,
                           booking={"id": "32908218"}))
         s.commit()

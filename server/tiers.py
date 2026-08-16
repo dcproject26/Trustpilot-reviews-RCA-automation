@@ -179,7 +179,16 @@ def processing_state(review, draft) -> tuple[str, str]:
     forever on a dead one is not. It is also stated, rather than presented as
     a diagnosis.
     """
-    if draft is not None:
+    # A FINISHED run flips the review to "draft"/"sent". A draft present while
+    # the review is still "new" is a run that wrote its early draft (at the
+    # match, pipeline.py) and then DIED before the end — Zendesk, insights and
+    # the RCA are all missing. That used to return ("", "") right here on the
+    # strength of "there is a draft", so a dead run and a finished one rendered
+    # as the identical clean card. Only the finished case bails now; a draft
+    # with the review still "new" falls through to the liveness check below,
+    # exactly like a review with no draft row.
+    status = getattr(review, "status", None)
+    if draft is not None and status not in ("new", None, ""):
         return "", ""
     try:
         from server.pipeline import PIPELINE_PROGRESS
@@ -220,11 +229,48 @@ def processing_state(review, draft) -> tuple[str, str]:
             f"elapsed time, not something the run reported. No draft row was "
             f"written, so this is not a booking we could not find. Re-run it.")
 
+    if draft is not None:
+        # A draft was written (the run reached the match) but the review is
+        # still "new" and nothing is in progress here: the run died after the
+        # match, before the analysis. Surface what it recorded about its own
+        # death rather than a blank card. (A1 + A2)
+        recorded = _recorded_run_failure(draft)
+        return "stalled", (recorded or (
+            "A draft was written at the match, but the run did not finish and "
+            "no run is in progress on this server — the Zendesk timeline, "
+            "insights and RCA after the match were never written. Re-run it."))
+
     return "stalled", (
         "No draft row was ever written, and no run is in progress on this "
         "server. The draft is saved before anything that can fail, so this is "
         "a run that died early or a server that restarted mid-run — not a "
         "booking we could not find. Re-run it.")
+
+
+def _recorded_run_failure(draft) -> str:
+    """The reason a dead run left on its own trail, as a plain sentence, or "".
+
+    A run records its death in one of two shapes, and both live on
+    `confidence_trail` where the inbox list never looks: `record_run_failure`
+    writes a `fail` entry naming the exception, and a hard kill (the container
+    reclaimed mid-run) leaves only the partial-persist marker "This run has not
+    finished". Surface whichever is there, so the death is said where the reader
+    is rather than buried on a card they have to open. (A2)
+    """
+    import re
+    trail = getattr(draft, "confidence_trail", None) or []
+    for e in reversed(trail):
+        if not isinstance(e, dict):
+            continue
+        if e.get("mark") == "fail":
+            txt = re.sub("<[^>]+>", "", e.get("text") or e.get("title") or "").strip()
+            return (f"The last run failed and did not finish — {txt} Re-run it."
+                    if txt else "")
+        if e.get("mark") == "warn" and "has not finished" in (e.get("text") or ""):
+            return ("The last run reached the match and then stopped without "
+                    "finishing — the Zendesk timeline, insights and RCA after "
+                    "it were never written. Re-run it.")
+    return ""
 
 
 def tier_label(draft) -> str:

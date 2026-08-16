@@ -4152,6 +4152,11 @@ async def process_review(review_id: str, force_candidates: bool = False):
         draft.response_english            = _reply_english or None
         draft.response_english_of         = _reply_eng_of
         draft.generated_at                = datetime.utcnow()
+        # The RCA now describes the booking currently attached, so it is no
+        # longer stale — a confirmation set this True and reaching here is what
+        # earns it back. A run that dies before this line leaves it True, which
+        # is the point: an unfinished rebuild must not become postable.
+        draft.rca_stale                   = False
         # A review already SENT stays sent. A re-run regenerates the AI half,
         # which is a fine thing to do to an old review - but resetting the
         # status would pull it out of Sent and back into a working tab, as if

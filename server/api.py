@@ -1966,6 +1966,11 @@ async def select_candidate(review_id: str, body: CandidateSelect,
     d.match_tier = 2
     d.match_confidence = "confirmed"
     d.match_method = "Associate confirmed candidate"
+    # The RCA still reflects the pre-confirmation match. Mark it stale so it
+    # cannot be posted until the rebuild below actually finishes — if that run
+    # dies (see the durable-runs work), a stale reply stays un-postable rather
+    # than going out against the new booking.
+    d.rca_stale = True
     db.commit()
 
     # Re-run pipeline to fetch Zendesk/insights/RCA for the confirmed booking.
@@ -2066,6 +2071,9 @@ async def set_booking_id(review_id: str, body: BookingIdSet,
                           + " Everything below is regenerated from this id."})
     d.confidence_trail = trail
     flag_modified(d, "confidence_trail")
+    # RCA reflects the pre-change match until the rebuild below finishes; refuse
+    # to post it in the meantime. See select-candidate for the same guard.
+    d.rca_stale = True
     db.commit()
 
     from server.pipeline import run_batch_sync
@@ -2849,6 +2857,14 @@ def has_rca_to_post(d) -> bool:
     """
     if d is None:
         return False
+    # STALE WINS OVER "there is an RCA". A booking was just confirmed and the
+    # RCA has not been rebuilt for it, so whatever analysis (or hand override)
+    # sits here describes the OLD match — for a formerly-untraceable review that
+    # is the "we couldn't find your booking" reply. Posting it to the confirmed
+    # booking is the exact path that put a wrong reply on a public page.
+    # Checked before the override, because the override can be that stale reply.
+    if getattr(d, "rca_stale", False):
+        return False
     if (getattr(d, "slack_thread_override", None) or "").strip():
         return True
     v3 = getattr(d, "rca_v3", None)
@@ -2902,6 +2918,13 @@ async def send_review(review_id: str, db: Session = Depends(get_session)):
         posted_why = "added by hand — no Slack thread to post into"
     elif d.rca_posted_at:
         posted_why = "already posted to the thread"
+    elif getattr(d, "rca_stale", False):
+        # Distinct from "no RCA": there IS one, it is just for the old match.
+        posted_why = ("the booking was confirmed but the RCA has not been "
+                      "rebuilt for it — nothing was posted. The analysis here "
+                      "still reflects the previous match, so re-run the review "
+                      "and post once it finishes.")
+        log.info(f"[send] {review_id}: RCA stale for confirmed booking, not posted")
     elif not has_rca_to_post(d):
         posted_why = ("no RCA on this draft — nothing was posted to Slack. "
                       "This review was closed out, not analysed.")
@@ -3312,6 +3335,21 @@ async def post_rca_to_thread(review_id: str, force: bool = False,
     if d.rca_posted_at and not force:
         return {"ok": True, "already_posted": True, "ts": None,
                 "posted_at": d.rca_posted_at.isoformat()}
+
+    # A STALE RCA IS NOT POSTED. The booking was confirmed but the RCA was not
+    # rebuilt for it (the rebuild is fire-and-forget and can die), so what is
+    # here still describes the old match — for a formerly-untraceable review,
+    # the "we couldn't find your booking" reply. This is the path that dropped a
+    # wrong reply into the thread. `force` does not override it: a second copy
+    # of the same post is one thing, posting the wrong analysis is another —
+    # re-run to rebuild, which clears the flag, then post.
+    if getattr(d, "rca_stale", False):
+        log.info(f"[post-rca] {review_id}: RCA stale for confirmed booking, not posted")
+        return {"ok": True, "posted": False, "stale": True, "ts": None,
+                "why": ("the booking was confirmed but the RCA has not been "
+                        "rebuilt for it — nothing was posted. The analysis here "
+                        "still reflects the previous match, so re-run the review "
+                        "and post once it finishes.")}
 
     # What the caller is looking at beats what the server would compose. The
     # order is: the text sent with this request, then the saved override, then

@@ -87,6 +87,13 @@ class RcaDraft(Base):
     candidate_state  = Column(Boolean, default=False)   # True = picker active
     selected_candidate_bid = Column(String, nullable=True)
     confidence_trail = Column(JSON, default=list)       # step-by-step signal-extraction trail
+    # True once a booking is confirmed/changed and the RCA has NOT been rebuilt
+    # for it. The RCA on a just-confirmed draft still reflects the OLD match —
+    # for a review that was untraceable, that is the "we couldn't find your
+    # booking" reply, and posting it to a confirmed booking is how a wrong reply
+    # reached a public review page. Set at confirmation, cleared when the
+    # pipeline finishes rebuilding; has_rca_to_post refuses to post while True.
+    rca_stale        = Column(Boolean, default=False)
 
     # ── Context ──
     timeline         = Column(JSON, default=list)
@@ -367,6 +374,8 @@ def _WANTED_DRAFT_COLUMNS(is_pg: bool) -> dict:
         # because a second column holding the same fact is the defect.
         "response_english":       "TEXT",
         "response_english_of":    "VARCHAR",
+        # Stale-RCA guard: booking confirmed but RCA not yet rebuilt for it.
+        "rca_stale":              "BOOLEAN",
     }
 
 

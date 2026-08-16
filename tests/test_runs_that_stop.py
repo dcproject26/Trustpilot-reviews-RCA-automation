@@ -166,10 +166,22 @@ def test_a_queued_review_says_what_it_is_waiting_behind(monkeypatch):
     assert f"{QUEUE_STALL_AFTER_S // 60} minutes" in why, why
 
 
-def test_a_review_that_was_searched_is_in_no_processing_state():
-    """The inverse bug: a draft that WAS written must not be described as a
-    run in any state at all."""
-    assert processing_state(NS(id="x", status="new"), NS(booking={})) == ("", "")
+def test_a_finished_run_is_in_no_processing_state():
+    """The inverse bug: a run that FINISHED (status flipped to draft) must not
+    be described as a run in any state. A draft with the review still 'new' is
+    now the dead-run case (A1) and is reported, so 'finished' turns on status,
+    not merely on a draft existing."""
+    assert processing_state(NS(id="x", status="draft"), NS(booking={})) == ("", "")
+
+
+def test_a_drafted_run_left_new_is_reported_as_dead():
+    """The A1 case: the early draft is written but the run never flipped the
+    status to 'draft', and nothing is in progress — that is a death, not a
+    finished review, and it must be said."""
+    import server.pipeline as _P
+    _P.PIPELINE_PROGRESS.pop("x2", None)
+    state, why = processing_state(NS(id="x2", status="new"), NS(booking={}, confidence_trail=[]))
+    assert state == "stalled" and why
 
 
 # ── The heartbeat the judgement reads ───────────────────────────────────────

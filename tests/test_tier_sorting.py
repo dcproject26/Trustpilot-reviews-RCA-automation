@@ -168,9 +168,12 @@ def test_a_review_that_was_searched_and_missed_still_is():
 
 def test_the_two_read_differently_on_the_card():
     a = processing_state(R(), None)
-    b = processing_state(R(), D())
+    # A FINISHED run (status flipped to draft) is not in a processing state; a
+    # draft with the review still "new" is now the dead-run case (A1), so the
+    # "not processing" side has to be a finished review.
+    b = processing_state(R("draft"), D())
     assert a[0] and a[1], "a review with no draft says nothing about its state"
-    assert b == ("", ""), "a draft that WAS searched is not in a processing state"
+    assert b == ("", ""), "a finished run is not in a processing state"
 
 
 def test_a_run_in_flight_says_wait_not_re_run(monkeypatch):
