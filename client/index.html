@@ -2227,11 +2227,40 @@ async function refreshAfterScenarioChange(reviewId) {
   }
 }
 
+// Cap how many overlay fetches are in flight at once. loadDraftOverlays loads
+// draft + insights for EVERY review, and firing them all through one
+// Promise.all was 2 requests × N reviews at once — 112 for 56 reviews. That
+// burst tripped the platform rate limit: requests came back 429 (and the
+// backend's own pool 500'd under it), so cards never populated and the RCA
+// column would not open. The eager load is kept — it is just PACED, a few
+// reviews at a time, which stays well under the limit and still finishes
+// quickly. Returns a function that runs `fn` when a slot is free.
+function _pLimit(n) {
+  let active = 0;
+  const queue = [];
+  const pump = () => {
+    while (active < n && queue.length) {
+      active++;
+      const { fn, resolve, reject } = queue.shift();
+      Promise.resolve().then(fn).then(
+        v => { active--; resolve(v); pump(); },
+        e => { active--; reject(e); pump(); });
+    }
+  };
+  return fn => new Promise((resolve, reject) => {
+    queue.push({ fn, resolve, reject });
+    pump();
+  });
+}
+
 async function loadDraftOverlays() {
+  // At most 4 reviews' worth of overlay fetches concurrently (8 requests),
+  // shared across every review below.
+  const _run = _pLimit(4);
   await Promise.all(REVIEWS.map(async (r) => {
     if (!r.rca) return;
     try {
-      const [draftResp, insightsResp] = await Promise.all([
+      const [draftResp, insightsResp] = await _run(() => Promise.all([
         fetch(`/api/reviews/${r.id}`),
         // Send the window the picker is displaying. Without it the server
         // applied its own default (30d) while the picker highlighted 90d, so
@@ -2239,7 +2268,7 @@ async function loadDraftOverlays() {
         // button - and clicking around masked it, because clicking does send
         // the window.
         fetch(`/api/reviews/${r.id}/insights?window=${encodeURIComponent(state.insightsWindow)}`),
-      ]);
+      ]));
       if (!draftResp.ok) return;
       const payload = await draftResp.json();
       const draft   = payload.draft;
