@@ -53,36 +53,94 @@ handing the project on.
 3. **Confirm the review recovery is complete.** Production went 12 → 37 after
    re-ingest, so it works. If older reviews are still missing, widen the window:
    `curl -X POST "https://trustpilot-rca.replit.app/api/reviews/refresh-slack?hours=720"`
-4. **Redeploy to make the current code live.** Production runs **`38b0276`**;
-   `main` is well past it (last cross-platform-verified: **`69d4990`**).
-   Everything in §0.1 below — the SP escalation email, the case-findings
-   rebuild, the crashed-translation guard, the Windows suite fixes, the
-   `/api/version` webhook block — is therefore NOT live yet. The database is
-   already durable via the Postgres env, so this is about the code, not the data.
+4. **Redeploy to make the current code live.** Production runs an OLD build;
+   `main` is **`25f467a`** (CI-green on Linux + the browser tests). Nothing from
+   this session is live until a redeploy — see the "This session" list in §0.1
+   for the full set (webhook health, four dashboard fixes, the load-burst fix,
+   the wrong-language translation guard, Part A dead-run visibility + stale-RCA
+   guard, Part B durable runs, the per-candidate possible-match filter). The
+   database is already durable via the Postgres env, so this is about the code,
+   not the data.
+   **Pending measurement, and the only unverified claim in this session:** once
+   redeployed, re-run the stuck reviews (Daniele `tp_1786792717_361699` et al.)
+   and confirm they now COMPLETE. 0 of 9 completed on the old build — that is
+   the baseline the durable-runs work (Part B) has to beat, and it can only be
+   proven on the deployment.
 
 Deeper detail on the database incident is in §0.5; the recovery runbook is
 there too.
 
 ---
 
-## 0.1 PICKING THIS UP IN A FRESH SESSION (last cross-platform-verified `main` = `69d4990`)
+## 0.1 PICKING THIS UP IN A FRESH SESSION (`main` = `25f467a`, CI-green on both platforms)
 
 Everything a new session needs to keep working on this without re-deriving it.
 
+### This session (`25f467a`) — shipped and CI-green, NOT yet deployed
+
+Newest last. All on `main`, all CI-green (Linux + the ~520 browser tests); none
+live until the redeploy in §0.0 item 4.
+
+- **Webhook health on `/api/version`** (`6379545`) — `recent_deliveries` +
+  `last_seen_at`, so production can be asked directly whether Slack events are
+  arriving; a broken read reads as `error`, never as 0 (rule 1). `diagnose.py`
+  now names the database/environment it measured. The earlier "0 deliveries →
+  webhook broken" was measured in the DEV repl (a DB Slack never posts to) — do
+  not repeat that; measure where Slack posts (the deployment).
+- **Four dashboard fixes** (`b6d5e94`, `client/index.html`) — a chip SPLICES its
+  own section, so a toggle no longer wipes hand edits (only ↻ Regenerate
+  rebuilds); the Customer/CE card reports the ticket-lookup outcome and claims
+  "nobody spoke" ONLY when tickets were found; insights default 30d (matches the
+  server); Booking-logs and Area-of-improvement dropped from the Slack post.
+- **Dashboard load no longer storms** (`78bbe25`, co-fix `4f767ac`) — the page
+  fired 112 requests at once (draft+insights × 56 reviews) → platform 429s and
+  backend 500s; now paced to 4 concurrently (`_pLimit`). `4f767ac` bounds how
+  long a BigQuery query may hold a connector slot.
+- **Wrong-language translation guard** (`b02709a`) — an English review whose
+  inbound translate returned Polish was stored and shown as its "English
+  translation". `reply_language.english_or_reject` refuses a non-English (or
+  unverifiable) result at both writers (pipeline + vs-intake), and vs-intake's
+  `or body_original` fallback is gone.
+- **Part A — dead-run visibility + stale-RCA guard** (`3d01aee`) — a run that
+  died after its early draft used to render as a clean card; `processing_state`
+  now reports it stalled with the recorded reason. A booking confirmed but not
+  rebuilt sets `rca_stale`, and BOTH posting paths refuse it — the path that put
+  a wrong reply on a public review page.
+- **Part B — durable runs** (`6d25c77`) — `run_jobs` table + `server/jobs.py`.
+  Every run path enqueues a durable job that the drain loop (server/main.py
+  lifespan) claims and runs, so a run survives the container that scheduled it.
+  Atomic compare-and-swap claim (Postgres + SQLite), lease-based reclaim,
+  bounded retries → `dead` with the reason, DB-backed job state so a run on
+  another instance is not read as dead. The autoscale limit is stated in
+  server/jobs.py: survivable and resumable, NOT runnable on a container that
+  does not exist. The drain loop is OFF under pytest (tests drive runs).
+- **Per-candidate possible-match filter** (`25f467a`) — `candidates_are_noise`
+  was a whole-list verdict on a per-candidate property, so one real match kept
+  every date-only booking beside it. `surviving_candidates` /
+  `candidate_noise_verdict` drop only the date-only filler, keep
+  venue/name/ticket agreements and the no-sub-scores escape hatch, and say "N
+  withheld, M kept" distinctly from "all withheld".
+
+**Tooling this session:** `tools/mutate.py` now decodes child pytest output as
+utf-8 (Windows cp1252 crashed it on any non-ASCII diff); `read_source()` in
+`tests/conftest.py` reads source files as utf-8 for the same reason. Playwright
+now installs cleanly on Windows, so the browser tests run locally too — but CI
+stays the deciding check because it is the one both machines share.
+
 ### Start here, in this order
 
-1. `git pull` — a clone made before `69d4990` is missing the Windows-suite
-   fixes and the webhook-observability work. **If a local server is running,
-   restart it**; it booted on the old code.
+1. `git pull` — a clone made before `25f467a` is missing this whole session's
+   work (the list above). **If a local server is running, restart it**; it
+   booted on the old code.
 2. Read **`CLAUDE.md`** (the contract) and §0 below. The three rules there each
    describe a bug that shipped here and passed review.
 3. Before committing anything:
 
-       # verified green on BOTH platforms at 69d4990:
-       #   Linux   3661 passed, 2 skipped   |   Windows 3139 passed, 35 skipped
-       # (the gap is the ~520 browser tests, which skip without playwright —
-       #  see §0.1 "Running the suite on Windows"; neither platform is the
-       #  whole story, so a fix is not done until both have run it)
+       # CI (Linux + the ~520 browser tests) is green on 25f467a — the
+       # authoritative gate. Windows WITH playwright runs the full set too:
+       #   3723 passed, 2 skipped. Without playwright, ~520 browser tests skip
+       #   (~3200 run), which is fine — but a JS/client change is not verified
+       #   until CI (or a local playwright run) has exercised the browser tests.
        python3 -m pytest tests/ -q
        python3 tools/verify_session_fixes.py    # 42 passed, 0 failed, exit 0
        python3 tools/mutate.py <spec>.json      # mutation-run THE DIFF, every push
@@ -177,11 +235,19 @@ both platforms on the same commit — but the failure *shapes* recur, so know th
    global module state **must restore it** at teardown, or it leaks into the
    next module (this even caught a *test* about the leak leaking).
 
-**The working constraint, stated plainly: this machine runs Windows only, and
-the reviewing session runs Linux only.** A cross-platform fix is NOT done until
-BOTH have run the suite on the same commit. The loop is push → the other side
-verifies → confirm. Two regressions here passed on one platform and failed on
-the other; skipping the loop is how they ship. Do not call green on one OS done.
+**The working loop, current version.** The repo has CI —
+`.github/workflows/tests.yml`, `runs-on: ubuntu-latest`, `on: push` to every
+branch — which runs the FULL Linux suite including the ~520 browser tests on
+every push. That is the authoritative cross-platform check, and it is
+self-serviceable: after pushing, read the run for your commit via the Actions
+API (`GET /repos/dcproject26/Trustpilot-reviews-RCA-automation/actions/runs`,
+match `head_sha`) — green = Linux + browser verified, no third party in the
+loop. The loop is: run the whole suite on Windows locally (fast feedback;
+`playwright` now installs cleanly on Windows so the browser tests run there too,
+though skipping them is fine locally) → mutation-run the diff → push → confirm
+the Actions run is green. Two regressions this project shipped passed on one
+platform and failed on the other, so a JS/client change is NOT verified until
+the browser tests have run somewhere (CI, or a local playwright run).
 
 ### The fastest whole-system diagnosis
 
