@@ -246,23 +246,93 @@ def candidates_are_noise(candidates: list) -> bool:
     weak, and suppressing them would hide matches that are simply hard.
     """
     rows = [c for c in (candidates or []) if isinstance(c, dict)]
-    if not rows:
-        return False           # nothing to suppress; not the same as noise
-    for c in rows:
-        if c.get("venue_signal"):
-            return False
-        for k in ("score_venue", "score_name", "score_ticket"):
-            try:
-                if float(c.get(k) or 0) > 0:
-                    return False
-            except (TypeError, ValueError):
-                pass
-        # A candidate from a path that recorded no sub-scores at all cannot be
-        # shown to be noise, and an unproven claim is not grounds for dropping
-        # somebody's only lead.
-        if not any(k in c for k in ("score_venue", "score_name", "score_ticket")):
-            return False
-    return True
+    # Whole-list noise = a non-empty list where NOT ONE candidate survives the
+    # per-candidate test. Delegated so there is one implementation of "does this
+    # candidate agree on anything", not two that drift apart.
+    return bool(rows) and not surviving_candidates(rows)
+
+
+def _candidate_agrees(c: dict) -> bool:
+    """Does this ONE candidate agree with the review on something real — venue,
+    guest name, or a Zendesk ticket — rather than only a close visit date?"""
+    if c.get("venue_signal"):
+        return True
+    for k in ("score_venue", "score_name", "score_ticket"):
+        try:
+            if float(c.get(k) or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            pass
+    return False
+
+
+def _candidate_unscored(c: dict) -> bool:
+    """A candidate from a path that recorded no sub-scores at all. It cannot be
+    SHOWN to be noise, and an unproven claim is not grounds for dropping
+    somebody's only lead — so it is kept, deliberately."""
+    return not any(k in c for k in ("score_venue", "score_name", "score_ticket"))
+
+
+def surviving_candidates(candidates: list) -> list:
+    """The candidates worth showing, filtered PER CANDIDATE not per list.
+
+    THE BUG THIS REPLACES. `candidates_are_noise` rendered a whole-list verdict
+    on a per-candidate property: it kept the ENTIRE shortlist the moment any one
+    candidate agreed on anything, and the call site then dropped all or kept
+    all. So a review naming a real venue — one candidate genuinely agrees, three
+    more ranked purely on date proximity — kept all four, and the three
+    date-only bookings rode into the picker beside the real one, inviting a
+    wrong confirmation. (María Victoria's Sintra / Quinta de Regaleira review was
+    the reported case; four same-venue bookings at nearby dates are exactly the
+    population that scores on date and belongs to someone else.)
+
+    Keep a candidate that agrees on venue, name or ticket; keep one that
+    recorded no sub-scores at all (the escape hatch — cannot be proven noise);
+    drop only the ones that HAVE sub-scores and agree on nothing but the date.
+    An all-noise list survives as [] — the caller keeps the existing "none
+    agrees" wording for that; a mixed list loses only its date-only rows, and
+    the caller says how many went and how many stayed. Those are different
+    statements and must not read the same (rule 1).
+    """
+    rows = [c for c in (candidates or []) if isinstance(c, dict)]
+    return [c for c in rows if _candidate_agrees(c) or _candidate_unscored(c)]
+
+
+def candidate_noise_verdict(candidates: list) -> dict:
+    """The date-only filter as one driveable decision, message and all.
+
+    Returns {kept, dropped, state, trail}:
+      state "clean"      nothing was date-only filler — the list is unchanged.
+      state "filtered"   some date-only rows withheld, some real ones kept.
+      state "all_noise"  nothing survived — the whole list was date-only.
+    `trail` is the confidence-trail entry to append (None for "clean"). The
+    three read DIFFERENTLY on purpose (rule 1): "N withheld, M kept" is not
+    "none agrees, all withheld" is not silence. Kept out of process_review so
+    it can be tested by calling it, not by asserting a string in the source.
+    """
+    rows = [c for c in (candidates or []) if isinstance(c, dict)]
+    kept = surviving_candidates(rows)
+    dropped = len(rows) - len(kept)
+    if not rows or (kept and not dropped):
+        return {"kept": rows, "dropped": 0, "state": "clean", "trail": None}
+    if not kept:
+        n = len(rows)
+        return {"kept": [], "dropped": n, "state": "all_noise", "trail": {
+            "mark": "warn",
+            "text": f"<strong>{n} possible match(es) withheld</strong> — none of "
+                    f"them agrees with the review on venue, guest name or any "
+                    f"Zendesk ticket; they were ranked only on how close the visit "
+                    f"date is to the review date. Offering bookings chosen that way "
+                    f"invites a wrong confirmation, and an RCA built on somebody "
+                    f"else's booking is worse than no match. Ask the guest for a "
+                    f"booking reference."}}
+    return {"kept": kept, "dropped": dropped, "state": "filtered", "trail": {
+        "mark": "warn",
+        "text": f"<strong>{dropped} date-only possible match(es) withheld</strong>, "
+                f"{len(kept)} kept — the withheld ones agreed with the review on "
+                f"nothing but how close the visit date is, which is not a match; the "
+                f"{len(kept)} shown agree on venue, guest name or a Zendesk ticket. "
+                f"Confirm one of those, or ask the guest for a booking reference."}}
 
 
 def tier1_promotable(conf: float, corroboration: float,
@@ -3185,20 +3255,23 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # candidates_are_noise. Counted and SAID, never silently dropped: the
         # associate has to know a search ran and produced only noise, which is
         # a different thing from a search that produced nothing at all.
-        if candidate_state and candidates and candidates_are_noise(candidates):
-            _n_noise = len(candidates)
-            confidence_trail.append({"mark": "warn",
-                "text": f"<strong>{_n_noise} possible match(es) withheld</strong> — none "
-                        f"of them agrees with the review on venue, guest name or any "
-                        f"Zendesk ticket; they were ranked only on how close the visit "
-                        f"date is to the review date. Offering bookings chosen that way "
-                        f"invites a wrong confirmation, and an RCA built on somebody "
-                        f"else's booking is worse than no match. Ask the guest for a "
-                        f"booking reference."})
-            log.info(f"[tier2] withheld {_n_noise} date-only candidate(s) for {review_id}")
-            candidates = []
-            candidate_state = False
-            match_tier = None
+        if candidate_state and candidates:
+            _v = candidate_noise_verdict(candidates)
+            if _v["trail"]:
+                confidence_trail.append(_v["trail"])
+            if _v["state"] == "all_noise":
+                # Nothing agreed on anything but the date — withhold the whole
+                # list and fall back to untraceable, exactly as before.
+                log.info(f"[tier2] withheld {_v['dropped']} date-only candidate(s) for {review_id}")
+                candidates = []
+                candidate_state = False
+                match_tier = None
+            elif _v["state"] == "filtered":
+                # Some real, some date-only filler — keep the picker on the real
+                # ones, drop only the filler.
+                log.info(f"[tier2] withheld {_v['dropped']} date-only candidate(s), kept "
+                         f"{len(_v['kept'])} for {review_id}")
+                candidates = _v["kept"]
 
         untraceable_reason = None
         _bq_could_not_be_asked = not is_live("bigquery")
