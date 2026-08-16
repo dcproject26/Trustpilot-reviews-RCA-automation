@@ -275,6 +275,45 @@ class SlackEventSeen(Base):
     seen_at  = Column(DateTime, default=datetime.utcnow, index=True)
 
 
+class RunJob(Base):
+    """A durable pipeline run, so a run survives the container that started it.
+
+    Every run path used to be `background_tasks.add_task(run_batch_sync, ...)` —
+    fire-and-forget, executed AFTER the response in that process. On an autoscale
+    deployment the container is reclaimed once the request completes, so the run
+    frequently never got CPU at all: 0 of 9 re-runs moved a single field. A row
+    here outlives the request. Any instance's drain loop can claim it, and a
+    claim that a reclaimed container never finished becomes reclaimable once its
+    lease lapses.
+
+    A new table, so create_all() picks it up with no column migration.
+
+    status:  queued   waiting to be claimed
+             running   claimed, lease live; `lease_expires_at` bounds the claim
+             done      finished
+             dead      failed `max_attempts` times; `last_error` says why
+    """
+    __tablename__ = "run_jobs"
+    id               = Column(String, primary_key=True)
+    review_id        = Column(String, index=True, nullable=False)
+    reason           = Column(String, default="")
+    force_candidates = Column(Boolean, default=False)
+    status           = Column(String, default="queued", index=True)
+    attempts         = Column(Integer, default=0)
+    max_attempts     = Column(Integer, default=3)
+    # The claim's deadline. A `running` job whose lease is in the past was
+    # claimed by an instance that never finished it — reclaimable.
+    lease_expires_at = Column(DateTime, nullable=True)
+    claimed_by       = Column(String, nullable=True)
+    # DB-backed progress: PIPELINE_PROGRESS is in-process, so a run on another
+    # instance reads as "nothing in progress here". This is the copy every
+    # instance can see.
+    progress         = Column(JSON, nullable=True)
+    last_error       = Column(Text, nullable=True)
+    created_at       = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at       = Column(DateTime, default=datetime.utcnow)
+
+
 def _ensure_columns():
     """
     Idempotently add columns introduced after the initial schema so existing

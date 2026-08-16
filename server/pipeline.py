@@ -790,6 +790,15 @@ def _progress(review_id: str, step: int, stage: str):
               "elapsed_s": int(now - e["started_at"]), "updated_at": now,
               "queued": False})
     PIPELINE_PROGRESS[review_id] = e
+    # Mirror to the durable job (if this run is one), so an instance that is
+    # NOT running it can still see the progress, and so a live run renews its
+    # lease. Best-effort — the in-process entry above is the source of truth
+    # for this instance, and a job write must never break the run.
+    try:
+        from server import jobs as _jobs
+        _jobs.note_progress(review_id, step, _STAGES_TOTAL, stage)
+    except Exception:
+        pass
 
 
 def mark_queued(review_id: str, position: int, of: int, reason: str = "ingest"):

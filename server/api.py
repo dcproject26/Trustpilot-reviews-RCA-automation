@@ -32,6 +32,7 @@ from datetime import timezone as _tz
 _STARTED_AT = datetime.now(_tz.utc).isoformat()   # when THIS process booted
 
 from server.db import get_session, Review, RcaDraft, ReviewMetric
+from server import jobs
 from server.taxonomy import L1_CATEGORIES, L2_OPTIONS, DIAGNOSTIC_CHECKS, ACTION_TABS, SUB_THEME_REGISTRY
 from server.checklist import SCENARIO_CHECKS
 from server.prompts import TAKEDOWN_REASONS
@@ -1043,9 +1044,20 @@ def list_reviews(status: str | None = None, tab: str | None = None,
     from server.tiers import (classify, tier_label, is_unverified,
                               TAB_TO_BUCKET, processing_state as _pstate)
 
+    # One query for the durable-job state of every review, so processing_state
+    # can tell a run on another instance (or a queued-not-started one) from a
+    # dead run — PIPELINE_PROGRESS only knows about this process. Read once,
+    # not per row. Never fail the list over it.
+    try:
+        _jstates = jobs.job_states()
+    except Exception as _e:
+        log.warning(f"[list] job_states unavailable: {_e}")
+        _jstates = {}
+
     result = []
     for r in rows:
         draft   = r.draft
+        _ps     = _pstate(r, draft, _jstates.get(r.id))
         tier    = draft.match_tier if draft else None
         cand_state = bool(draft and draft.candidate_state)
         bucket = classify(r, draft)
@@ -1075,8 +1087,8 @@ def list_reviews(status: str | None = None, tab: str | None = None,
             # For a review with no draft row: is the run going, or did it die?
             # Both render as an empty card and they need opposite responses —
             # wait, versus re-run and read the log.
-            "processing_state":  _pstate(r, draft)[0],
-            "processing_reason": _pstate(r, draft)[1],
+            "processing_state":  _ps[0],
+            "processing_reason": _ps[1],
             # The three facts the bucket rule turns on. Sent so a client can
             # reproduce the decision exactly rather than approximate it from
             # match_tier - approximating is what put confirmed candidates in
@@ -1112,8 +1124,6 @@ async def add_manual_review(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_session),
 ):
-    from server.pipeline import run_batch_sync
-
     ts = data.slack_ts or str(time.time())
     review_id = f"tp_{ts.replace('.', '_')}"
 
@@ -1135,10 +1145,10 @@ async def add_manual_review(
     db.add(review)
     db.commit()
 
-    # Through the batch runner even for one review: it is the only path that
-    # marks the review as queued, so the card can say "queued, not started"
-    # instead of showing the blank of a review nobody ever asked about.
-    background_tasks.add_task(run_batch_sync, [review_id], "manual-add")
+    # Durable job, not a fire-and-forget task: the drain loop runs it, and the
+    # queued job row is itself the "queued, not started" record the card reads,
+    # so a review nobody has run yet does not show as a blank.
+    jobs.enqueue(review_id, "manual-add")
     return {"ok": True, "review_id": review_id}
 
 
@@ -1973,9 +1983,10 @@ async def select_candidate(review_id: str, body: CandidateSelect,
     d.rca_stale = True
     db.commit()
 
-    # Re-run pipeline to fetch Zendesk/insights/RCA for the confirmed booking.
-    from server.pipeline import run_batch_sync
-    background_tasks.add_task(run_batch_sync, [review_id], "candidate-confirmed")
+    # Re-run pipeline to fetch Zendesk/insights/RCA for the confirmed booking —
+    # durably, so it survives the container this request runs in (fire-and-
+    # forget did not: measured 0 of 9 re-runs executed).
+    jobs.enqueue(review_id, "candidate-confirmed")
     return {"ok": True, "draft": _draft_dict(d)}
 
 
@@ -2076,8 +2087,7 @@ async def set_booking_id(review_id: str, body: BookingIdSet,
     d.rca_stale = True
     db.commit()
 
-    from server.pipeline import run_batch_sync
-    background_tasks.add_task(run_batch_sync, [review_id], "bid-set-by-hand")
+    jobs.enqueue(review_id, "bid-set-by-hand")
     return {"ok": True, "bid": bid, "verified": bool(full),
             "replaced": was if was and was != bid else None,
             "note": why, "draft": _draft_dict(d)}
@@ -2200,12 +2210,15 @@ async def refresh_slack(hours: int = 72, background_tasks: BackgroundTasks = Non
     # fifteen-review ingest left thirteen reviews unstarted and unrecorded that
     # way. run_batch marks every review queued before the first one starts,
     # isolates each run, bounds it, and logs what it could not do.
-    from server.pipeline import run_batch, run_batch_sync
+    # DURABLE, one job row per review, drained by the loop in server/main.py —
+    # so a refresh that ingests fifteen reviews survives the request. Outside a
+    # request (a script/test, where no drain loop is running) run inline, or the
+    # rows would sit un-run.
     if background_tasks is not None:
-        background_tasks.add_task(run_batch_sync, list(ingested), "slack-refresh")
+        for _rid in ingested:
+            jobs.enqueue(_rid, "slack-refresh")
     elif ingested:
-        # Called outside a request (a script, a test): run inline rather
-        # than silently ingesting rows whose pipeline never runs.
+        from server.pipeline import run_batch
         await run_batch(list(ingested), "slack-refresh")
 
     log.info(f"[refresh-slack] {hours}h: {found} Trustpilot posts, "
@@ -3475,8 +3488,7 @@ async def reprocess_review(
     # saw nothing to clear, auto-promoted the best match straight to Tier 1, and
     # the associate never got the picker back. Clicking Re-run IS the request to
     # choose again.
-    from server.pipeline import run_batch_sync
-    background_tasks.add_task(run_batch_sync, [review_id], "re-run", True)
+    jobs.enqueue(review_id, "re-run", True)
     return {"ok": True, "review_id": review_id, "refreshed_from_slack": refreshed}
 
 

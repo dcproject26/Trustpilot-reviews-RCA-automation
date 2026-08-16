@@ -149,7 +149,7 @@ def _mins(seconds: int) -> str:
     return f"{m} minute{'' if m == 1 else 's'}"
 
 
-def processing_state(review, draft) -> tuple[str, str]:
+def processing_state(review, draft, job_state=None) -> tuple[str, str]:
     """(state, sentence) for a review with no draft row. ("", "") otherwise.
 
     Four things wear the same blank card, and they do not want the same
@@ -228,6 +228,22 @@ def processing_state(review, draft) -> tuple[str, str]:
             f"without progress as a dead run — that is a judgement from "
             f"elapsed time, not something the run reported. No draft row was "
             f"written, so this is not a booking we could not find. Re-run it.")
+
+    # Nothing is in progress on THIS instance. Before calling it dead, the
+    # durable job row is the cross-instance truth: PIPELINE_PROGRESS is
+    # in-process, so a run on another instance (or one queued and not yet
+    # claimed) had no entry here and used to read as dead. `job_state` comes
+    # from server/jobs.py::job_states, read once per list rather than per row.
+    if job_state == "running":
+        return "running", (
+            "A run is in progress on another server. Its step-by-step progress "
+            "is not visible from here, but its job holds a live lease — wait; "
+            "re-running now would only start a second one.")
+    if job_state == "queued":
+        return "queued", (
+            "Queued for a durable run and not started yet. It survives this "
+            "server, so it will be picked up by the next drain — nothing has "
+            "been searched for, and this is not a failed match.")
 
     if draft is not None:
         # A draft was written (the run reached the match) but the review is

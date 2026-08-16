@@ -633,12 +633,17 @@ def api_client(monkeypatch):
     drop_temp_db(tmp.name)
 
 
-def test_the_ingest_hands_the_whole_batch_to_one_supervised_task(monkeypatch):
-    """Fifteen reviews, ONE task. Fifteen tasks is the shape that loses
-    thirteen of them, and it is the shape a refactor falls back into."""
+def test_the_ingest_enqueues_one_durable_job_per_review(monkeypatch):
+    """Fifteen reviews, fifteen DURABLE jobs, zero fire-and-forget tasks.
+
+    The old shape handed the batch to a background task that ran after the
+    response, in a container autoscale reclaims — which is how a fifteen-review
+    ingest left thirteen reviews un-run (measured 0 of 9 on a re-run). Part B
+    replaces that with a job row per review that the drain loop claims and that
+    survives the request. The guarantee flips: not "one supervised task" but "no
+    task at all — durable rows instead"."""
     import server.api as api
     import server.config as cfg
-    import server.pipeline as P
     from server.services import slack as slack_svc
 
     msgs = [{"ts": f"{i}.0", "text": f"review {i}"} for i in range(15)]
@@ -671,18 +676,20 @@ def test_the_ingest_hands_the_whole_batch_to_one_supervised_task(monkeypatch):
         def commit(self):
             pass
 
+    enq = []
+    monkeypatch.setattr(api.jobs, "enqueue",
+                        lambda rid, reason="", force_candidates=False: enq.append(rid))
+
     from fastapi import BackgroundTasks
     bt = BackgroundTasks()
     out = asyncio.run(api.refresh_slack(hours=1, background_tasks=bt, db=_FakeDB()))
 
     assert out["queued"] == 15
-    assert len(bt.tasks) == 1, (
-        f"the ingest queued {len(bt.tasks)} separate background tasks; "
-        f"Starlette runs them in one unguarded loop, so the first failure "
-        f"drops the rest")
-    task = bt.tasks[0]
-    assert task.func is P.run_batch_sync, task.func
-    assert task.args[0] == [f"tp_{i}_0" for i in range(15)], task.args
+    assert len(bt.tasks) == 0, (
+        f"the ingest queued {len(bt.tasks)} background task(s); the fragile "
+        f"fire-and-forget path is gone — runs are durable job rows now")
+    assert enq == [f"tp_{i}_0" for i in range(15)], (
+        f"each review must get its own durable job; got {enq}")
 
 
 def test_the_model_call_cannot_block_for_half_an_hour():

@@ -149,12 +149,43 @@ async def lifespan(app: FastAPI):
 
     # Start 5-minute heartbeat background task
     hb_task = asyncio.create_task(_heartbeat_loop())
+
+    # Start the durable-run drain loop. It claims queued run_jobs and executes
+    # them one at a time for as long as THIS instance lives; a job a reclaimed
+    # instance never finished stays in the table and its lease lapses, so the
+    # next instance to serve traffic reclaims it. This is why a re-run survives
+    # the container that scheduled it — see server/jobs.py for the limits.
+    from server import jobs as _jobs
+    _stop = {"v": False}
+
+    async def _job_runner(job):
+        from server.pipeline import run_batch
+        await run_batch([job["review_id"]], job["reason"], job["force_candidates"])
+
+    import socket
+    _worker_id = f"{socket.gethostname()}:{os.getpid()}"
+    # Not under pytest. The drain loop is a background worker that claims jobs
+    # and mutates the database; started under a TestClient it would race every
+    # test that enqueues, run real pipelines beneath unrelated tests, and defeat
+    # tests that simulate a run dying. Tests drive runs explicitly (call
+    # run_drain_loop, or run_batch) — see tests/test_durable_runs.py.
+    drain_task = None
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        drain_task = asyncio.create_task(
+            _jobs.run_drain_loop(_job_runner, _worker_id,
+                                 should_stop=lambda: _stop["v"]))
     yield
+    _stop["v"] = True
     hb_task.cancel()
-    try:
-        await hb_task
-    except asyncio.CancelledError:
-        pass
+    if drain_task is not None:
+        drain_task.cancel()
+    for _t in (hb_task, drain_task):
+        if _t is None:
+            continue
+        try:
+            await _t
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="Headout ORM RCA", lifespan=lifespan)
