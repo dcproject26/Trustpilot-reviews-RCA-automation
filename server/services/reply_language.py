@@ -417,6 +417,58 @@ async def resolve_language(review) -> dict:
                    f"the ingest default rather than a finding)"}
 
 
+async def english_or_reject(text: str, review_id: str = None) -> dict:
+    """May this inbound-translation RESULT be stored as `body_english`?
+
+    THE HOLE THIS CLOSES. The inbound translate is ASKED for English, and
+    nothing checked it DELIVERED English — the only test at the call site was
+    `result != "ENGLISH_ALREADY"`. So a call that came back in the guest's own
+    language had its output stored and shown on the card as "English translation
+    · AI": a wrong-language string wearing a confident label. The case that
+    surfaced this was an English review whose inbound translate returned Polish
+    (`tp_1786833521_…` family) and rendered as its English translation. That is
+    CLAUDE.md rule 1 exactly — "we translated" and "we translated into the wrong
+    language" produced the same stored blob and the same screen.
+
+    COSTS ONE MODEL CALL, and only on the path that actually produced a
+    translation. `detect_language` runs on the RESULT; an English review answers
+    ENGLISH_ALREADY upstream and never reaches here, so it pays nothing. A
+    detector that cannot run (Anthropic down) or cannot name the language
+    returns "", and that is treated as UNVERIFIED — refused, never stored as if
+    checked. An unchecked translation must not become a trusted one by default;
+    a detector failure is the one thing that must not quietly read as "valid".
+
+    Three outcomes, kept distinct because the reader's next step differs:
+
+        stored          detector confirmed English — safe to store
+        wrong_language  detector named a non-English language — a failed
+                        translation, refused
+        unverified      detector could not run or could not name it — refused,
+                        because "we did not check" must not read as "checked, fine"
+    """
+    from server.services import claude as claude_svc
+    try:
+        detected = (await claude_svc.detect_language(text) or "").strip()
+    except Exception as e:
+        _log_translation_failure(review_id, "verify", e)
+        return {"store": False, "outcome": "unverified", "language": "",
+                "why": f"the translation could not be language-checked ({e}), "
+                       f"so it was NOT stored as the English text — re-run to "
+                       f"try the translation again"}
+    if detected and detected.lower() in _MEANS_ENGLISH:
+        return {"store": True, "outcome": "stored", "language": detected,
+                "why": "translated to English (confirmed by the language check)"}
+    if not detected:
+        return {"store": False, "outcome": "unverified", "language": "",
+                "why": "the translation could not be language-checked — the "
+                       "detector did not run or could not name it — so it was "
+                       "NOT stored as the English text; re-run to try again"}
+    return {"store": False, "outcome": "wrong_language", "language": detected,
+            "why": f"the translation came back in {detected}, not English — a "
+                   f"translation in the wrong language is a failed translation, "
+                   f"so it was NOT stored as the review's English text"}
+
+
 async def translate_outgoing(english: str, review, review_id: str = None) -> tuple:
     """Turn the model's English draft into the reply that goes out.
 

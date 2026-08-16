@@ -3690,8 +3690,8 @@ class VsIntake(BaseModel):
 
 
 @router.post("/api/vs-intake")
-def vs_intake(body: VsIntake, x_vs_key: str | None = Header(default=None),
-              db: Session = Depends(get_session)):
+async def vs_intake(body: VsIntake, x_vs_key: str | None = Header(default=None),
+                    db: Session = Depends(get_session)):
     """
     Store a VectorShift-produced RCA so it shows on the dashboard like any
     other review (status=draft, source tagged in the id: vs_<bid>_<ts>).
@@ -3701,6 +3701,26 @@ def vs_intake(body: VsIntake, x_vs_key: str | None = Header(default=None),
     bid = str(rv.get("bid") or (body.booking or {}).get("id") or "").strip()
     rid = f"vs_{bid or 'nobid'}_{int(time.time())}"
 
+    # `body_english` here is an EXTERNAL producer's claim, so it gets the SAME
+    # guard the pipeline's own translation does. Two defects lived on this line:
+    # (1) no validation, so a payload in the wrong language rendered as "English
+    # translation · AI"; and (2) an `or body_original` fallback that SILENTLY
+    # copied the untranslated original into that field when body_english was
+    # absent — a confident AI-translation label on text nobody translated. The
+    # fallback is gone; a provided value is stored only if the language check
+    # confirms English (one model call), and a rejected or absent one leaves
+    # body_english empty with the reason recorded on the draft's trail.
+    from server.services import reply_language as _rl
+    _provided_en = (rv.get("body_english") or "").strip()
+    _en_to_store = ""
+    _xl_trail = None
+    if _provided_en:
+        _verdict = await _rl.english_or_reject(_provided_en, rid)
+        if _verdict["store"]:
+            _en_to_store = _provided_en
+        _xl_trail = {"mark": "pass" if _verdict["store"] else "warn",
+                     "text": "<strong>Translation</strong> — " + _verdict["why"]}
+
     review = Review(
         id=rid,
         slack_ts=None,
@@ -3709,7 +3729,7 @@ def vs_intake(body: VsIntake, x_vs_key: str | None = Header(default=None),
         language=rv.get("language") or "en",
         author=rv.get("author") or "",
         body_original=rv.get("body_original") or "",
-        body_english=rv.get("body_english") or rv.get("body_original") or "",
+        body_english=_en_to_store,
         reference_number=bid or None,
         received_at=datetime.utcnow(),
         status="draft",
@@ -3739,6 +3759,7 @@ def vs_intake(body: VsIntake, x_vs_key: str | None = Header(default=None),
         actions_taken=body.actions_taken or
             {"sp": [], "customer": [], "business": [], "product": [], "ce": []},
         suggested_response=body.suggested_response or "",
+        confidence_trail=[_xl_trail] if _xl_trail else [],
         generated_at=datetime.utcnow(),
     )
     db.add(draft)

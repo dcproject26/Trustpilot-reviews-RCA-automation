@@ -1410,15 +1410,41 @@ async def process_review(review_id: str, force_candidates: bool = False):
         _progress(review_id, 1, "matching booking")
 
         # ── 1. Translate ──────────────────────────────────────────────────────
+        # THE RESULT IS VALIDATED BEFORE IT IS TRUSTED. The only check here used
+        # to be `!= ENGLISH_ALREADY`, so a translate call that answered in the
+        # WRONG language had its output stored and rendered as "English
+        # translation · AI" — an English review came back in Polish and showed
+        # exactly that way. `english_or_reject` runs one detect_language call on
+        # the RESULT and refuses a non-English (or unverifiable) one: a
+        # wrong-language translation is a failed translation, recorded `warn` on
+        # the trail rather than stored as if it succeeded. "none needed" (the
+        # review is English) and "wrong language" both leave body_english empty,
+        # so they get DIFFERENT trail lines — the two empties must not collapse.
+        _xl_trail = None
         if not review.body_english:
             try:
-                result = await claude.translate(
+                result = (await claude.translate(
                     review.body_original, review.language or "auto", review_id)
-                if result and result.strip() != "ENGLISH_ALREADY":
-                    review.body_english = result.strip()
+                    or "").strip()
+                if not result or result == "ENGLISH_ALREADY":
+                    _xl_trail = {"mark": "pass",
+                                 "text": "<strong>Translation</strong> — none "
+                                         "needed; the review reads as English "
+                                         "(ENGLISH_ALREADY)"}
+                else:
+                    _verdict = await reply_language.english_or_reject(result, review_id)
+                    if _verdict["store"]:
+                        review.body_english = result
+                    _xl_trail = {"mark": "pass" if _verdict["store"] else "warn",
+                                 "text": "<strong>Translation</strong> — "
+                                         + _verdict["why"]}
                 db.commit()
             except Exception as e:
                 log.exception(f"Translation failed: {e}")
+                _xl_trail = {"mark": "warn",
+                             "text": f"<strong>Translation</strong> — the inbound "
+                                     f"translation call failed ({e}); the review "
+                                     f"is shown in its original language"}
 
         # ── 1b. Name the guest's language ─────────────────────────────────────
         # OUTSIDE the block above, and that is the entire fix. The detection
@@ -3343,6 +3369,11 @@ async def process_review(review_id: str, force_candidates: bool = False):
             #
             # The marker is removed by the final save, which writes the whole
             # trail again. If it is still on the row, the run did not finish.
+            # Translation note (step 1) FIRST — prepended in place so the persist
+            # line below stays the plain partial write. `not in` keeps it
+            # idempotent across the early and final saves of the same list.
+            if _xl_trail and _xl_trail not in confidence_trail:
+                confidence_trail.insert(0, _xl_trail)
             _d.confidence_trail   = partial_trail(confidence_trail)
             _d.bid_source         = bid_source
             _d.extracted_signals  = extracted_sigs or {}
@@ -3997,6 +4028,12 @@ async def process_review(review_id: str, force_candidates: bool = False):
         draft.match_method         = _match.get("method") or narrowing_path
         draft.candidates_list      = candidates
         draft.candidate_state      = candidate_state
+        # Translation note (step 1) FIRST, and it must survive the branches above
+        # that reassign confidence_trail to a carried prior trail. Prepended in
+        # place so the persist line stays the plain whole-trail write a finished
+        # run needs; `not in` avoids a double when the early save already added it.
+        if _xl_trail and _xl_trail not in confidence_trail:
+            confidence_trail.insert(0, _xl_trail)
         draft.confidence_trail     = confidence_trail
         draft.bid_source           = bid_source
         _sigs = dict(extracted_sigs or {})
