@@ -186,7 +186,8 @@ def test_the_ingest_remap_names_the_field():
     it. `narrowing_path` was missing once, so the message keyed on it could
     never have rendered however correct the branch was; `details_lookup` is
     the field the message keys on now."""
-    src = open("client/index.html").read()
+    from tests.conftest import read_source
+    src = read_source("client/index.html")   # utf-8; open().read() is cp1252 on Windows
     i = src.index("r.candidatesList = draft.candidates_list.map(c => ({")
     # Bounded by the END OF THE BLOCK, not a character count. A fixed slice
     # broke the moment three score fields were added ahead of this one —

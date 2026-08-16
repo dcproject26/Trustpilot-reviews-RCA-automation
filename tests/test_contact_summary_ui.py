@@ -145,24 +145,41 @@ def test_no_field_labels_are_drawn(page):
         assert label not in html, f"{label!r} is a field label on a summary"
 
 
-def test_the_empty_state_is_untouched(page):
-    html = page.evaluate("""() => {
-      const r = REVIEWS.find(x => x.id === state.selected);
-      const keep = [r.rca.supportFrames, r.rca.supportNotes,
-                    r.rca.v3.support_interaction_notes];
-      r.rca.supportFrames = []; r.rca.supportNotes = [];
-      r.rca.v3.support_interaction_notes = [];
-      renderRcaCol();
-      const el = [...document.querySelectorAll('.interactions')]
-        .find(e => e.querySelector(':scope > .interactions-empty'));
-      const out = el ? el.innerHTML : null;
-      [r.rca.supportFrames, r.rca.supportNotes,
-       r.rca.v3.support_interaction_notes] = keep;
-      renderRcaCol();
-      return out; }""")
-    assert html and "never reached support" in html
+def test_the_empty_state_reports_the_ticket_lookup_outcome(page):
+    """No contacts: the card reports the Zendesk ticket-lookup outcome, not the
+    internal machinery it used to describe, and obeys rule 1. It claims "nobody
+    spoke to the guest" ONLY when tickets were found and held none; with no
+    ticket ids it says it cannot tell "none matched" from "lookup never ran".
+    The empty state carries no row furniture in either case."""
+    def empty_html(tids):
+        return page.evaluate("""(tids) => {
+          const r = REVIEWS.find(x => x.id === state.selected);
+          const keep = [r.rca.supportFrames, r.rca.supportNotes,
+                        r.rca.v3.support_interaction_notes, r.zendeskTicketIds];
+          r.rca.supportFrames = []; r.rca.supportNotes = [];
+          r.rca.v3.support_interaction_notes = [];
+          r.zendeskTicketIds = tids;
+          renderRcaCol();
+          const el = [...document.querySelectorAll('.interactions')]
+            .find(e => e.querySelector(':scope > .interactions-empty'));
+          const out = el ? el.innerHTML : null;
+          [r.rca.supportFrames, r.rca.supportNotes,
+           r.rca.v3.support_interaction_notes, r.zendeskTicketIds] = keep;
+          renderRcaCol();
+          return out; }""", tids)
+
+    found = empty_html(["34125496", "34256902"])
+    assert found and "nobody spoke to the guest here" in found, found
+    assert "ZD-34125496" in found, "the matched tickets are not linked"
+
+    none = empty_html([])
+    assert none and "nobody spoke" not in none, \
+        "claimed nobody spoke with no ticket ids — rule 1"
+    assert "did not run" in none, none
+
     for dressing in ("convo-num", "convo-type-pill", "convo-time"):
-        assert dressing not in html, f"the empty state renders a {dressing}"
+        assert dressing not in found and dressing not in none, \
+            f"the empty state renders a {dressing}"
 
 
 def test_the_page_is_still_healthy(page):

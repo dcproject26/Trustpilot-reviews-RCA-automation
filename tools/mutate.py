@@ -60,7 +60,13 @@ def main():
     # The baseline is always a COMPLETE run: -x on a green suite changes
     # nothing, but if it were ever red we want the whole count, not the first
     # failure.
-    base = subprocess.run(cmd, cwd=tree, capture_output=True, text=True)
+    # encoding is EXPLICIT. text=True alone decodes the child's stdout with the
+    # locale codec — cp1252 on Windows — and pytest output carrying an em dash
+    # (every other test name here) then raises UnicodeDecodeError before a
+    # single verdict is read. utf-8 matches what pytest writes on both
+    # platforms; errors="replace" keeps a stray byte from taking down the run.
+    base = subprocess.run(cmd, cwd=tree, capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
     if base.returncode:
         print("BASELINE IS RED — fix the suite before mutating. Nothing below "
               "would mean anything.")
@@ -96,7 +102,8 @@ def main():
         # state that needs saying.
         print(f"{'  …running':44} {i}/{len(muts)} {m['name'][:40]}", flush=True)
         try:
-            r = subprocess.run(cmd, cwd=tree, capture_output=True, text=True)
+            r = subprocess.run(cmd, cwd=tree, capture_output=True, text=True,
+                               encoding="utf-8", errors="replace")
             tail = (r.stdout.strip().splitlines() or [""])[-1]
             if r.returncode:
                 caught += 1

@@ -283,7 +283,9 @@ def test_the_empty_branch_itself_carries_no_row_furniture(page):
     assert html, "the empty state did not render when there were no contacts"
     for dressing in ("convo-num", "convo-type-pill", "convo-time", "convo-chevron"):
         assert dressing not in html, f"the empty state renders a {dressing} — that is defect 4"
-    assert "never reached support" in html
+    # tp_ui seeds two matched tickets, so the empty state reports the lookup
+    # outcome: tickets found, none held a guest conversation.
+    assert "nobody spoke to the guest here" in html, html
 
 
 def test_a_note_cannot_override_the_frames_time_or_channel(page):
@@ -1302,28 +1304,56 @@ def test_an_agent_only_ticket_does_not_render_as_a_contact(page):
     assert got["hint"].startswith("1 contact"), got["hint"]
 
 
-def test_a_booking_of_pure_machinery_does_not_read_as_a_silent_guest(page):
-    """A filtered list and a guest who never wrote in must not look the same."""
-    try:
-        _render(page, {"frames": MACHINERY, "notes": []})
-        got = _contact_section(page)
-    finally:
-        _restore(page)
+def _contact_empty(page, frames, tids):
+    """Render the guest↔support section with the given frames and ticket ids,
+    read its empty state + subtitle, and restore. Self-contained because the
+    determinant of the empty-state claim is now `zendeskTicketIds`, which the
+    shared _render does not control."""
+    return page.evaluate("""({frames, tids}) => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keep = [r.rca.supportFrames, r.rca.supportNotes, r.zendeskTicketIds];
+      r.rca.supportFrames = frames; r.rca.supportNotes = []; r.zendeskTicketIds = tids;
+      renderRcaCol();
+      const sec = [...document.querySelectorAll('#rca-col .section')].find(
+        s => /guest . support/i.test(s.querySelector('.section-label')?.innerText || ''));
+      const out = {rows: sec.querySelectorAll('.convo-frame').length,
+                   hint: sec.querySelector('.hint').innerText,
+                   empty: (sec.querySelector('.interactions-empty')||{}).innerText||''};
+      [r.rca.supportFrames, r.rca.supportNotes, r.zendeskTicketIds] = keep;
+      renderRcaCol();
+      return out; }""", {"frames": frames, "tids": tids})
+
+
+def test_machinery_without_a_ticket_match_does_not_read_as_a_silent_guest(page):
+    """The determinant is the ticket lookup, not the machinery. A booking whose
+    only events are machinery AND where no Zendesk ticket matched must not claim
+    nobody spoke — the card cannot tell "none matched" from "lookup never ran".
+    The subtitle still reports the machinery moved to the timeline."""
+    got = _contact_empty(page, MACHINERY, [])
     assert got["rows"] == 0
-    assert "3 system events moved to the timeline" in got["hint"]
-    assert "machinery" in got["empty"], got["empty"]
+    assert "moved to the timeline" in got["hint"], got["hint"]
+    assert "nobody spoke" not in got["empty"], got["empty"]
     assert "never reached support" not in got["empty"], got["empty"]
+    assert "did not run" in got["empty"], got["empty"]
 
 
-def test_a_booking_with_nothing_at_all_still_says_the_guest_never_wrote(page):
-    try:
-        _render(page, {"frames": [], "notes": []})
-        got = _contact_section(page)
-    finally:
-        _restore(page)
+def test_nothing_at_all_makes_no_claim_about_guest_contact(page):
+    """No events and no ticket match: the card must NOT assert the guest never
+    reached support — a claim it cannot establish — and it says as much."""
+    got = _contact_empty(page, [], [])
     assert got["rows"] == 0
     assert "moved to the timeline" not in got["hint"], got["hint"]
-    assert "never reached support" in got["empty"], got["empty"]
+    assert "never reached support" not in got["empty"], got["empty"]
+    assert "nobody spoke" not in got["empty"], got["empty"]
+    assert "did not run" in got["empty"], got["empty"]
+
+
+def test_tickets_found_but_no_conversation_does_say_nobody_spoke(page):
+    """The one case where the claim is earned: tickets matched and none held a
+    guest conversation. The ticket ids are linked so the reader can open them."""
+    got = _contact_empty(page, MACHINERY, ["34125496"])
+    assert got["rows"] == 0
+    assert "nobody spoke to the guest here" in got["empty"], got["empty"]
 
 
 def test_the_moved_events_have_a_timeline_to_be_moved_to(page):

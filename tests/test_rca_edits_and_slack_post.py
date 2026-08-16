@@ -304,3 +304,62 @@ def test_a_hand_edit_is_what_gets_sent(page):
     assert "HAND EDITED LINE" in (_draft(page)["slack_thread_override"] or ""), \
         "posting did not save what it posted, so the card and the thread now " \
         "show different things"
+
+
+# ── a chip splices its own section and leaves manual edits alone (#1) ────────
+#
+# THE BUG THIS IS THE WHOLE POINT OF. Every chip called a recompose that
+# rebuilt the entire post from the RCA fields and overwrote the override, so
+# toggling any one section wiped every hand-written line. The behaviour to pin:
+# edit the text, toggle a chip, and the edit is still there — a driven test,
+# because a splice that quietly regenerates renders identically to one that
+# does not until you read the bytes.
+
+def test_a_chip_toggle_keeps_a_manual_edit(page):
+    _open_picker(page)
+    page.click("[data-slack-sec-all]")     # a known baseline: every section on
+    page.wait_for_timeout(400)
+
+    MARK = "MANUAL-EDIT-KEEP-ME-42"
+    page.evaluate("""(mark) => {
+        const ta = document.querySelector('[data-slack-edit]');
+        ta.value = ta.value + String.fromCharCode(10) + mark;
+        ta.dispatchEvent(new FocusEvent('blur'));   // the handler that saves
+    }""", MARK)
+    page.wait_for_timeout(400)
+
+    # toggle ONE section off
+    page.click(_chip("wwr"))
+    page.wait_for_timeout(500)
+
+    shown = page.evaluate("() => document.querySelector('[data-slack-edit]').value")
+    assert MARK in shown, "toggling a chip wiped the manual edit — #1 is not fixed"
+    assert "*What went wrong*" not in shown, "the toggled section was not removed"
+    # and what actually gets sent (the saved override) carries the edit too
+    assert MARK in (_draft(page)["slack_thread_override"] or ""), \
+        "the edit was not persisted to the override the post sends"
+
+
+def test_re_adding_a_section_restores_it_without_touching_the_edit(page):
+    """The other half of the splice: turning a section back on inserts only
+    that section, at its place, and still leaves the hand edit alone."""
+    _open_picker(page)
+    page.click("[data-slack-sec-all]")
+    page.wait_for_timeout(400)
+
+    MARK = "KEEP-ME-THROUGH-A-READD"
+    page.evaluate("""(mark) => {
+        const ta = document.querySelector('[data-slack-edit]');
+        ta.value = ta.value + String.fromCharCode(10) + mark;
+        ta.dispatchEvent(new FocusEvent('blur'));
+    }""", MARK)
+    page.wait_for_timeout(400)
+
+    page.click(_chip("wwr"))                 # off
+    page.wait_for_timeout(400)
+    page.click(_chip("wwr"))                 # back on
+    page.wait_for_timeout(500)
+
+    shown = page.evaluate("() => document.querySelector('[data-slack-edit]').value")
+    assert "*What went wrong*" in shown, "re-adding did not restore the section"
+    assert MARK in shown, "re-adding a section wiped the manual edit"

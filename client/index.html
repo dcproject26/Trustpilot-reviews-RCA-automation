@@ -2667,7 +2667,11 @@ const state = {
   rawErrOpen: {},
   trailOpen: {},
   trailSectionOpen: {},
-  insightsWindow: '90d',
+  // 30d matches the server's own default (insights.py window_days(default=30)).
+  // They disagreed — the picker highlighted 90d while the server computed 30d —
+  // so every first load showed one window's numbers under another window's
+  // button. Same value on both sides now.
+  insightsWindow: '30d',
   // Why the last window switch did not produce numbers, or ''. A failed switch
   // used to be a console line only, so on screen it was identical to a switch
   // that had worked and returned the same figures.
@@ -4890,13 +4894,6 @@ function renderRcaCol() {
   const _allFrames    = rca.supportFrames || [];
   const _convoFrames  = _allFrames.filter(isConversation);
   const _movedFrames  = _allFrames.filter(f => !isConversation(f));
-  const _movedWhere = (() => {
-    const t = f => String(f.thread || '').trim().toLowerCase();
-    const n = {booking: _movedFrames.filter(f => t(f) === 'booking').length,
-               review:  _movedFrames.filter(f => t(f) === 'review').length};
-    n.system = _movedFrames.length - n.booking - n.review;
-    return n;
-  })();
 
   const _groups = _contacts(_convoFrames);
   const _used = new Set(_groups.map(g => g.key).filter(Boolean).filter(k => _noteFor(k)));
@@ -4990,17 +4987,28 @@ function renderRcaCol() {
   // Defect 4: "01 · UNKNOWN · Unknown · No guest contact found" was a
   // nothing-found message dressed as a numbered data row. An absence gets the
   // neutral empty state - no number, no channel pill, no time.
+  //
+  // The empty state reports the TICKET LOOKUP OUTCOME, not the internal
+  // machinery it used to describe ("3 system events moved to the timeline…"),
+  // and it obeys rule 1. Three states used to collapse into "so nobody spoke to
+  // the guest. Not a lookup that failed" — a claim the card had not
+  // established. Now:
+  //   - tickets matched and held no guest conversation → THE ONLY case where
+  //     "nobody spoke to the guest" is true; the ticket ids are linked so the
+  //     reader can open them.
+  //   - no ticket ids recorded → we do NOT claim nobody spoke. The client
+  //     carries only `zendeskTicketIds`, and an empty list cannot tell "none
+  //     matched" from "the lookup never ran" (the server writes [] for both),
+  //     so the card says exactly that rather than picking one.
+  const _tids = r.zendeskTicketIds || [];
+  const _tidLinks = _tids.map(zdLink).filter(Boolean).join(', ') || _tids.join(', ');
   const sup = _rows.length
     ? `<div class="interactions">${_rows.map(_contactRow).join('')}
         <button class="row-add" data-contact-add>+ Add contact</button></div>`
     : `<div class="interactions">
-        <div class="interactions-empty">${_movedFrames.length
-          ? `No conversation with the guest on this booking. The ${_movedFrames.length} event${_movedFrames.length === 1 ? '' : 's'} we do hold ${_movedFrames.length === 1 ? 'is' : 'are'} machinery — ${
-              [_movedWhere.booking ? `${_movedWhere.booking} on the booking timeline` : '',
-               _movedWhere.system  ? `${_movedWhere.system} system note${_movedWhere.system === 1 ? '' : 's'} on the events timeline` : '',
-               _movedWhere.review  ? 'the review itself' : ''].filter(Boolean).join(', ')
-            } — so nobody spoke to the guest. Not a lookup that failed.`
-          : 'No guest contact was found on this booking — the guest never reached support.'}</div>
+        <div class="interactions-empty">${_tids.length
+          ? `${_tids.length} Zendesk ticket${_tids.length === 1 ? '' : 's'} matched this booking (${_tidLinks}) and none carried a guest conversation — so nobody spoke to the guest here. Open ${_tids.length === 1 ? 'it' : 'them'} above, or add a contact by hand.`
+          : `No Zendesk ticket ids are recorded for this booking, so there is no support record to read. This card cannot tell whether no ticket matched or the lookup did not run, so it makes no claim about whether the guest was contacted — add a contact by hand if you know of one.`}</div>
         <button class="row-add" data-contact-add>+ Add contact</button></div>`;
 
   // SP interaction — the same facts/interpretation split as guest ↔ support.
@@ -5176,8 +5184,6 @@ function renderRcaCol() {
       : (rca.spInteraction || []).map(f => '• ' + (f.time || '?') + ' — ' + (f.summary || ''));
     const spText = spLines.join(nl) || 'No SP contact on record';
 
-    const aoiText = aoiRows(rca.areaOfImproving).map(a => '• ' + a.point).join(nl) || '—';
-
     const at = rca.actionsTaken || {};
     const actionLines = [];
     for (const team of ['sp','customer','business','ce','product']) {
@@ -5194,12 +5200,6 @@ function renderRcaCol() {
       '• [' + String(f.team || 'other').toUpperCase() + '] ' + (f.flag || '') +
       (f.evidence ? ' — ' + f.evidence : '') + (f.zd_ref ? ' (' + f.zd_ref + ')' : ''));
     const flagsText = flagLines.join(nl) || 'No flags raised';
-
-    const logsText = (v3d.booking_logs || []).map((l, i) => (typeof l === 'string'
-      ? l.replace(/^\s*\d+[.)]\s*/, `${i + 1}. `)
-      : `${i + 1}. ${l.time ? l.time + ' — ' : ''}${l.what || ''}` +
-        (l.detail ? `; ${l.detail}` : ''))).join(nl) || '—';
-
 
     const takedownText = (() => {
       const td = v3d.takedown || {};
@@ -5247,11 +5247,9 @@ function renderRcaCol() {
       // booking, experience or vendor the post is about.
       ['booking',   'Booking details',       rca.bookingDetailsText || ''],
       ['wwr',       'What went wrong',       wwrText],
-      ['logs',      'Booking logs',          logsText],
       ['flags',     'Flags',                 flagsText],
       ['support',   'Customer / CE interactions', supportText],
       ['sp',        'SP interaction',        spText],
-      ['aoi',       'Area of improvement',   aoiText],
       ['actions',   'Actions taken',         actionsText],
       ['resolution','Resolution',            rca.resolution || '—'],
       ['takedown',  'Review takedown',       takedownText],
@@ -5291,6 +5289,58 @@ function renderRcaCol() {
       if (!text.includes('*' + label + '*')) off[key] = false;
     }
     return off;
+  }
+
+  // Add or remove ONE section in an existing post, leaving every other line
+  // byte-for-byte. This is what a chip does now: the previous recompose rebuilt
+  // the WHOLE post from the RCA fields and overwrote the override, so toggling
+  // any one section destroyed every manual edit. Only ↻ Regenerate rebuilds.
+  //
+  // The composed post is `header\ncls` then, per section, `____\n*Label*\n\n
+  // body` joined by newlines — so splitting on the divider yields [header,
+  // *L1*…, *L2*…], each section part beginning with its own `*Label*` marker.
+  // That is the seam we splice on.
+  //
+  // EDGE CASES, decided and stated:
+  //  - remove a section whose marker is absent (empty, or the user renamed or
+  //    deleted the heading by hand): nothing to cut, the text is returned
+  //    unchanged — a toggle never resurrects or rewrites a line it did not own.
+  //  - add a section already present: returned unchanged, so a re-check never
+  //    clobbers an edit or duplicates the block.
+  //  - add reinstates the section's CANONICAL body at its ordered position;
+  //    checking a box the associate had emptied by hand puts the generated body
+  //    back, because that is what asking for the section again means.
+  function _spliceSlackSection(text, key, include) {
+    const sections = _genSlackText.sections || [];
+    const nl = '\n';
+    const DIV = nl + '_'.repeat(61) + nl;
+    const triple = sections.find(s => s[0] === key);
+    if (!triple) return text;
+    const [, label, body] = triple;
+    const marker = '*' + label + '*';
+    const order = sections.map(s => s[0]);
+
+    const parts = text.split(DIV);
+    const head = parts.slice(0, 1);
+    const secs = parts.slice(1);           // each begins with its *Label*
+    const idxOf = lbl => secs.findIndex(p => p.startsWith('*' + lbl + '*'));
+    const here = idxOf(label);
+
+    if (!include) {
+      if (here < 0) return text;           // absent / renamed by hand — leave alone
+      secs.splice(here, 1);
+    } else {
+      if (here >= 0) return text;          // already present — don't clobber or dupe
+      if (!body) return text;              // empty section has nothing to add
+      let slot = secs.length;              // default: append (last section)
+      const kPos = order.indexOf(key);
+      for (let j = kPos + 1; j < sections.length; j++) {
+        const at = idxOf(sections[j][1]);  // first LATER section that is present
+        if (at >= 0) { slot = at; break; }
+      }
+      secs.splice(slot, 0, marker + nl + nl + body);
+    }
+    return head.concat(secs).join(DIV);
   }
   // §3 Issue-specific answers has no section. The questions did not go away -
   // they are still routed server-side (server/checklist.py::issue_questions_for)
@@ -6384,45 +6434,42 @@ function renderRcaCol() {
   }
 
   // Slack thread post — regenerate button: clear override, regenerate from RCA fields
-  // Ticking a section regenerates the post text. It also clears any manual
-  // override - otherwise the checkbox would appear to do nothing, because the
-  // saved override wins over the generator.
-  // Clearing the manual override is what makes a chip visibly do something:
-  // a saved override wins over the generator, so without this the checkbox
-  // would appear inert.
-  // Changing the selection RECOMPOSES the post and saves it.
+  // A chip SPLICES its own section in or out and leaves everything else — the
+  // associate's edits included — byte-for-byte. It used to call a recompose
+  // that rebuilt the whole post from the RCA fields and overwrote the override,
+  // so toggling any one section wiped every hand-written line. Only ↻
+  // Regenerate rebuilds now (it clears the override); a chip never does.
   //
-  // It used to clear the override and leave the new text living only in the
-  // textarea, and the post button sent no body at all — so the server fell
-  // back to rebuilding the whole RCA from the draft and every deselected
-  // section went to Slack anyway. Deselecting eleven of twelve sections and
-  // watching all twelve arrive is the worst version of this bug: the screen
-  // showed the short post the whole time.
+  // The store is still the override text — what is saved is what is shown is
+  // what is sent. `_spliceSlackSection` edits that text; the derived selection
+  // (`_sectionsFromText`) and the chip states follow from it.
   //
-  // One store now. What is saved is what is shown is what is sent.
-  const recomposeAndSave = async () => {
-    const text = _genSlackText();
+  // (The old post-nothing-to-Slack bug this section used to warn about is
+  // handled server-side: the post sends the override — api.py:2910/3321 — so a
+  // spliced-down post arrives exactly as shown.)
+  const _spliceSave = async (mutate) => {
+    const base = rca.slackThreadOverride || _genSlackText();
+    const text = mutate(base);
     rca.slackThreadOverride = text;
+    state.slackSections[r.id] = _sectionsFromText(text) || {};
     await saveDraft(r.id, {slack_thread_override: text});
     renderRcaCol();
   };
   const secAll = col.querySelector('[data-slack-sec-all]');
   if (secAll) secAll.addEventListener('click', async () => {
-    state.slackSections[r.id] = {};          // {} means every section included
-    await recomposeAndSave();
+    // add every missing section; sections already present keep their edits
+    await _spliceSave(t => _slackSectionKeys.reduce(
+      (acc, [k]) => _spliceSlackSection(acc, k, true), t));
   });
   const secNone = col.querySelector('[data-slack-sec-none]');
   if (secNone) secNone.addEventListener('click', async () => {
-    const off = {};
-    _slackSectionKeys.forEach(([k]) => { off[k] = false; });
-    state.slackSections[r.id] = off;
-    await recomposeAndSave();
+    await _spliceSave(t => _slackSectionKeys.reduce(
+      (acc, [k]) => _spliceSlackSection(acc, k, false), t));
   });
   col.querySelectorAll('[data-slack-section]').forEach(cb => {
     cb.addEventListener('change', async () => {
-      state.slackSections[r.id] = state.slackSections[r.id] || {};
-      state.slackSections[r.id][cb.dataset.slackSection] = cb.checked;
-      await recomposeAndSave();
+      await _spliceSave(
+        t => _spliceSlackSection(t, cb.dataset.slackSection, cb.checked));
     });
   });
 

@@ -91,6 +91,17 @@ def test_the_panel_states_the_window_its_figures_cover(page):
         f"the window line renders with no size: {box}"
 
 
+def test_the_default_window_is_30d(page):
+    """The initial window must match the server default (30d,
+    insights.py::window_days(default=30)). They disagreed once — 90d was
+    highlighted while the server computed 30d — so every first load showed one
+    window's numbers under another window's button. Driven off the live state,
+    so a reverted default is caught rather than spelled-checked."""
+    assert page.evaluate("() => state.insightsWindow") == "30d", \
+        "the dashboard's default insights window is not 30d — it disagrees " \
+        "with the server's 30d default on first load"
+
+
 @pytest.mark.parametrize("w,days", [("7d", 7), ("30d", 30), ("90d", 90)])
 def test_clicking_a_window_moves_the_figures_to_it(page, w, days):
     """The payload's own _window_days has to follow the button. If the click,

@@ -154,11 +154,20 @@ check(outEmpty.indexOf('Tickets never arrived') === -1,
   'rca.v3 to build the section');
 
 // ── The rest of the post still works ──────────────────────────────────────
-const must = ['1. 22 Jul 15:22 — Booking-in-progress email sent',
-  '*Booking logs*', '*Flags*', '*Experience insights*', '*Review takedown*',
+const must = ['*Flags*', '*Experience insights*', '*Review takedown*',
   '*What went wrong*'];
 for (const m of must) {
   check(out.indexOf(m) !== -1, `missing from the post: ${m}`);
+}
+
+// ── Booking logs and Area of improvement were dropped from the post ────────
+// Both were removed from the SECTIONS list (chip row and composed post
+// together). The rca still carries booking_logs (seeded above), so their
+// ABSENCE from the post is the guarantee: the section was cut, not just the
+// data. A driven check, not a source grep.
+for (const gone of ['*Booking logs*', '*Area of improvement*']) {
+  check(out.indexOf(gone) === -1,
+    `${gone} is back in the Slack post — it was removed from SECTIONS`);
 }
 
 // ── The REAL insight numbers reach the post ───────────────────────────────
