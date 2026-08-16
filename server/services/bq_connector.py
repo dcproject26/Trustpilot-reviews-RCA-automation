@@ -32,7 +32,25 @@ from server.aio import LoopLocalSemaphore
 # pipelines through here at once, each firing ~15 insight queries, and the
 # queue backed up to 433 seconds - the run looked hung. BigQuery is not the
 # bottleneck at this width; the semaphore was.
-_BQ_SEM = LoopLocalSemaphore(12)
+_BQ_SEM_WIDTH = 12
+_BQ_SEM = LoopLocalSemaphore(_BQ_SEM_WIDTH)
+
+
+class BQQueryTimeout(TimeoutError):
+    """A query we stopped waiting for. NOT an empty result — see below."""
+
+
+# A SLOT MUST NEVER BE HELD FOR EVER, which is the defect the width changes
+# above kept treating as a sizing problem. Raising the semaphore from 5 to 12
+# moved the queue from 433 seconds to 425 — the same jam one size up, because
+# nothing bounds how long ONE query may hold its slot. The HTTP calls inside
+# `run_query` each carry a timeout, but the pagination loop around them does
+# not, so a query that keeps returning pageTokens holds its slot for as long
+# as it likes and everything behind it waits.
+#
+# With a ceiling, a stuck query costs one slot for BQ_QUERY_TIMEOUT_S and then
+# gives it back. Twelve stuck queries can no longer wedge the whole connector.
+BQ_QUERY_TIMEOUT_S = float(os.getenv("BQ_QUERY_TIMEOUT_S", "120"))
 
 _BQ_API = "https://bigquery.googleapis.com/bigquery/v2"
 
@@ -209,10 +227,31 @@ async def run_query_async(sql: str, params: dict | None = None) -> list[dict]:
     t0 = time.time()
     async with _BQ_SEM:
         waited = time.time() - t0
+        # The threshold and the message disagreed — it tested 20s and reported
+        # "exceeded 2s", so a reader sizing the queue off the log was working
+        # from the wrong number.
         if waited > 20.0:
-            log.warning(f"[bq_connector] wait time exceeded 2s: {waited:.1f}s")
+            log.warning(f"[bq_connector] queued {waited:.1f}s for a slot "
+                        f"(cap {_BQ_SEM_WIDTH}) — queries are holding slots "
+                        f"longer than the work needs, or too many pipelines "
+                        f"are running at once")
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, run_query, sql, params)
+        try:
+            return await asyncio.wait_for(
+                loop.run_in_executor(None, run_query, sql, params),
+                BQ_QUERY_TIMEOUT_S)
+        except (asyncio.TimeoutError, TimeoutError) as e:
+            # RAISED, NEVER RETURNED AS []. An empty list here would be read by
+            # every caller as "the warehouse has no such row" — so a booking
+            # that exists would render as untraceable, and a timeout would be
+            # indistinguishable from a genuine miss. That is the first rule of
+            # this codebase, and this is the query layer it matters most in.
+            log.error(f"[bq_connector] query exceeded {BQ_QUERY_TIMEOUT_S:.0f}s "
+                      f"and was abandoned; the slot is released")
+            raise BQQueryTimeout(
+                f"BigQuery did not answer within {BQ_QUERY_TIMEOUT_S:.0f}s. "
+                f"This is our time limit, not a result — the row may well "
+                f"exist. Re-run once the warehouse is responsive.") from e
 
 
 def run_query(sql: str, params: dict | None = None) -> list[dict]:
