@@ -35,6 +35,67 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
+# ── SAY WHICH DATABASE, ONCE, TO EVERYTHING THAT OPENS ONE ──────────────────
+#
+# THE RECURRING FAILURE THIS ENDS. This project runs a Development database
+# beside a Production one, and a tool connects to whichever DATABASE_URL the
+# shell it was started in happens to carry. Nothing said which, so every number
+# a tool printed was ambiguous, and the same mistake kept being made in a new
+# costume:
+#
+#   * diagnose.py counted `SlackEventSeen` in the DEV database and the answer
+#     was read as a fact about the deployment — "0 webhook deliveries in 72h"
+#     became "the Slack webhook is broken", which was never established;
+#   * purge_reviews_before.py, run in the dev repl, answered "no review
+#     tp_1786790990_301059" — the same sentence an id that is genuinely wrong
+#     gets, for a review that was simply in the other database;
+#   * review counts disagreeing between two screens, repeatedly.
+#
+# The fix belongs HERE and not in the tools. Seven of them query this database
+# and never name it, and patching them one at a time is what has been happening
+# — reactively, after each incident, always one tool behind. Every one of them
+# imports this module, so an announcement at CONNECT time covers all of them,
+# including tools nobody has written yet. `init_db()` was the wrong hook: a
+# script that only uses SessionLocal never calls it, which is precisely the
+# case that kept going wrong.
+#
+# TO STDERR, not stdout: several of these tools have their stdout read or piped
+# (diagnose writes a report, purge prints a list a human checks), and a banner
+# in the middle of that is a different kind of unhelpful. Once per process, and
+# silent under pytest — 3700 tests do not each need to be told.
+def _describe_database() -> str:
+    """Which database, and which environment thinks it owns it."""
+    u = engine.url
+    where = ("deployment" if (os.getenv("REPLIT_DEPLOYMENT", "").strip()
+                              or os.getenv("REPLIT_DEPLOYMENT_ID", "").strip())
+             else "dev/local")
+    if u.get_backend_name().startswith("sqlite"):
+        return (f"sqlite {u.database or ':memory:'} — a file in THIS container "
+                f"[{where}]")
+    return f"{u.get_backend_name()} {u.host or '?'}/{u.database or '?'} [{where}]"
+
+
+_ANNOUNCED = {"done": False}
+
+
+def _announce_once(*_a) -> None:
+    if _ANNOUNCED["done"] or os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    _ANNOUNCED["done"] = True
+    try:
+        import sys
+        print(f"[db] connected to {_describe_database()}", file=sys.stderr)
+    except Exception:
+        pass          # a banner must never be able to stop the connection
+
+
+try:
+    from sqlalchemy import event as _sa_event
+    _sa_event.listen(engine, "connect", _announce_once)
+except Exception:     # pragma: no cover - a missing hook costs the banner only
+    pass
+
+
 class Review(Base):
     __tablename__ = "reviews"
     id               = Column(String, primary_key=True)
