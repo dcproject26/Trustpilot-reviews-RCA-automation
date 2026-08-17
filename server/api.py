@@ -511,6 +511,27 @@ def _booking_details_text(d) -> str:
     return _booking_details_lines(d, "\n")
 
 
+def _contacts_slack_text(d, v3) -> str:
+    """The Slack post's Customer / CE interactions block, for the card.
+
+    Imported for the same reason as the two above, and with a scar of its own:
+    the dashboard used to compose this section itself from
+    `rca_v3["support_interaction"]`, a key the notes/frames split had renamed to
+    `support_interaction_notes`. Reading a key that is not there returns
+    undefined, undefined is falsy, and the preview quietly fell through to a raw
+    per-frame dump that never applied the conversation filter — so the booking
+    thread was posted as something the guest said. Wrapped like _wwr_slack_text:
+    losing the whole card to one malformed note is worse than a section that
+    says it could not be composed.
+    """
+    try:
+        from server.services.slack import contacts_section
+        return contacts_section(d, v3 or {}, "\n")
+    except Exception as e:
+        log.exception("[contacts] compose failed")
+        return f"Customer / CE interactions could not be composed: {e}"
+
+
 def _override_is_stale(d) -> bool:
     """Whether the hand-written Slack post predates the analysis it describes.
 
@@ -863,6 +884,10 @@ def _draft_dict(d: RcaDraft) -> dict:
         # post while the server's copy was correct. The section LIST is still
         # duplicated; its CONTENT is not, and that is the half that renders.
         "booking_details_text": _booking_details_text(d),
+        # THE CONTACTS BLOCK, composed once — the third section to be taken off
+        # the client for the same reason, and the first where the duplicate
+        # composer had gone silently wrong rather than merely differing.
+        "contacts_slack_text": _contacts_slack_text(d, _v3_resolved),
 
         "template_name":      d.template_name or "",
         # Presence-based, like every other v4 field — and for the same reason,

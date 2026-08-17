@@ -2380,6 +2380,7 @@ async function loadDraftOverlays() {
       // composer now and this is its output; nothing on this page rebuilds it.
       r.rca.wwrSlackText         = draft.wwr_slack_text || '';
       r.rca.bookingDetailsText   = draft.booking_details_text || '';
+      r.rca.contactsSlackText    = draft.contacts_slack_text || '';
       r.rca.supportInteraction   = (draft.support_interaction_frames || []).map(mapSupportFrame);
       // Facts and interpretation arrive separately and are merged at render:
       // the frames are Zendesk-derived rows, the notes are the model's account
@@ -4935,6 +4936,21 @@ function renderRcaCol() {
     ..._orphans.map((n, k) => ({kind: 'orphan', note: n, i: _groups.length + k})),
   ];
 
+  // The distinct gap labels across a contact's frames, in order — the mirror
+  // of _contact_gaps in server/services/slack.py. A gap is recorded per FRAME,
+  // but this row is a CONTACT, so the same label on four messages was four
+  // identical red boxes stacked down the card. Deduped rather than counted:
+  // how many messages carried the label says more about how chatty the guest
+  // was than about the failure.
+  const _contactGaps = (rows) => {
+    const out = [];
+    for (const fr of (rows || [])) {
+      const g = String((fr && fr.gap) || '').trim();
+      if (g && out.indexOf(g) < 0) out.push(g);
+    }
+    return out;
+  };
+
   const _contactRow = (row) => {
     const i = row.i;
     const open = !!state.ixOpen[i];
@@ -4998,17 +5014,17 @@ function renderRcaCol() {
           <span class="convo-chevron">${open ? '▾' : '▸'}</span>
         </div>
         <div class="convo-body">
+          ${row.note && row.note.detail ? `<div class="convo-detail">${
+            edSpan(`support_interaction_notes.${nIdx}.detail`, row.note.detail)}</div>` : ''}
+          ${_contactGaps(rows).map(g => `<div class="convo-gap">⚠ ${esc(g)}</div>`).join('')}
+          ${row.note && row.note.ce_miss ? `<div class="convo-gap">⚠ CE miss: ${
+            edSpan(`support_interaction_notes.${nIdx}.ce_miss`, row.note.ce_miss)}</div>` : ''}
           ${rows.map(fr => `
             <div class="convo-line">
               <span class="convo-ev-time">${esc(fr.time || '—')}</span>
               <span class="convo-ev-body">${esc(fr.guest_words || fr.guestSaid || fr.guestReply || '')}${
                 fr.weDid ? ` <span class="convo-ev-we">we: ${esc(fr.weDid)}</span>` : ''}</span>
-            </div>
-            ${fr.gap ? `<div class="convo-gap">⚠ ${esc(fr.gap)}</div>` : ''}`).join('')}
-          ${row.note && row.note.detail ? `<div class="convo-detail">${
-            edSpan(`support_interaction_notes.${nIdx}.detail`, row.note.detail)}</div>` : ''}
-          ${row.note && row.note.ce_miss ? `<div class="convo-gap">⚠ CE miss: ${
-            edSpan(`support_interaction_notes.${nIdx}.ce_miss`, row.note.ce_miss)}</div>` : ''}
+            </div>`).join('')}
         </div>
       </div>`;
   };
@@ -5190,18 +5206,29 @@ function renderRcaCol() {
       }
       return lines.join(nl);
     };
-    // Sections are selectable - state.slackSections holds what goes in the
-    // post. Interactions use the v3 rows when present (they carry the ticket
-    // link and the CE-miss inline) and fall back to the old frames.
-    const supLines = (v3d.support_interaction || []).length
-      ? (v3d.support_interaction || []).map(x =>
-          '• ' + (x.time || '?') + ' · ' + (x.channel || '') + ' — ' + (x.summary || '') +
-          (x.zd_ref ? ' (' + x.zd_ref + ')' : '') +
-          (x.ce_miss ? nl + '   ⚠ CE miss: ' + x.ce_miss : ''))
-      : (rca.supportInteraction || []).map(f =>
-          '• ' + (f.time || '?') + ' — ' + (f.guest_words || f.guestSaid || f.guestReply || f.summary || '') +
-          (f.weDid ? ' | we: ' + f.weDid : '') + (f.gap ? ' | ⚠ ' + f.gap : ''));
-    const supportText = supLines.join(nl) || 'No guest contact found on this booking';
+    // COMPOSED BY THE SERVER and rendered verbatim, like wwrText above and
+    // bookingDetailsText below.
+    //
+    // THE BUG THIS REPLACES. This built the section here, reading
+    // `v3d.support_interaction` — a key the notes/frames split had renamed to
+    // `support_interaction_notes`. A missing key is undefined, undefined is
+    // falsy, so the ternary took its fallback arm on EVERY v4 draft and dumped
+    // `rca.supportInteraction`: one bullet per Zendesk frame, with no
+    // conversation filter, so the booking thread went out as something the
+    // guest said. The v3 arm was wrong too — it read note fields (channel,
+    // zd_ref, ce_miss) off frame-shaped objects that carry none of them.
+    //
+    // Neither arm announced anything. That is why this is server-side now:
+    // one composer cannot disagree with itself, and contacts_section groups by
+    // ticket and says when a contact had no summary instead of going quiet.
+    // An ABSENT key is not an empty section. The server always sends this, so
+    // a missing one means the payload is older than this page — which must not
+    // look like a guest who never wrote in. That confusion is the whole bug
+    // above, and a blank body would have `if (!body) continue` drop the
+    // section from the post entirely, silently, one more time.
+    const supportText = typeof rca.contactsSlackText === 'string'
+      ? (rca.contactsSlackText || 'No guest contact found on this booking')
+      : 'Customer / CE interactions were not served by this build — reload the page';
 
     const spLines = spV3
       ? [ '• raised with SP: ' + (spV3.raised || '—'),
@@ -7130,6 +7157,13 @@ function renderRcaCol() {
         const data = await resp.json().catch(() => null);
         if (data && data.draft && typeof data.draft.wwr_slack_text === 'string') {
           rca.wwrSlackText = data.draft.wwr_slack_text;
+        }
+        // Same for the contacts section: a ce_miss / summary / detail is edited
+        // inline, and the section is composed server-side, so the edited text
+        // has to come back from the composer or the preview keeps the pre-edit
+        // wording with nothing on screen saying so.
+        if (data && data.draft && typeof data.draft.contacts_slack_text === 'string') {
+          rca.contactsSlackText = data.draft.contacts_slack_text;
         }
       }
       flashSaved(el, resp.ok);

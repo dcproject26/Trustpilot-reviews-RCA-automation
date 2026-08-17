@@ -1071,6 +1071,149 @@ def _booking_details_lines(draft, nl: str) -> str:
     return nl.join(rows)
 
 
+def _contact_gaps(group) -> list:
+    """The distinct gap labels across a contact's frames, in order.
+
+    A gap is recorded per FRAME ("Wrong policy applied" on the message where it
+    happened) but the reader is being told about a CONTACT, so the same label on
+    four messages is one fact, not four. Deduped rather than counted: the count
+    of messages carrying a label says more about how chatty the exchange was
+    than about the failure.
+    """
+    out = []
+    for fr in group:
+        g = (fr.get("gap") or "").strip()
+        if g and g not in out:
+            out.append(g)
+    return out
+
+
+def _contact_body(group, note, nl) -> list:
+    """The lines under a contact's head: the account of it, then its failures.
+
+    ONE ENTRY PER CONTACT, NOT PER MESSAGE. This used to render the head and
+    then every frame in the group beneath it, so a nine-message chat became ten
+    lines saying the same thing at nine timestamps, and the post read as a
+    transcript rather than as a record of what happened. The model's `detail` is
+    written about the whole exchange — it quotes the guest and the agent — which
+    is what a reader of this section needs.
+
+    A contact WITH NO NOTE says so and then falls back to its frames. That is
+    the honest version: a summarised contact and an unsummarised one must not
+    look identical, or a failed zd_ref join reads as a terse model.
+    """
+    lines = []
+    detail = ((note or {}).get("detail") or "").strip()
+    if detail:
+        for ln in detail.split("\n"):
+            if ln.strip():
+                lines.append(f"   {ln.strip()}")
+    elif note is None:
+        # No model note joined to this contact. Say it, then give the raw
+        # messages — unlabelled, they would look like a chosen summary.
+        n_ev = len(group)
+        lines.append(f"   (no summary generated for this contact \u2014 "
+                     f"{n_ev} raw event{'s' if n_ev != 1 else ''} below)")
+        for fr in group:
+            said = _zd.guest_words(fr)
+            did  = (fr.get("weDid") or "").strip()
+            if not said and not did:
+                continue
+            ev = f"   - {fr.get('time') or '?'}"
+            if said:
+                ev += f" \u2014 {said}"
+            if did:
+                ev += f" | we: {did}"
+            lines.append(ev)
+    for gap in _contact_gaps(group):
+        lines.append(f"   \u26a0 {gap}")
+    if note and (note.get("ce_miss") or "").strip():
+        lines.append(f"   \u26a0 CE miss: {note['ce_miss'].strip()}")
+    return lines
+
+
+def contacts_section(draft, v3, nl) -> str:
+    """The "Customer / CE interactions" body \u2014 one numbered entry per contact.
+
+    THE ONE COMPOSER. The dashboard renders this string verbatim (served as
+    `contacts_slack_text`) rather than building its own, because it did build
+    its own and read `rca_v3["support_interaction"]` \u2014 a field the split to
+    `support_interaction_notes` had removed. Undefined is falsy, so the preview
+    fell through to a raw per-frame dump with no conversation filter, and the
+    booking thread went out as something the guest said. Two composers for one
+    block, and the quieter one was wrong.
+    """
+    si_notes = (v3 or {}).get("support_interaction_notes")
+    if si_notes is None:
+        si_notes = (v3 or {}).get("support_interaction")   # pre-split drafts
+    # §4 conversations only. The booking thread, the API posts and the review
+    # are machinery, and each one counted here raised the contact count on a
+    # post leadership reads as "this guest was handled". They are on the
+    # timelines already; what this section owes the reader is the fact that
+    # they moved, which the heading carries - a filtered list and a guest who
+    # never wrote in must not read the same.
+    from server.services.zendesk import split_contact_frames, moved_frames_note
+    _convo, _moved = split_contact_frames(
+        getattr(draft, "support_interaction_frames", None))
+    rows, used = [], set()
+    n = 0
+    for n, (key, group) in enumerate(_contacts(_convo), 1):
+        note = _note_for(key, si_notes)
+        if note:
+            used.add(key)
+        first = group[0]
+        ch = (first.get("thread") or "").strip()
+        # The contact's own line: what this exchange was, in one line. The
+        # model's summary is about the contact; a frame's guestSaid is about
+        # one message, so it is the fallback rather than the other way round.
+        summary = ((note or {}).get("summary") or _zd.guest_words(first)).strip()
+        head = f"\u2022 {n:02d}. {first.get('time') or '?'}"
+        if ch:
+            head += f" \u00b7 {ch}"
+        if summary:
+            head += f" \u2014 {summary}"
+        if key:
+            head += f" (ZD-{key})"
+        if len(group) > 1:
+            head += f" [{len(group)} events]"
+        rows.append(head)
+        rows.extend(_contact_body(group, note, nl))
+    # A contact the model reports and Zendesk has no frame for still renders,
+    # marked unverified. Either the guest reached us off Zendesk or the model
+    # invented a contact; both are worth seeing, neither worth hiding. A note
+    # carrying a zd_ref that matched nothing is the more serious of the two -
+    # that is a failed join, and the pipeline records it in the trail.
+    for note in (si_notes if isinstance(si_notes, list) else []):
+        if not isinstance(note, dict):
+            continue
+        nkey = _zd_key(note.get("zd_ref"))
+        if nkey and nkey in used:
+            continue
+        n += 1
+        ch = note.get("channel") or ""
+        why = "unmatched ZD reference" if nkey else "guest's account, unverified"
+        head = f"\u2022 {n:02d}. {note.get('time') or '?'}"
+        if ch:
+            head += f" \u00b7 {ch}"
+        head += f" \u2014 {note.get('summary') or ''}"
+        if nkey:
+            head += f" (ZD-{nkey})"
+        rows.append(head + f" ({why})")
+        detail = (note.get("detail") or "").strip()
+        for ln in detail.split("\n") if detail else []:
+            if ln.strip():
+                rows.append(f"   {ln.strip()}")
+        if note.get("ce_miss"):
+            rows.append(f"   \u26a0 CE miss: {note['ce_miss']}")
+    _moved_note = moved_frames_note(_moved)
+    if rows:
+        return nl.join(rows + ([f"\u2022 ({_moved_note})"] if _moved_note else []))
+    return ("No conversation with the guest on this booking \u2014 "
+            f"{_moved_note}, so nobody spoke to them"
+            if _moved_note
+            else "No guest contact found on this booking")
+
+
 def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
     """The v3 layout, matching the dashboard preview section for section.
     Kept deliberately close to _genSlackText in client/index.html: the two
@@ -1135,86 +1278,8 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
     # view; this is the per-contact one, and the individual events sit under
     # their contact rather than beside it. Rendering one row per frame would
     # make the contact count report events.
-    si_notes = v3.get("support_interaction_notes")
-    if si_notes is None:
-        si_notes = v3.get("support_interaction")          # pre-split drafts
-    # §4 conversations only. The booking thread, the API posts and the review
-    # are machinery, and each one counted here raised the contact count on a
-    # post leadership reads as "this guest was handled". They are on the
-    # timelines already; what this section owes the reader is the fact that
-    # they moved, which the heading carries - a filtered list and a guest who
-    # never wrote in must not read the same.
-    from server.services.zendesk import split_contact_frames, moved_frames_note
-    _convo, _moved = split_contact_frames(draft.support_interaction_frames)
-    rows, used = [], set()
-    for n, (key, group) in enumerate(_contacts(_convo), 1):
-        note = _note_for(key, si_notes)
-        if note:
-            used.add(key)
-        first = group[0]
-        ch = (first.get("thread") or "").strip()
-        # The contact's own line: what this exchange was, in one line. The
-        # model's summary is about the contact; a frame's guestSaid is about
-        # one message, so it is the fallback rather than the other way round.
-        summary = ((note or {}).get("summary") or _zd.guest_words(first)).strip()
-        head = f"\u2022 {n:02d}. {first.get('time') or '?'}"
-        if ch:
-            head += f" \u00b7 {ch}"
-        if summary:
-            head += f" \u2014 {summary}"
-        if key:
-            head += f" (ZD-{key})"
-        if len(group) > 1:
-            head += f" [{len(group)} events]"
-        rows.append(head)
-        for fr in group:
-            said = _zd.guest_words(fr)
-            did  = (fr.get("weDid") or "").strip()
-            if not said and not did:
-                continue
-            ev = f"   - {fr.get('time') or '?'}"
-            if said:
-                ev += f" \u2014 {said}"
-            if did:
-                ev += f" | we: {did}"
-            rows.append(ev)
-            gap = (fr.get("gap") or "").strip()
-            if gap:
-                rows.append(f"     \u26a0 {gap}")
-        if note and note.get("ce_miss"):
-            rows.append(f"   \u26a0 CE miss: {note['ce_miss']}")
-    # A contact the model reports and Zendesk has no frame for still renders,
-    # marked unverified. Either the guest reached us off Zendesk or the model
-    # invented a contact; both are worth seeing, neither worth hiding. A note
-    # carrying a zd_ref that matched nothing is the more serious of the two -
-    # that is a failed join, and the pipeline records it in the trail.
-    n = len(rows) and sum(1 for r in rows if r.startswith("\u2022"))
-    for note in (si_notes if isinstance(si_notes, list) else []):
-        if not isinstance(note, dict):
-            continue
-        nkey = _zd_key(note.get("zd_ref"))
-        if nkey and nkey in used:
-            continue
-        n += 1
-        ch = note.get("channel") or ""
-        why = "unmatched ZD reference" if nkey else "guest's account, unverified"
-        head = f"\u2022 {n:02d}. {note.get('time') or '?'}"
-        if ch:
-            head += f" \u00b7 {ch}"
-        head += f" \u2014 {note.get('summary') or ''}"
-        if nkey:
-            head += f" (ZD-{nkey})"
-        rows.append(head + f" ({why})")
-        if note.get("ce_miss"):
-            rows.append(f"   \u26a0 CE miss: {note['ce_miss']}")
-    _moved_note = moved_frames_note(_moved)
     sections.append(("Customer / CE interactions",
-                     nl.join(rows + ([f"\u2022 ({_moved_note})"] if _moved_note else []))
-                     if rows
-                     else ("No conversation with the guest on this booking — "
-                           f"{_moved_note}, so nobody spoke to them"
-                           if _moved_note
-                           else "No guest contact found on this booking")))
+                     contacts_section(draft, v3, nl)))
 
     sp_notes = v3.get("sp_interaction_notes")
     if sp_notes is None:

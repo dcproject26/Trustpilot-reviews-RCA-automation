@@ -289,15 +289,21 @@ NOTES  = [{"zd_ref": "ZD-4491", "summary": "Guest chased the voucher.",
            "ce_miss": "No proactive update after the first failure."}]
 
 
-def test_the_contact_is_the_row_and_its_events_sit_under_it():
+def test_a_summarised_contact_is_one_entry_not_a_transcript():
     """The Events timeline is the per-event view; this is the per-contact one.
-    One row per frame would make the contact count report events."""
+
+    The contact's own messages are NOT re-listed beneath it. They used to be,
+    so a nine-message chat became ten lines saying the same thing at nine
+    timestamps and the section read as a transcript. The model's summary is
+    written about the whole exchange, which is what this section is for.
+    """
     d = _v4draft(support_interaction_frames=FRAMES,
                  rca_v3={"support_interaction_notes": NOTES})
     out = format_rca_slack(REVIEW, d)
     assert "• 01. 22 Jul 15:41 · chat — Guest chased the voucher. (ZD-4491)" in out
-    assert "   - 22 Jul 15:41 — Where are my tickets? | we: Resent them." in out
     assert "⚠ CE miss: No proactive update after the first failure." in out
+    assert "Where are my tickets? | we: Resent them." not in out, (
+        "the contact's individual messages were re-listed under its summary")
 
 
 def test_several_events_on_one_ticket_are_one_contact():
