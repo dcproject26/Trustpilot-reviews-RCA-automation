@@ -3,7 +3,12 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
 from server.config import MOCK_MODE, ORM_CHANNELS
 from server.services.slack import verify_signature, is_trustpilot_message, parse_review
-from server.db import SessionLocal, Review, SlackEventSeen
+# Through the MODULE, never by value. `from server.db import SessionLocal`
+# freezes the sessionmaker to the engine that existed at this import, so any
+# harness that reloads server.db onto a throwaway database still writes to the
+# old one — which is part of why this file had no tests at all. Same rule as
+# server/main.py and server/jobs.py.
+import server.db as _db
 from server.pipeline import process_review
 
 log = logging.getLogger(__name__)
@@ -15,13 +20,13 @@ def _event_already_seen(db, event_id: str) -> bool:
     if not event_id:
         return False
     cutoff = datetime.utcnow() - timedelta(hours=24)
-    seen = (db.query(SlackEventSeen)
-              .filter(SlackEventSeen.event_id == event_id,
-                      SlackEventSeen.seen_at > cutoff)
+    seen = (db.query(_db.SlackEventSeen)
+              .filter(_db.SlackEventSeen.event_id == event_id,
+                      _db.SlackEventSeen.seen_at > cutoff)
               .first())
     if seen:
         return True
-    db.merge(SlackEventSeen(event_id=event_id, seen_at=datetime.utcnow()))
+    db.merge(_db.SlackEventSeen(event_id=event_id, seen_at=datetime.utcnow()))
     db.commit()
     return False
 
@@ -30,9 +35,9 @@ def _booking_has_active_draft(db, booking_id: str) -> bool:
     """Booking-level dedupe — an active review already exists for this BID."""
     if not booking_id:
         return False
-    return (db.query(Review)
-              .filter(Review.reference_number == booking_id,
-                      Review.status.in_(("new", "draft", "sent")))
+    return (db.query(_db.Review)
+              .filter(_db.Review.reference_number == booking_id,
+                      _db.Review.status.in_(("new", "draft", "sent")))
               .first()) is not None
 
 
@@ -54,7 +59,7 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
     # ── A. Event-level dedupe (Slack retries / duplicate deliveries) ─────────
     if payload.get("type") == "event_callback":
         event_id = payload.get("event_id", "")
-        db = SessionLocal()
+        db = _db.SessionLocal()
         try:
             if _event_already_seen(db, event_id):
                 log.info(f"[dedupe] slack event {event_id} already seen — skipped")
@@ -74,10 +79,10 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
         return {"ok": True}
 
     parsed = parse_review(event)
-    db = SessionLocal()
+    db = _db.SessionLocal()
     try:
         review_id = f"tp_{parsed['slack_ts'].replace('.', '_')}"
-        if db.query(Review).filter(Review.id == review_id).first():
+        if db.query(_db.Review).filter(_db.Review.id == review_id).first():
             return {"ok": True, "duplicate": True}   # same-message dedup
 
         # ── B. Booking-level dedupe — same BID from a different Slack event ──
@@ -101,7 +106,7 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
         _at = _received_at_from(parsed["slack_ts"], review_id,
                                 parsed.get("published_at"),
                                 parsed.get("published_at_source", ""))
-        review = Review(
+        review = _db.Review(
             id               = review_id,
             slack_ts         = parsed["slack_ts"],
             slack_channel    = parsed["slack_channel"],
@@ -117,8 +122,17 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
     finally:
         db.close()
 
-    # Run the pipeline in the background so Slack gets its 200 OK fast
-    background_tasks.add_task(_run, review_id)
+    # A DURABLE JOB, not a background task. Slack still gets its 200 OK fast —
+    # enqueue is one insert — but the run itself now outlives this container.
+    #
+    # THIS PATH WAS MISSED when every api.py site was converted, and it is the
+    # one reviews actually arrive through. A webhook-ingested review got a
+    # fire-and-forget run that died with the instance the moment the response
+    # was sent, which is exactly the "status new with no draft row" state the
+    # stalled reviews were in. Converting api.py alone would have left the live
+    # intake broken for every NEW review while the backlog looked fixed.
+    from server import jobs
+    jobs.enqueue(review_id, "slack-webhook")
     return {"ok": True, "review_id": review_id}
 
 
@@ -129,7 +143,8 @@ async def trigger_test(request: Request, background_tasks: BackgroundTasks):
     rid  = body.get("review_id")
     if not rid:
         raise HTTPException(400, "review_id required")
-    background_tasks.add_task(_run, rid)
+    from server import jobs
+    jobs.enqueue(rid, "webhook-test", force_candidates=False)
     return {"ok": True, "review_id": rid}
 
 
