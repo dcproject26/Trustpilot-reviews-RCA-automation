@@ -25,12 +25,39 @@ import sys
 sys.path.insert(0, ".")
 
 
+def _where(d) -> str:
+    """Which database this process is actually connected to, in words."""
+    u = d.engine.url
+    if u.get_backend_name().startswith("sqlite"):
+        return f"sqlite {u.database or ':memory:'} (a file in THIS container)"
+    return f"{u.get_backend_name()} {u.host or '?'}/{u.database or '?'}"
+
+
 def _boundary(s, d, review_id: str):
-    """The cutoff review, or an error naming what to do instead."""
+    """The cutoff review, or an error naming what to do instead.
+
+    THE REFUSAL NAMES THE DATABASE, and the first version did not. "no review
+    X" is the same sentence for an id that is wrong and for an id that is
+    simply somewhere else — and this project runs a Development database
+    beside a Production one, so "somewhere else" is the likelier of the two.
+    Run in the dev repl against a review that only exists in production, the
+    honest answer is "I looked in helium/heliumdb", not "it does not exist".
+    """
     row = s.query(d.Review).filter(d.Review.id == review_id).first()
     if row is None:
-        return None, (f"no review {review_id!r} — check the id on the card, or "
-                      f"list them with GET /api/reviews")
+        total = s.query(d.Review).count()
+        return None, (
+            f"no review {review_id!r} in {_where(d)} — which holds {total} "
+            f"review(s).\n"
+            f"         This deployment keeps a Development database beside the "
+            f"Production one, so the likeliest cause is that you are connected "
+            f"to the wrong one rather than that the id is wrong. To act on the "
+            f"production data, run this with DATABASE_URL set to the Production "
+            f"database:\n"
+            f"           DATABASE_URL='<production url>' python3 "
+            f"tools/purge_reviews_before.py {review_id}\n"
+            f"         Otherwise check the id on the card, or list them with "
+            f"GET /api/reviews")
     if row.received_at is None:
         return None, (f"{review_id} has no received_at, so 'before' it cannot be "
                       f"decided. Pick another review as the boundary.")

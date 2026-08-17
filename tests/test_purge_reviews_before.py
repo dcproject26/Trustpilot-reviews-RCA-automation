@@ -147,3 +147,20 @@ def test_purging_nothing_deletes_nothing(seeded):
         assert s.query(seeded.Review).count() == 4
     finally:
         s.close()
+
+
+def test_the_refusal_names_the_database_it_looked_in(seeded):
+    """THE FAILURE THIS FILE'S OWN SCRIPT HAD. "no review X" is the same
+    sentence for an id that is wrong and one that lives in the OTHER database
+    — and this project runs Development beside Production, so "wrong database"
+    is the likelier of the two. Run in the dev repl against a production-only
+    review, the honest answer names where it looked.
+    """
+    s = seeded.SessionLocal()
+    try:
+        _, why = _boundary(s, seeded, "tp_only_in_production")
+        assert "sqlite" in why or "postgres" in why, why      # it says WHERE
+        assert "4 review(s)" in why, why                      # and how many are there
+        assert "DATABASE_URL" in why, why                     # and how to point elsewhere
+    finally:
+        s.close()
