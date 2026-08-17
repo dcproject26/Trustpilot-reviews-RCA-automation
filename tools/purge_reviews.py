@@ -51,7 +51,7 @@ def boundary(db, d, review_id: str):
     return row, ""
 
 
-def before(db, d, cutoff_at):
+def reviews_before(db, d, cutoff_at):
     """Reviews STRICTLY before `cutoff_at`, oldest first.
 
     Strictly: the named review is kept. Deleting the row the caller named as
@@ -113,6 +113,19 @@ def main() -> int:
 
     db = SessionLocal()
     try:
+        # A DATABASE WITH NO TABLES IS A MISTAKE WORTH NAMING. Pointed at a
+        # fresh or wrong DATABASE_URL this raised "no such table: reviews" from
+        # the driver — accurate, and it does not say that the connection
+        # succeeded and the schema is simply not there, which is what "wrong
+        # database" looks like from here.
+        try:
+            db.query(Review).count()
+        except Exception:
+            print(f"REFUSING: connected, but this database has no `reviews` "
+                  f"table.\n         It is either empty (nothing has run "
+                  f"against it) or not the database you meant. The banner "
+                  f"above says which one was opened.")
+            return 2
         # ── scope ────────────────────────────────────────────────────────────
         # WHY THIS FLAG LIVES HERE rather than in a second script. A parallel
         # tool was written for the bounded case and it duplicated this one's
@@ -128,7 +141,7 @@ def main() -> int:
             # STRICTLY before — the named review is kept. Deleting the row the
             # caller named as the edge is the off-by-one nobody notices until
             # the review they were protecting is gone.
-            doomed = before(db, d, edge.received_at)
+            doomed = reviews_before(db, d, edge.received_at)
             ids = [r.id for r in doomed]
             print(f"boundary: {edge.id}  {edge.received_at}  ({edge.author})")
             print(f"{len(doomed)} review(s) received before it:\n")
@@ -145,13 +158,13 @@ def main() -> int:
                       f"confirmation on them do not come back.")
         else:
             ids = None          # everything
-            before = {"reviews":  db.query(Review).count(),
+            totals = {"reviews":  db.query(Review).count(),
                       "drafts":   db.query(RcaDraft).count(),
                       "metrics":  db.query(ReviewMetric).count(),
                       "jobs":     db.query(d.RunJob).count()}
-            for k, v in before.items():
+            for k, v in totals.items():
                 print(f"  {k:<10} {v}")
-            if not any(before.values()):
+            if not any(totals.values()):
                 print("\nNothing to delete - the database is already empty.")
                 return 0
 

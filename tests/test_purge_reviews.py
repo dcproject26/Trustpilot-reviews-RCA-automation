@@ -13,7 +13,7 @@ from datetime import datetime
 
 import pytest
 
-from tools.purge_reviews import boundary, before, purge
+from tools.purge_reviews import boundary, reviews_before, purge
 
 
 def _seed(live_db, rid, when, status="draft", author="A"):
@@ -79,7 +79,7 @@ def test_the_boundary_review_itself_is_kept(seeded):
     s = seeded.SessionLocal()
     try:
         edge, _ = boundary(s, seeded, "tp_edge")
-        ids = [r.id for r in before(s, seeded, edge.received_at)]
+        ids = [r.id for r in reviews_before(s, seeded, edge.received_at)]
         assert "tp_edge" not in ids
         assert ids == ["tp_old1", "tp_old2"]
     finally:
@@ -90,7 +90,7 @@ def test_nothing_after_the_boundary_is_selected(seeded):
     s = seeded.SessionLocal()
     try:
         edge, _ = boundary(s, seeded, "tp_edge")
-        assert "tp_new1" not in [r.id for r in before(s, seeded, edge.received_at)]
+        assert "tp_new1" not in [r.id for r in reviews_before(s, seeded, edge.received_at)]
     finally:
         s.close()
 
@@ -104,7 +104,7 @@ def test_an_undated_review_is_never_swept_up(seeded):
                             status="new", received_at=None))
         s.commit()
         edge, _ = boundary(s, seeded, "tp_edge")
-        assert "tp_undated" not in [r.id for r in before(s, seeded, edge.received_at)]
+        assert "tp_undated" not in [r.id for r in reviews_before(s, seeded, edge.received_at)]
     finally:
         s.close()
 
@@ -181,3 +181,97 @@ def test_purging_everything_takes_the_queued_jobs_too(seeded):
         assert s.query(seeded.RunJob).count() == 0
     finally:
         s.close()
+
+
+# ── the script itself, not just its parts ──────────────────────────────────
+
+def test_running_the_script_end_to_end_works(tmp_path):
+    """DRIVES main(), which the tests above do not.
+
+    THE BUG THIS CATCHES, found only by a human running it: main() assigned
+    `before = {...}` in one branch, which made `before` a LOCAL name for the
+    whole function and shadowed the module-level `before()` the other branch
+    called — UnboundLocalError, on the real production database, on the one
+    command that matters. Every test above passed, because they import the
+    helpers and never execute main().
+
+    A subprocess, so this is the actual entry point with the actual argv.
+    """
+    import os
+    import subprocess
+    import sys
+    from datetime import datetime
+
+    db_file = tmp_path / "purge.db"
+    url = f"sqlite:///{db_file}"
+    env = {**os.environ, "DATABASE_URL": url, "PYTEST_CURRENT_TEST": ""}
+
+    seed = f"""
+import os
+os.environ["DATABASE_URL"] = {url!r}
+import importlib, server.config as cfg; importlib.reload(cfg)
+import server.db as d; importlib.reload(d)
+d.init_db()
+from datetime import datetime
+s = d.SessionLocal()
+for rid, when in [("tp_old", datetime(2026,8,10)), ("tp_edge", datetime(2026,8,15))]:
+    s.add(d.Review(id=rid, rating=1, body_original="b", status="draft",
+                   received_at=when))
+    s.add(d.RcaDraft(id="dr_"+rid, review_id=rid, booking={{}}))
+s.commit(); s.close()
+"""
+    assert subprocess.run([sys.executable, "-c", seed], capture_output=True,
+                          text=True, env=env).returncode == 0
+
+    def run(*a):
+        return subprocess.run([sys.executable, "tools/purge_reviews.py", *a],
+                              capture_output=True, text=True, env=env)
+
+    dry = run("--before", "tp_edge")
+    assert dry.returncode == 0, dry.stderr
+    assert "Traceback" not in dry.stderr, dry.stderr
+    assert "tp_old" in dry.stdout, dry.stdout
+    assert "Dry run" in dry.stdout, dry.stdout
+
+    applied = run("--before", "tp_edge", "--apply")
+    assert applied.returncode == 0, applied.stderr
+    assert "Traceback" not in applied.stderr, applied.stderr
+    assert "deleted:" in applied.stdout, applied.stdout
+
+
+def test_running_the_script_with_no_boundary_also_works(tmp_path):
+    """The other branch of main() — the one whose local assignment caused the
+    shadowing. Both paths have to be executed, not just imported."""
+    import os
+    import subprocess
+    import sys
+
+    url = f"sqlite:///{tmp_path / 'all.db'}"
+    env = {**os.environ, "DATABASE_URL": url, "PYTEST_CURRENT_TEST": ""}
+    subprocess.run([sys.executable, "-c",
+                    f"import os; os.environ['DATABASE_URL']={url!r}\n"
+                    "import importlib, server.config as c; importlib.reload(c)\n"
+                    "import server.db as d; importlib.reload(d); d.init_db()"],
+                   capture_output=True, text=True, env=env)
+    r = subprocess.run([sys.executable, "tools/purge_reviews.py"],
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == 0, r.stderr
+    assert "Traceback" not in r.stderr, r.stderr
+
+
+def test_a_database_with_no_tables_is_named_not_a_driver_error(tmp_path):
+    """Pointed at a fresh or wrong DATABASE_URL the tool raised "no such table:
+    reviews" from the driver. That is what a WRONG DATABASE looks like from
+    here, and the message has to say so rather than leave the reader reading
+    sqlite internals."""
+    import os
+    import subprocess
+    import sys
+
+    env = {**os.environ, "DATABASE_URL": f"sqlite:///{tmp_path / 'empty.db'}",
+           "PYTEST_CURRENT_TEST": ""}
+    r = subprocess.run([sys.executable, "tools/purge_reviews.py"],
+                       capture_output=True, text=True, env=env)
+    assert "REFUSING" in r.stdout, r.stdout + r.stderr
+    assert "no `reviews` table" in r.stdout, r.stdout
+    assert "Traceback" not in r.stderr, r.stderr
