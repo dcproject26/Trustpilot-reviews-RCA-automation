@@ -54,7 +54,7 @@ handing the project on.
    re-ingest, so it works. If older reviews are still missing, widen the window:
    `curl -X POST "https://trustpilot-rca.replit.app/api/reviews/refresh-slack?hours=720"`
 4. **Redeploy to make the current code live.** Production runs an OLD build;
-   `main` is **`25f467a`** (CI-green on Linux + the browser tests). Nothing from
+   `main` is **`3911af4`** (CI-green on Linux + the browser tests). Nothing from
    this session is live until a redeploy — see the "This session" list in §0.1
    for the full set (webhook health, four dashboard fixes, the load-burst fix,
    the wrong-language translation guard, Part A dead-run visibility + stale-RCA
@@ -72,11 +72,11 @@ there too.
 
 ---
 
-## 0.1 PICKING THIS UP IN A FRESH SESSION (`main` = `25f467a`, CI-green on both platforms)
+## 0.1 PICKING THIS UP IN A FRESH SESSION (`main` = `3911af4`, CI-green on both platforms)
 
 Everything a new session needs to keep working on this without re-deriving it.
 
-### This session (`25f467a`) — shipped and CI-green, NOT yet deployed
+### This session (`3911af4`) — shipped and CI-green, NOT yet deployed
 
 Newest last. All on `main`, all CI-green (Linux + the ~520 browser tests); none
 live until the redeploy in §0.0 item 4.
@@ -120,6 +120,20 @@ live until the redeploy in §0.0 item 4.
   `candidate_noise_verdict` drop only the date-only filler, keep
   venue/name/ticket agreements and the no-sub-scores escape hatch, and say "N
   withheld, M kept" distinctly from "all withheld".
+- **PendingRollbackError — connection held across the model phase** (`3911af4`)
+  — a run kept one `db` session for its whole length; after the early-match
+  persist commit, re-reading `review` lazy-loaded a connection that then sat
+  idle-in-transaction across EVERY model call (stated_issue, generate_rca_v2/v3,
+  analyze_wwr, translate_outgoing). Neon drops an idle-in-transaction
+  connection, so step 14's save-phase query died with PendingRollbackError —
+  which is why Part B's re-run of the 9 showed them execute and then fail. Fix:
+  detach `review` after the early persist (release the connection for the model
+  phase), re-attach with `db.merge` at save so `review.status="draft"` still
+  lands, and read the previous Actions Taken in its own short session
+  (`_prev_hand_typed_actions`). Driven test measures `pool.checkedout()` at each
+  model call (0, was 1); mutation 5/5. **Verified locally only** — SQLite proves
+  the connection is no longer held; Neon's drop needs the redeploy + re-run of
+  the 9 to confirm end to end.
 
 **Tooling this session:** `tools/mutate.py` now decodes child pytest output as
 utf-8 (Windows cp1252 crashed it on any non-ASCII diff); `read_source()` in
@@ -129,16 +143,16 @@ stays the deciding check because it is the one both machines share.
 
 ### Start here, in this order
 
-1. `git pull` — a clone made before `25f467a` is missing this whole session's
+1. `git pull` — a clone made before `3911af4` is missing this whole session's
    work (the list above). **If a local server is running, restart it**; it
    booted on the old code.
 2. Read **`CLAUDE.md`** (the contract) and §0 below. The three rules there each
    describe a bug that shipped here and passed review.
 3. Before committing anything:
 
-       # CI (Linux + the ~520 browser tests) is green on 25f467a — the
+       # CI (Linux + the ~520 browser tests) is green on 3911af4 — the
        # authoritative gate. Windows WITH playwright runs the full set too:
-       #   3723 passed, 2 skipped. Without playwright, ~520 browser tests skip
+       #   3726 passed, 2 skipped. Without playwright, ~520 browser tests skip
        #   (~3200 run), which is fine — but a JS/client change is not verified
        #   until CI (or a local playwright run) has exercised the browser tests.
        python3 -m pytest tests/ -q
