@@ -1461,6 +1461,40 @@ def _why(warnings: list) -> str:
                                        for w in warnings[:4]) + "."
 
 
+def _prev_hand_typed_actions(review_id: str):
+    """The previous Actions Taken, read in a SHORT session of its own.
+
+    Why not on the run's `db` session: this read happens in step 7, and the
+    next thing done on the session is ~120 lines below at
+    `await translate_outgoing(...)` — a model call. A transaction opened here on
+    `db` would still be open across that await, i.e. a connection sitting
+    idle-in-transaction for the length of a model round-trip. Neon drops such a
+    connection, and the next query on `db` (step 14) then dies with
+    `PendingRollbackError: Can't reconnect until invalid transaction is rolled
+    back`, killing every run in the save phase. Owning the session here — open,
+    read, close — leaves the run's session with no transaction across the call.
+
+    ONLY THE ROWS A PERSON TYPED. The stored column is mostly model output, so
+    subtracting what the PREVIOUS gaps explain leaves a person's rows; where
+    those gaps were never stored nothing can be subtracted, and the leftovers
+    are counted as unattributable rather than reported as hand-added. The row is
+    already on disk (step 5b persists the match), so the query is the honest way
+    to reach the previous Actions Taken.
+    """
+    from server.checklist import hand_typed_actions
+    s = SessionLocal()
+    try:
+        row = (s.query(RcaDraft)
+               .filter(RcaDraft.review_id == review_id).first())
+        actions, unattributed = hand_typed_actions(
+            row.actions_taken if row else None,
+            (((row.rca_v3 or {}) if row else {})
+             .get("what_went_wrong") or {}).get("gaps"))
+        return (actions or None), unattributed
+    finally:
+        s.close()
+
+
 async def process_review(review_id: str, force_candidates: bool = False):
     """
     force_candidates: an associate re-ran a review whose booking they had already
@@ -3478,6 +3512,27 @@ async def process_review(review_id: str, force_candidates: bool = False):
             db.rollback()
             log.exception(f"[pipeline] early match persist failed: {e}")
 
+        # RELEASE THE CONNECTION FOR THE MODEL-CALL PHASE. Everything below
+        # until step 14 is model calls (stated_issue, generate_rca_v2/v3,
+        # analyze_wwr, translate_outgoing). `review` is the only row read across
+        # that phase, and the commit above expired it — so the next attribute
+        # access (review.reference_number, a few lines down) lazy-loads,
+        # checking out a connection that then sits idle-in-transaction for the
+        # length of every model call. Neon drops a connection left idle-in-
+        # transaction, and step 14's query dies with PendingRollbackError,
+        # killing the run in the save phase. Measured: without this the pool
+        # showed one connection checked out at every model call. So load
+        # review's columns now while connected, detach it, and roll back the
+        # empty read transaction; the phase then holds nothing and step 14
+        # re-acquires a fresh connection. review is re-attached at save.
+        try:
+            db.refresh(review)
+            db.expunge(review)
+            db.rollback()
+        except Exception as _rel_err:
+            log.warning(f"[pipeline] could not detach review for the model "
+                        f"phase, run holds its connection: {_rel_err}")
+
         _progress(review_id, 2, "fetching Zendesk timeline")
         # ── 6. Zendesk timeline ──────────────────────────────────────────────
         timeline      = []
@@ -3910,24 +3965,14 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 # BELOW this one — so naming it here raised UnboundLocalError on
                 # every single run, the except swallowed it, and validate() was
                 # called by nothing. Exactly the failure CLAUDE.md opens with:
-                # every test green, raw model output reaching the screen. The
-                # row is already on disk (step 5b persists the match), so the
-                # query is the honest way to reach the previous Actions Taken.
-                _prev_row = (db.query(RcaDraft)
-                             .filter(RcaDraft.review_id == review_id).first())
-                # ONLY THE ROWS A PERSON TYPED. The whole column is mostly
-                # model output, so passing it as `keep` made every row the old
-                # fixes-derived section ever produced immune to the rebuild.
-                # Subtracting what the PREVIOUS gaps explain leaves a person's
-                # rows; where those gaps were never stored nothing can be
-                # subtracted, and the leftovers are counted as unattributable
-                # rather than reported as hand-added.
-                from server.checklist import hand_typed_actions
-                _prev_actions, _prev_unattributed = hand_typed_actions(
-                    _prev_row.actions_taken if _prev_row else None,
-                    (((_prev_row.rca_v3 or {}) if _prev_row else {})
-                     .get("what_went_wrong") or {}).get("gaps"))
-                _prev_actions = _prev_actions or None
+                # every test green, raw model output reaching the screen.
+                #
+                # The read owns its own session (see _prev_hand_typed_actions):
+                # doing it on `db` opened a transaction that stayed open across
+                # `await translate_outgoing(...)` below, and Neon drops a
+                # connection left idle-in-transaction across a model call — the
+                # step-14 query then died with PendingRollbackError.
+                _prev_actions, _prev_unattributed = _prev_hand_typed_actions(review_id)
                 # A booking is confirmed when one was actually matched and
                 # the picker is not still open. Both halves matter: a candidate
                 # list means the associate has not chosen yet, so the timeline
@@ -4243,6 +4288,13 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # which is a fine thing to do to an old review - but resetting the
         # status would pull it out of Sent and back into a working tab, as if
         # the reply had never gone out.
+        #
+        # review was DETACHED before the model-call phase to release the
+        # connection (see the early-persist block). Re-attach it here so this
+        # status write is tracked and committed; a detached write would be
+        # silently dropped and the row would stay "new" — a finished run still
+        # reading as unstarted, the exact Part A visibility defect.
+        review = db.merge(review)
         if review.status != "sent":
             review.status                 = "draft"
 
