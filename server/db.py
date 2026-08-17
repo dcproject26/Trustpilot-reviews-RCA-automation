@@ -14,6 +14,46 @@ from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from server.config import DATABASE_URL
 
 db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+
+def _check_url(u: str) -> None:
+    """Refuse an unusable DATABASE_URL with a sentence, not a stack trace.
+
+    THE REPORTED CASE. Someone copied a documented command verbatim and ran
+    `DATABASE_URL='<production url>' python3 tools/purge_reviews.py ...`. What
+    came back was eight frames of SQLAlchemy ending in "Could not parse
+    SQLAlchemy URL from string '<production url>'" — technically accurate, and
+    it neither says the placeholder was left in nor where the real value
+    lives. Every tool here imports this module, so one check covers all of
+    them, at the moment the mistake is made rather than deep inside a library.
+    """
+    import sys
+    # No empty-string branch: config._resolve_database_url() falls back to
+    # sqlite when DATABASE_URL is unset, so an empty value never reaches here.
+    # A guard for a state that cannot occur reads as protection and is not —
+    # the same shape as a validator wired into nothing.
+    bad = ""
+    if u.strip().startswith("<") or u.strip().endswith(">"):
+        bad = (f"DATABASE_URL is still the placeholder {u.strip()!r} — the "
+               f"example was copied without substituting the real value")
+    elif "://" not in u:
+        bad = (f"DATABASE_URL {u.strip()[:60]!r} is not a connection URL "
+               f"(no scheme://)")
+    if not bad:
+        return
+    print(
+        f"[db] REFUSING TO START — {bad}.\n"
+        f"     A connection URL looks like:\n"
+        f"       postgresql://USER:PASSWORD@HOST/DATABASE?sslmode=require\n"
+        f"     The production value is on the deployment (Deployments -> "
+        f"Settings -> Secrets -> DATABASE_URL), or in the Replit Database "
+        f"pane under Production Database.\n"
+        f"     Leave DATABASE_URL unset to use this workspace's own database.",
+        file=sys.stderr)
+    raise SystemExit(2)
+
+
+_check_url(db_url)
 # pool_pre_ping tests a connection at CHECKOUT. That is not enough here: the
 # pipeline holds one session open across BigQuery, Zendesk and four model
 # calls - minutes - and Neon closes an idle connection inside that window, so
