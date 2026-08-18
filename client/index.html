@@ -1944,6 +1944,16 @@ function trailView(steps, prefix) {
 // Resolution as an object, whatever shape the draft holds. Drafts written
 // before the split store it as a bare string; reading `.text` off one would
 // return undefined and blank the line on every older review.
+// The resolution types an associate can record, in the order they are offered.
+// "More time" is an extended validity or a moved date — the remedy this queue
+// hands out most often after a ticket problem, and it had no way of being
+// recorded, so those cases were logged as "None" and read as a guest who got
+// nothing. "More info" is the same gap for a case closed by telling the guest
+// something rather than by compensating them. Neither carries an amount; the
+// unit logic above keeps the amount box off them.
+const RESOLUTION_TYPES = ['HOC', 'Refund to card', 'Discount code',
+                          'More time', 'More info', 'None'];
+
 function _resObj(raw) {
   if (raw && typeof raw === 'object') return raw;
   return {text: typeof raw === 'string' ? raw : '',
@@ -5292,6 +5302,15 @@ function renderRcaCol() {
       (f.evidence ? ' — ' + f.evidence : '') + (f.zd_ref ? ' (' + f.zd_ref + ')' : ''));
     const flagsText = flagLines.join(nl) || 'No flags raised';
 
+    // Area of improvement, from the same list the RCA column edits. An empty
+    // one says so rather than dropping the section: "nothing to change here"
+    // and "nobody wrote one" are different, and only the second is a gap.
+    const aoiLines = (Array.isArray(rca.areaOfImproving) ? rca.areaOfImproving
+                      : String(rca.areaOfImproving || '').split('\n'))
+                     .map(a => String(a || '').trim()).filter(Boolean);
+    const aoiText = aoiLines.length ? aoiLines.map(a => '• ' + a).join(nl)
+                                    : 'No area of improvement recorded';
+
     const takedownText = (() => {
       const td = v3d.takedown || {};
       const v = td.verdict || (td.recommended === true ? 'Yes' : td.recommended === false ? 'No' : '');
@@ -5338,10 +5357,18 @@ function renderRcaCol() {
       // booking, experience or vendor the post is about.
       ['booking',   'Booking details',       rca.bookingDetailsText || ''],
       ['wwr',       'What went wrong',       wwrText],
-      ['flags',     'Flags',                 flagsText],
+      // FLAGS IS NOT A SECTION OF THE POST. It duplicated what "What went
+      // wrong" already states, in a shorter and less specific form, so the
+      // thread carried the same failure twice and the second telling was the
+      // weaker one. It is still on the card, where it is a working field.
       ['support',   'Customer / CE interactions', supportText],
       ['sp',        'SP interaction',        spText],
       ['actions',   'Actions taken',         actionsText],
+      // What we would do differently. It belongs in the thread for the same
+      // reason it belongs in the RCA: the post is what the team reads, and a
+      // record of the failure with no record of the change reads as a case
+      // that was explained rather than one that was learned from.
+      ['aoi',       'Area of improvement',   aoiText],
       ['resolution','Resolution',            rca.resolution || '—'],
       ['takedown',  'Review takedown',       takedownText],
       ['insights',  'Experience insights',   insText],
@@ -6256,15 +6283,22 @@ function renderRcaCol() {
         // nobody can act on.
         const unit = (type === 'HOC' || type === 'Discount code') ? '%'
                    : type === 'Refund to card' ? 'USD' : '';
+        // AMOUNT-BEARING TYPES ONLY. "More time" and "More info" are
+        // resolutions with nothing to count — an extended validity is a date
+        // and information given is neither a percentage nor a sum. Showing the
+        // amount box on them would invite a number into a field the composer
+        // has no unit for, and "25" with no unit is the thing the line above
+        // exists to prevent.
+        const hasAmount = type !== 'None' && unit !== '';
         const amt = res.amount == null ? '' : String(res.amount);
         return `<div class="res-block">
           <div class="res-head">
             <span class="res-label">Resolution</span>
             <select class="chip-select" data-res-type>
-              ${['HOC', 'Refund to card', 'Discount code', 'None'].map(o =>
+              ${RESOLUTION_TYPES.map(o =>
                 `<option${o === type ? ' selected' : ''}>${esc(o)}</option>`).join('')}
             </select>
-            ${type === 'None' ? '' : `
+            ${!hasAmount ? '' : `
               ${unit === 'USD' ? '<span class="res-unit">USD</span>' : ''}
               <input class="res-amount" data-res-amount value="${esc(amt)}"
                      inputmode="decimal" placeholder="—">

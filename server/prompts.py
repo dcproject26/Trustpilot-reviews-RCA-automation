@@ -2393,6 +2393,20 @@ that turned out fine is silence — never a line in the output.
     CONCISE BULLET POINTS, SINGLE SENTENCES, CHRONOLOGICAL. Factual and plain: what
     happened, not how it felt. No paragraphs.
 
+    `detail` NARRATES. `ce_miss` JUDGES. NEITHER DOES THE OTHER'S JOB.
+    `detail` is the account of the exchange and nothing else: what the guest asked, what
+    we answered, what they said back — in their words and ours. It carries no verdict.
+      ACCOUNT:  "Taylor replied that the Night Safari tickets stayed valid for 60 days."
+      VERDICT:  "Taylor replied that the tickets stayed valid WITHOUT CHECKING whether a
+                timeslot was already reserved."
+    The second is the criticism wearing the account's clothes. It puts the same finding on
+    the card twice — once unlabelled inside the narration, once as the miss — and the
+    unlabelled copy is the one a reader takes for fact.
+    So `detail` contains no "without checking", "failed to", "should have", "did not",
+    "neglected", "incorrectly", "wrongly". If a sentence names a fault, it is a `ce_miss`.
+    A contact where nothing went wrong has `ce_miss: null` and a `detail` that simply says
+    what was said. Do not manufacture a miss to fill the field.
+
     IF YOU CANNOT DETERMINE SOMETHING, WRITE NOTHING FOR IT. A guessed escalation or an
     invented reply is worse than a blank — it reads as read off the record.
 

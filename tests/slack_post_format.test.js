@@ -154,18 +154,25 @@ check(outEmpty.indexOf('Tickets never arrived') === -1,
   'rca.v3 to build the section');
 
 // ── The rest of the post still works ──────────────────────────────────────
-const must = ['*Flags*', '*Experience insights*', '*Review takedown*',
-  '*What went wrong*'];
+// Area of improvement is BACK. It was cut from SECTIONS with booking logs, but
+// the server composer never stopped emitting it, so the chip row and the
+// posted text disagreed about whether the section existed — and what we would
+// do differently is the half of an RCA the team acts on. Restored here so the
+// two lists say the same thing again.
+const must = ['*Experience insights*', '*Review takedown*',
+  '*What went wrong*', '*Area of improvement*'];
 for (const m of must) {
   check(out.indexOf(m) !== -1, `missing from the post: ${m}`);
 }
 
-// ── Booking logs and Area of improvement were dropped from the post ────────
-// Both were removed from the SECTIONS list (chip row and composed post
-// together). The rca still carries booking_logs (seeded above), so their
-// ABSENCE from the post is the guarantee: the section was cut, not just the
-// data. A driven check, not a source grep.
-for (const gone of ['*Booking logs*', '*Area of improvement*']) {
+// ── Booking logs and Flags are not posted ─────────────────────────────────
+// Booking logs: a numbered dump of every booking event, which is the
+// timeline's job. Flags: a one-line restatement of what What-went-wrong
+// already said, with less evidence — the thread carried the finding twice.
+// The rca still carries booking_logs and flags (seeded above), so their
+// ABSENCE from the post is the guarantee: the section was cut, not the data.
+// Flags remain on the CARD, editable, with the owning team on each.
+for (const gone of ['*Booking logs*', '*Flags*']) {
   check(out.indexOf(gone) === -1,
     `${gone} is back in the Slack post — it was removed from SECTIONS`);
 }

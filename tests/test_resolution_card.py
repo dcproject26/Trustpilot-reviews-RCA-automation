@@ -84,12 +84,46 @@ def test_the_dss_row_stub_is_never_rendered(page):
 # ── 2. compensation: type, amount, and the unit that follows the type ──────
 
 def test_the_comp_vocabulary_is_closed(page):
+    """Closed, and now six wide.
+
+    "More time" (an extended validity or a moved date) and "More info" (a case
+    closed by telling the guest something) were both being given and neither
+    could be recorded, so those resolutions were logged as "None" — which reads
+    as a guest who got nothing. Still a closed list: free text here would make
+    the field uncountable, which is what the closure is for.
+    """
     try:
         _set_v3(page, {"resolution": {"text": "x"}})
         got = page.evaluate(
             "() => [...document.querySelectorAll('[data-res-type] option')]"
             ".map(o => o.value)")
-        assert got == ["HOC", "Refund to card", "Discount code", "None"], got
+        assert got == ["HOC", "Refund to card", "Discount code",
+                       "More time", "More info", "None"], got
+    finally:
+        _restore(page)
+
+
+def test_a_no_amount_resolution_draws_no_amount_box(page):
+    """An extended validity is a date and information given is neither a
+    percentage nor a sum. The box is gated on there being a UNIT, not on the
+    type being "None" — otherwise both would get an unlabelled number field,
+    and a number with no unit is what the unit logic exists to prevent."""
+    try:
+        for t in ("More time", "More info"):
+            _set_v3(page, {"resolution": {"text": "x", "compensation_type": t}})
+            n = page.evaluate(
+                "() => document.querySelectorAll('[data-res-amount]').length")
+            assert n == 0, f"{t} drew an amount box"
+    finally:
+        _restore(page)
+
+
+def test_an_amount_bearing_resolution_still_draws_its_box(page):
+    """The gate must not have closed on the types that do carry a number."""
+    try:
+        _set_v3(page, {"resolution": {"text": "x", "compensation_type": "HOC"}})
+        assert page.evaluate(
+            "() => document.querySelectorAll('[data-res-amount]').length") == 1
     finally:
         _restore(page)
 

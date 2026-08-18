@@ -80,7 +80,7 @@ def test_the_sections_still_frame_the_post():
     defeat it.
     """
     out = format_rca_slack(REVIEW, _draft())
-    for must in ("*What went wrong*", "*Flags*",
+    for must in ("*What went wrong*", "*Area of improvement*",
                  "*Review takedown*", "*Experience insights*"):
         assert must in out, f"missing: {must!r}"
 
@@ -133,9 +133,21 @@ def test_a_pre_v4_draft_keeps_its_document_level_analysis():
         assert must in out, f"a legacy draft lost: {must!r}"
 
 
-def test_flags_absent_reads_as_clean_not_as_missing():
-    d = _draft(rca_v3={**V3, "flags": []})
-    assert "No flags raised" in format_rca_slack(REVIEW, d)
+def test_flags_are_not_a_section_of_the_post():
+    """Flags restated what What-went-wrong had already said — the same failure
+    in one line with less evidence — so the thread carried the finding twice
+    and the weaker telling was the one a skimming reader took away.
+
+    They are NOT gone from the product: the card still renders them, editable,
+    with the owning team on each. This is only about what goes to the channel.
+    """
+    d = _draft(rca_v3={**V3, "flags": [
+        {"team": "ops", "flag": "No proactive update", "evidence": "e"}]})
+    out = format_rca_slack(REVIEW, d)
+    assert "*Flags*" not in out
+    assert "No proactive update" not in out
+    assert "No flags raised" not in out, (
+        "the empty-state line is still posted, so the section is still there")
 
 
 def test_legacy_draft_still_uses_legacy_layout():

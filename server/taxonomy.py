@@ -372,8 +372,15 @@ DIAGNOSTIC_CHECKS = {
 # Support Interaction gap taxonomy
 # ═════════════════════════════════════════════════════════════════════════
 GAP_TAXONOMY = [
-    "Minded AI wrong canned response",
-    "Minded AI missed escalation trigger",
+    # NO MINDED AI GAPS. "Minded AI wrong canned response" and "Minded AI
+    # missed escalation trigger" were in this list, so the model reached for
+    # them on every ticket where a bot spoke first — which is nearly all of
+    # them — and a Zendesk thread came back tagged with a bot failure ahead of
+    # the human one that actually mattered. The bot is a step in the flow, not
+    # a party to the case; a gap on this list is a CE failure, and these two
+    # were routing attention to the automation instead of to the agent who
+    # then did or did not escalate. Removed at the taxonomy so they cannot be
+    # offered: the model can only pick from what this list contains.
     "CE delay — no action within SLA",
     "CE escalation missing",
     "Wrong policy applied",

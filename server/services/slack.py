@@ -1071,6 +1071,33 @@ def _booking_details_lines(draft, nl: str) -> str:
     return nl.join(rows)
 
 
+def _head_summary(summary: str, detail: str, limit: int = 130) -> str:
+    """The head line's summary, trimmed to one sentence when a detail follows.
+
+    THE DUPLICATION THIS REMOVES. The head printed the model's whole `summary`
+    and the detail printed its whole account of the same exchange, so a long
+    contact rendered the same paragraph twice, once wrapped across the head row
+    and once beneath it. The head is meant to be the scannable line — who, when,
+    what about — and the detail is the account; giving both the full text made
+    the section twice as long and no more informative.
+
+    A contact with NO detail keeps its full summary: there is nothing under it
+    to carry the rest, and trimming there would lose the only telling.
+    """
+    s = (summary or "").strip()
+    d = (detail or "").strip()
+    if not s or not d:
+        return s
+    first = re.split(r"(?<=[.!?])\s+", s)[0].strip()
+    # The detail opens by restating the summary — a common model habit. Then
+    # the head's copy is pure repetition and the detail is the better version.
+    if d[:60].lower().startswith(first[:60].lower()):
+        return ""
+    if len(first) <= limit:
+        return first
+    return first[:limit].rsplit(" ", 1)[0].rstrip(" ,;:") + "…"
+
+
 def _contact_gaps(group) -> list:
     """The distinct gap labels across a contact's frames, in order.
 
@@ -1167,6 +1194,7 @@ def contacts_section(draft, v3, nl) -> str:
         # model's summary is about the contact; a frame's guestSaid is about
         # one message, so it is the fallback rather than the other way round.
         summary = ((note or {}).get("summary") or _zd.guest_words(first)).strip()
+        summary = _head_summary(summary, (note or {}).get("detail") or "")
         head = f"\u2022 {n:02d}. {first.get('time') or '?'}"
         if ch:
             head += f" \u00b7 {ch}"
@@ -1263,12 +1291,12 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
     # section is gone, so bringing it back is restoring this block and nothing
     # upstream of it.
 
-    flags = v3.get("flags") or []
-    sections.append(("Flags", nl.join(
-        f"• [{str(f.get('team', 'other')).upper()}] {f.get('flag', '')}"
-        + (f" — {f['evidence']}" if f.get("evidence") else "")
-        + (f" ({f['zd_ref']})" if f.get("zd_ref") else "")
-        for f in flags) if flags else "No flags raised"))
+    # FLAGS ARE NOT POSTED. They restated what "What went wrong" had already
+    # said — same failure, one line, less evidence — so the thread carried the
+    # finding twice and the shorter telling was the one a skimming reader took
+    # away. They remain on the CARD, where they are an editable working field
+    # and where the team that owns each one is set; this is only about what
+    # goes out to the channel.
 
     # Facts and interpretation, merged. The rows come from the pipeline's
     # Zendesk-derived frames - their time, channel and ticket id are verifiable
