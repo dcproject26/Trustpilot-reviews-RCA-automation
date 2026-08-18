@@ -275,3 +275,77 @@ def test_a_database_with_no_tables_is_named_not_a_driver_error(tmp_path):
     assert "REFUSING" in r.stdout, r.stdout + r.stderr
     assert "no `reviews` table" in r.stdout, r.stdout
     assert "Traceback" not in r.stderr, r.stderr
+
+
+# ── a database never reached vs one reached and empty ───────────────────────
+#
+# These two printed the SAME sentence. `try: db.query(Review).count() except
+# Exception:` caught a wrong password, a dead host and a missing table alike,
+# and announced all of them as "connected, but this database has no `reviews`
+# table" — a guard committing the bug it was written to catch.
+#
+# It cost a real purge on production: a redacted password was pasted, nothing
+# connected, and the tool reported the production database as empty. The only
+# evidence was the ABSENCE of db.py's "[db] connected to ..." banner.
+
+def test_a_database_that_was_never_reached_does_not_report_on_its_contents():
+    """THE POINT. No connection means nothing is known about the contents, and
+    claiming a table is missing is a claim about contents."""
+    from sqlalchemy import create_engine
+    from tools.purge_reviews import preflight
+
+    out = preflight(create_engine(
+        "postgresql://u:p@nonexistent.invalid:5432/db",
+        connect_args={"connect_timeout": 3}))
+    assert "could not connect" in out, out
+    assert "no `reviews` table" not in out, (
+        "a database that was never reached was reported as one with no "
+        "reviews table — the two are indistinguishable again")
+
+
+def test_the_connection_failure_quotes_the_driver():
+    """"password authentication failed" and "could not translate host name"
+    send you to completely different places, so the driver's own words are
+    passed through rather than summarised into "connection failed"."""
+    from sqlalchemy import create_engine
+    from tools.purge_reviews import preflight
+
+    out = preflight(create_engine(
+        "postgresql://u:p@nonexistent.invalid:5432/db",
+        connect_args={"connect_timeout": 3}))
+    assert "could not translate host name" in out, out
+
+
+def test_a_reachable_database_with_no_schema_still_says_so(tmp_path):
+    """The other half must keep working — this is the case the guard was
+    originally for, and fixing one must not lose the other."""
+    from sqlalchemy import create_engine
+    from tools.purge_reviews import preflight
+
+    out = preflight(create_engine(f"sqlite:///{tmp_path / 'empty.db'}"))
+    assert "no `reviews` table" in out, out
+    assert "could not connect" not in out, out
+
+
+def test_a_healthy_database_passes_preflight(live_db):
+    from tools.purge_reviews import preflight
+    assert preflight(live_db.engine) == ""
+
+
+def test_the_script_refuses_a_bad_password_without_claiming_it_is_empty():
+    """End to end, through main() — the layer the earlier tests all skipped,
+    which is how an UnboundLocalError shipped from this same file."""
+    import os
+    import subprocess
+    import sys
+
+    env = {**os.environ,
+           "DATABASE_URL": "postgresql://u:p@nonexistent.invalid:5432/db",
+           "PYTEST_CURRENT_TEST": ""}
+    r = subprocess.run([sys.executable, "tools/purge_reviews.py",
+                        "--before", "tp_x"],
+                       capture_output=True, text=True, env=env, timeout=120)
+    assert "REFUSING" in r.stdout, r.stdout + r.stderr
+    assert "could not connect" in r.stdout, r.stdout
+    assert "no `reviews` table" not in r.stdout, r.stdout
+    assert "Traceback" not in r.stderr, r.stderr

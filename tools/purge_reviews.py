@@ -34,6 +34,55 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Inline in main() they are reachable only by running the script, and the only
 # test possible is a source assertion — the spelling check CLAUDE.md forbids.
 
+def preflight(engine) -> str:
+    """"" if this database is usable, else the sentence to refuse with.
+
+    THREE OUTCOMES, NOT TWO. This used to be `try: db.query(Review).count()
+    except Exception:` under a comment about naming the wrong-database case —
+    and it caught a wrong password, an unreachable host, a TLS failure and an
+    expired Neon endpoint all the same way, reporting every one of them as
+    "connected, but this database has no `reviews` table". It claimed a
+    connection had succeeded without ever checking that one had, which is the
+    guard committing the bug it was written to catch.
+
+    It cost a real purge: a redacted password was pasted, nothing connected,
+    and the tool said the production database was empty. The `[db] connected
+    to ...` banner was missing from that output — the only evidence anything
+    was wrong, and it was an absence, which is exactly what nobody notices.
+
+    So: connect, THEN look for the table, and say which of the two failed. The
+    driver's own message is quoted rather than summarised, because "password
+    authentication failed for user" and "could not translate host name" send
+    you to completely different places.
+    """
+    from sqlalchemy import inspect, text
+    try:
+        with engine.connect() as c:
+            c.execute(text("select 1"))
+    except Exception as e:
+        detail = str(e).strip().splitlines()[0][:300] if str(e).strip() else ""
+        return (f"could not connect to this database at all, so nothing is "
+                f"known about what it holds.\n"
+                f"         The driver said: {type(e).__name__}: {detail}\n"
+                f"         A wrong password, an unreachable host, a firewall "
+                f"and a suspended endpoint all land here — the line above says "
+                f"which. NOTE: a password shown as `npg_...` in chat is "
+                f"REDACTED, not the real one.")
+    try:
+        names = set(inspect(engine).get_table_names())
+    except Exception as e:
+        return (f"connected, but its schema could not be read: "
+                f"{type(e).__name__}: {str(e).strip()[:200]}")
+    if "reviews" not in names:
+        return (f"connected, but this database has no `reviews` table.\n"
+                f"         It holds {len(names)} other table(s): "
+                f"{', '.join(sorted(names)[:8]) or '(none at all)'}.\n"
+                f"         It is either empty (nothing has run against it) or "
+                f"not the database you meant. The banner above says which one "
+                f"was opened.")
+    return ""
+
+
 def boundary(db, d, review_id: str):
     """(row, why_not) for the review the purge stops at."""
     row = db.query(d.Review).filter(d.Review.id == review_id).first()
@@ -111,21 +160,16 @@ def main() -> int:
               else f"{url.host or '?'}/{url.database or '?'}")
     print(f"database: {url.get_backend_name()} {target}")
 
+    # CONNECT BEFORE CLAIMING ANYTHING ABOUT THE CONTENTS. `preflight` separates
+    # "never reached it" from "reached it, no schema"; they used to print the
+    # same sentence, and the one that was really happening was the first.
+    bad = preflight(engine)
+    if bad:
+        print(f"REFUSING: {bad}")
+        return 2
+
     db = SessionLocal()
     try:
-        # A DATABASE WITH NO TABLES IS A MISTAKE WORTH NAMING. Pointed at a
-        # fresh or wrong DATABASE_URL this raised "no such table: reviews" from
-        # the driver — accurate, and it does not say that the connection
-        # succeeded and the schema is simply not there, which is what "wrong
-        # database" looks like from here.
-        try:
-            db.query(Review).count()
-        except Exception:
-            print(f"REFUSING: connected, but this database has no `reviews` "
-                  f"table.\n         It is either empty (nothing has run "
-                  f"against it) or not the database you meant. The banner "
-                  f"above says which one was opened.")
-            return 2
         # ── scope ────────────────────────────────────────────────────────────
         # WHY THIS FLAG LIVES HERE rather than in a second script. A parallel
         # tool was written for the bounded case and it duplicated this one's
