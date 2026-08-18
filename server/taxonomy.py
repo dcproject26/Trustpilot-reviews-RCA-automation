@@ -433,9 +433,21 @@ SIMILAR_MATCH_RULE = {
 
 
 # ═════════════════════════════════════════════════════════════════════════
-# BID regex — widened to accept 7-12 digits (Angela's review had 11-digit BID)
+# BID regex — 7-12 digits (Angela's review had an 11-digit BID)
+#
+# NOT `\b`. A word boundary needs a word/non-word transition, and a LETTER is a
+# word character, so `\b\d{7,12}\b` could not see the digits in `ID33508897` —
+# there is no boundary between `D` and `3`. Guests write the reference exactly
+# that way: Laura Ramírez's review carried "Reference number: Reserva
+# ID33508897" and the card said "no BID in text" beside the text containing it.
+# The review then went to Zendesk on the guest's NAME and sat at T2 waiting for
+# an associate to confirm a booking it had already been told.
+#
+# `(?<!\d)...(?!\d)` says what was meant all along: a run of 7-12 digits that is
+# not part of a longer number. A 13-digit string is still rejected, a 6-digit
+# one still too short, and a date like 2026-08-15 still matches nothing.
 # ═════════════════════════════════════════════════════════════════════════
-BID_REGEX = r'\b\d{7,12}\b'
+BID_REGEX = r'(?<!\d)\d{7,12}(?!\d)'
 
 
 # ═════════════════════════════════════════════════════════════════════════

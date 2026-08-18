@@ -2884,9 +2884,36 @@ function renderInbox() {
 
 // The translation belongs on every card, not just the matched ones: the
 // reply goes out in the guest's language, so whoever writes it needs the
-// English beside the original whatever tier the review sits in. Absent
-// English on a foreign review is itself worth saying - it means the
-// translation step never ran, not that the review needs none.
+// English beside the original whatever tier the review sits in.
+//
+// ABSENT ENGLISH HAS FOUR CAUSES AND THEY ARE NOT THE SAME. The line here used
+// to be "Not translated yet — re-run this review to generate it" for all of
+// them, under a comment asserting it "means the translation step never ran".
+// It does not. pipeline.py step 1 leaves body_english empty when:
+//
+//   1. the run died before step 1            — re-running is the fix
+//   2. the model answered ENGLISH_ALREADY    — nothing is wrong; a Spanish
+//                                              review answered this way is a
+//                                              MIS-detection, not a no-op
+//   3. english_or_reject refused the result  — a wrong-language translation is
+//                                              a FAILED one, kept out on purpose
+//   4. the translate call threw              — the reason is on the trail
+//
+// Re-running only helps case 1, and telling an associate to re-run a review
+// whose translation is being actively rejected sends them round a loop that
+// cannot terminate. The pipeline already writes which one happened onto the
+// confidence trail (`_xl_trail`, prepended, mark pass|warn); this reads it
+// back instead of guessing. No trail entry at all IS case 1, and says so.
+function _translationNote(r) {
+  const t = (r.confidenceTrail || []).find(
+    c => c && typeof c.text === 'string' && /<strong>Translation<\/strong>/.test(c.text));
+  if (!t) return null;
+  // The trail carries the sentence and the verdict; strip the markup and hand
+  // both back so the caller can colour a warn differently from a pass.
+  return {mark: t.mark || 'pass',
+          why: String(t.text).replace(/<[^>]+>/g, '').replace(/^Translation\s*—\s*/, '')};
+}
+
 function translationCard(r) {
   const foreign = (r.lang || '').toUpperCase() !== 'EN';
   if (r.english) {
@@ -2896,9 +2923,17 @@ function translationCard(r) {
     </div>`;
   }
   if (!foreign) return '';
+  const note = _translationNote(r);
+  // No entry on the trail: step 1 did not run on any completed pass. This is
+  // the only case a re-run actually fixes, so it is the only one that says so.
+  const body = !note
+    ? `<div class="rca-empty">Not translated yet — the translation step has
+         not run on this review. Re-run it to generate one.</div>`
+    : `<div class="rca-empty${note.mark === 'warn' ? ' err' : ''}">${
+        note.mark === 'warn' ? '⚠ ' : ''}No English stored — ${esc(note.why)}</div>`;
   return `<div class="translation-card">
     <div class="translation-label">English translation · AI</div>
-    <div class="rca-empty">Not translated yet — re-run this review to generate it.</div>
+    ${body}
   </div>`;
 }
 
