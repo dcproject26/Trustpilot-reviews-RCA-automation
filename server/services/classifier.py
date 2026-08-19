@@ -236,8 +236,17 @@ def _salvage_sub_theme(l1: str, l2: str, given: str) -> Optional[str]:
         return None
     given_l = given.strip().lower()
 
-    # Try code prefix like "A" or "A." or "A. anything"
-    m = re.match(r'^([a-h])[\s\.:]*', given_l)
+    # Try code prefix like "A" or "A." or "A. anything".
+    # THE RANGE COMES FROM THE FRAMEWORK, not from a literal. It was `[a-h]`,
+    # which silently stopped salvaging the moment a framework grew past H — the
+    # SP set now has an I, and a model answering "I" would have fallen through
+    # to the fuzzy match and then to nothing. A hardcoded alphabet that has to
+    # be edited whenever a taxonomy grows is a rule nobody remembers.
+    codes = "".join(c.lower() for c, _n, _cu in fw["sub_themes"])
+    excl_code = (fw.get("exclusion_label") or " ")[0].lower()
+    if excl_code.isalpha():
+        codes += excl_code
+    m = re.match(rf'^([{re.escape(codes)}])[\s\.:]*', given_l) if codes else None
     if m:
         code = m.group(1).upper()
         for c, name, _ in fw["sub_themes"]:

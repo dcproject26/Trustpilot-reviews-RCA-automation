@@ -108,6 +108,121 @@ def test_no_rule_was_invented_for_the_guide_quality_catchall_split():
     and move the model in an unpredictable direction. If someone later adds one,
     this test should fail and make them justify it against fresh labels.
     """
-    assert "E. Guide Quality Issue" not in PROMPT.split("SUB-THEME")[0], (
-        "a top-level L1/L2 rule now names the E-vs-G split, which the labelled "
-        "sample does not support")
+    rules = PROMPT.split("--- Sub-theme framework")[0]
+    # The guard is on the PAIR, not on either label alone. Naming E is fine and
+    # now happens for a different reason — "use I, not E, when the booked tour
+    # was not delivered" is a rule the labels DO support. What must not appear
+    # is E and G set against each other, because nothing separates them.
+    assert not ("E. Guide Quality Issue" in rules
+                and "G. Other Supply Partner Issue" in rules), (
+        "a top-level rule now contrasts E with G, which the labelled sample "
+        "does not support — 49 vs 17 on wording that does not separate")
+
+
+# ── a sub-theme created because the labels had nowhere to put something ─────
+
+def test_the_booked_tour_not_provided_has_its_own_sub_theme():
+    """The booking names the variant sold — bookings_tour_name reads "Spanish
+    Guided Tour", "French Guided Tour" — so a guest who bought one and got
+    another did not receive the PRODUCT. Not poor guiding: the guide may have
+    guided perfectly. With nothing covering it, 11 such reviews in a labelled
+    sample scattered across E, D and G.
+
+    Named for what the review says rather than for language, which is the
+    commonest form of it and not the whole of it.
+    """
+    names = [n for _c, n, _cu in t.SP_SUB_THEMES["sub_themes"]]
+    assert "Booked Tour Not Provided" in names
+
+
+def test_the_new_theme_did_not_take_an_letter_already_in_use():
+    """THE POINT OF THE ODD LETTER, and the reason it is not G.
+
+    classifier._salvage_sub_theme matches on the letter PREFIX. Renaming G would
+    silently convert every stored "G. Other Supply Partner Issue" into the new
+    theme — a wrong answer with no warning, on data already labelled. Letters
+    here are append-only; the LIST order carries the reading order instead.
+    """
+    by_code = {c: n for c, n, _ in t.SP_SUB_THEMES["sub_themes"]}
+    assert by_code["G"] == "Other Supply Partner Issue"
+    assert t.SP_SUB_THEMES["exclusion_label"] == "H. Irrelevant"
+    assert by_code["I"] == "Booked Tour Not Provided"
+
+
+def test_salvage_still_maps_the_old_letters_to_the_old_themes():
+    """The guarantee the letter choice exists to protect, driven rather than
+    asserted about the data structure."""
+    from server.services.classifier import _salvage_sub_theme
+    GQ = "Guide providing irrelevant/inexperienced/not clear"
+    assert _salvage_sub_theme("Supply Partner Issue", GQ, "G") == "G. Other Supply Partner Issue"
+    assert _salvage_sub_theme("Supply Partner Issue", GQ, "H") == "H. Irrelevant"
+
+
+def test_salvage_reaches_past_h():
+    """It was `[a-h]`, a hardcoded alphabet that silently stopped salvaging the
+    moment a framework grew — which is this commit. The range is derived from
+    the framework now."""
+    from server.services.classifier import _salvage_sub_theme
+    GQ = "Guide providing irrelevant/inexperienced/not clear"
+    assert _salvage_sub_theme("Supply Partner Issue", GQ, "I") == "I. Booked Tour Not Provided"
+
+
+def test_the_new_theme_is_valid_on_every_sp_l2():
+    from server.taxonomy import is_valid_sub_theme
+    for l2 in t.L2_OPTIONS["Supply Partner Issue"]:
+        assert is_valid_sub_theme("Supply Partner Issue", l2,
+                                  "I. Booked Tour Not Provided"), l2
+
+
+def test_an_audio_guide_language_problem_is_not_this_theme():
+    """5 of the 11 language complaints in the sample were about the AUDIO guide,
+    which already has D. AG Language Issues. Without this boundary the new theme
+    swallows the more common half."""
+    assert "A HUMAN GUIDE, NOT AN AUDIO GUIDE" in PROMPT
+    assert "D. AG Language Issues" in PROMPT
+
+
+def test_the_framework_declares_all_eight_sp_l2s():
+    """`applies_to_l2` is printed INTO the prompt to say where the framework
+    holds. It listed six, so the model was being told two of its own L2s were
+    out of scope for the themes it was being handed."""
+    assert set(t.SP_SUB_THEMES["applies_to_l2"]) == set(t.L2_OPTIONS["Supply Partner Issue"])
+
+
+def test_not_provided_audio_guides_have_one_home():
+    """"no audio guide provided", "was not provided" and "app not provided as
+    expected" landed on G, A and F in the sample — the same complaint in three
+    places because the tiebreak spoke only about obtaining and failing."""
+    assert t.AG_SUB_THEMES["tiebreak_rule"].startswith("NOT PROVIDED")
+    assert "= A, always" in t.AG_SUB_THEMES["tiebreak_rule"]
+
+
+def test_the_theme_is_not_named_for_language_alone():
+    """It began as a language theme and that was too narrow. Language is how
+    this failure usually presents; the failure is the booked variant not being
+    delivered, and a name that says "language" would send group-size and
+    private-vs-shared cases back to the catchall."""
+    names = [n for _c, n, _cu in t.SP_SUB_THEMES["sub_themes"]]
+    assert not [n for n in names if "Language" in n], names
+    cues = dict((c, cu) for c, _n, cu in t.SP_SUB_THEMES["sub_themes"])["I"]
+    assert any("private tour" in c for c in cues), (
+        "the cues cover only language, so the widened name is not backed by "
+        "anything the model can match on")
+
+
+def test_the_model_is_actually_told_to_use_the_new_sub_theme():
+    """THE WIRING, and mutation testing is why it is here.
+
+    Every other test on this theme checked the TAXONOMY — that it exists, has
+    the right letter, validates on each L2. All of them passed against a build
+    with the rule deleted from the prompt, because a sub-theme the model is
+    never told about is one it will never emit. The framework listing alone
+    gives a name and no instruction to prefer it over E, which is where these
+    reviews were going before.
+    """
+    assert "THE GUEST GOT A DIFFERENT TOUR FROM THE ONE THEY BOOKED" in PROMPT
+    assert "I. Booked Tour Not Provided" in PROMPT
+    assert 'NOT "E. Guide Quality Issue"' in PROMPT, (
+        "the rule names the new theme without saying what it displaces, which "
+        "is the whole correction")
+    assert "READ WHAT THE REVIEW IS SAYING" in PROMPT

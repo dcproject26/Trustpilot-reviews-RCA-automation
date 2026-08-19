@@ -191,14 +191,27 @@ AG_SUB_THEMES = {
              "navigation issues", "boring narration"]),
         ("F", "Any Other Audio Guide Issue", []),
     ],
-    "tiebreak_rule": "A if never obtained; B if obtained then failed during use",
+    # "NOT PROVIDED" IS ALWAYS A. Labelled data had "no audio guide provided",
+    # "audio guide was not provided" and "audio guide app not provided as
+    # expected" landing on three different themes (G, A and F) — the same
+    # complaint scattered because the tiebreak only spoke about obtaining and
+    # failing, and said nothing about never being given one. Stated first, so it
+    # is read before the A-vs-B distinction rather than after it.
+    "tiebreak_rule": ("NOT PROVIDED / NOT RECEIVED / NEVER GIVEN ONE = A, always — "
+                      "not F, not the exclusion bucket. Then: A if never obtained; "
+                      "B if obtained then failed during use"),
 }
 
 SP_SUB_THEMES = {
     "l2_key":         None,  # Applies across all SP-level L2s
+    # ALL EIGHT SP L2s. This listed six and was stale the moment Seating and
+    # Food & Catering were registered against this framework — the prompt prints
+    # this list to tell the model where the framework applies, so a short list
+    # is the model being told two of its own L2s are out of scope.
     "applies_to_l2":  ["Guide No Show", "Guide providing irrelevant/inexperienced/not clear",
                         "Guide Behaviour Issues", "Guide Left / Abandoned Tour",
-                        "Timing Issues", "Tour Cancelled by Operator"],
+                        "Timing Issues", "Tour Cancelled by Operator",
+                        "Seating Issues", "Food & Catering"],
     "exclusion":      ["long queue", "waiting time", "crowding", "congestion",
                         "overcrowding", "high pricing", "venue closure", "venue closed"],
     "exclusion_label": "H. Irrelevant",
@@ -217,6 +230,28 @@ SP_SUB_THEMES = {
              "guide couldn't answer questions"]),
         ("F", "Contact Issue",
             ["phone unreachable", "operator not responding", "could not reach"]),
+        # THE GUEST GOT A DIFFERENT TOUR FROM THE ONE THEY BOUGHT.
+        # This started as a language theme, which was too narrow: the booking
+        # record names the variant sold — `bookings_tour_name` reads "Spanish
+        # Guided Tour", "French Guided Tour", "English Guided Tour" — so a guest
+        # who booked the Spanish one and got an English one did not receive the
+        # PRODUCT, and language is only the commonest way that shows. Group size,
+        # private-vs-shared and included stops fail the same way and belong here
+        # too. Nothing else in this framework covers it: the guide may have
+        # guided perfectly, and E is about guiding badly.
+        #
+        # WHY "I" AND NOT "G". G and H are already in use on labelled data and
+        # stored drafts, and classifier._salvage_sub_theme matches on the letter
+        # PREFIX. Renaming G would silently convert every existing "G. Other
+        # Supply Partner Issue" into this theme — a wrong answer with no
+        # warning, which is worse than a gap in the alphabet. The list order
+        # carries the reading order; the letters are append-only.
+        ("I", "Booked Tour Not Provided",
+            ["guide did not speak the booked language", "tour was not in the language paid for",
+             "no Spanish guide", "no French guide", "guide spoke only English",
+             "requested language was not provided", "language different from booking",
+             "booked a private tour and got a group tour", "did not get the tour variant booked",
+             "different tour from the one booked"]),
         ("G", "Other Supply Partner Issue", []),
     ],
 }

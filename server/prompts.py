@@ -209,6 +209,25 @@ If a tour guide never showed up at the meeting point and the customer confirms t
 If a tour guide provided poor quality guiding — irrelevant information, inexperienced, unclear explanations,
 wrong facts, couldn't answer questions, couldn't be heard, or rushed through the tour:
   → L2 = "Guide providing irrelevant/inexperienced/not clear"
+  *** THE GUEST GOT A DIFFERENT TOUR FROM THE ONE THEY BOOKED. *** Sub-theme
+  "I. Booked Tour Not Provided", NOT "E. Guide Quality Issue". The booking names the
+  variant that was sold — "Spanish Guided Tour", "French Guided Tour", "English Guided
+  Tour" — so a guest who bought one and was given another did not receive the product
+  they paid for. The guide may have guided perfectly; that is not the failure.
+  READ WHAT THE REVIEW IS SAYING: not "the guiding was poor" but "this was not the
+  tour I booked".
+  EXAMPLES: "guide spoke only English despite booking for a different language",
+  "guide only spoke English and French, not Spanish as paid", "the requested French
+  language was not provided during the tour", "guide only spoke Spanish, leaving
+  English speakers uninformed", "booked a private tour and got a group tour".
+  Language is the commonest form of this and not the whole of it — variant, group
+  size and included stops fail the same way.
+  BOUNDARY — A HUMAN GUIDE, NOT AN AUDIO GUIDE. If what was in the wrong language is
+  the AUDIO GUIDE ("audio guide not available in German", "could not download the
+  Spanish audio guide"), that is → L1 = "Product Issue" / L2 = "Audio Guide Issues" /
+  sub_theme "D. AG Language Issues", and this sub-theme does not apply. In a labelled
+  sample 5 of 11 language complaints were about the audio guide, so this is the more
+  common half, not an edge case.
   EXAMPLES: "guide gave wrong information", "guide was inexperienced", "guide couldn't explain clearly",
   "guide spoke too fast", "guide had bad English", "guide provided incorrect facts",
   "could not hear the guide", "guide couldn't answer our questions", "guide gave unnecessary information",
