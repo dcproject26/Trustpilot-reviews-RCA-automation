@@ -174,6 +174,14 @@ a venue-provided handset, a hop-on hop-off bus audio system, or any other audio 
 
 If Headout's mobile app or website didn't load or function:
   → L2 = "App and Website Issues"
+  BOUNDARY — A TICKET THE GUEST CANNOT REACH IS A TICKET FAILURE, whatever surface it
+  failed on. If the app or website broke and the CONSEQUENCE the guest writes about is
+  a ticket they could not get, show or use, that is
+  → L1 = "Operations Issue" / L2 = "Ticket Issues".
+  This L2 is for the app failing AS the complaint — it would not load, it crashed, a
+  feature did not work — with no ticket outcome attached.
+  EXAMPLES THAT GO TO TICKET ISSUES: "app malfunctioned, causing issues with accessing
+  tickets", "ticket not available on app". A labelled sample placed both there.
 
 If Headout's website or app ADVERTISED something without stating the condition attached to it —
 an offer, a discount, a credit, a free extra — and the guest only learned of the condition when
@@ -210,12 +218,30 @@ wrong facts, couldn't answer questions, couldn't be heard, or rushed through the
   Performances) — audio/sound quality issues, unclear performers, poor acoustics → Venue Related Issue /
   Venue facility issue. These have no tour guide.
 
-If a tour guide was rude, impolite, racist, unprofessional, or behaved inappropriately toward customers:
+If a tour guide OR ANY ON-SITE STAFF was rude, impolite, racist, unprofessional, or
+behaved inappropriately toward customers:
   → L2 = "Guide Behaviour Issues"
   EXAMPLES: "guide was rude", "guide was impolite", "guide was racist",
   "guide was aggressive", "guide made us feel unwelcome", "guide was dismissive",
   "guide was not paying attention", "guide was inattentive"
-  BOUNDARY: For performances/shows/musicals — rude or unhelpful venue staff → Venue Related Issue / Venue facility issue.
+  *** "STAFF" IS THE SUPPLY PARTNER'S PEOPLE. *** Whoever the guest dealt with on the
+  day — venue staff, museum staff, cruise crew, lounge staff, a driver, ticket-desk
+  staff — their conduct is the partner delivering the experience, and it belongs here.
+  This rule used to send venue staff to Venue Related Issue / Venue facility issue,
+  which split one complaint across two L1s on the accident of who employed the person:
+  the guest cannot tell, does not care, and the team that fixes it is the same either
+  way. A labelled sample put 11 of 13 "rude staff" reviews here.
+  EXAMPLES THAT BELONG HERE: "rude staff and poor cleanliness at the airport lounge",
+  "staff was unhelpful and ignored me during the cruise", "unfriendly treatment and
+  accusations from museum staff", "beautiful castle, but staff were untrained and
+  unhelpful", "rude staff made us buy tickets again"
+  BOUNDARY — CONDUCT, NOT CONDITIONS. Venue Related Issue / Venue facility issue is for
+  the PLACE: dirt, broken equipment, missing signage, no drinking water. A person
+  behaving badly is never a facility.
+  BOUNDARY — THE PRIMARY COMPLAINT STILL WINS. Rude staff mentioned alongside a ticket
+  or food failure that is the real subject goes to that failure, not here. In the same
+  sample, "poor food options and rude staff" → Food & Catering, and "ticket lacked QR
+  code and staff was unhelpful" → Ticket Issues.
 
 If a tour guide abandoned, left, or disappeared before completing the tour:
   → L2 = "Guide Left / Abandoned Tour"
@@ -226,6 +252,16 @@ If tour started significantly late, ended early, or had unexpected timing change
   → L2 = "Timing Issues"
   EXAMPLES: "guide cancelled last minute", "tour started 45 mins late", "tour ended early",
   "unexpected reschedule", "timing changed without notice", "guide was late"
+  DURATION IS TIMING. "Too short", "cut short", "shorter than expected", "duration",
+  "visit time reduced" is how much experience the guest got, and that is this L2 — not
+  guide quality, even when the guest also says the guide rushed.
+  TIEBREAK, and it is a genuine judgement rather than a bright line: ask what the guest
+  is short of. Short of TIME → Timing Issues ("the cruise was too short", "the tour felt
+  rushed and lacked sufficient time"). Short of SUBSTANCE → Guide providing
+  irrelevant/inexperienced/not clear ("rushed and lacked detailed explanations", "too
+  short and not worth the price"). In a labelled sample this phrasing split 11 to 7
+  between the two, so where both readings hold, prefer Timing Issues and let the
+  reviewer move it.
 
 If the venue or operator cancelled the tour/experience (not weather-related, not Headout's fault):
   → L2 = "Tour Cancelled by Operator"

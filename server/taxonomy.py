@@ -321,6 +321,16 @@ SUB_THEME_REGISTRY = {
     ("Supply Partner Issue", "Guide Left / Abandoned Tour"):                      SP_SUB_THEMES,
     ("Supply Partner Issue", "Timing Issues"):                                    SP_SUB_THEMES,
     ("Supply Partner Issue", "Tour Cancelled by Operator"):                       SP_SUB_THEMES,
+    # THE LAST TWO SP L2s, ADDED FROM A LABELLED SAMPLE. They were the only
+    # Supply Partner pairs left out of this framework, so every Seating and
+    # Food review came back with sub_theme null — has_sub_theme_framework() was
+    # false, and the validator nulls what it cannot check. That is not a model
+    # failing to answer; it is a question nobody could answer, and it read as
+    # the former on 13 of 500 reviews. CX labelled all of them
+    # "G. Other Supply Partner Issue", which is this framework's catchall, so
+    # the fix is registration rather than a new set of themes.
+    ("Supply Partner Issue", "Seating Issues"):                                   SP_SUB_THEMES,
+    ("Supply Partner Issue", "Food & Catering"):                                  SP_SUB_THEMES,
     ("Operations Issue", "Content - Instructions not clear / Misleading Info"):   CONTENT_SUB_THEMES,
     ("Operations Issue", "Customer Support Issues"):                              CUSTOMER_SUPPORT_SUB_THEMES,
 }
