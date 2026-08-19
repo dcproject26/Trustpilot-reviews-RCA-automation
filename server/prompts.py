@@ -10,6 +10,7 @@ ruleset (L1_L2_RULESET below). Sub-theme frameworks and the flat JSON output
 shape are unchanged — the classifier and validators depend on that shape.
 """
 import json
+import os
 from server.taxonomy import (
     L1_PRIORITY_ORDER, L2_OPTIONS, OPERATIONS_L2_PRIORITY_ORDER,
     DIAGNOSTIC_CHECKS, GAP_TAXONOMY, SIGNAL_FIELDS, SUB_THEME_REGISTRY,
@@ -510,6 +511,61 @@ Return ONLY the summary text. No label, no preamble."""
 
 
 # ─── 4. Classification — L1 + L2 + sub-theme in ONE call ───────────────────
+# ═════════════════════════════════════════════════════════════════════════
+# Worked examples — CX's own labels, rendered into the classification prompt
+# ═════════════════════════════════════════════════════════════════════════
+_EXAMPLES_PATH = os.path.join(os.path.dirname(__file__), "data",
+                              "classification_examples.json")
+
+
+def classification_examples_block() -> str:
+    """Real reviews with the label CX gave them, for the model to pattern-match.
+
+    WHY EXAMPLES AND NOT MORE RULES. Some boundaries in this taxonomy cannot be
+    written down. "Guide spoke only English despite booking another language"
+    and "Guide only spoke English and French, not Spanish as paid" were labelled
+    E and G by the same team; Ticket A-vs-B-vs-D and Audio Guide A-vs-B-vs-E
+    split the same way. A rule invented to cover those would be a guess dressed
+    as policy. Examples carry the distinction without anyone having to state it,
+    which is the only honest way to pass on a judgement nobody can articulate.
+
+    MOST OF THESE ARE CASES THE CLASSIFIER GOT WRONG. An example the model
+    already handles teaches it nothing; the ones it missed are where the
+    information is.
+
+    A MISSING OR BROKEN FILE SAYS SO IN THE PROMPT. Silently dropping this
+    section would leave a prompt that looks complete and classifies worse, with
+    nothing anywhere naming the loss — the first rule of CLAUDE.md, in a
+    prompt builder.
+    """
+    try:
+        with open(_EXAMPLES_PATH, encoding="utf-8") as f:
+            ex = json.load(f)
+    except Exception as e:
+        return ("\n\nWORKED EXAMPLES: unavailable "
+                f"({type(e).__name__}) — classify from the rules above alone.\n")
+    if not ex:
+        return "\n\nWORKED EXAMPLES: none on file.\n"
+    lines = [
+        "", "━" * 40,
+        f"WORKED EXAMPLES — {len(ex)} reviews with the label CX gave them.",
+        "These are the answer where a rule above is ambiguous. Match the shape of",
+        "the review, not its subject: the venue and the wording change, the",
+        "distinction does not.", "",
+    ]
+    cur = None
+    for e in ex:
+        pair = (e["l1"], e["l2"])
+        if pair != cur:
+            cur = pair
+            lines.append(f"  [{e['l1']} / {e['l2']}]")
+        st = e.get("sub_theme") or "null"
+        lines.append(f'    "{e["review"]}"')
+        lines.append(f"        -> sub_theme: {st}")
+    lines += ["", "━" * 40]
+    return "\n".join(lines)
+
+
 def classification_prompt(review_text: str, booking: dict, timeline: list) -> str:
     """
     Single call outputs: l1, l2, sub_theme (nullable), review_summary, reasoning.
@@ -576,6 +632,7 @@ AVAILABLE L1 CATEGORIES: {L1_PRIORITY_ORDER}
 
 AVAILABLE L2 SUB-CATEGORIES:
 {l2_map}
+{classification_examples_block()}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SUB-THEME FRAMEWORKS

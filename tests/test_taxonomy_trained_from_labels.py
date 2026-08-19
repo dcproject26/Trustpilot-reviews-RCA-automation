@@ -108,15 +108,29 @@ def test_no_rule_was_invented_for_the_guide_quality_catchall_split():
     and move the model in an unpredictable direction. If someone later adds one,
     this test should fail and make them justify it against fresh labels.
     """
-    rules = PROMPT.split("--- Sub-theme framework")[0]
-    # The guard is on the PAIR, not on either label alone. Naming E is fine and
-    # now happens for a different reason — "use I, not E, when the booked tour
-    # was not delivered" is a rule the labels DO support. What must not appear
-    # is E and G set against each other, because nothing separates them.
+    # THE RULESET ONLY — not the worked examples, and the difference is the
+    # whole point. Examples SHOULD carry both E and G: they pass on a
+    # distinction by showing it, which is the honest way to hand over a
+    # judgement nobody can articulate. A written RULE claims a principle
+    # exists. That is what must not appear.
+    from server.prompts import L1_L2_RULESET as rules
     assert not ("E. Guide Quality Issue" in rules
                 and "G. Other Supply Partner Issue" in rules), (
         "a top-level rule now contrasts E with G, which the labelled sample "
         "does not support — 49 vs 17 on wording that does not separate")
+
+
+def test_the_examples_do_carry_the_e_versus_g_split():
+    """The other half of the test above. Refusing to write a rule is only
+    defensible if the distinction reaches the model some other way; without
+    these the 15 rows stay wrong and nothing says why."""
+    import json, pathlib
+    ex = json.loads(pathlib.Path("server/data/classification_examples.json")
+                    .read_text(encoding="utf-8"))
+    GQ = "Guide providing irrelevant/inexperienced/not clear"
+    subs = {e.get("sub_theme") for e in ex if e["l2"] == GQ}
+    assert "E. Guide Quality Issue" in subs
+    assert "G. Other Supply Partner Issue" in subs
 
 
 # ── a sub-theme created because the labels had nowhere to put something ─────
