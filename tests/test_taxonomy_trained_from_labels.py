@@ -196,11 +196,51 @@ def test_an_audio_guide_language_problem_is_not_this_theme():
     assert "D. AG Language Issues" in PROMPT
 
 
-def test_the_framework_declares_all_eight_sp_l2s():
+def test_the_framework_declares_every_sp_l2():
     """`applies_to_l2` is printed INTO the prompt to say where the framework
-    holds. It listed six, so the model was being told two of its own L2s were
-    out of scope for the themes it was being handed."""
+    holds. Whenever an SP L2 is added it must be declared here too, or the model
+    is told one of its own L2s is out of scope for the themes it is handed. This
+    compares the two sets rather than a fixed count, so it stays true as the SP
+    L2 list grows."""
     assert set(t.SP_SUB_THEMES["applies_to_l2"]) == set(t.L2_OPTIONS["Supply Partner Issue"])
+
+
+@pytest.mark.parametrize("l2", ["Guide Service Issues", "Venue Conditions",
+                               "Audio Guide Device"])
+def test_the_three_registered_sp_l2s_validate_and_carry_a_framework(l2):
+    """THE POINT of this commit. CX's SP sheet used these three L2s and the code
+    did not carry them, so the model could never emit them and the validator
+    nulled the sub-theme — a question nobody could answer reading as a model
+    that would not. Registered against the SP framework, same as Seating and
+    Food, so a Guide Service issue can be E and the other two fall to the G
+    catchall."""
+    assert l2 in t.L2_OPTIONS["Supply Partner Issue"]
+    assert t.is_valid_l1_l2("Supply Partner Issue", l2)
+    assert has_sub_theme_framework("Supply Partner Issue", l2)
+    assert t.SUB_THEME_REGISTRY[("Supply Partner Issue", l2)] is t.SP_SUB_THEMES
+
+
+def test_skip_the_line_failures_route_to_overcrowding_not_facility():
+    """THE CONTRADICTION THIS FIXES. The prompt carried two rules for the same
+    case: one sent 'skip-the-line not working' to Venue facility issue, the
+    other to Venue Overcrowding. A skip-the-line failure is a queue the guest
+    still stood in, not a broken facility, so both must say Overcrowding — and
+    the losing wording must not survive anywhere in the prompt to contradict
+    it."""
+    p = prompts.classification_prompt("x", {}, [])
+    lines = p.split("\n")
+    # Find the boundary line, then read WHERE it routes — the target is on the
+    # "→ Use ..." line that follows it, which is the line the revert changes.
+    idx = [i for i, ln in enumerate(lines)
+           if "priority lines not working" in ln and "still had to queue" in ln]
+    assert idx, "the skip-the-line boundary line is gone"
+    # The routing target within the next two lines of the boundary.
+    block = " ".join(lines[idx[0]:idx[0] + 2])
+    assert "Venue Overcrowding (Venue)" in block, (
+        "the skip-the-line boundary no longer routes to Venue Overcrowding")
+    assert "→ Use Venue Related Issue / Venue facility issue" not in block, (
+        "the skip-the-line boundary routes to Venue facility issue again — the "
+        "two venue rules contradict each other, which is the bug this fixes")
 
 
 def test_not_provided_audio_guides_have_one_home():

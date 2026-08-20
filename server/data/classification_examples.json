@@ -383,5 +383,54 @@
   "l2": "Tour Cancelled by Operator",
   "sub_theme": "H. Irrelevant",
   "was_a_miss": true
+ },
+ {
+  "review": "Could not hear the guide from our seating area.",
+  "l1": "Supply Partner Issue",
+  "l2": "Guide Service Issues",
+  "sub_theme": "E. Guide Quality Issue",
+  "was_a_miss": true
+ },
+ {
+  "review": "The guide was good, but management was lacking.",
+  "l1": "Supply Partner Issue",
+  "l2": "Guide Service Issues",
+  "sub_theme": "E. Guide Quality Issue",
+  "was_a_miss": true
+ },
+ {
+  "review": "Lounge was overcrowded and food quality was disappointing.",
+  "l1": "Supply Partner Issue",
+  "l2": "Venue Conditions",
+  "sub_theme": "G. Other Supply Partner Issue",
+  "was_a_miss": true
+ },
+ {
+  "review": "Poor cleanliness and equipment issues on the bus.",
+  "l1": "Supply Partner Issue",
+  "l2": "Venue Conditions",
+  "sub_theme": "G. Other Supply Partner Issue",
+  "was_a_miss": true
+ },
+ {
+  "review": "Guides were great, but radios didn't work during the tour.",
+  "l1": "Supply Partner Issue",
+  "l2": "Audio Guide Device",
+  "sub_theme": "G. Other Supply Partner Issue",
+  "was_a_miss": true
+ },
+ {
+  "review": "Long wait despite skip-the-line ticket; poor crowd management.",
+  "l1": "Venue Related Issue",
+  "l2": "Venue Overcrowding (Venue)",
+  "sub_theme": null,
+  "was_a_miss": true
+ },
+ {
+  "review": "Paid for skip-the-line but still had to wait in line.",
+  "l1": "Venue Related Issue",
+  "l2": "Venue Overcrowding (Venue)",
+  "sub_theme": null,
+  "was_a_miss": true
  }
 ]

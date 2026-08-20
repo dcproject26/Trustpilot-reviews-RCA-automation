@@ -72,6 +72,17 @@ L2_OPTIONS = {
         "Tour Cancelled by Operator",
         "Seating Issues",
         "Food & Catering",
+        # ADDED FROM A LABELLED SAMPLE. CX's SP sheet uses three L2s the code
+        # did not carry, so the model could never emit them and the validator
+        # nulled them: a guide present but hard to hear/understand/rushed
+        # ("Guide Service Issues", distinct from a no-show or an absent guide);
+        # the supply partner's own premises being dirty/overcrowded ("Venue
+        # Conditions" — lounges, cruise boats, tour buses, NOT the ticketed
+        # venue); and the whisper radios/headsets on a guided tour failing
+        # ("Audio Guide Device", NOT the Product-level Audio Guide app).
+        "Guide Service Issues",
+        "Venue Conditions",
+        "Audio Guide Device",
     ],
     "Venue Related Issue": [
         "Venue facility issue",
@@ -211,7 +222,9 @@ SP_SUB_THEMES = {
     "applies_to_l2":  ["Guide No Show", "Guide providing irrelevant/inexperienced/not clear",
                         "Guide Behaviour Issues", "Guide Left / Abandoned Tour",
                         "Timing Issues", "Tour Cancelled by Operator",
-                        "Seating Issues", "Food & Catering"],
+                        "Seating Issues", "Food & Catering",
+                        "Guide Service Issues", "Venue Conditions",
+                        "Audio Guide Device"],
     "exclusion":      ["long queue", "waiting time", "crowding", "congestion",
                         "overcrowding", "high pricing", "venue closure", "venue closed"],
     "exclusion_label": "H. Irrelevant",
@@ -366,6 +379,14 @@ SUB_THEME_REGISTRY = {
     # the fix is registration rather than a new set of themes.
     ("Supply Partner Issue", "Seating Issues"):                                   SP_SUB_THEMES,
     ("Supply Partner Issue", "Food & Catering"):                                  SP_SUB_THEMES,
+    # THREE MORE SP L2s FROM THE LABELLED SAMPLE, same reasoning as Seating and
+    # Food above: CX uses them, so they must carry a framework or the validator
+    # nulls the sub-theme. They reuse the SP framework — a Guide Service issue
+    # is a Guide Quality one (E), and Venue Conditions / Audio Guide Device fall
+    # to the catchall (G) — rather than inventing a second SP vocabulary.
+    ("Supply Partner Issue", "Guide Service Issues"):                             SP_SUB_THEMES,
+    ("Supply Partner Issue", "Venue Conditions"):                                 SP_SUB_THEMES,
+    ("Supply Partner Issue", "Audio Guide Device"):                               SP_SUB_THEMES,
     ("Operations Issue", "Content - Instructions not clear / Misleading Info"):   CONTENT_SUB_THEMES,
     ("Operations Issue", "Customer Support Issues"):                              CUSTOMER_SUPPORT_SUB_THEMES,
 }

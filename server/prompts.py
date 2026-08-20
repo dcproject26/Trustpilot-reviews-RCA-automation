@@ -118,7 +118,7 @@ If the customer paid Headout for entry to an attraction that is actually free at
 If a venue was closed on the day,  → L2 = "Venue closure"  NOTE: Do NOT use this for meeting point failures. If the customer couldn't find the guide/pickup → Meeting Point Issues.
 
 BOUNDARY: If the customer complains about skip-the-line, priority access, fast track, or priority lines not working — still had to queue, lines were long despite booking priority — this is NOT a content issue.
-  → Use Venue Related Issue / Venue facility issue (the venue failed to manage crowds/queues).
+  → Use Venue Related Issue / Venue Overcrowding (Venue) (the venue failed to honour the expedited entry / manage queues). This is the SAME bucket as long queues and crowding below; a skip-the-line failure is a queue the guest still had to stand in, NOT a broken facility.
   BOUNDARY: Vague disappointment with no specific Headout failure — "not what I expected", "just Disneyland",
   "didn't enjoy it", "not interesting for adults" — is NOT a content issue.
   → Use Miscellaneous Issue / Vague review.
