@@ -460,11 +460,36 @@ CRITICAL: L2 Issues must contain EXACTLY ONE value — never more than one.
 
 
 # ─── 1. Translation ─────────────────────────────────────────────────────────
+def _denotes_english(lang: str) -> bool:
+    """True when `lang` names English in any of the forms this system stores it.
+
+    The label is NOT trustworthy. `parse_review` hard-codes "en" on ingest;
+    `reply_language.resolve_language` later overwrites it with the full name
+    the detector returns — "English"; other intake paths write locale codes
+    ("en-US", "en_GB"). All three mean the same thing, and any of them can
+    reach `translation_prompt` as the review's stored language.
+    """
+    l = (lang or "").strip().lower().replace("_", "-")
+    return l in ("en", "eng", "english") or l.startswith("en-")
+
+
 def translation_prompt(body: str, lang: str) -> str:
-    if lang and lang not in ("en", "auto", ""):
+    # THE ESCAPE IS IN EVERY BRANCH, and that is the whole fix. The explicit-
+    # language branch used to be an UNCONDITIONAL "translate into English" with
+    # no way to say "this is already English". So a review whose language had
+    # been detected and stored as "English" (the common case — English reviews
+    # keep an empty body_english, so the inbound translate step re-enters on
+    # every later run) was handed to that branch and paraphrased English into
+    # English, then stored as an "English translation". The label cannot be
+    # trusted to keep English out of this branch, so the branch itself must
+    # offer ENGLISH_ALREADY.
+    known_non_english = bool(lang) and lang not in ("en", "auto", "") \
+        and not _denotes_english(lang)
+    if known_non_english:
         return f"""Translate this Trustpilot review into clear English.
 Preserve tone exactly — frustration, sarcasm, urgency. Translate, do not paraphrase.
-Return ONLY the translation. No preamble, no label, no explanation.
+If it is in fact already written in English, reply with exactly the word: ENGLISH_ALREADY
+Return ONLY the English translation, or the word ENGLISH_ALREADY. No preamble, no label.
 
 Original ({lang}):
 {body}"""
