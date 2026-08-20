@@ -3633,6 +3633,100 @@ async def vs_zendesk(bid: str, x_vs_key: str | None = Header(default=None)):
     }
 
 
+# ── Classifier audit — score the live classifier against sheet labels ────────
+# THE TRAINING-LOOP SURFACE. An Apps Script bound to a Google Sheet posts
+# labelled rows here; this runs the SAME classify() the dashboard runs (same
+# prompt, same validators, same Claude route), scores each answer against the
+# label, and returns the prediction plus a per-row verdict for the script to
+# write back. The scoring — and the bucket that says where each miss must be
+# fixed — lives in services/classifier_audit.py, driven and mutation-tested
+# there; this endpoint is the wiring.
+#
+# Auth: optional X-Audit-Key vs AUDIT_API_KEY, the same open/guarded-and-say-
+# which pattern as /api/export.csv — nothing else here authenticates, but this
+# one SPENDS model calls, so an open serve logs what would close it.
+class AuditRow(BaseModel):
+    review_id: str = ""
+    review: str = ""
+    l1: str = ""
+    l2: str = ""
+    sub_theme: str = ""
+    booking: dict = {}
+    timeline: list = []
+
+
+class AuditBatch(BaseModel):
+    rows: list[AuditRow]
+
+
+@router.post("/api/classify-audit")
+async def classify_audit(body: AuditBatch,
+                         x_audit_key: str | None = Header(default=None)):
+    expected = os.environ.get("AUDIT_API_KEY", "")
+    if expected and x_audit_key != expected:
+        raise HTTPException(401, "bad or missing X-Audit-Key")
+    if not expected:
+        log.warning("[audit] served with NO key — AUDIT_API_KEY is unset, so "
+                    "anyone who can reach this host can spend model calls here. "
+                    "Set it to require X-Audit-Key.")
+    if not is_live("anthropic"):
+        # RULE 1: refuse, do not score a column of blanks. A run with the model
+        # down and a model that gets everything wrong must not read the same.
+        raise HTTPException(
+            503, "the Anthropic route is not live on this deployment, so the "
+                 "classifier cannot run — nothing was scored (set "
+                 "AI_INTEGRATIONS_ANTHROPIC_* or ANTHROPIC_API_KEY)")
+
+    from server.services.classifier import classify
+    from server.services.claude import _call as claude_call
+    from server.services import classifier_audit as CA
+
+    async def _one(row: AuditRow):
+        rid = row.review_id or "(no id)"
+        # score_one reads only the label keys; build them explicitly rather than
+        # dump the model (Pydantic v1/v2 disagree on the method name).
+        truth = {"l1": row.l1, "l2": row.l2, "sub_theme": row.sub_theme}
+        if not (row.review or "").strip():
+            v = CA.score_one(truth, {}, ran=False,
+                             fail_reason="no review text on the row")
+            return rid, {"l1": "", "l2": "", "sub_theme": "", "warnings": []}, v
+        try:
+            res = await classify(row.review, row.booking or {},
+                                 row.timeline or [], claude_call, rid)
+            pred = {"l1": res.l1, "l2": res.l2, "sub_theme": res.sub_theme,
+                    "warnings": list(res.warnings)}
+            v = CA.score_one(truth, pred, ran=True)
+        except Exception as e:
+            pred = {"l1": "", "l2": "", "sub_theme": "", "warnings": []}
+            v = CA.score_one(truth, pred, ran=False,
+                             fail_reason=f"{type(e).__name__}: {e}")
+        return rid, pred, v
+
+    done = await asyncio.gather(*(_one(r) for r in body.rows))
+    results, scored = [], []
+    for rid, pred, v in done:
+        scored.append(v)
+        results.append({
+            "review_id":      rid,
+            "pred_l1":        pred["l1"],
+            "pred_l2":        pred["l2"],
+            "pred_sub_theme": pred["sub_theme"] or "",
+            # yes / no / "" — the empty string is "not scored at this level",
+            # never a silent False. cells_for renders it the same way.
+            "l1_ok": _yn(v["l1_ok"]),
+            "l2_ok": _yn(v["l2_ok"]),
+            "sub_ok": _yn(v["sub_ok"]),
+            "miss_bucket":    v["miss_bucket"] or (
+                                  "did-not-run" if v.get("note") else ""),
+            "warnings":       "; ".join(pred["warnings"]) or (v.get("note") or ""),
+        })
+    return {"results": results, "summary": CA.summarize(scored)}
+
+
+def _yn(v):
+    return "" if v is None else ("yes" if v else "no")
+
+
 @router.get("/api/vs/search")
 async def vs_search(query: str, limit: int = 50,
                     x_vs_key: str | None = Header(default=None)):
