@@ -1137,6 +1137,10 @@ def list_reviews(status: str | None = None, tab: str | None = None,
             "closed_at":   r.closed_at.isoformat() if r.closed_at else None,
             "close_reason": r.close_reason,
             "sent_route":  r.sent_route,
+            # Sent through so the inbox can render the "Picked up by" column
+            # without a second round-trip per row. Null on a review nobody has
+            # taken; the client renders "unassigned" for that.
+            "picked_up_by": r.picked_up_by,
             "reference_number": r.reference_number,
             "experience":  (draft.booking or {}).get("experienceName") if draft else None,
         })
@@ -1209,9 +1213,51 @@ def get_review(review_id: str, db: Session = Depends(get_session)):
             "closed_at":        r.closed_at.isoformat() if r.closed_at else None,
             "close_reason":     r.close_reason,
             "sent_route":       r.sent_route,
+            # Free text. `None` for never-set; the client draws "unassigned"
+            # for that and shows whatever the associate typed otherwise. Empty
+            # string is a value they entered (cleared) — kept as-is so those
+            # two do not collapse into one rendering.
+            "picked_up_by":     r.picked_up_by,
         },
         "draft": _draft_dict(r.draft) if r.draft else None,
     }
+
+
+# ── "Picked up by" — write endpoint ────────────────────────────────────────
+# THE ONLY BACKEND ADDITION FOR THE WORKBENCH RESTRUCTURE. There is no
+# signed-in user in this app, so this is not a claim button — the associate
+# TYPES their name, and it must stay editable because reviews get handed
+# over. If sessions ever arrive, the field can prefill from the signed-in
+# user; overwriting must still work. Sent as a PATCH on the review, next to
+# the read of the same field in get_review above.
+#
+# The client sends the value on blur. `null` clears it; an empty string is a
+# value the associate entered (cleared) and is stored as-is, so an unfilled
+# owner and a cleared one remain distinguishable — the "different empties
+# must not collapse" rule from CLAUDE.md, applied to a text field.
+class PickedUpByPatch(BaseModel):
+    name: str | None = None
+
+
+@router.patch("/api/reviews/{review_id}/picked-up-by")
+def patch_picked_up_by(review_id: str, body: PickedUpByPatch,
+                       db: Session = Depends(get_session)):
+    r = db.query(Review).filter(Review.id == review_id).first()
+    if not r:
+        raise HTTPException(404, "Not found")
+    # Trim client whitespace only — a name typed with a trailing space is
+    # not a different owner. `None` stays `None` (never claimed); an empty
+    # string stays empty (typed and cleared).
+    v = body.name
+    if isinstance(v, str):
+        v = v.strip()
+        # Cap it — a runaway paste would silently fit in TEXT but render
+        # ridiculous in the queue column. 120 chars covers any real name.
+        if len(v) > 120:
+            v = v[:120]
+    r.picked_up_by = v
+    db.commit()
+    return {"ok": True, "picked_up_by": r.picked_up_by}
 
 
 # ── NEW: Experience Insights endpoint ───────────────────────────────────────

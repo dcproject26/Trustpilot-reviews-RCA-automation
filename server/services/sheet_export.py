@@ -169,6 +169,10 @@ COLUMNS = [
     # with nothing to send. An export that shows only "sent" merges all three
     # and quietly overstates how many replies were written.
     "sent_route", "close_reason",
+    # The associate who picked the review up. Free text, one per review; empty
+    # for anything nobody has claimed. Read by the workbench's inbox column and
+    # case header, and included here so an exported month attributes work.
+    "picked_up_by",
     # THE REPLY, ALL THREE OF IT. `final_response` is what goes to the guest;
     # `suggested_response` is what the model drafted before anyone edited it,
     # and the difference between them is the whole record of human review.
@@ -504,6 +508,7 @@ def row_for(review, draft, now: datetime | None = None,
         # exists to distinguish.
         "sent_route":    getattr(review, "sent_route", "") or "",
         "close_reason":  getattr(review, "close_reason", "") or "",
+        "picked_up_by":  getattr(review, "picked_up_by", "") or "",
 
         "final_response": (getattr(d, "final_response", "")
                            or getattr(d, "suggested_response", "") or "") if d else "",

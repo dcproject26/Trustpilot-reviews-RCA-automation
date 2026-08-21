@@ -171,6 +171,13 @@ class Review(Base):
     # DERIVED SERVER-SIDE from what actually happened, never taken from the
     # caller — a route the client asserts is a route that can be wrong.
     sent_route       = Column(String, nullable=True)   # reply|rca_posted|closed|no_rca
+    # WHO IS WORKING THIS REVIEW. There is no signed-in user in this app, so the
+    # system cannot assert who took a review; the associate types their name.
+    # Free text on purpose — reviews get handed over, so this must stay
+    # editable, and adding auth later must not lock it. Nullable, and an empty
+    # value renders as "unassigned" — an unfilled owner and an unclaimed queue
+    # are different facts and the UI has to be able to tell them apart.
+    picked_up_by     = Column(Text, nullable=True)
     draft            = relationship("RcaDraft", back_populates="review", uselist=False)
 
 
@@ -482,6 +489,10 @@ def _WANTED_REVIEW_COLUMNS(is_pg: bool) -> dict:
         # separate closed-out from sent, but not a review whose RCA was posted
         # and then marked finished from one whose reply went with it.
         "sent_route":   "TEXT",
+        # Free text — the associate types their name. Not a claim button, and
+        # not scoped by auth (there is none). Kept nullable so an unfilled
+        # owner reads differently from an empty string typed and cleared.
+        "picked_up_by": "TEXT",
     }
 
 
