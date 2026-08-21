@@ -317,7 +317,7 @@ CONTENT_SUB_THEMES = {
         ("J", "Misleading Confirmed Ticket Information",
             ["confirmed ticket info incorrect"]),
         ("K", "Hosted Entry / Fast-Track Content Mismatch",
-            ["skip-the-line misleading", "hosted entry not as described", "priority entry mismatch"]),
+            ["hosted entry not as described", "fast-track product listing mismatch"]),
         ("L", "Misleading Experience Description",
             ["description does not match experience", "highlights/summary misleading"]),
         ("M", "General Content Mismatch", []),

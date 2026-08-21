@@ -348,11 +348,9 @@
   .tag.stage-warn { background: var(--amber-bg); color: var(--amber); }
   .tag.stage-bad  { background: var(--red-bg);   color: var(--red); }
   .tag-lang { background: none; padding: 0; font-size: 10.5px; font-weight: 400; color: var(--dim); }
-  .inbox-footer {
-    padding: 10px 12px; border-top: 1px solid #EEECE6; display: flex; gap: 8px;
-  }
-  .inbox-footer .add-manual-btn { flex: 1; padding: 7px; border-radius: 7px; text-align: center; }
-  .inbox-footer .reporting-link { flex: 1; padding: 7px; border-radius: 7px; background: none; }
+  /* + Add review lives in the search row now (handoff layout), not a footer.
+     It keeps its dashed style; here it just holds its size beside the input. */
+  .inbox-search-row .add-manual-btn { flex: none; white-space: nowrap; align-self: center; }
 
   /* bulk job progress */
   .bulk-bar { margin: 0 0 10px; }
@@ -1502,6 +1500,7 @@
               title="Re-run every review missing a match or an RCA">⟳ Fix incomplete</button>
       <button class="refresh-slack-btn" data-export-csv
               title="Download every review and its RCA as a CSV">↓ CSV</button>
+      <button class="reporting-link">Reporting</button>
     </div>
   </header>
 
@@ -1529,6 +1528,9 @@
                  placeholder="Search name, BID, ZD-…, review text, L1/L2">
           <button class="inbox-search-clear" id="inbox-search-clear"
                   title="Clear the search" hidden>×</button>
+          <!-- + Add review sits beside the search, per the handoff, not in a
+               footer strip. The manual-add flow is unchanged; only its place is. -->
+          <button class="add-manual-btn">+ Add review</button>
         </div>
         <div class="inbox-tabs">
           <button class="inbox-tab active" data-tab="all">All <span class="num" id="cnt-all">0</span></button>
@@ -1550,10 +1552,6 @@
         <div class="r">Received</div>
       </div>
       <div class="inbox-list" id="inbox-list"></div>
-      <div class="inbox-footer">
-        <button class="add-manual-btn">+ Add review</button>
-        <button class="reporting-link">Reporting</button>
-      </div>
     </aside>
 
     <!-- The case page: a header carrying who is on it and the way back, then
@@ -2904,10 +2902,13 @@ const state = {
 // show everything while listing one review.
 function inTab(r, tab) {
   if (tab === 'all') return true;
+  // A sent review belongs to Sent, not to its old working tab — otherwise it
+  // counts in two tabs at once and the "N elsewhere" breakdown sums past the
+  // unique total. `identified` already excluded it; the other three now match.
   if (tab === 'identified') return r.type === 'identified' && r.status !== 'sent';
-  if (tab === 'candidates') return r.type === 'candidates';
-  if (tab === 'untraceable') return r.type === 'untraceable';
-  if (tab === 'processing') return r.type === 'processing';
+  if (tab === 'candidates') return r.type === 'candidates' && r.status !== 'sent';
+  if (tab === 'untraceable') return r.type === 'untraceable' && r.status !== 'sent';
+  if (tab === 'processing') return r.type === 'processing' && r.status !== 'sent';
   if (tab === 'sent') return r.status === 'sent';
   return false;
 }
@@ -8235,7 +8236,10 @@ document.querySelector('.add-manual-btn').addEventListener('click', openManualRe
 })();
 
 function _tabLabel(tab) {
-  return {all: 'All', identified: 'Matched', candidates: 'Confirm',
+  // These name the jump-to-tab links in the "N elsewhere" line, so they must
+  // read as the TAB the click lands on — 'Possible matches', the button's own
+  // text, not 'Confirm' (which is the stage chip, a different thing).
+  return {all: 'All', identified: 'Matched', candidates: 'Possible matches',
           processing: 'Processing', untraceable: 'Untraceable',
           sent: 'Sent'}[tab] || tab;
 }

@@ -1,0 +1,8 @@
+[
+  {
+    "file": "client/index.html",
+    "name": "inbox tab: a sent 'candidates' review is still counted in its old working tab (double-count)",
+    "find": "  if (tab === 'candidates') return r.type === 'candidates' && r.status !== 'sent';",
+    "replace": "  if (tab === 'candidates') return r.type === 'candidates';"
+  }
+]

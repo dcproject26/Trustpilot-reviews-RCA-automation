@@ -118,3 +118,60 @@ def test_the_selection_is_kept_when_returning_and_reopening(page):
     page.wait_for_timeout(200)
     # selection is unchanged by returning — the surface changed, not the record
     assert page.evaluate("() => state.selected") == first_id
+
+
+# ── the handoff placement: Add review by the search, Reporting by CSV ────────
+
+def test_add_review_sits_in_the_search_row_and_still_opens_the_form(page):
+    """Handoff layout: + Add review is beside the search box, not in a footer
+    strip. Driven, not just located: a control moved to the right place but
+    unbound would be worse than one left where it was, so the click must still
+    open the manual-add form."""
+    assert page.locator(".inbox-search-row .add-manual-btn").count() == 1, \
+        "+ Add review is not in the search row"
+    assert page.locator(".inbox-footer").count() == 0, \
+        "the old footer strip is still present"
+    page.locator(".inbox-search-row .add-manual-btn").click()
+    try:
+        # the review textarea is the form's own field — assert on it, not the
+        # zero-height backdrop wrapper (its class carries no CSS by design)
+        page.wait_for_selector("#mr-body", state="visible", timeout=15000)
+        assert page.locator("#manual-review-modal .flag-modal").is_visible(), \
+            "the moved + Add review no longer opens the form"
+    finally:
+        page.evaluate("() => document.getElementById('manual-review-modal')?.remove()")
+
+
+def test_reporting_moved_to_the_topbar_after_csv(page):
+    """Handoff layout: Reporting is a topbar action next to CSV, not a footer
+    button. It reads off the same bar as Refresh / Fix incomplete / CSV."""
+    assert page.locator(".topbar-status .reporting-link").count() == 1, \
+        "Reporting is not in the topbar"
+    assert page.locator(".inbox-footer .reporting-link").count() == 0, \
+        "Reporting is still in a footer"
+    labels = page.evaluate(
+        "() => [...document.querySelectorAll('.topbar-status button')]"
+        ".map(b => b.textContent.trim())")
+    csv_i = next(i for i, x in enumerate(labels) if "CSV" in x)
+    rep_i = next(i for i, x in enumerate(labels) if "Reporting" in x)
+    assert rep_i > csv_i, f"Reporting should sit after CSV in the topbar: {labels}"
+
+
+# ── a sent review belongs to Sent, not two tabs at once ─────────────────────
+
+@pytest.mark.parametrize("typ", ["candidates", "untraceable", "processing"])
+def test_a_sent_review_counts_only_in_sent_not_its_old_working_tab(page, typ):
+    """Driven on the real `inTab`: once a review is sent it leaves its working
+    tab, exactly as `identified` already did. Otherwise it is counted in both
+    its type tab and Sent, and the 'N elsewhere' breakdown sums past the unique
+    total (which is what perTab.all counts)."""
+    res = page.evaluate("""(typ) => {
+      const r = {id:'tp_x', type: typ, status:'sent'};
+      return { own: inTab(r, typ), sent: inTab(r, 'sent') }; }""", typ)
+    assert res == {"own": False, "sent": True}, \
+        f"a sent {typ} review still shows in the {typ} tab: {res}"
+
+
+def test_the_jump_link_names_the_possible_matches_tab_not_the_stage(page):
+    """The 'N elsewhere' jump link reads as the tab it lands on."""
+    assert page.evaluate("() => _tabLabel('candidates')") == "Possible matches"
