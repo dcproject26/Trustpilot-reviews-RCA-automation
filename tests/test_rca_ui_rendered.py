@@ -233,8 +233,8 @@ def page(ui_browser, ui_server):
         # the element the tests actually need is both faster and truthful
         # about what is being waited on.
         pg.goto(f"http://127.0.0.1:{ui_server.port}/", wait_until="load")
-        pg.wait_for_selector(".review-item", timeout=15000)
-        pg.locator(".review-item").first.click()
+        pg.wait_for_selector(".inbox-row", timeout=15000)
+        pg.locator(".inbox-row").first.click()
         pg.wait_for_selector("#rca-col, .wwr-issue, .rca-col", timeout=15000)
         pg.wait_for_timeout(400)
         pg.errors = errs
@@ -1039,7 +1039,7 @@ def test_a_stale_build_says_so_loudly(page):
         page.wait_for_function(
             "() => document.body.dataset.stale === 'no'"
             " && !document.querySelector('.stale-bar')", timeout=15000)
-        page.locator(".review-item").first.click()
+        page.locator(".inbox-row").first.click()
         page.wait_for_timeout(1400)
 
     assert got, "a stale build rendered no notice at all"

@@ -203,7 +203,67 @@
   }
   .inbox-tab.active { border-color: var(--text); background: var(--text); color: #fff; }
   .inbox-tab.active .num { background: rgba(255,255,255,.2); color: #fff; }
-  .inbox-list { flex: 1; overflow-y: auto; padding: 8px; }
+  .inbox-list { flex: 1; overflow-y: auto; }
+
+  /* ── screen navigation: inbox is a full-width table, case is the columns ─ */
+  /* The inbox is only ever shown on the inbox screen and takes the whole
+     width there; on the case screen it is hidden and the columns show. Two
+     classes on `.main`, toggled in applyScreen(), decide which. */
+  .back-to-inbox {
+    font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer;
+    padding: 5px 11px; border-radius: 6px; margin-right: 4px;
+    border: 1px solid var(--input-bd); background: var(--card); color: var(--accent);
+  }
+  .back-to-inbox:hover { border-color: var(--accent-bd); }
+  .main.screen-inbox .inbox { width: 100%; flex: 1 1 auto; border-right: none; }
+  .main.screen-inbox > .col-resize,
+  .main.screen-inbox > .review-col,
+  .main.screen-inbox > .rca-col { display: none; }
+  .main.screen-case  > .inbox { display: none; }
+  .main.screen-case  > .col-resize[data-resize="inbox"] { display: none; }
+
+  /* The queue table. Header row and data rows share one grid so the columns
+     line up; widths lifted from the prototype. */
+  .inbox-head { padding: 13px 20px 10px; }
+  .inbox-thead, .inbox-row {
+    display: grid;
+    grid-template-columns:
+      minmax(0,168px) minmax(0,1fr) minmax(0,104px)
+      minmax(0,122px) minmax(0,112px) minmax(0,92px);
+    column-gap: 14px;
+  }
+  .inbox-thead {
+    padding: 9px 20px; background: var(--facts-bg);
+    border-bottom: 1px solid var(--border);
+    font-size: 10.5px; font-weight: 650; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--dim);
+  }
+  .inbox-thead .r { text-align: right; }
+  .inbox-row {
+    align-items: baseline; padding: 13px 20px; cursor: pointer;
+    border-bottom: 1px solid var(--hairline); background: var(--card);
+  }
+  .inbox-row:hover  { background: var(--facts-bg); }
+  .inbox-row.active { background: var(--accent-bg); }
+  .ic-guest, .ic-review, .ic-booking { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .ic-name    { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ic-stars   { font-size: 11px; color: var(--red); white-space: nowrap; }
+  .ic-snippet { font-size: 13px; line-height: 1.55; color: var(--body);
+                display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .ic-sub     { font-size: 11.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ic-bid     { font-family: var(--mono); font-size: 11.5px; color: var(--body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ic-bid-none{ color: var(--dim); }
+  .ic-lang    { font-size: 11px; color: var(--dim); white-space: nowrap; }
+  .ic-state   { min-width: 0; }
+  .ic-owner   { min-width: 0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ic-owner-name { color: var(--body); }
+  .ic-owner-none { color: var(--dim); }
+  .ic-received{ min-width: 0; text-align: right; font-size: 11.5px; color: var(--dim);
+                white-space: nowrap; font-variant-numeric: tabular-nums; }
+  /* The list lost its padding to the rows, so the empty states (which live
+     directly in the list) carry their own. */
+  .inbox-list > .empty-state,
+  .inbox-list > .inbox-elsewhere { padding: 18px 20px; }
 
   .review-item {
     padding: 10px 12px; border-radius: 9px; cursor: pointer; margin-bottom: 4px;
@@ -1367,6 +1427,9 @@
 
 <div class="app">
   <header class="topbar">
+    <!-- Back to the queue. Shown only on the case screen; the class on
+         `.main` and this button's hidden state move together in applyScreen. -->
+    <button class="back-to-inbox" id="back-to-inbox" hidden>← Inbox</button>
     <div class="logo-block">
       <div class="logo">R</div>
       <div class="brand-name">Reviews RCA</div>
@@ -1421,6 +1484,16 @@
           <button class="inbox-tab" data-tab="untraceable">Untraceable <span class="num" id="cnt-untraceable">0</span></button>
           <button class="inbox-tab" data-tab="sent">Sent <span class="num" id="cnt-sent">0</span></button>
         </div>
+      </div>
+      <!-- The queue is a table now. One column header row, then one row per
+           review — Guest, Review, Booking, State, Picked up by, Received. -->
+      <div class="inbox-thead">
+        <div>Guest</div>
+        <div>Review</div>
+        <div>Booking</div>
+        <div>State</div>
+        <div>Picked up by</div>
+        <div class="r">Received</div>
       </div>
       <div class="inbox-list" id="inbox-list"></div>
       <div class="inbox-footer">
@@ -2711,6 +2784,12 @@ const state = {
   // not the same as a search that matched nothing, and the empty state below
   // says which.
   search: '',
+  // WHICH SURFACE IS SHOWING. The workbench gives each stage of the flow its
+  // own surface instead of three columns at once: 'inbox' is the full-width
+  // queue table, 'case' is the selected review's page. Selecting a row moves
+  // to 'case'; the ← Inbox control moves back. Nothing is dropped — the case
+  // screen still holds every column the old layout did.
+  screen: 'inbox',
   actionTab: 'sp',
   dssEdit: false,
   rawErrOpen: {},
@@ -2870,35 +2949,62 @@ function renderInbox() {
                               ? ['Queued', ''] : ['Processing', ''])
                        : r.type === 'untraceable'     ? ['Untraceable', 'bad']
                        :                                ['Draft ready', 'ok'];
+  // "unassigned", dim, when nobody has typed a name — a review nobody has
+  // taken and one whose owner was typed then cleared both read as unassigned
+  // in the queue; the data keeps them apart (null vs ""), the column does not
+  // need to.
+  const ownerCell = (o) => (o && String(o).trim())
+      ? `<span class="ic-owner-name">${esc(o)}</span>`
+      : `<span class="ic-owner-none">unassigned</span>`;
   list.innerHTML = filtered.map(r => {
     const [stage, kind] = stageOf(r);
     const body = r.english || r.original || '';
+    const snippet = esc(body.substring(0, 120)) + (body.length > 120 ? '…' : '');
+    const bid = r.booking?.id || r.booking?.bid || '';
     return `
-    <div class="review-item ${r.id === state.selected ? 'active' : ''}" data-id="${r.id}">
-      <div class="review-item-top">
-        <span class="review-author">${esc(r.author)}</span>
-        <span class="review-time">${esc(r.time)}</span>
+    <div class="inbox-row ${r.id === state.selected ? 'active' : ''}" data-id="${r.id}">
+      <div class="ic-guest">
+        <div class="ic-name">${esc(r.author)}</div>
+        <div class="ic-stars">${r.stars}</div>
       </div>
-      <div class="review-stars-line">
-        <span class="review-stars">${r.stars}</span>
-        <span class="review-exp">${esc(r.booking?.experience || '—')}</span>
+      <div class="ic-review">
+        <div class="ic-snippet">${snippet}</div>
+        <div class="ic-sub">${esc(r.booking?.experience || '')}</div>
       </div>
-      <div class="review-preview">${esc(body.substring(0, 120))}${body.length > 120 ? '…' : ''}</div>
-      <div class="review-tags">
-        <span class="tag stage-${kind}">${stage}</span>
-        <span class="tag tag-lang">${esc(r.lang || '')}</span>
+      <div class="ic-booking">
+        <div class="ic-bid ${bid ? '' : 'ic-bid-none'}">${bid ? esc(bid) : '—'}</div>
+        <div class="ic-lang">${esc(r.lang || '')}</div>
       </div>
+      <div class="ic-state"><span class="tag stage-${kind}">${stage}</span></div>
+      <div class="ic-owner">${ownerCell(r.owner)}</div>
+      <div class="ic-received">${esc(r.time)}</div>
     </div>`;
   }).join('');
 
-  list.querySelectorAll('.review-item').forEach(el => {
+  list.querySelectorAll('.inbox-row').forEach(el => {
     el.addEventListener('click', () => {
+      // Selecting a row is what moves from the queue to the case page. The
+      // review is the same object; only the surface changes.
       state.selected = el.dataset.id;
-      renderInbox();
+      state.screen = 'case';
+      applyScreen();
       renderReviewCol();
       renderRcaCol();
     });
   });
+}
+
+// WHICH SURFACE IS SHOWING. The queue table and the case page are the same
+// DOM the old three columns were — the class on `.main` decides which is
+// visible, so nothing is unmounted and no state is lost moving between them.
+function applyScreen() {
+  const main = document.querySelector('.main');
+  if (main) {
+    main.classList.toggle('screen-inbox', state.screen === 'inbox');
+    main.classList.toggle('screen-case',  state.screen === 'case');
+  }
+  const back = document.getElementById('back-to-inbox');
+  if (back) back.hidden = state.screen !== 'case';
 }
 
 // The translation belongs on every card, not just the matched ones: the
@@ -8550,6 +8656,15 @@ document.addEventListener('click', async (ev) => {
   }, 3000);
 });
 
+// ← Inbox returns from a case to the queue. Bound once; applyScreen keeps the
+// button's visibility and the `.main` class in step.
+document.getElementById('back-to-inbox')?.addEventListener('click', () => {
+  state.screen = 'inbox';
+  applyScreen();
+  renderInbox();
+});
+
+applyScreen();          // default screen is 'inbox' — set the class before first paint
 renderInbox();
 renderReviewCol();
 renderRcaCol();

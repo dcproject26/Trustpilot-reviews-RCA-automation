@@ -33,8 +33,8 @@ def _patch_and_reload(page, wwr=None, dss=None):
             body: JSON.stringify({rca_v3: v3})});
     }""", [wwr, dss])
     page.reload(wait_until="load")
-    page.wait_for_selector(".review-item", timeout=15000)
-    page.locator(".review-item").first.click()
+    page.wait_for_selector(".inbox-row", timeout=15000)
+    page.locator(".inbox-row").first.click()
     page.wait_for_selector("#rca-casefindings-section", timeout=15000)
 
 
@@ -226,8 +226,8 @@ def test_the_right_issue_goes(page):
 
 def _reload(page):
     page.reload(wait_until="load")
-    page.wait_for_selector(".review-item", timeout=15000)
-    page.locator(".review-item").first.click()
+    page.wait_for_selector(".inbox-row", timeout=15000)
+    page.locator(".inbox-row").first.click()
     page.wait_for_selector("#rca-casefindings-section", timeout=15000)
 
 

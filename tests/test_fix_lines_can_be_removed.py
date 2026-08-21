@@ -35,8 +35,8 @@ def _seed_fix(page, fix):
             body: JSON.stringify({rca_v3: v3})});
     }""", fix)
     page.reload(wait_until="load")
-    page.wait_for_selector(".review-item", timeout=15000)
-    page.locator(".review-item").first.click()
+    page.wait_for_selector(".inbox-row", timeout=15000)
+    page.locator(".inbox-row").first.click()
     page.wait_for_selector("#rca-casefindings-section", timeout=15000)
 
 
@@ -114,8 +114,8 @@ def test_a_removed_line_stays_removed_across_a_reload(page):
     page.click('[data-fix-del="0:because"]')
     page.wait_for_timeout(800)
     page.reload(wait_until="load")
-    page.wait_for_selector(".review-item", timeout=15000)
-    page.locator(".review-item").first.click()
+    page.wait_for_selector(".inbox-row", timeout=15000)
+    page.locator(".inbox-row").first.click()
     page.wait_for_selector("#rca-casefindings-section", timeout=15000)
     assert _del_buttons(page) == ["0:action"], \
         f"the removed line came back on reload: {_del_buttons(page)}"

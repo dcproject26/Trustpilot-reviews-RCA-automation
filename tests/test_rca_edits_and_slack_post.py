@@ -231,7 +231,7 @@ def test_the_selection_survives_a_reload(page):
 
     page.reload(wait_until="load")
     page.wait_for_timeout(1000)
-    page.locator(".review-item").first.click()
+    page.locator(".inbox-row").first.click()
     page.wait_for_timeout(1400)
 
     after = page.evaluate("() => document.querySelector('[data-slack-edit]').value")
@@ -262,7 +262,7 @@ def test_an_empty_section_is_not_read_back_as_a_deselection(page):
           body: JSON.stringify({takedown: {}})}); }""")
     page.reload(wait_until="load")
     page.wait_for_timeout(1000)
-    page.locator(".review-item").first.click()
+    page.locator(".inbox-row").first.click()
     page.wait_for_timeout(1400)
 
     _open_picker(page)
@@ -274,7 +274,7 @@ def test_an_empty_section_is_not_read_back_as_a_deselection(page):
 
     page.reload(wait_until="load")
     page.wait_for_timeout(1000)
-    page.locator(".review-item").first.click()
+    page.locator(".inbox-row").first.click()
     page.wait_for_timeout(1400)
     _open_picker(page)
     off = page.evaluate("""() => [...document.querySelectorAll('[data-slack-section]')]

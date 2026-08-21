@@ -177,7 +177,7 @@ def test_a_classification_the_taxonomy_does_not_have_is_still_shown(page):
           body: JSON.stringify({l1: 'CO miss', l2: 'Failed escalation'})}); }""")
     page.reload(wait_until="load")
     page.wait_for_timeout(1000)
-    page.locator(".review-item").first.click()
+    page.locator(".inbox-row").first.click()
     page.wait_for_timeout(1400)
     assert page.evaluate(
         "() => document.querySelector('[data-classify=l1]').value") == "CO miss"

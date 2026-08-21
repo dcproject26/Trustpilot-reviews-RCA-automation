@@ -174,8 +174,8 @@ def test_reverting_re_runs_the_rca(page):
     finally:
         _restore(page)
         page.reload(wait_until="load")
-        page.wait_for_selector(".review-item", timeout=15000)
-        page.locator(".review-item").first.click()
+        page.wait_for_selector(".inbox-row", timeout=15000)
+        page.locator(".inbox-row").first.click()
         page.wait_for_timeout(900)
 
 
@@ -190,8 +190,8 @@ def test_reverting_also_refreshes_the_insights(page):
     finally:
         _restore(page)
         page.reload(wait_until="load")
-        page.wait_for_selector(".review-item", timeout=15000)
-        page.locator(".review-item").first.click()
+        page.wait_for_selector(".inbox-row", timeout=15000)
+        page.locator(".inbox-row").first.click()
         page.wait_for_timeout(900)
 
 
@@ -207,8 +207,8 @@ def test_a_failed_re_run_still_reports_rather_than_going_quiet(page):
         page.unroute("**/regenerate-rca")
         _restore(page)
         page.reload(wait_until="load")
-        page.wait_for_selector(".review-item", timeout=15000)
-        page.locator(".review-item").first.click()
+        page.wait_for_selector(".inbox-row", timeout=15000)
+        page.locator(".inbox-row").first.click()
         page.wait_for_timeout(900)
 
 

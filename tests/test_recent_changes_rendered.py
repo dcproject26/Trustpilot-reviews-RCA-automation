@@ -506,8 +506,8 @@ def test_close_out_arms_before_it_fires_and_then_calls_the_close_endpoint(page):
     finally:
         _restore_candidates(page)
         page.reload(wait_until="load")
-        page.wait_for_selector(".review-item", timeout=15000)
-        page.locator(".review-item").first.click()
+        page.wait_for_selector(".inbox-row", timeout=15000)
+        page.locator(".inbox-row").first.click()
         page.wait_for_timeout(1400)
 
 

@@ -26,6 +26,16 @@ pytest.importorskip("playwright.sync_api")
 from tests.test_rca_ui_rendered import page, CHROME          # noqa: E402,F401
 
 
+@pytest.fixture(autouse=True)
+def _on_the_inbox(page):
+    """The shared `page` fixture opens a review, which now moves to the case
+    screen. These tests read and click the queue (tabs, search, rows), so step
+    back to the inbox surface first."""
+    page.evaluate("() => { state.screen = 'inbox'; applyScreen(); renderInbox(); }")
+    page.wait_for_selector("#inbox-search", state="visible", timeout=15000)
+    yield
+
+
 def _seed(page, rows):
     """Put rows through the client's own ingest, so the bucket is derived the
     way it is in production rather than assigned by the test."""
@@ -106,7 +116,7 @@ def test_a_processing_review_is_not_coloured_as_stuck(page):
         page.click('.inbox-tab[data-tab="processing"]')
         page.wait_for_timeout(300)
         chips = page.evaluate("""() => [...document.querySelectorAll(
-          '#inbox-list .review-item')].map(i => {
+          '#inbox-list .inbox-row')].map(i => {
             const c = i.querySelector('.stage-chip, [class*=stage]');
             return c ? {text: c.textContent.trim(), cls: c.className} : null;
           })""")
@@ -128,7 +138,7 @@ def test_a_stalled_run_IS_marked_as_stuck(page):
         page.click('.inbox-tab[data-tab="processing"]')
         page.wait_for_timeout(300)
         chips = page.evaluate("""() => [...document.querySelectorAll(
-          '#inbox-list .review-item')].map(i => {
+          '#inbox-list .inbox-row')].map(i => {
             const c = i.querySelector('.stage-chip, [class*=stage]');
             return c ? {text: c.textContent.trim(), cls: c.className} : null;
           })""")
@@ -175,7 +185,7 @@ def test_a_queued_review_is_not_coloured_as_stuck(page):
         page.click('.inbox-tab[data-tab="processing"]')
         page.wait_for_timeout(300)
         chips = page.evaluate("""() => [...document.querySelectorAll(
-          '#inbox-list .review-item')].map(i => {
+          '#inbox-list .inbox-row')].map(i => {
             const c = i.querySelector('.stage-chip, [class*=stage]');
             return c ? {text: c.textContent.trim(), cls: c.className} : null;
           })""")

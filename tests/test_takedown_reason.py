@@ -180,16 +180,16 @@ def test_picking_a_ground_saves_and_survives_a_reload(page):
         page.select_option("[data-takedown-reason]", key)
         page.wait_for_timeout(1200)
         page.reload(wait_until="load")
-        page.wait_for_selector(".review-item", timeout=15000)
-        page.locator(".review-item").first.click()
+        page.wait_for_selector(".inbox-row", timeout=15000)
+        page.locator(".inbox-row").first.click()
         page.wait_for_timeout(1500)
         assert _reason_select(page).input_value() == key, \
             "the ground was accepted and is not there on reload"
     finally:
         _set_verdict(page, "No")
         page.reload(wait_until="load")
-        page.wait_for_selector(".review-item", timeout=15000)
-        page.locator(".review-item").first.click()
+        page.wait_for_selector(".inbox-row", timeout=15000)
+        page.locator(".inbox-row").first.click()
         page.wait_for_timeout(1500)
 
 

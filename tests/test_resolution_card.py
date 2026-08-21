@@ -245,15 +245,15 @@ def test_the_resolution_line_saves_and_survives_a_reload(page):
         page.locator(".res-label").first.click()
         page.wait_for_timeout(1500)
         page.reload(wait_until="load")
-        page.wait_for_selector(".review-item", timeout=15000)
-        page.locator(".review-item").first.click()
+        page.wait_for_selector(".inbox-row", timeout=15000)
+        page.locator(".inbox-row").first.click()
         page.wait_for_timeout(1500)
         assert "Already actioned by CE" in page.locator(".res-line").first.inner_text(), \
             "the resolution line was accepted and is not there on reload"
     finally:
         page.reload(wait_until="load")
-        page.wait_for_selector(".review-item", timeout=15000)
-        page.locator(".review-item").first.click()
+        page.wait_for_selector(".inbox-row", timeout=15000)
+        page.locator(".inbox-row").first.click()
         page.wait_for_timeout(1500)
 
 

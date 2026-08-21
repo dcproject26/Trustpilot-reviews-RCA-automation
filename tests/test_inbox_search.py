@@ -17,6 +17,17 @@ pytest.importorskip("playwright.sync_api")
 from tests.test_rca_ui_rendered import page, CHROME          # noqa: E402,F401
 
 
+@pytest.fixture(autouse=True)
+def _on_the_inbox(page):
+    """The shared `page` fixture selects a review, which now moves to the case
+    screen — the inbox is a separate surface in the workbench. These tests are
+    about the queue, so step back to it (the ← Inbox control) and wait for the
+    search box to be on screen before each test."""
+    page.evaluate("() => { state.screen = 'inbox'; applyScreen(); renderInbox(); }")
+    page.wait_for_selector("#inbox-search", state="visible", timeout=15000)
+    yield
+
+
 def _search(page, q):
     page.fill("#inbox-search", q)
     page.wait_for_timeout(350)
@@ -24,7 +35,7 @@ def _search(page, q):
 
 def _shown(page):
     return page.evaluate(
-        "() => [...document.querySelectorAll('#inbox-list .review-item')].length")
+        "() => [...document.querySelectorAll('#inbox-list .inbox-row')].length")
 
 
 def _empty_text(page):
