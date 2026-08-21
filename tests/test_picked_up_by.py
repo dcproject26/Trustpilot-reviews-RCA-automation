@@ -112,9 +112,37 @@ def test_a_missing_review_returns_404_rather_than_saving_a_ghost(client, live_db
     assert r.status_code == 404
 
 
-def test_the_field_survives_the_migration_on_a_pre_existing_database(live_db):
-    """`ensure_columns()` on init_db() must have added the column — the fixture
-    calls init_db(), and inspection here confirms it."""
-    from sqlalchemy import inspect
-    cols = {c["name"] for c in inspect(live_db.engine).get_columns("reviews")}
-    assert "picked_up_by" in cols
+def test_the_migration_adds_the_column_to_a_pre_existing_table(tmp_path, monkeypatch):
+    """The self-heal path that runs on a real deploy, driven for real.
+
+    The old version of this test inspected the fixture DB — but that DB is
+    built by create_all() straight from the model, which already declares
+    picked_up_by, so the ALTER branch never ran and deleting the migration
+    entry left the test green (CLAUDE.md rule 2: a schema spelling check).
+
+    This builds a `reviews` table that LACKS the column — the state a
+    pre-Picked-up-by installation is actually in — points db.engine at it, and
+    runs the migration. If `_WANTED_REVIEW_COLUMNS` stops naming the column, or
+    the ALTER stops firing, the column is absent here and this fails."""
+    import server.db as db
+    from sqlalchemy import create_engine, inspect, text
+
+    eng = create_engine(f"sqlite:///{tmp_path/'old.db'}")
+    with eng.begin() as conn:
+        # A genuinely pre-existing table, missing every column added since.
+        conn.execute(text("CREATE TABLE reviews (id TEXT PRIMARY KEY, rating INTEGER)"))
+    before = {c["name"] for c in inspect(eng).get_columns("reviews")}
+    assert "picked_up_by" not in before, "guard: the column must start absent"
+
+    monkeypatch.setattr(db, "engine", eng)
+    db._ensure_columns()
+
+    after = {c["name"] for c in inspect(eng).get_columns("reviews")}
+    assert "picked_up_by" in after, (
+        "the migration did not add picked_up_by to a pre-existing table — the "
+        "ALTER path is broken or the column is no longer in _WANTED_REVIEW_COLUMNS")
+
+    # Idempotent: a second run over the now-present column must not error.
+    db._ensure_columns()
+    again = {c["name"] for c in inspect(eng).get_columns("reviews")}
+    assert "picked_up_by" in again
