@@ -209,18 +209,47 @@
   /* The inbox is only ever shown on the inbox screen and takes the whole
      width there; on the case screen it is hidden and the columns show. Two
      classes on `.main`, toggled in applyScreen(), decide which. */
+  .main.screen-inbox .inbox { width: 100%; flex: 1 1 auto; border-right: none; }
+  .main.screen-inbox > .case-wrap { display: none; }
+  .main.screen-case  > .inbox     { display: none; }
+  .main.screen-case  > .case-wrap {
+    display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0;
+  }
+  .case-wrap { display: none; }
+
+  /* ── the case header ─────────────────────────────────────────────────── */
+  /* Who is on the case and the way back, above the columns. ← Inbox lives
+     here (the inbox is a separate surface), and so does the Picked-up-by
+     input — free text, saved on blur, no claim button because there is no
+     signed-in user. */
+  .case-header {
+    flex: none; display: flex; flex-wrap: wrap; align-items: center;
+    column-gap: 10px; row-gap: 7px; padding: 11px 18px;
+    background: var(--card); border-bottom: 1px solid var(--border);
+  }
   .back-to-inbox {
     font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer;
-    padding: 5px 11px; border-radius: 6px; margin-right: 4px;
+    padding: 5px 11px; border-radius: 6px; flex: none;
     border: 1px solid var(--input-bd); background: var(--card); color: var(--accent);
   }
   .back-to-inbox:hover { border-color: var(--accent-bd); }
-  .main.screen-inbox .inbox { width: 100%; flex: 1 1 auto; border-right: none; }
-  .main.screen-inbox > .col-resize,
-  .main.screen-inbox > .review-col,
-  .main.screen-inbox > .rca-col { display: none; }
-  .main.screen-case  > .inbox { display: none; }
-  .main.screen-case  > .col-resize[data-resize="inbox"] { display: none; }
+  .ch-divider { flex: none; width: 1px; height: 13px; background: var(--border); }
+  .ch-name { flex: none; font-size: 14.5px; font-weight: 600; letter-spacing: -0.005em; white-space: nowrap; }
+  .ch-meta { min-width: 0; flex: 1 1 auto; font-size: 12.5px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ch-stage { flex: none; }
+  .ch-owner {
+    flex: none; display: flex; align-items: center; column-gap: 7px;
+    border: 1px solid var(--input-bd); background: var(--card);
+    border-radius: 999px; padding: 3px 11px;
+  }
+  .ch-owner.is-owned { border-color: var(--accent-bd); background: var(--accent-bg); }
+  .ch-owner-label { flex: none; font-size: 11px; color: var(--dim); white-space: nowrap; }
+  .ch-owner input {
+    width: 108px; border: 0; outline: none; background: transparent;
+    font: inherit; font-size: 12px; font-weight: 600; color: var(--body);
+  }
+  .ch-owner input::placeholder { color: var(--dim); font-weight: 400; }
+  .case-body { flex: 1 1 auto; min-height: 0; display: flex; align-items: stretch; }
 
   /* The queue table. Header row and data rows share one grid so the columns
      line up; widths lifted from the prototype. */
@@ -1427,9 +1456,6 @@
 
 <div class="app">
   <header class="topbar">
-    <!-- Back to the queue. Shown only on the case screen; the class on
-         `.main` and this button's hidden state move together in applyScreen. -->
-    <button class="back-to-inbox" id="back-to-inbox" hidden>← Inbox</button>
     <div class="logo-block">
       <div class="logo">R</div>
       <div class="brand-name">Reviews RCA</div>
@@ -1502,14 +1528,19 @@
       </div>
     </aside>
 
-    <div class="col-resize" data-resize="inbox" role="separator"
-         aria-orientation="vertical" tabindex="0"
-         aria-label="Resize the inbox column"></div>
-    <section class="review-col" id="review-col"></section>
-    <div class="col-resize" data-resize="facts" role="separator"
-         aria-orientation="vertical" tabindex="0"
-         aria-label="Resize the facts column"></div>
-    <section class="rca-col" id="rca-col"></section>
+    <!-- The case page: a header carrying who is on it and the way back, then
+         the columns. Wrapped so the header spans the full width above them.
+         The inbox is a full-width page now, so its resize handle is gone. -->
+    <div class="case-wrap" id="case-wrap">
+      <div class="case-header" id="case-header"></div>
+      <div class="case-body">
+        <section class="review-col" id="review-col"></section>
+        <div class="col-resize" data-resize="facts" role="separator"
+             aria-orientation="vertical" tabindex="0"
+             aria-label="Resize the facts column"></div>
+        <section class="rca-col" id="rca-col"></section>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -2934,21 +2965,6 @@ function renderInbox() {
   // amber = a human must act, red = stuck. A review still being processed
   // asks for nothing but patience, so it must not be red — it was, because it
   // was being filed as Untraceable.
-  // "Closed out" is not "Sent". Both have status sent; one had an RCA and a
-  // reply, the other was finished by someone deciding there was nothing to
-  // send. One chip for both would make the Sent tab a count of two different
-  // pieces of work.
-  const stageOf = (r) => r.status === 'sent'          ? (r.closedAt
-                                                          ? ['Closed out', 'warn']
-                                                          : ['Sent', 'ok'])
-                       : r.type === 'candidates'      ? ['Confirm match', 'warn']
-                       : r.type === 'processing'      ?
-                           (r.processingState === 'stalled'
-                              ? ['Run stopped', 'bad']
-                              : r.processingState === 'queued'
-                              ? ['Queued', ''] : ['Processing', ''])
-                       : r.type === 'untraceable'     ? ['Untraceable', 'bad']
-                       :                                ['Draft ready', 'ok'];
   // "unassigned", dim, when nobody has typed a name — a review nobody has
   // taken and one whose owner was typed then cleared both read as unassigned
   // in the queue; the data keeps them apart (null vs ""), the column does not
@@ -2957,7 +2973,7 @@ function renderInbox() {
       ? `<span class="ic-owner-name">${esc(o)}</span>`
       : `<span class="ic-owner-none">unassigned</span>`;
   list.innerHTML = filtered.map(r => {
-    const [stage, kind] = stageOf(r);
+    const [stage, kind] = _stageOf(r);
     const body = r.english || r.original || '';
     const snippet = esc(body.substring(0, 120)) + (body.length > 120 ? '…' : '');
     const bid = r.booking?.id || r.booking?.bid || '';
@@ -2994,6 +3010,21 @@ function renderInbox() {
   });
 }
 
+// The stage chip, shared by the queue row and the case header so the two
+// never disagree about what a review is. "Closed out" is not "Sent": both
+// have status sent; one had an RCA and a reply, the other was finished by
+// someone deciding there was nothing to send. Colour by what it asks of the
+// reader — green nothing-to-do, amber a human must act, red stuck.
+function _stageOf(r) {
+  return r.status === 'sent'    ? (r.closedAt ? ['Closed out', 'warn'] : ['Sent', 'ok'])
+       : r.type === 'candidates' ? ['Confirm match', 'warn']
+       : r.type === 'processing' ? (r.processingState === 'stalled' ? ['Run stopped', 'bad']
+                                   : r.processingState === 'queued'  ? ['Queued', '']
+                                   :                                    ['Processing', ''])
+       : r.type === 'untraceable' ? ['Untraceable', 'bad']
+       :                            ['Draft ready', 'ok'];
+}
+
 // WHICH SURFACE IS SHOWING. The queue table and the case page are the same
 // DOM the old three columns were — the class on `.main` decides which is
 // visible, so nothing is unmounted and no state is lost moving between them.
@@ -3003,8 +3034,70 @@ function applyScreen() {
     main.classList.toggle('screen-inbox', state.screen === 'inbox');
     main.classList.toggle('screen-case',  state.screen === 'case');
   }
-  const back = document.getElementById('back-to-inbox');
-  if (back) back.hidden = state.screen !== 'case';
+  if (state.screen === 'case') renderCaseHeader();
+}
+
+// The case header: who is on the case, the stage, and the way back. Rendered
+// from the selected review — the same object the queue row reads — so name
+// and stage cannot drift between the two surfaces.
+function renderCaseHeader() {
+  const el = document.getElementById('case-header');
+  if (!el) return;
+  const r = REVIEWS.find(x => x.id === state.selected);
+  if (!r) { el.innerHTML = ''; return; }
+  const [stage, kind] = _stageOf(r);
+  const meta = [r.booking?.experience, (r.tier && r.tier !== '—') ? r.tier : '']
+                 .filter(Boolean).join(' · ');
+  const owner = (r.owner == null) ? '' : String(r.owner);
+  el.innerHTML = `
+    <button class="back-to-inbox" id="back-to-inbox">← Inbox</button>
+    <div class="ch-divider"></div>
+    <div class="ch-name">${esc(r.author)}</div>
+    <div class="ch-meta">${esc(meta)}</div>
+    <span class="tag stage-${kind} ch-stage">${stage}</span>
+    <label class="ch-owner ${owner.trim() ? 'is-owned' : ''}">
+      <span class="ch-owner-label">Picked up by</span>
+      <input type="text" id="case-owner-input" value="${esc(owner)}"
+             placeholder="unassigned" autocomplete="off" spellcheck="false" />
+    </label>`;
+  el.querySelector('#back-to-inbox').addEventListener('click', () => {
+    state.screen = 'inbox'; applyScreen(); renderInbox();
+  });
+  const inp = el.querySelector('#case-owner-input');
+  // Saved on blur, and on Enter (which blurs). No claim button — the associate
+  // types the name, and it stays editable because reviews get handed over.
+  inp.addEventListener('blur', () => saveOwner(r.id, inp.value));
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
+}
+
+// Persist the typed owner. Optimistic, then reconciled with what the server
+// stored — and on failure it REVERTS, because a control that looks saved and
+// was not is invariant 9 broken (a bound and an unbound control must not look
+// alike). renderInbox() repaints the queue column from the same record.
+async function saveOwner(id, name) {
+  const r = REVIEWS.find(x => x.id === id);
+  if (!r) return;
+  const trimmed = (name || '').trim();
+  if ((r.owner == null ? '' : String(r.owner)) === trimmed) return;   // nothing changed
+  const prev = r.owner;
+  r.owner = trimmed;                 // optimistic; "" means typed-then-cleared
+  renderInbox();
+  try {
+    const resp = await fetch(`/api/reviews/${encodeURIComponent(id)}/picked-up-by`, {
+      method: 'PATCH', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: trimmed}),
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    r.owner = data.picked_up_by;     // authoritative (server trims/caps)
+    renderInbox();
+    if (state.screen === 'case') renderCaseHeader();
+  } catch (e) {
+    r.owner = prev;                  // it did not save — do not look saved
+    renderInbox();
+    if (state.screen === 'case') renderCaseHeader();
+    console.error('[owner] could not save "picked up by":', e);
+  }
 }
 
 // The translation belongs on every card, not just the matched ones: the
@@ -8040,7 +8133,10 @@ document.querySelector('.add-manual-btn').addEventListener('click', openManualRe
 // stylesheet keeps its own defaults and this only ever overrides them. That
 // also makes "reset" a deletion rather than a second copy of the defaults.
 const COL_MIN = {inbox: 200, facts: 280};
-const COL_MAX = {inbox: 560, facts: 900};
+// The facts rail is bounded 280–560 in the workbench spec. (inbox is a
+// full-width page now and no longer resized; its bounds are dead but kept so
+// the shared clamp helper does not have to special-case a missing key.)
+const COL_MAX = {inbox: 560, facts: 560};
 const COL_VAR = {inbox: '--col-inbox', facts: '--col-facts'};
 const COL_KEY = 'orm.colWidths';
 
@@ -8656,13 +8752,8 @@ document.addEventListener('click', async (ev) => {
   }, 3000);
 });
 
-// ← Inbox returns from a case to the queue. Bound once; applyScreen keeps the
-// button's visibility and the `.main` class in step.
-document.getElementById('back-to-inbox')?.addEventListener('click', () => {
-  state.screen = 'inbox';
-  applyScreen();
-  renderInbox();
-});
+// ← Inbox lives in the case header now and is bound when that header renders
+// (renderCaseHeader), so there is nothing to wire here.
 
 applyScreen();          // default screen is 'inbox' — set the class before first paint
 renderInbox();
