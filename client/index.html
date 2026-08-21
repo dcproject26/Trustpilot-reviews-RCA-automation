@@ -1622,6 +1622,12 @@ async function fetchInbox() {
           // id is named in the trail two panels down.
           bid_source:       row.bid_source || '',
           reference_number: row.reference_number || '',
+          // WHO PICKED THIS UP. On the record, never in component state — it
+          // is a property of the review, and a global would leak one case's
+          // owner onto the next. `??`, not `||`: null (never claimed) and ""
+          // (typed then cleared) are different facts the queue renders apart,
+          // and `|| null` would fold the empty string into null.
+          owner:            row.picked_up_by ?? (demo.owner ?? null),
         };
       }
       // New API-only review (manual / Slack): minimal template
@@ -1659,6 +1665,9 @@ async function fetchInbox() {
         // depending on which branch built it.
         bid_source:       row.bid_source || '',
         reference_number: row.reference_number || '',
+        // Same field, same branch-parity reason as everything above it: one
+        // review must not carry an owner on one code path and not the other.
+        owner:            row.picked_up_by ?? null,
         experience:     row.experience || '',
         channel:        'orm',
         original:       row.snippet || '',
