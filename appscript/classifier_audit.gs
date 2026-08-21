@@ -35,6 +35,18 @@ var CHUNK = 20;      // rows per request — keeps each call short of any timeou
 var RESULT_COLS = ['pred_l1', 'pred_l2', 'pred_sub_theme',
                    'l1_ok', 'l2_ok', 'sub_ok', 'miss_bucket', 'warnings'];
 
+// Sheets evaluates any cell whose text begins with = + - @ (or a leading tab /
+// carriage return) as a formula. The values we write back are not all tame:
+// `warnings` carries model warnings and the raw exception string, which is
+// arbitrary text an odd review can steer. A warning that opens with `=` would
+// otherwise land as a live formula in CX's audit sheet. Leading it with an
+// apostrophe forces Sheets to store the whole thing as text (the apostrophe is
+// the text-prefix marker and is not itself displayed). No test harness here —
+// this is Apps Script — so it is asserted by reading, not by a test.
+function defuse_(s) {
+  return /^[=+\-@\t\r]/.test(s) ? "'" + s : s;
+}
+
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Classifier')
@@ -161,7 +173,7 @@ function classifyAndScore() {
                   l2_ok: r.l2_ok, sub_ok: r.sub_ok, miss_bucket: r.miss_bucket,
                   warnings: r.warnings };
       var v = map[c];
-      return v == null ? '' : String(v);
+      return v == null ? '' : defuse_(String(v));
     });
     sheet.getRange(i + 2, startCol + 1, 1, RESULT_COLS.length).setValues([line]);
   }
