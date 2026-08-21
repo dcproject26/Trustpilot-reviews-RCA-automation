@@ -235,7 +235,12 @@ def page(ui_browser, ui_server):
         pg.goto(f"http://127.0.0.1:{ui_server.port}/", wait_until="load")
         pg.wait_for_selector(".inbox-row", timeout=15000)
         pg.locator(".inbox-row").first.click()
-        pg.wait_for_selector("#rca-col, .wwr-issue, .rca-col", timeout=15000)
+        # The RCA is a slide-over now, opened from the case header. Open it so
+        # the controls below are on screen and interactable — almost every test
+        # in this file and the ones that import this fixture drives the RCA.
+        pg.wait_for_selector("#open-rca", timeout=15000)
+        pg.click("#open-rca")
+        pg.wait_for_selector(".case-body.rca-open #rca-col, .wwr-issue", timeout=15000)
         pg.wait_for_timeout(400)
         pg.errors = errs
         yield pg

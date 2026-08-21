@@ -141,3 +141,39 @@ def test_a_failed_save_reverts_so_it_does_not_look_saved(page):
         assert after == before, f"a failed save stuck: {before!r} -> {after!r}"
     finally:
         page.evaluate("() => { if (window.__origFetch) window.fetch = window.__origFetch; }")
+
+
+def test_a_failed_save_reverts_even_if_the_list_was_rebuilt_midflight(page):
+    """Invariant 9 under a concurrent poll. `saveOwner` writes the optimistic
+    value, then awaits the PATCH. A `fetchInbox` completing during that await
+    rebuilds REVIEWS with fresh objects — so the revert must land on the record
+    as it stands AFTER the await, re-found by id, not on the object captured
+    before it. Reverting the detached copy would leave the visible record stuck
+    on the value that never saved.
+
+    The fetch mock stands in for that poll: when the PATCH is issued it swaps in
+    a fresh REVIEWS array (new object identities, carrying the optimistic name),
+    then fails the request. A correct revert reaches the fresh object; the old
+    capture-and-mutate would revert the orphan and leave 'WillFail' showing."""
+    rid = _open_first_case(page)
+    before = page.evaluate("(id) => REVIEWS.find(r => r.id === id).owner ?? null", rid)
+    page.evaluate("""() => {
+      window.__origFetch = window.fetch;
+      window.fetch = (u, o) => {
+        if (String(u).includes('/picked-up-by')) {
+          // a poll landed mid-request: REVIEWS is now a different array of
+          // different objects (the optimistic name rode across on the copy)
+          REVIEWS = REVIEWS.map(r => ({...r}));
+          return Promise.resolve(new Response('nope', {status: 500}));
+        }
+        return window.__origFetch(u, o); }; }""")
+    try:
+        # drive saveOwner directly so the rebuild is unambiguously mid-await
+        page.evaluate("(id) => saveOwner(id, 'WillFail')", rid)
+        page.wait_for_timeout(500)
+        after = page.evaluate("(id) => REVIEWS.find(r => r.id === id).owner ?? null", rid)
+        assert after == before, (
+            f"a failed save stuck on the rebuilt list: {before!r} -> {after!r} "
+            f"(the revert reached the orphaned record, not the visible one)")
+    finally:
+        page.evaluate("() => { if (window.__origFetch) window.fetch = window.__origFetch; }")

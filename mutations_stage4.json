@@ -1,0 +1,44 @@
+[
+  {
+    "file": "client/index.html",
+    "name": "slide-over: the header button opens nothing (sets closed instead of open)",
+    "find": "    state.rcaOpen = true; applyRca();",
+    "replace": "    state.rcaOpen = false; applyRca();"
+  },
+  {
+    "file": "client/index.html",
+    "name": "slide-over: applyRca never marks the body open, so the panel stays off screen",
+    "find": "  if (body) body.classList.toggle('rca-open', open);",
+    "replace": "  if (body) body.classList.toggle('rca-open', false);"
+  },
+  {
+    "file": "client/index.html",
+    "name": "slide-over: opening a case leaves the last case's RCA flung open",
+    "find": "      state.screen = 'case';\n      state.rcaOpen = false;",
+    "replace": "      state.screen = 'case';\n      state.rcaOpen = true;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "slide-over: the close control (x / Escape) does not close it",
+    "find": "function _closeRca() { state.rcaOpen = false; applyRca(); }",
+    "replace": "function _closeRca() { state.rcaOpen = true; applyRca(); }"
+  },
+  {
+    "file": "client/index.html",
+    "name": "slide-over: the facts do not make room, so they run under the panel",
+    "find": "  .case-body.rca-open .review-col { margin-right: 660px; }",
+    "replace": "  .case-body.rca-open .review-col { margin-right: 0px; }"
+  },
+  {
+    "file": "client/index.html",
+    "name": "slide-over: the open panel never slides on screen (transform not reset)",
+    "find": "  .case-body.rca-open .rca-col { transform: translateX(0); }",
+    "replace": "  .case-body.rca-open .rca-col { transform: translateX(101%); }"
+  },
+  {
+    "file": "client/index.html",
+    "name": "rca header: the action group can no longer wrap to its own row, so title and sub stack",
+    "find": "    display: flex; align-items: baseline; flex-wrap: wrap;\n    column-gap: 12px; row-gap: 8px; margin-bottom: 10px; max-width: 720px;",
+    "replace": "    display: flex; align-items: baseline; flex-wrap: nowrap;\n    column-gap: 12px; row-gap: 8px; margin-bottom: 10px; max-width: 720px;"
+  }
+]

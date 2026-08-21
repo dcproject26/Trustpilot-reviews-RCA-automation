@@ -98,18 +98,8 @@
     height: calc(100vh - 52px); overflow: hidden;
   }
 
-  /* ── column resize handles ───────────────────────────────────────────── */
-  /* A 5px strip sitting on the border, not beside it, so it does not shift
-     the layout by its own width. The hit area is wider than the line because
-     a 1px target is a target people miss. */
-  .col-resize {
-    flex: none; width: 5px; margin: 0 -2px; cursor: col-resize;
-    background: transparent; position: relative; z-index: 5;
-  }
-  .col-resize:hover, .col-resize.dragging { background: var(--accent); opacity: .35; }
-  /* While dragging, the pointer must not select text or flip to an I-beam
-     over whatever it passes across. */
-  body.col-dragging { cursor: col-resize; user-select: none; }
+  /* (Column resize handles removed with the resize subsystem — see the note
+     where the JS used to be. No draggable column boundary remains.) */
 
   /* ── buttons ─────────────────────────────────────────────────────────── */
   .btn, .refresh-slack-btn, .rerun-btn, .verify-btn, .skip-btn,
@@ -151,9 +141,10 @@
   .row-del:hover, .action-delete-btn:hover { color: var(--red); }
 
   /* ── column 1 · inbox ────────────────────────────────────────────────── */
+  /* The inbox is a full-width page (see .main.screen-inbox .inbox) or hidden on
+     the case screen — its width is set by those screen rules, not here. */
   .inbox {
-    width: var(--col-inbox, 300px); flex: none; background: var(--card);
-    border-right: 1px solid var(--border);
+    background: var(--card); border-right: 1px solid var(--border);
     display: flex; flex-direction: column; min-height: 0;
   }
   .inbox-head { padding: 14px 14px 10px; border-bottom: 1px solid #EEECE6; }
@@ -249,7 +240,38 @@
     font: inherit; font-size: 12px; font-weight: 600; color: var(--body);
   }
   .ch-owner input::placeholder { color: var(--dim); font-weight: 400; }
-  .case-body { flex: 1 1 auto; min-height: 0; display: flex; align-items: stretch; }
+  .case-body { flex: 1 1 auto; min-height: 0; display: flex; align-items: stretch; position: relative; }
+  /* The facts fill the case body; the RCA slides over them. (The story-column
+     vs facts-rail split of the case body is the next stage; here the facts
+     are the body and the RCA is the overlay.) The facts column is flex-driven
+     here — its old fixed width and drag handle went with the slide-over. */
+  /* Non-modal: no backdrop. The facts stay visible and clickable; when the RCA
+     is open they simply give it room on the right instead of being covered. */
+  .case-body.rca-open .review-col { margin-right: 660px; }
+  @media (max-width: 980px) { .case-body.rca-open .review-col { margin-right: 0; } }
+  .rca-col {
+    position: absolute; top: 0; right: 0; height: 100%;
+    width: 660px; max-width: 92%; z-index: 9;
+    background: var(--card); border-left: 1px solid var(--border);
+    box-shadow: -10px 0 28px rgba(27, 26, 24, .10);
+    transform: translateX(101%); transition: transform .18s ease;
+    overflow-y: auto; padding: 20px 24px 40px;
+  }
+  .case-body.rca-open .rca-col { transform: translateX(0); }
+  .rca-close {
+    position: absolute; top: 12px; right: 18px; z-index: 10;
+    font: inherit; font-size: 12px; cursor: pointer;
+    padding: 5px 11px; border-radius: 6px;
+    border: 1px solid var(--input-bd); background: var(--card); color: var(--body);
+  }
+  .rca-close:hover { border-color: var(--empty); color: var(--text); }
+  /* The button in the case header that opens it. */
+  .ch-rca {
+    flex: none; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+    padding: 5px 12px; border-radius: 6px; border: none;
+    background: var(--accent); color: #fff;
+  }
+  .ch-rca:hover { background: var(--accent-hov); }
 
   /* The queue table. Header row and data rows share one grid so the columns
      line up; widths lifted from the prototype. */
@@ -345,7 +367,7 @@
 
   /* ── column 2 · the facts ────────────────────────────────────────────── */
   .review-col {
-    width: var(--col-facts, 410px); flex: none; border-right: 1px solid var(--border);
+    flex: 1 1 auto; min-width: 0; border-right: 1px solid var(--border);
     overflow-y: auto; padding: 20px 20px 60px; background: var(--facts-bg);
   }
   .col-label {
@@ -581,26 +603,32 @@
     cursor: pointer; width: auto;
   }
 
-  /* ── column 3 · RCA & response ───────────────────────────────────────── */
-  .rca-col { flex: 1; min-width: 0; overflow-y: auto; padding: 20px 24px 40px; }
+  /* ── the RCA & response slide-over's inner layout ────────────────────────
+     (the panel's own box — position, width, transform — is defined up with the
+     case-body rules; this is the content inside it.) */
+  /* In the 660px slide-over the title+sub cannot share a baseline with all
+     three action buttons, so — as the prototype does at this width — the title
+     row takes the whole first line (title and sub together on one baseline) and
+     the action group wraps to a compact second line, right-aligned. */
   .rca-head {
-    display: flex; align-items: baseline; justify-content: space-between;
-    gap: 12px; margin-bottom: 10px; max-width: 720px;
+    display: flex; align-items: baseline; flex-wrap: wrap;
+    column-gap: 12px; row-gap: 8px; margin-bottom: 10px; max-width: 720px;
   }
   .rca-title-row { display: flex; align-items: baseline; gap: 8px;
-    flex: 1 1 auto; min-width: 0; flex-wrap: wrap; }
+    flex: 1 1 100%; min-width: 0; flex-wrap: wrap; }
   .rca-title {
     font-size: 11px; font-weight: 650; letter-spacing: .07em;
-    text-transform: uppercase; color: var(--dim);
+    text-transform: uppercase; color: var(--dim); flex: none; white-space: nowrap;
   }
   .rca-edit-icon { display: none; }
   .rca-sub { font-size: 11.5px; color: var(--muted-2); min-width: 0;
     overflow-wrap: anywhere; }
-  .rca-head-actions { display: flex; gap: 8px; flex: none; }
-  .rca-head-actions .btn, .rca-head-actions .send-btn, .rca-head-actions .copy-response-btn {
-    font-size: 12.5px; padding: 7px 14px; border-radius: 7px;
+  .rca-head-actions { display: flex; gap: 7px; flex: none; margin-left: auto; }
+  .rca-head-actions .btn, .rca-head-actions .send-btn, .rca-head-actions .copy-response-btn,
+  .rca-head-actions .refresh-slack-btn {
+    font-size: 12px; padding: 5px 12px; border-radius: 6px;
   }
-  .rca-head-actions .send-btn { padding: 7px 16px; }
+  .rca-head-actions .send-btn { padding: 5px 13px; }
   .rca-stack-outer { max-width: 720px; display: flex; flex-direction: column; gap: 12px; }
 
   /* every RCA block is a white card with a collapsible header */
@@ -1533,11 +1561,15 @@
          The inbox is a full-width page now, so its resize handle is gone. -->
     <div class="case-wrap" id="case-wrap">
       <div class="case-header" id="case-header"></div>
-      <div class="case-body">
+      <div class="case-body" id="case-body">
         <section class="review-col" id="review-col"></section>
-        <div class="col-resize" data-resize="facts" role="separator"
-             aria-orientation="vertical" tabindex="0"
-             aria-label="Resize the facts column"></div>
+        <!-- The RCA & response is a slide-over over the case, not a third
+             column. Same DOM as before — every edit/save/delete control is
+             unchanged — just presented as a panel that slides in from the
+             right, below the case header so ← Inbox stays reachable. It is
+             NOT modal: the facts stay visible and worked-with beside it, so
+             there is no backdrop over them. -->
+        <button class="rca-close" id="rca-close" hidden>Close ✕</button>
         <section class="rca-col" id="rca-col"></section>
       </div>
     </div>
@@ -2821,6 +2853,11 @@ const state = {
   // to 'case'; the ← Inbox control moves back. Nothing is dropped — the case
   // screen still holds every column the old layout did.
   screen: 'inbox',
+  // Whether the RCA & response slide-over is open over the case. The case
+  // shows the facts first; the RCA opens on demand from the case header, and
+  // its DOM is exactly the column it replaced, so every edit/save/delete
+  // control inside it is unchanged.
+  rcaOpen: false,
   actionTab: 'sp',
   dssEdit: false,
   rawErrOpen: {},
@@ -3000,9 +3037,11 @@ function renderInbox() {
   list.querySelectorAll('.inbox-row').forEach(el => {
     el.addEventListener('click', () => {
       // Selecting a row is what moves from the queue to the case page. The
-      // review is the same object; only the surface changes.
+      // review is the same object; only the surface changes. The RCA opens on
+      // demand, so a freshly opened case shows the facts first.
       state.selected = el.dataset.id;
       state.screen = 'case';
+      state.rcaOpen = false;
       applyScreen();
       renderReviewCol();
       renderRcaCol();
@@ -3035,6 +3074,18 @@ function applyScreen() {
     main.classList.toggle('screen-case',  state.screen === 'case');
   }
   if (state.screen === 'case') renderCaseHeader();
+  applyRca();
+}
+
+// Open or close the RCA & response slide-over. The panel and its close control
+// move together; leaving the case (or going back to the inbox) closes it so it
+// never hangs over the queue. Non-modal — the facts stay live beside it.
+function applyRca() {
+  const body = document.getElementById('case-body');
+  const open = state.screen === 'case' && state.rcaOpen;
+  if (body) body.classList.toggle('rca-open', open);
+  const close = document.getElementById('rca-close');
+  if (close) close.hidden = !open;
 }
 
 // The case header: who is on the case, the stage, and the way back. Rendered
@@ -3059,9 +3110,13 @@ function renderCaseHeader() {
       <span class="ch-owner-label">Picked up by</span>
       <input type="text" id="case-owner-input" value="${esc(owner)}"
              placeholder="unassigned" autocomplete="off" spellcheck="false" />
-    </label>`;
+    </label>
+    <button class="ch-rca" id="open-rca">RCA &amp; response →</button>`;
   el.querySelector('#back-to-inbox').addEventListener('click', () => {
     state.screen = 'inbox'; applyScreen(); renderInbox();
+  });
+  el.querySelector('#open-rca').addEventListener('click', () => {
+    state.rcaOpen = true; applyRca();
   });
   const inp = el.querySelector('#case-owner-input');
   // Saved on blur, and on Enter (which blurs). No claim button — the associate
@@ -3082,6 +3137,18 @@ async function saveOwner(id, name) {
   const prev = r.owner;
   r.owner = trimmed;                 // optimistic; "" means typed-then-cleared
   renderInbox();
+  // Reconcile against the record as it stands AFTER the await, re-found by id —
+  // never the `r` captured above. A fetchInbox that lands mid-request rebuilds
+  // REVIEWS with fresh objects, orphaning that `r`; writing the authoritative
+  // value (or the revert) to the detached copy would leave the visible record
+  // — the one renderInbox now reads — untouched. A failed save that silently
+  // sticks is precisely the invariant-9 break this function exists to prevent.
+  const settle = (val) => {
+    const cur = REVIEWS.find(x => x.id === id);
+    if (cur) cur.owner = val;
+    renderInbox();
+    if (state.screen === 'case') renderCaseHeader();
+  };
   try {
     const resp = await fetch(`/api/reviews/${encodeURIComponent(id)}/picked-up-by`, {
       method: 'PATCH', headers: {'Content-Type': 'application/json'},
@@ -3089,13 +3156,9 @@ async function saveOwner(id, name) {
     });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const data = await resp.json();
-    r.owner = data.picked_up_by;     // authoritative (server trims/caps)
-    renderInbox();
-    if (state.screen === 'case') renderCaseHeader();
+    settle(data.picked_up_by);       // authoritative (server trims/caps)
   } catch (e) {
-    r.owner = prev;                  // it did not save — do not look saved
-    renderInbox();
-    if (state.screen === 'case') renderCaseHeader();
+    settle(prev);                    // it did not save — do not look saved
     console.error('[owner] could not save "picked up by":', e);
   }
 }
@@ -8123,101 +8186,16 @@ function openManualReviewModal() {
 
 document.querySelector('.add-manual-btn').addEventListener('click', openManualReviewModal);
 
-// ── Column resizing ─────────────────────────────────────────────────────────
+// ── (Column resizing removed) ───────────────────────────────────────────────
 //
-// Two draggable boundaries: inbox|facts and facts|RCA. The RCA column is the
-// flex: 1 remainder, so it needs no width of its own — sizing the two fixed
-// columns sizes all three, and there is no third number to keep consistent.
-//
-// Widths live in CSS variables on <html> rather than on the elements, so the
-// stylesheet keeps its own defaults and this only ever overrides them. That
-// also makes "reset" a deletion rather than a second copy of the defaults.
-const COL_MIN = {inbox: 200, facts: 280};
-// The facts rail is bounded 280–560 in the workbench spec. (inbox is a
-// full-width page now and no longer resized; its bounds are dead but kept so
-// the shared clamp helper does not have to special-case a missing key.)
-const COL_MAX = {inbox: 560, facts: 560};
-const COL_VAR = {inbox: '--col-inbox', facts: '--col-facts'};
-const COL_KEY = 'orm.colWidths';
-
-function _applyColWidths(w) {
-  for (const k of ['inbox', 'facts']) {
-    if (w && w[k]) document.documentElement.style.setProperty(COL_VAR[k], w[k] + 'px');
-  }
-}
-
-// Restored before the first paint so the columns do not visibly jump from the
-// stylesheet default to the saved width on every load.
-try { _applyColWidths(JSON.parse(localStorage.getItem(COL_KEY) || '{}')); } catch (_) {}
-
-function _saveColWidths() {
-  const cs = getComputedStyle(document.documentElement);
-  const out = {};
-  for (const k of ['inbox', 'facts']) {
-    const v = parseInt(cs.getPropertyValue(COL_VAR[k]), 10);
-    if (v) out[k] = v;
-  }
-  try { localStorage.setItem(COL_KEY, JSON.stringify(out)); } catch (_) {}
-}
-
-function _colWidth(which) {
-  const el = document.querySelector(which === 'inbox' ? '.inbox' : '.review-col');
-  return el ? el.getBoundingClientRect().width : COL_MIN[which];
-}
-
-function _setCol(which, px) {
-  const clamped = Math.max(COL_MIN[which], Math.min(COL_MAX[which], Math.round(px)));
-  document.documentElement.style.setProperty(COL_VAR[which], clamped + 'px');
-  return clamped;
-}
-
-document.addEventListener('pointerdown', ev => {
-  const handle = ev.target.closest && ev.target.closest('[data-resize]');
-  if (!handle) return;
-  const which = handle.dataset.resize;
-  const startX = ev.clientX;
-  const startW = _colWidth(which);
-  handle.classList.add('dragging');
-  document.body.classList.add('col-dragging');
-  // Pointer capture, so a fast drag that outruns the cursor does not drop the
-  // handle the moment it leaves the 5px strip.
-  try { handle.setPointerCapture(ev.pointerId); } catch (_) {}
-
-  const move = e => _setCol(which, startW + (e.clientX - startX));
-  const up = () => {
-    handle.classList.remove('dragging');
-    document.body.classList.remove('col-dragging');
-    document.removeEventListener('pointermove', move);
-    document.removeEventListener('pointerup', up);
-    _saveColWidths();
-  };
-  document.addEventListener('pointermove', move);
-  document.addEventListener('pointerup', up);
-  ev.preventDefault();
-});
-
-// Keyboard, because a drag-only control is unusable for anyone who cannot
-// drag, and the handles are already focusable.
-document.addEventListener('keydown', ev => {
-  const handle = ev.target.closest && ev.target.closest('[data-resize]');
-  if (!handle) return;
-  const step = ev.shiftKey ? 40 : 10;
-  const which = handle.dataset.resize;
-  if (ev.key === 'ArrowLeft')  { _setCol(which, _colWidth(which) - step); _saveColWidths(); }
-  else if (ev.key === 'ArrowRight') { _setCol(which, _colWidth(which) + step); _saveColWidths(); }
-  else return;
-  ev.preventDefault();
-});
-
-// Double-click a handle to put that column back to the stylesheet default.
-// Removing the override rather than writing the default back, so there is one
-// definition of what the default is.
-document.addEventListener('dblclick', ev => {
-  const handle = ev.target.closest && ev.target.closest('[data-resize]');
-  if (!handle) return;
-  document.documentElement.style.removeProperty(COL_VAR[handle.dataset.resize]);
-  _saveColWidths();
-});
+// The workbench has no draggable column boundary any more. The inbox became a
+// full-width page (Stage 2) and the RCA became a fixed-width slide-over that
+// overlays the facts rather than sharing an edge with it (Stage 4), so the
+// facts fill the case body on their own. The old inbox|facts and facts|RCA
+// drag handles, their CSS variables, and the localStorage width store are gone
+// with them — a resize subsystem bound to no handle is exactly the phantom
+// mechanism CLAUDE.md rule 1 warns about, so it is deleted rather than left to
+// look like a working feature.
 
 // ── Inbox search ────────────────────────────────────────────────────────────
 //
@@ -8754,6 +8732,15 @@ document.addEventListener('click', async (ev) => {
 
 // ← Inbox lives in the case header now and is bound when that header renders
 // (renderCaseHeader), so there is nothing to wire here.
+
+// Closing the RCA slide-over: the × control and Escape do the same thing.
+// (Non-modal — no backdrop to click; the facts beside it stay live.) Bound
+// once — these elements are static.
+function _closeRca() { state.rcaOpen = false; applyRca(); }
+document.getElementById('rca-close')?.addEventListener('click', _closeRca);
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && state.rcaOpen) _closeRca();
+});
 
 applyScreen();          // default screen is 'inbox' — set the class before first paint
 renderInbox();

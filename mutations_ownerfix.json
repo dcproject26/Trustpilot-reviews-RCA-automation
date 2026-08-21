@@ -1,0 +1,8 @@
+[
+  {
+    "file": "client/index.html",
+    "name": "saveOwner: settle writes the captured (detached) record, not the current one re-found by id",
+    "find": "  const settle = (val) => {\n    const cur = REVIEWS.find(x => x.id === id);\n    if (cur) cur.owner = val;",
+    "replace": "  const settle = (val) => {\n    const cur = r;\n    if (cur) cur.owner = val;"
+  }
+]

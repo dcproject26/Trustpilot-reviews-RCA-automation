@@ -583,7 +583,6 @@ DRIVEN = {
     "data-scenario-revert",    # test_scenario_override_api
     "data-tab",                # …::test_an_empty_tab_says_which_kind_of_empty…
     "data-window",             # test_insights_window_picker
-    "data-resize",             # test_column_resize
     "data-mark-sent",          # this file, test_mark_sent_moves_the_review…
     # The guest response. `data-outgoing-reply` is the box that goes to the
     # guest and the one Copy and Send read; the English panel beside it is a
