@@ -117,6 +117,23 @@ def test_a_closed_review_with_no_draft_still_carries_its_route():
     assert row["sent_route"] == "closed"
 
 
+def test_the_owner_reaches_the_csv():
+    """"Picked up by" is a per-review fact like sent_route — the export
+    attributes a month of work to the associate who did it, so the typed name
+    has to land in the file, not just the header."""
+    row = SX.row_for(R(picked_up_by="Rhea"), None)
+    assert row["picked_up_by"] == "Rhea"
+    out = {r["review_id"]: r for r in _read(SX.to_csv([row]))}
+    assert out["tp_1"]["picked_up_by"] == "Rhea"
+
+
+def test_an_unowned_review_exports_an_empty_owner_cell():
+    """Paired, so the cell cannot be made unconditionally non-empty: a review
+    nobody has taken exports blank, not "None"."""
+    row = SX.row_for(R(picked_up_by=None), None)
+    assert row["picked_up_by"] == ""
+
+
 # ── the endpoint ────────────────────────────────────────────────────────────
 
 @pytest.fixture()
@@ -190,6 +207,16 @@ def test_the_right_key_returns_the_rows(client, live_db, monkeypatch):
     assert set(got) == {"tp_a", "tp_b"}
     assert got["tp_a"]["stage"] == SX.ARRIVED
     assert got["tp_b"]["stage"] == SX.DONE
+
+
+def test_the_owner_reaches_the_csv_through_the_endpoint(client, live_db, monkeypatch):
+    """End to end: a review with an owner set exports that name from the live
+    /api/export.csv, not just from the row builder in isolation."""
+    monkeypatch.setenv("RCA_EXPORT_KEY", "s3cret")
+    _seed(live_db, "tp_a", picked_up_by="Devshree")
+    r = client.get("/api/export.csv", headers={"X-Export-Key": "s3cret"})
+    got = {row["review_id"]: row for row in _read(r.text)}
+    assert got["tp_a"]["picked_up_by"] == "Devshree"
 
 
 def test_the_counts_travel_with_the_file(client, live_db, monkeypatch):
