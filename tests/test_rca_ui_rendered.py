@@ -702,21 +702,11 @@ def test_editing_a_booking_log_row_persists(page):
     assert new_text in saved, saved
 
 
-# ── §6 the Slack section picker ─────────────────────────────────────────────
+# ── the Slack section rows (one row per section) ─────────────────────────────
 
-def _picker(page):
-    return page.evaluate("""() => { const s = document.querySelector('.slack-sections');
-        return {chips: s.querySelectorAll('.slack-sec-chip').length,
-                summary: (s.querySelector('.slack-sections-summary')||{}).textContent || '',
-                btn: (s.querySelector('[data-slack-customize]')||{}).textContent || ''}; }""")
-
-
-def test_the_section_picker_is_collapsed_by_default(page):
-    """Twelve checkboxes were a wall of clutter above the post itself."""
-    got = _picker(page)
-    assert got["chips"] == 0, "the chips are showing before anyone asked"
-    assert " sections included" in got["summary"]
-    assert got["btn"] == "customize"
+def _summary(page):
+    return page.evaluate(
+        "() => (document.querySelector('.slack-sections-summary')||{}).textContent || ''")
 
 
 def _n_sections(page):
@@ -725,44 +715,47 @@ def _n_sections(page):
     Derived, not hardcoded. It was 12; TL;DR and SOP compliance were removed
     from the RCA and it became 10, and three tests failed on the number rather
     than on the behaviour they were about. The composer is the one definition
-    of the list, so ask it.
+    of the list, so ask it — via the count line, which still states it.
     """
-    m = re.search(r"of (\d+) sections included", _picker(page)["summary"] or "")
-    assert m, f"the picker does not state a total: {_picker(page)['summary']!r}"
+    m = re.search(r"of (\d+) sections included", _summary(page) or "")
+    assert m, f"the summary does not state a total: {_summary(page)!r}"
     return int(m.group(1))
 
 
-def test_customize_reveals_the_chips_and_done_collapses_them(page):
+def test_the_post_shows_one_editable_row_per_section(page):
+    """The redesign (handoff §slack): no chip picker, no wall-of-text box — one
+    row per section, each body editable in place, the count stated above them.
+    The old chip UI must be genuinely gone, not merely hidden."""
     _rca_tab(page, "slack")
     n = _n_sections(page)
     assert n, "the composer published no section list"
-    page.click("[data-slack-customize]")
-    page.wait_for_timeout(400)
-    assert _picker(page)["chips"] == n
-    assert _picker(page)["btn"] == "done"
-    page.click("[data-slack-customize]")
-    page.wait_for_timeout(400)
-    assert _picker(page)["chips"] == 0
+    assert page.locator(".slack-sec-chip").count() == 0, "the old chips are back"
+    assert page.locator("[data-slack-customize]").count() == 0, \
+        "the old 'customize' toggle is back"
+    rows = page.locator(".spost-row").count()
+    assert rows == n, \
+        f"{rows} rows for {n} sections — every section gets exactly one row"
 
 
-def test_the_collapsed_line_still_states_the_current_count(page):
-    """A collapsed picker must not hide that sections are switched off."""
+def test_the_count_line_follows_a_section_being_left_out(page):
+    """The count is derived, so leaving a section out must drop it — a stale
+    count would hide that sections are switched off. Driven both ways."""
     _rca_tab(page, "slack")
     n = _n_sections(page)
-    page.click("[data-slack-customize]")
-    page.wait_for_timeout(300)
-    page.click(".slack-sec-chip:has(input[data-slack-section='insights'])")
+    # 'leave out' is hover-gated (handoff), so reveal it before clicking
+    page.hover('.spost-row:has([data-slack-drop="insights"])')
+    page.wait_for_timeout(50)
+    page.click('[data-slack-drop="insights"]')
     page.wait_for_timeout(600)
-    assert f"{n - 1} of {n}" in _picker(page)["summary"]
-    page.click("[data-slack-customize]")
-    page.wait_for_timeout(400)
-    got = _picker(page)
-    assert got["chips"] == 0 and f"{n - 1} of {n}" in got["summary"]
-    # restore
-    page.click("[data-slack-customize]"); page.wait_for_timeout(300)
-    page.click(".slack-sec-chip:has(input[data-slack-section='insights'])")
+    assert f"{n - 1} of {n}" in _summary(page), \
+        f"the count did not follow the leave-out: {_summary(page)!r}"
+    # the row is now the quiet left-out line with a put-back, not an editor
+    assert page.locator('[data-slack-restore="insights"]').count() == 1
+    assert page.locator('.spost-body[data-slack-sec-body="insights"]').count() == 0
+    # restore, so later tests see every section on
+    page.click('[data-slack-restore="insights"]')
     page.wait_for_timeout(500)
-    page.click("[data-slack-customize]"); page.wait_for_timeout(300)
+    assert f"{n} of {n}" in _summary(page)
 
 
 # ── §4 exactly two empty-state treatments ───────────────────────────────────

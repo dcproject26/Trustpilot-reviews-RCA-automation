@@ -1,0 +1,32 @@
+[
+  {
+    "file": "client/index.html",
+    "name": "slack rows: an edited section body is ignored, so a hand edit never reaches the post",
+    "find": "      const bt = cell",
+    "replace": "      const bt = false"
+  },
+  {
+    "file": "client/index.html",
+    "name": "slack rows: leaving a section out re-adds it instead, so a deselected section still goes to Slack",
+    "find": "await _spliceSave(t => _spliceSlackSection(t, btn.dataset.slackDrop, false));",
+    "replace": "await _spliceSave(t => _spliceSlackSection(t, btn.dataset.slackDrop, true));"
+  },
+  {
+    "file": "client/index.html",
+    "name": "slack rows: an empty section renders as an editable row, i.e. a bare heading in the post",
+    "find": "          if (!_canon) return `",
+    "replace": "          if (false) return `"
+  },
+  {
+    "file": "client/index.html",
+    "name": "rca tabs: the Interactions badge counts the model note-list again, not the rendered rows",
+    "find": "    inter: _rows.length + spRowCount + (v3d.flags || []).length,",
+    "replace": "    inter: ((v3d['support_interaction_notes']) || []).length,"
+  },
+  {
+    "file": "client/index.html",
+    "name": "rca tabs: the Resolution badge is a constant 3 again, not derived from content",
+    "find": "    res: [\n      !!(v3d.dss || {}).prescribes,\n      !!(_res5 && _res5 !== '—'),\n      !!(_td5.verdict || _td5.recommended != null),\n    ].filter(Boolean).length,",
+    "replace": "    res: 3,"
+  }
+]

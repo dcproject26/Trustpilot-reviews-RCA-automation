@@ -1138,6 +1138,56 @@
   /* A disabled control must look unavailable, not broken. */
   .slack-sent-btn:disabled { opacity: .5; cursor: default; }
 
+  /* ── Slack post: one row per section (handoff §slack) ───────────────────────
+     This is the only section whose content LEAVES the app, so it reads as a
+     draft message, not another analysis card: tinted rail, accent-coloured
+     labels, bodies that invert to white on edit. Prefix is `spost-`, NOT `sp-`
+     (that is SUPPLY PARTNER in this file). The store is unchanged — the hidden
+     [data-slack-edit] mirror still holds the composed text; these rows write
+     into it on blur, so a row edit and a whole-post edit cannot disagree. */
+  .slack-rows {
+    margin-top: 10px; background: var(--facts-bg);
+    border-left: 2px solid var(--accent-bd); border-radius: 0 8px 8px 0;
+    padding: 3px 12px;
+  }
+  .spost-row {
+    padding: 9px 0; border-bottom: 1px solid var(--hairline); min-width: 0;
+  }
+  .spost-row:last-of-type { border-bottom: none; }
+  .spost-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .spost-label {
+    font-size: 10.5px; font-weight: 650; text-transform: uppercase;
+    letter-spacing: .05em; color: var(--chip-fg); flex: 1 1 auto; min-width: 0;
+  }
+  /* Left-out rows: the label is struck through in the "gone" role. */
+  .spost-row.out .spost-label {
+    color: var(--empty); text-decoration: line-through;
+    text-decoration-color: var(--dashed);
+  }
+  .spost-note { font-size: 11px; color: var(--empty); font-style: italic; flex: none; }
+  /* leave out / put back / — the row's own controls. */
+  .spost-acts { display: flex; gap: 8px; flex: none; visibility: hidden; }
+  .spost-row:hover .spost-acts,
+  .spost-row:focus-within .spost-acts { visibility: visible; }
+  /* A control on a hidden (left-out) section can never be hovered to, so its
+     put-back is always visible. */
+  .spost-row.out .spost-acts { visibility: visible; }
+  .spost-acts button {
+    font: inherit; font-size: 11px; background: none; border: none;
+    color: var(--muted-2); cursor: pointer; padding: 0;
+  }
+  .spost-acts button:hover { color: var(--text); }
+  .spost-acts button.spost-drop:hover { color: var(--red); }
+  .spost-body {
+    font-size: 12px; color: var(--body); line-height: 1.6;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+    border-radius: 5px; padding: 2px 6px; margin-left: -6px; margin-top: 3px;
+    outline: none;
+  }
+  .spost-body:hover { background: var(--card); }
+  .spost-body:focus { background: var(--card); box-shadow: 0 0 0 2px var(--accent); }
+  .spost-foot { font-size: 11px; color: var(--empty); margin-top: 8px; }
+
   /* Slack refused the post. This used to be the error text crammed into the
      button label and cut at 70 characters, which lost the half that says what
      to do — and the review stayed put with nothing on screen explaining why.
@@ -4853,15 +4903,6 @@ document.addEventListener('blur', async ev => {
 })();
 
 document.addEventListener('click', ev => {
-  const b = ev.target.closest && ev.target.closest('[data-slack-customize]');
-  if (!b) return;
-  const r = REVIEWS.find(x => x.id === state.selected);
-  if (!r) return;
-  state.slackPicker[r.id] = !state.slackPicker[r.id];
-  renderRcaCol();
-});
-
-document.addEventListener('click', ev => {
   const btn = ev.target.closest && ev.target.closest('[data-raw-err]');
   if (!btn) return;
   ev.stopPropagation();
@@ -5686,6 +5727,12 @@ function renderRcaCol() {
     // "Insights" vs "Experience insights"), which is fine until something has
     // to match a heading back to a key — and then it silently matches none.
     _genSlackText.sections = SECTIONS;
+    // The header block and the divider, published so the per-section rows can
+    // recompose the exact same text this composer produces — same seam, same
+    // order — when a body is edited in place. Without these the rows would have
+    // to re-derive the header, a second composer to drift against the first.
+    _genSlackText.header = [header, cls];
+    _genSlackText.div = div;
 
     const chosen = state.slackSections[r.id] || {};
     const out = [header, cls];
@@ -5695,6 +5742,29 @@ function renderRcaCol() {
       out.push(div, '*' + label + '*', '', body);
     }
     return out.join(nl);
+  }
+
+  // Bodies read back out of a saved post, keyed by the composer's section key,
+  // so the editable rows show what the stored override actually contains rather
+  // than a freshly-generated body that a hand edit has since diverged from.
+  // Labels are matched case-insensitively against the composer's own list — the
+  // same discipline _sectionsFromText uses — so a heading worded one way here
+  // and another there can never silently match none. A section the parser does
+  // not find simply falls back to the composer body at the call site.
+  function _bodiesFromText(text) {
+    const out = {};
+    if (!text) return out;
+    const sections = _genSlackText.sections || [];
+    const div = _genSlackText.div || '_'.repeat(61);
+    const parts = text.split('\n' + div + '\n');
+    for (const part of parts.slice(1)) {
+      const m = part.match(/^\*([^*\n]+)\*\n\n?([\s\S]*)$/);
+      if (!m) continue;
+      const lbl = m[1].trim().toLowerCase();
+      const triple = sections.find(s => String(s[1]).toLowerCase() === lbl);
+      if (triple) out[triple[0]] = m[2].replace(/\s+$/, '');
+    }
+    return out;
   }
 
   // Which sections a SAVED post contains, read back off the post itself.
@@ -5811,6 +5881,12 @@ function renderRcaCol() {
   // never hides the fact that sections are off.
   const _slackOn = _slackSectionKeys.filter(
     ([k]) => (state.slackSections[r.id] || {})[k] !== false).length;
+  // Editable bodies come from the SAVED post when there is one, so a row shows
+  // the hand edit that is stored, not a freshly-generated body it has diverged
+  // from. Falls back to the composer's canonical body per section at the call
+  // site when the parser did not find it (no override, or a section renamed by
+  // hand). This is the "row edit and whole-post edit never disagree" rule.
+  const _slackBodies = _bodiesFromText(rca.slackThreadOverride || '');
   const slackPost = `
     <div class="slack-preview section" id="rca-slack-section">
       <div class="slack-head section-label">
@@ -5829,31 +5905,58 @@ function renderRcaCol() {
         has changed since. It is what will be sent — press
         <b>↻ Regenerate from RCA</b> to rebuild it, or keep it if the edit was
         deliberate.</div>` : ''}
-      <!-- §6 twelve checkboxes were a wall of clutter above the post itself.
-           Default is one quiet line stating the current count; customize
-           reveals the chips as toggle pills, done collapses them. Persistence
-           is unchanged - the same state.slackSections semantics. -->
-      <div class="slack-sections${state.slackPicker[r.id] ? ' open' : ''}">
-        ${state.slackPicker[r.id] ? '' : `
-          <span class="slack-sections-summary">${_slackOn} of ${_slackSectionKeys.length} sections included</span>
-          <button class="slack-customize" data-slack-customize>customize</button>`}
-        ${state.slackPicker[r.id] ? `
-          <span class="slack-sections-summary">${_slackOn} of ${_slackSectionKeys.length} sections included</span>
-          <button class="slack-customize" data-slack-customize>done</button>` : ''}
-        ${state.slackPicker[r.id] ? _slackSectionKeys.map(([key, label]) => `
-          <label class="slack-sec-chip${(state.slackSections[r.id] || {})[key] === false ? '' : ' on'}">
-            <input type="checkbox" data-slack-section="${key}"
-                   ${(state.slackSections[r.id] || {})[key] === false ? '' : 'checked'}>${label}
-          </label>`).join('') : ''}
+      <!-- §slack ONE ROW PER SECTION. The wall-of-text textarea and the chip
+           picker behind "customize" are gone: the post reads top to bottom and
+           any line is one click from editable, with left-out / nothing-to-post
+           each a single quiet line. The textarea SURVIVES as a hidden mirror
+           (below) — the store every consumer already reads (row blur, the post
+           button, regenerate) — kept in sync by the row-blur recompose, so a
+           row edit and a whole-post edit can never disagree. Nothing here holds
+           its own section list: keys, labels, bodies and order all come from
+           _genSlackText.sections. -->
+      <div class="slack-sections-summary" style="margin-top:10px; display:flex; align-items:center">
+        <span>${_slackOn} of ${_slackSectionKeys.length} sections included</span>
         <span class="slack-sec-actions">
           <button data-slack-sec-all>all</button>
           <button data-slack-sec-none>none</button>
         </span>
       </div>
-      <div class="slack-edit-wrap">
-        <textarea class="slack-edit-area" data-slack-edit>${_slackText.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
-        <span class="slack-edit-hint">edit &amp; blur to save</span>
+      <div class="slack-rows" data-slack-rows>
+        ${_slackSectionKeys.map(([key, label]) => {
+          const _canon = (_genSlackText.sections.find(s => s[0] === key) || [])[2] || '';
+          const _off = (state.slackSections[r.id] || {})[key] === false;
+          // Nothing to post: the composer produced no body. One quiet line, no
+          // editor, no toggle — never a bare heading in the outgoing post.
+          if (!_canon) return `
+            <div class="spost-row"><div class="spost-head">
+              <span class="spost-label">${esc(label)}</span>
+              <span class="spost-note">nothing to post</span>
+            </div></div>`;
+          // Left out: struck label + an always-visible put-back (a hover-gated
+          // control on a hidden row is unreachable).
+          if (_off) return `
+            <div class="spost-row out"><div class="spost-head">
+              <span class="spost-label">${esc(label)}</span>
+              <span class="spost-note">left out</span>
+              <span class="spost-acts"><button class="spost-restore" data-slack-restore="${key}">put back</button></span>
+            </div></div>`;
+          // Included: leave-out on hover + the body editable in place. Body is
+          // the saved override's if present, else the composer's canonical one.
+          const _body = (key in _slackBodies) ? _slackBodies[key] : _canon;
+          return `
+            <div class="spost-row"><div class="spost-head">
+              <span class="spost-label">${esc(label)}</span>
+              <span class="spost-acts"><button class="spost-drop" data-slack-drop="${key}">leave out</button></span>
+            </div>
+            <div class="spost-body editable-text" contenteditable="true" data-slack-sec-body="${key}">${esc(_body)}</div>
+            </div>`;
+        }).join('')}
       </div>
+      <div class="spost-foot">Every line comes from a field in this RCA. Edit it here for the post only, or fix it above and regenerate.</div>
+      <!-- The hidden store. display:none so it is not editable directly, but its
+           value is still read by the post button and regenerate, and written by
+           the row-blur recompose. -->
+      <textarea class="slack-edit-area" data-slack-edit hidden style="display:none">${_slackText.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
       <div class="slack-post-row">
         <button class="slack-post-btn" data-slack-post>Post to Slack thread ↑</button>
         <!-- Mark sent, beside the button people actually work from. /post-rca
@@ -6393,13 +6496,26 @@ function renderRcaCol() {
   // (handoff: counts are derived from the rows, never hand-written), so the
   // badge cannot drift from what the panel shows.
   const _wwr5 = v3d.what_went_wrong || {};
+  // Every badge counts the rows/parts its tab actually renders — no badge when
+  // zero. Read the SAME variables the panels render from, not the raw model
+  // lists: the Interactions panel draws `_rows` (guest↔support frame-groups and
+  // orphan notes) and `spRowCount` (SP groups + orphan records), and its header
+  // says "N contacts" off `_rows.length` — a badge counting the model's note
+  // list instead read 0 over rows that were on screen (the drift the header
+  // comment below already had to fix once). Resolution renders one section with
+  // three parts (DSS / Resolution / Takedown); its badge counts the parts that
+  // carry content, so a brand-new review shows no "3".
+  const _td5 = v3d.takedown || {};
+  const _res5 = (rca.resolution || '').trim();
   const _rcaCounts = {
     diag: (_wwr5.guest_issues || []).length + (_wwr5.case_findings || []).length,
-    inter: ((v3d['support_interaction_notes']) || []).length
-         + (((v3d.sp_interaction_notes || {}).records) || []).length
-         + (v3d.flags || []).length,
+    inter: _rows.length + spRowCount + (v3d.flags || []).length,
     actions: Object.values(rca.actionsTaken || {}).reduce((a, x) => a + (x || []).length, 0),
-    res: 3,
+    res: [
+      !!(v3d.dss || {}).prescribes,
+      !!(_res5 && _res5 !== '—'),
+      !!(_td5.verdict || _td5.recommended != null),
+    ].filter(Boolean).length,
     reply: (rca.reply || '').trim() ? 1 : 0,
     slack: 0,
   };
@@ -6975,30 +7091,49 @@ function renderRcaCol() {
     });
   });
 
-  // Slack thread post — editable textarea: blur → persist override
+  // Slack thread post — one editable row per section. The store is unchanged:
+  // the hidden [data-slack-edit] mirror still holds the composed text that the
+  // post button and regenerate read. Editing a row recomposes the WHOLE post
+  // from the rows (same header, seam and order the composer uses) and writes it
+  // back — folks edit these bodies by hand every day, so the blur-to-save path
+  // is load-bearing and must not be lost. Recomposing from the rows rather than
+  // patching the blob means an edit can never land under the wrong heading.
   const slackArea = col.querySelector('[data-slack-edit]');
-  if (slackArea) {
-    slackArea.addEventListener('blur', async () => {
-      const val = slackArea.value.trim();
-      rca.slackThreadOverride = val;
-      await saveDraft(r.id, {slack_thread_override: val});
-    });
-  }
+  const _recomposeSlack = () => {
+    const sections = _genSlackText.sections || [];
+    const chosen = state.slackSections[r.id] || {};
+    const div = _genSlackText.div || '_'.repeat(61);
+    const parts = [...(_genSlackText.header || [])];
+    for (const [key, label, body] of sections) {
+      if (chosen[key] === false) continue;          // left out
+      const cell = col.querySelector(`[data-slack-sec-body="${key}"]`);
+      const bt = cell
+        ? cell.innerText.replace(/ /g, ' ').replace(/[ \t]+$/gm, '').replace(/\s+$/, '')
+        : body;
+      if (!bt || !bt.trim()) continue;              // empty / nothing to post
+      parts.push(div, '*' + label + '*', '', bt);
+    }
+    return parts.join('\n');
+  };
+  const _saveRecomposed = async (flashEl) => {
+    const text = _recomposeSlack();
+    rca.slackThreadOverride = text;
+    if (slackArea) slackArea.value = text;           // keep the hidden store in sync
+    const ok = await saveDraft(r.id, {slack_thread_override: text});
+    flashSaved(flashEl, ok);
+  };
+  col.querySelectorAll('[data-slack-sec-body]').forEach(cell => {
+    cell.addEventListener('blur', () => _saveRecomposed(cell));
+  });
 
-  // Slack thread post — regenerate button: clear override, regenerate from RCA fields
-  // A chip SPLICES its own section in or out and leaves everything else — the
-  // associate's edits included — byte-for-byte. It used to call a recompose
-  // that rebuilt the whole post from the RCA fields and overwrote the override,
-  // so toggling any one section wiped every hand-written line. Only ↻
-  // Regenerate rebuilds now (it clears the override); a chip never does.
+  // leave out / put back — splice ONE section, leaving every other row (and its
+  // edits) byte-for-byte. Re-renders because which rows exist changes.
+  //
+  // Slack regenerate: clear the override, rebuild from the RCA as it stands now.
   //
   // The store is still the override text — what is saved is what is shown is
   // what is sent. `_spliceSlackSection` edits that text; the derived selection
-  // (`_sectionsFromText`) and the chip states follow from it.
-  //
-  // (The old post-nothing-to-Slack bug this section used to warn about is
-  // handled server-side: the post sends the override — api.py:2910/3321 — so a
-  // spliced-down post arrives exactly as shown.)
+  // (`_sectionsFromText`) follows from it.
   const _spliceSave = async (mutate) => {
     const base = rca.slackThreadOverride || _genSlackText();
     const text = mutate(base);
@@ -7007,21 +7142,31 @@ function renderRcaCol() {
     await saveDraft(r.id, {slack_thread_override: text});
     renderRcaCol();
   };
+  // all / none flash the rows (65px below the button and always in view), NOT
+  // the hidden mirror at the foot — a confirmation nobody can see is a mechanism
+  // that runs while producing no visible effect.
+  const _flashRows = () => flashSaved(col.querySelector('[data-slack-rows]'), true);
   const secAll = col.querySelector('[data-slack-sec-all]');
   if (secAll) secAll.addEventListener('click', async () => {
     // add every missing section; sections already present keep their edits
     await _spliceSave(t => _slackSectionKeys.reduce(
       (acc, [k]) => _spliceSlackSection(acc, k, true), t));
+    _flashRows();
   });
   const secNone = col.querySelector('[data-slack-sec-none]');
   if (secNone) secNone.addEventListener('click', async () => {
     await _spliceSave(t => _slackSectionKeys.reduce(
       (acc, [k]) => _spliceSlackSection(acc, k, false), t));
+    _flashRows();
   });
-  col.querySelectorAll('[data-slack-section]').forEach(cb => {
-    cb.addEventListener('change', async () => {
-      await _spliceSave(
-        t => _spliceSlackSection(t, cb.dataset.slackSection, cb.checked));
+  col.querySelectorAll('[data-slack-drop]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await _spliceSave(t => _spliceSlackSection(t, btn.dataset.slackDrop, false));
+    });
+  });
+  col.querySelectorAll('[data-slack-restore]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await _spliceSave(t => _spliceSlackSection(t, btn.dataset.slackRestore, true));
     });
   });
 
@@ -7461,6 +7606,11 @@ function renderRcaCol() {
       // textarea rather than the saved override also covers the case where
       // the button is clicked before the edit has blurred.
       const area = col.querySelector('[data-slack-edit]');
+      // Recompose from the rows first: clicking Post blurs the focused row in
+      // most browsers, but reading the rows directly guarantees an in-progress
+      // hand edit is captured — folks edit these bodies constantly and a lost
+      // edit here is a wrong post to the whole team.
+      if (area && col.querySelector('[data-slack-sec-body]')) area.value = _recomposeSlack();
       const text = area ? area.value : '';
       if (area && text.trim() !== (rca.slackThreadOverride || '').trim()) {
         rca.slackThreadOverride = text.trim();
@@ -7574,8 +7724,10 @@ function renderRcaCol() {
       // old handler wrote into a textarea the render then replaced, so
       // clicking it appeared to do nothing.
       renderRcaCol();
-      const area = document.querySelector('[data-slack-edit]');
-      if (area) flashSaved(area, true);
+      // Flash the rows, which are in view — not the hidden [data-slack-edit]
+      // mirror at the foot. Flashing an element with display:none puts the tick
+      // nowhere, so a successful regenerate would look like a dead button.
+      flashSaved(document.querySelector('[data-slack-rows]'), true);
     });
   }
 

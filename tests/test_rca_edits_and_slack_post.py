@@ -129,20 +129,55 @@ def test_the_backend_still_holds_the_points_the_card_stopped_showing(page):
         "removed and the field went with it")
 
 
-# ── the Slack post carries only the chosen sections ─────────────────────────
+# ── the Slack post: one row per section, carries only the chosen sections ────
+#
+# The old chip picker + single textarea became one editable row per section
+# (handoff §slack). The store is unchanged — a hidden [data-slack-edit] mirror
+# still holds the composed text every consumer reads — so the value assertions
+# below still read `.value` off it. What changed is how a section is turned off
+# (leave out / put back, not a checkbox) and how a body is edited (in its row,
+# not in one big box).
 
-def _open_picker(page):
-    # The Slack post + section picker live in the Slack tab now (handoff §1);
-    # show it first so its controls are visible. Also re-shows it after a
-    # reload, which resets the active tab to Diagnosis.
+def _open_slack(page):
+    # The Slack post lives in the Slack tab (handoff §1); show it first. Also
+    # re-selects it after a reload, which resets the active tab to Diagnosis.
     _rca_tab(page, "slack")
-    if not page.locator(".slack-sec-chip").count():
-        page.click("[data-slack-customize]")
-        page.wait_for_timeout(300)
+    page.wait_for_timeout(150)
 
 
-def _chip(key):
-    return f'.slack-sec-chip:has(input[data-slack-section="{key}"])'
+def _mirror(page):
+    return page.evaluate(
+        "() => (document.querySelector('[data-slack-edit]') || {}).value || ''")
+
+
+def _drop(page, key):
+    """Leave a section out. The 'leave out' control is hover-gated (handoff:
+    .spost-acts is shown on row hover / focus-within), so reveal it first."""
+    page.hover(f'.spost-row:has([data-slack-drop="{key}"])')
+    page.wait_for_timeout(50)
+    page.click(f'[data-slack-drop="{key}"]')
+    page.wait_for_timeout(400)
+
+
+def _restore(page, key):
+    """Put a left-out section back."""
+    page.click(f'[data-slack-restore="{key}"]')
+    page.wait_for_timeout(400)
+
+
+def _row_state(page):
+    """Map section key -> 'in' (editable) | 'out' (left out). Nothing-to-post
+    rows carry no key and are omitted — absent-because-empty is not a state a
+    toggle can produce."""
+    return page.evaluate("""() => {
+      const out = {};
+      document.querySelectorAll('.spost-row').forEach(row => {
+        const drop = row.querySelector('[data-slack-drop]');
+        const rest = row.querySelector('[data-slack-restore]');
+        if (drop) out[drop.dataset.slackDrop] = 'in';
+        else if (rest) out[rest.dataset.slackRestore] = 'out';
+      });
+      return out; }""")
 
 
 def _post(page):
@@ -161,15 +196,34 @@ def _post(page):
     page.wait_for_timeout(400)
 
 
+def test_the_post_renders_one_row_per_section_not_a_wall_of_text(page):
+    """THE UI CHANGE. The old build put the whole post in one textarea behind a
+    chip picker; the redesign is one row per section. Asserted by driving: the
+    section rows render and are editable, and the old edit surface is gone as a
+    VISIBLE control (it survives only as a hidden mirror)."""
+    _open_slack(page)
+    rows = page.locator(".spost-row").count()
+    assert rows >= 3, f"the per-section rows did not render: {rows}"
+    editable = page.locator(".spost-body[contenteditable='true']").count()
+    assert editable >= 1, "no section body is editable in place"
+    # the mirror still exists as the store, but hidden — not a visible editor
+    vis = page.evaluate("""() => {
+      const t = document.querySelector('[data-slack-edit]');
+      if (!t) return 'absent';
+      return t.offsetParent === null ? 'hidden' : 'visible'; }""")
+    assert vis == "hidden", f"the composed-text box is {vis}, should be a hidden mirror"
+    assert page.locator("[data-slack-customize]").count() == 0, \
+        "the old 'customize' chip toggle is still on the card"
+
+
 def test_deselected_sections_do_not_reach_slack(page):
     """The reported bug, end to end: the request body is inspected."""
-    _open_picker(page)
+    _open_slack(page)
     page.click("[data-slack-sec-none]")
     page.wait_for_timeout(500)
-    page.click(_chip("insights"))
-    page.wait_for_timeout(500)
+    _restore(page, "insights")
 
-    shown = page.evaluate("() => document.querySelector('[data-slack-edit]').value")
+    shown = _mirror(page)
     assert "Experience insights" in shown
     assert "What went wrong" not in shown, "the preview itself is wrong"
 
@@ -198,13 +252,12 @@ def test_deselected_sections_do_not_reach_slack(page):
 def test_what_is_shown_is_what_is_saved_is_what_is_sent(page):
     """One store. The preview, the stored override and the request body have
     to be the same string, or two of the three are lying."""
-    _open_picker(page)
+    _open_slack(page)
     page.click("[data-slack-sec-none]")
     page.wait_for_timeout(500)
-    page.click(_chip("resolution"))
-    page.wait_for_timeout(600)
+    _restore(page, "resolution")
 
-    shown = page.evaluate("() => document.querySelector('[data-slack-edit]').value")
+    shown = _mirror(page)
     saved = _draft(page)["slack_thread_override"]
     assert saved.strip() == shown.strip(), \
         f"the preview and the saved post differ:\n{shown!r}\n{saved!r}"
@@ -223,36 +276,35 @@ def test_what_is_shown_is_what_is_saved_is_what_is_sent(page):
 
 
 def test_the_selection_survives_a_reload(page):
-    """It lived in a JavaScript object. Reload and every chip came back on
-    while the saved post still had eleven sections missing — the picker and
-    the post disagreeing, with no way to tell which was real."""
-    _open_picker(page)
+    """It lived in a JavaScript object. Reload and every section came back on
+    while the saved post still had the others missing — the rows and the post
+    disagreeing, with no way to tell which was real."""
+    _open_slack(page)
     page.click("[data-slack-sec-none]")
     page.wait_for_timeout(500)
-    page.click(_chip("insights"))
-    page.wait_for_timeout(600)
-    before = page.evaluate("() => document.querySelector('[data-slack-edit]').value")
+    _restore(page, "insights")
+    before = _mirror(page)
 
     page.reload(wait_until="load")
     page.wait_for_timeout(1000)
     page.locator(".inbox-row").first.click()
     page.wait_for_timeout(1400)
 
-    after = page.evaluate("() => document.querySelector('[data-slack-edit]').value")
+    after = _mirror(page)
     assert after.strip() == before.strip(), \
         "the saved post did not survive the reload"
-    _open_picker(page)
-    on = page.evaluate("""() => [...document.querySelectorAll('[data-slack-section]')]
-        .filter(c => c.checked).map(c => c.dataset.slackSection)""")
+    _open_slack(page)
+    state = _row_state(page)
+    on = sorted(k for k, v in state.items() if v == "in")
     assert on == ["insights"], \
-        f"the chips do not match the post that is actually stored: {on}"
+        f"the rows do not match the post that is actually stored: {on}"
 
 
 def test_an_empty_section_is_not_read_back_as_a_deselection(page):
-    """The chips are derived from the saved post by looking for each section's
-    heading. A section the composer skipped because it had nothing to say has
-    no heading either — and reading that as "the associate switched it off"
-    would silently turn a section off for good, one reload at a time.
+    """The selection is derived from the saved post by looking for each
+    section's heading. A section the composer skipped because it had nothing to
+    say has no heading either — and reading that as "the associate switched it
+    off" would silently turn a section off for good, one reload at a time.
 
     Driven by actually emptying a section rather than by asserting the guard
     exists: the guard is one line, and deleting it leaves the whole suite
@@ -269,32 +321,49 @@ def test_an_empty_section_is_not_read_back_as_a_deselection(page):
     page.locator(".inbox-row").first.click()
     page.wait_for_timeout(1400)
 
-    _open_picker(page)
+    _open_slack(page)
     page.click("[data-slack-sec-all]")
     page.wait_for_timeout(700)
     saved = _draft(page)["slack_thread_override"] or ""
     assert "*Review takedown*" not in saved, \
         "the fixture is not empty here, so this test would prove nothing"
+    # an empty section renders as a quiet 'nothing to post' line, never a row
+    # with a leave-out/put-back toggle
+    assert page.locator('[data-slack-drop="takedown"], [data-slack-restore="takedown"]').count() == 0, \
+        "an empty section rendered a toggle — it should be 'nothing to post'"
 
     page.reload(wait_until="load")
     page.wait_for_timeout(1000)
     page.locator(".inbox-row").first.click()
     page.wait_for_timeout(1400)
-    _open_picker(page)
-    off = page.evaluate("""() => [...document.querySelectorAll('[data-slack-section]')]
-        .filter(c => !c.checked).map(c => c.dataset.slackSection)""")
+    _open_slack(page)
+    state = _row_state(page)
+    off = sorted(k for k, v in state.items() if v == "out")
     assert "takedown" not in off, (
         "an empty section came back switched off — absent because it had "
         "nothing to say has been read as absent because it was deselected")
     assert off == [], f"sections were switched off by a reload: {off}"
 
 
-def test_a_hand_edit_is_what_gets_sent(page):
-    """Typed into the box and pressed post without blurring first. The value
-    on screen is the one that goes."""
-    _rca_tab(page, "slack")
-    page.click("[data-slack-edit]")
-    page.keyboard.type("\nHAND EDITED LINE")
+def test_a_hand_edit_in_a_row_is_saved_and_is_what_gets_sent(page):
+    """Auto-save is load-bearing here — folks edit these bodies by hand every
+    day. Edit a section's body, and it must (a) persist on blur and (b) be what
+    the post carries, even when Post is clicked from the edit without an
+    explicit blur first."""
+    _open_slack(page)
+    MARK = "HAND-EDITED-ROW-LINE"
+    # edit the resolution row's body and blur → auto-save
+    page.evaluate("""(m) => {
+        const el = document.querySelector('[data-slack-sec-body="resolution"]')
+                || document.querySelector('[data-slack-sec-body]');
+        el.focus();
+        el.innerText = el.innerText + String.fromCharCode(10) + m;
+        el.dispatchEvent(new FocusEvent('blur'));
+    }""", MARK)
+    page.wait_for_timeout(500)
+    assert MARK in (_draft(page)["slack_thread_override"] or ""), \
+        "the row edit did not auto-save on blur — the thing we cannot afford to lose"
+
     sent = []
     page.route("**/post-rca*", lambda route: (
         sent.append(route.request.post_data),
@@ -305,66 +374,87 @@ def test_a_hand_edit_is_what_gets_sent(page):
         _post(page)
     finally:
         page.unroute("**/post-rca*")
-    assert "HAND EDITED LINE" in json.loads(sent[0])["text"]
-    assert "HAND EDITED LINE" in (_draft(page)["slack_thread_override"] or ""), \
-        "posting did not save what it posted, so the card and the thread now " \
-        "show different things"
+    assert MARK in json.loads(sent[0])["text"], \
+        "the hand edit did not reach the post body"
 
 
-# ── a chip splices its own section and leaves manual edits alone (#1) ────────
+def test_the_post_button_captures_an_unblurred_row_edit(page):
+    """Clicking Post must send the text on screen even if the row was never
+    blurred — the post handler recomposes from the rows first."""
+    _open_slack(page)
+    MARK = "UNBLURRED-EDIT-99"
+    # mutate the body WITHOUT dispatching blur, so only the recompose-on-post
+    # can capture it
+    page.evaluate("""(m) => {
+        const el = document.querySelector('[data-slack-sec-body="resolution"]')
+                || document.querySelector('[data-slack-sec-body]');
+        el.innerText = el.innerText + String.fromCharCode(10) + m;
+    }""", MARK)
+    sent = []
+    page.route("**/post-rca*", lambda route: (
+        sent.append(route.request.post_data),
+        route.fulfill(status=200, content_type="application/json",
+                      body='{"ok":true,"already_posted":false,"ts":"1",'
+                           '"posted_at":"2026-08-02T00:00:00"}')))
+    try:
+        _post(page)
+    finally:
+        page.unroute("**/post-rca*")
+    assert MARK in json.loads(sent[0])["text"], \
+        "an unblurred row edit was dropped from the post"
+
+
+# ── leaving a section out splices it and leaves manual edits alone (#1) ──────
 #
-# THE BUG THIS IS THE WHOLE POINT OF. Every chip called a recompose that
-# rebuilt the entire post from the RCA fields and overwrote the override, so
-# toggling any one section wiped every hand-written line. The behaviour to pin:
-# edit the text, toggle a chip, and the edit is still there — a driven test,
-# because a splice that quietly regenerates renders identically to one that
-# does not until you read the bytes.
+# THE BUG THIS IS THE WHOLE POINT OF. A toggle used to rebuild the entire post
+# from the RCA fields and overwrite the override, so toggling any one section
+# wiped every hand-written line. The behaviour to pin: edit a body, leave a
+# DIFFERENT section out, and the edit is still there — a driven test, because a
+# splice that quietly regenerates renders identically to one that does not until
+# you read the bytes.
 
-def test_a_chip_toggle_keeps_a_manual_edit(page):
-    _open_picker(page)
+def test_leaving_a_section_out_keeps_a_manual_edit(page):
+    _open_slack(page)
     page.click("[data-slack-sec-all]")     # a known baseline: every section on
     page.wait_for_timeout(400)
 
     MARK = "MANUAL-EDIT-KEEP-ME-42"
-    page.evaluate("""(mark) => {
-        const ta = document.querySelector('[data-slack-edit]');
-        ta.value = ta.value + String.fromCharCode(10) + mark;
-        ta.dispatchEvent(new FocusEvent('blur'));   // the handler that saves
+    page.evaluate("""(m) => {
+        const el = document.querySelector('[data-slack-sec-body="resolution"]');
+        el.focus();
+        el.innerText = el.innerText + String.fromCharCode(10) + m;
+        el.dispatchEvent(new FocusEvent('blur'));
     }""", MARK)
     page.wait_for_timeout(400)
 
-    # toggle ONE section off
-    page.click(_chip("wwr"))
-    page.wait_for_timeout(500)
+    _drop(page, "wwr")                       # leave a DIFFERENT section out
 
-    shown = page.evaluate("() => document.querySelector('[data-slack-edit]').value")
-    assert MARK in shown, "toggling a chip wiped the manual edit — #1 is not fixed"
-    assert "*What went wrong*" not in shown, "the toggled section was not removed"
-    # and what actually gets sent (the saved override) carries the edit too
+    shown = _mirror(page)
+    assert MARK in shown, "leaving a section out wiped the manual edit — #1 is not fixed"
+    assert "*What went wrong*" not in shown, "the section left out was not removed"
     assert MARK in (_draft(page)["slack_thread_override"] or ""), \
         "the edit was not persisted to the override the post sends"
 
 
-def test_re_adding_a_section_restores_it_without_touching_the_edit(page):
-    """The other half of the splice: turning a section back on inserts only
-    that section, at its place, and still leaves the hand edit alone."""
-    _open_picker(page)
+def test_putting_a_section_back_restores_it_without_touching_the_edit(page):
+    """The other half of the splice: putting a section back inserts only that
+    section, at its place, and still leaves the hand edit alone."""
+    _open_slack(page)
     page.click("[data-slack-sec-all]")
     page.wait_for_timeout(400)
 
     MARK = "KEEP-ME-THROUGH-A-READD"
-    page.evaluate("""(mark) => {
-        const ta = document.querySelector('[data-slack-edit]');
-        ta.value = ta.value + String.fromCharCode(10) + mark;
-        ta.dispatchEvent(new FocusEvent('blur'));
+    page.evaluate("""(m) => {
+        const el = document.querySelector('[data-slack-sec-body="resolution"]');
+        el.focus();
+        el.innerText = el.innerText + String.fromCharCode(10) + m;
+        el.dispatchEvent(new FocusEvent('blur'));
     }""", MARK)
     page.wait_for_timeout(400)
 
-    page.click(_chip("wwr"))                 # off
-    page.wait_for_timeout(400)
-    page.click(_chip("wwr"))                 # back on
-    page.wait_for_timeout(500)
+    _drop(page, "wwr")                       # out
+    _restore(page, "wwr")                    # back on
 
-    shown = page.evaluate("() => document.querySelector('[data-slack-edit]').value")
-    assert "*What went wrong*" in shown, "re-adding did not restore the section"
-    assert MARK in shown, "re-adding a section wiped the manual edit"
+    shown = _mirror(page)
+    assert "*What went wrong*" in shown, "putting it back did not restore the section"
+    assert MARK in shown, "putting a section back wiped the manual edit"

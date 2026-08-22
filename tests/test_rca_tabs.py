@@ -142,3 +142,53 @@ def test_a_zero_count_tab_shows_no_badge(page):
     for t in got:
         if t["n"] is not None:
             assert int(t["n"]) > 0, f"tab {t['tab']} shows a badge of {t['n']}"
+
+
+def test_the_interactions_badge_counts_the_rendered_rows_not_the_model_lists(page):
+    """The Interactions badge must match what the panel draws — guest↔support
+    contacts (frame-groups + orphan notes), SP rows, and flags — not the raw
+    model note/record lists. Counting the model lists showed 0 over rows that
+    were on screen: the exact drift the panel header comment already had to fix,
+    reintroduced in the badge. Read the badge and the rendered rows and require
+    they agree."""
+    got = page.evaluate("""() => {
+      const panel = document.querySelector('.rca-tab-panel[data-tab="inter"]');
+      const badge = document.querySelector('#rca-col .rca-tab[data-rca-tab="inter"] .tab-n');
+      const shown = badge ? parseInt(badge.textContent, 10) : 0;
+      // the panel's own header states the contact count off _rows.length
+      const hint = panel.querySelector('.section-label .hint');
+      const m = hint ? hint.textContent.match(/(\\d+)\\s+contact/) : null;
+      const contacts = m ? parseInt(m[1], 10) : 0;
+      // The SP panel always draws one "Raised with SP" summary frame that is
+      // NOT a data row (spRowCount excludes it), so SP records = frames minus
+      // that one header frame.
+      const sp = Math.max(0, panel.querySelectorAll('.sp-frame').length - 1);
+      const flags = panel.querySelectorAll('.chk-flag').length;
+      return {shown, want: contacts + sp + flags, contacts, sp, flags}; }""")
+    assert got["contacts"] or got["sp"] or got["flags"], \
+        "the fixture renders no interactions at all, so this proves nothing"
+    assert got["shown"] == got["want"], \
+        f"Interactions badge shows {got['shown']}, rendered rows say {got['want']} ({got})"
+
+
+def test_the_resolution_badge_is_derived_from_content_not_a_constant_three(page):
+    """The Resolution tab renders one section with three parts (DSS / Resolution
+    / Takedown) that are always present. A constant badge of 3 claimed "3 items
+    recorded" on a brand-new review with all three empty. The badge must count
+    the parts that carry content — so blanking all three drops it to no badge."""
+    after = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const keepRes = r.rca.resolution;
+      const keepV3 = JSON.parse(JSON.stringify(r.rca.v3 || {}));
+      r.rca.resolution = '';
+      r.rca.v3 = r.rca.v3 || {};
+      r.rca.v3.takedown = {};
+      r.rca.v3.dss = {};
+      renderRcaCol();
+      const b = document.querySelector('#rca-col .rca-tab[data-rca-tab="res"] .tab-n');
+      const n = b ? parseInt(b.textContent, 10) : 0;
+      r.rca.resolution = keepRes; r.rca.v3 = keepV3; renderRcaCol();
+      return n; }""")
+    assert after == 0, (
+        f"Resolution badge stayed at {after} after blanking DSS, resolution and "
+        f"takedown — it is a constant, not derived from content")

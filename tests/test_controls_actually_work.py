@@ -571,9 +571,9 @@ DRIVEN = {
     "data-log-idx",            # same (the row index that handler reads)
     "data-tl-toggle",          # …::test_the_machinery_toggle_works…
     "data-raw-err",            # …::test_the_raw_error_is_behind_a_toggle_and_capped
-    "data-slack-customize",    # …::test_customize_reveals_the_chips…
-    "data-slack-section",      # …::test_the_collapsed_line_still_states…
-    "data-slack-edit",         # …::test_the_post_has_one_block_per_guest_issue
+    "data-slack-drop",         # test_rca_edits_and_slack_post::…leaving_a_section_out…
+    "data-slack-restore",      # …::…putting_a_section_back… / test_the_selection_survives_a_reload
+    "data-slack-sec-body",     # …::test_a_hand_edit_in_a_row_is_saved…
     "data-aoi-idx",            # …::test_editing_a_pointer_keeps_the_finding…
     "data-flag-idx",           # test_rca_edits_and_slack_post
     "data-flag-del",           # same
@@ -630,6 +630,15 @@ NOT_CONTROLS = {
     # attribute is the state key that listener reads, not a thing to click.
     # Driven end to end by tests/test_sections_collapse.py.
     "data-sec-key",
+    # The composed Slack post, now a HIDDEN mirror (display:none) rather than a
+    # visible editor — the per-section rows write into it on blur and the post
+    # button reads it. A store the handlers read, not a thing to click; its
+    # value is asserted throughout tests/test_rca_edits_and_slack_post.py.
+    "data-slack-edit",
+    # The tinted rail container the rows sit in; also the flash target for
+    # regenerate / all / none (a confirmation that must be in view). Not a
+    # control — a render target, see data-slack-post-err.
+    "data-slack-rows",
     # An empty container that showPostError fills when Slack refuses the post.
     # Nothing to click, and empty is its normal state — an always-present box
     # would read as a warning that never clears. What it renders is the
@@ -729,7 +738,7 @@ def test_the_driven_list_has_not_gone_stale(page):
     # so their absence here is not staleness.
     # data-tl-toggle is NOT here: it renders only when the timeline has
     # internal events to hide, which this fixture's does not.
-    always_on = {"data-log-add", "data-slack-customize",
+    always_on = {"data-log-add", "data-slack-drop",
                  "data-v3p", "data-dss-edit", "data-scenario-add",
                  "data-takedown-rec"}
     missing = sorted(always_on - found)
@@ -787,7 +796,7 @@ def test_every_toggle_control_actually_changes_something(page):
     result = page.evaluate("""async () => {
       const sels = ['[data-tl-toggle]', '[data-trail-toggle]', '[data-wwr-toggle]',
                     '[data-ix-toggle]', '[data-chk-group-toggle]',
-                    '[data-slack-customize]', '[data-dss-edit]'];
+                    '[data-dss-edit]'];
       const out = [];
       // Watch BOTH columns. A control in the review column re-renders that
       // column, and comparing only the RCA column reported it dead — which is
