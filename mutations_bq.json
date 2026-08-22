@@ -1,0 +1,14 @@
+[
+  {
+    "file": "server/services/bq_connector.py",
+    "name": "bq: the jobComplete guard is gone, so an unfinished query returns [] (a false 'no such row')",
+    "find": "        while not j.get(\"jobComplete\", True):",
+    "replace": "        while False:"
+  },
+  {
+    "file": "server/services/bq_connector.py",
+    "name": "bq: the poll deadline is inverted, so a slow-but-real query is abandoned on the first poll",
+    "find": "            if time.time() >= deadline:",
+    "replace": "            if time.time() < deadline:"
+  }
+]

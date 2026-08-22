@@ -184,6 +184,46 @@ class Client:
         r.raise_for_status()
         j = r.json()
 
+        job_ref = j.get("jobReference", {})
+        job_id = job_ref.get("jobId")
+        location = job_ref.get("location", "")
+
+        # jobs.query returns jobComplete:false when the query did not finish
+        # COMPUTING within timeoutMs — and that response carries no schema and
+        # no rows. Reading it as an empty result is a false "no such row": the
+        # exact rule-1 failure BQQueryTimeout exists to prevent, one layer down,
+        # slipping past because it comes back as HTTP 200 rather than as a
+        # timeout. (google-cloud-bigquery's own client polls this internally;
+        # this REST shim — the deployment path when no service-account key is
+        # set — did not, so a slow verify_bid returned [] and a booking that
+        # exists rendered as untraceable.)
+        #
+        # Poll getQueryResults until the job completes, then read schema+rows
+        # from THAT response. Bounded by BQ_QUERY_TIMEOUT_S so a never-finishing
+        # job on the SYNC path (run_query is also called directly, with no
+        # asyncio.wait_for around it) still gives up loudly rather than polling
+        # for ever — and gives up by RAISING, never by returning [].
+        deadline = time.time() + BQ_QUERY_TIMEOUT_S
+        while not j.get("jobComplete", True):
+            if not job_id:
+                raise BQQueryTimeout(
+                    "BigQuery returned an incomplete result with no job "
+                    "reference to poll. This is not a result — the row may "
+                    "well exist. Re-run once the warehouse is responsive.")
+            if time.time() >= deadline:
+                raise BQQueryTimeout(
+                    f"BigQuery did not finish computing within "
+                    f"{BQ_QUERY_TIMEOUT_S:.0f}s. This is our wait limit, not a "
+                    f"result — the row may well exist. Re-run once the "
+                    f"warehouse is responsive.")
+            r = requests.get(
+                f"{_BQ_API}/projects/{project}/queries/{job_id}",
+                headers=headers,
+                params={"timeoutMs": 30000, "location": location},
+                timeout=90)
+            r.raise_for_status()
+            j = r.json()
+
         fields = [(f["name"], f["type"]) for f in j.get("schema", {}).get("fields", [])]
         rows = [
             SimpleNamespace(**{
@@ -193,15 +233,13 @@ class Client:
             for row in j.get("rows", [])
         ]
 
-        # Follow pagination if the first page didn't finish / fit
-        job_ref = j.get("jobReference", {})
+        # Follow pagination if the results span more than one page.
         page_token = j.get("pageToken")
-        while page_token and job_ref.get("jobId"):
+        while page_token and job_id:
             r = requests.get(
-                f"{_BQ_API}/projects/{project}/queries/{job_ref['jobId']}",
+                f"{_BQ_API}/projects/{project}/queries/{job_id}",
                 headers=headers,
-                params={"pageToken": page_token,
-                        "location": job_ref.get("location", "")},
+                params={"pageToken": page_token, "location": location},
                 timeout=90)
             r.raise_for_status()
             j = r.json()
