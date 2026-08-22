@@ -3785,9 +3785,17 @@ function renderReviewCol() {
   const similarSupport = ins.similarSupport || [];
   const similarReviews = ins.similarReviews || [];
   const totalSimilar = similarSupport.length + similarReviews.length;
-  const summaryLine = totalSimilar === 0
-    ? 'No similar complaints found in window'
-    : `Found <strong>${similarSupport.length}</strong> in support · <strong>${similarReviews.length}</strong> in reviews on the same issue`;
+  // "None found" is a claim about a search that ran. This tile renders in the
+  // no-live-insights branch, where these lists come from the placeholder
+  // view-model and are always empty — so a definitive "No similar complaints
+  // found" was asserting a result for a lookup that never populated. Say which
+  // it is: a real empty only when live insights are present, otherwise
+  // not-computed. (rule 1: found-nothing is not did-not-run.)
+  const summaryLine = totalSimilar > 0
+    ? `Found <strong>${similarSupport.length}</strong> in support · <strong>${similarReviews.length}</strong> in reviews on the same issue`
+    : (r.liveInsights
+        ? 'No similar complaints found in window'
+        : 'Not computed — insights have not loaded for this review, so similar complaints were not searched. Re-run to populate.');
   const similar = `<div class="insight-tile full">
        <div class="insight-tile-label">Similar complaints — TID·VID</div>
        <div class="similar-summary-line">${summaryLine}</div>
@@ -7289,6 +7297,16 @@ function renderRcaCol() {
   col.querySelectorAll('select[data-v3sel]').forEach(sel => {
     sel.addEventListener('change', async () => {
       const parts = sel.dataset.v3sel.split('.');
+      // Legacy SP migration. A pre-split draft stores SP under sp_interaction
+      // (an object carrying records); the renderer prefers sp_interaction_notes
+      // and falls back to it. Writing sp_interaction_notes.raised would create a
+      // fresh empty object that then SHADOWS the legacy one on the next render,
+      // hiding its records — the same trap the +Add SP record handler already
+      // avoids. Carry the legacy object over first so nothing is lost.
+      if (parts[0] === 'sp_interaction_notes' && rca.v3.sp_interaction_notes == null
+          && rca.v3.sp_interaction && !Array.isArray(rca.v3.sp_interaction)) {
+        rca.v3.sp_interaction_notes = {...rca.v3.sp_interaction};
+      }
       let obj = rca.v3;
       for (let n = 0; n < parts.length - 1; n++) {
         const key = /^\d+$/.test(parts[n]) ? parseInt(parts[n]) : parts[n];
@@ -7960,11 +7978,12 @@ function renderRcaCol() {
     });
   });
 
-  const spRaised = col.querySelector('[data-sp-raised]');
-  if (spRaised) spRaised.addEventListener('change', async () => {
-    rca.v3.sp_interaction = {...(rca.v3.sp_interaction || {}), raised: spRaised.value};
-    await persistV3(spRaised);
-  });
+  // (The [data-sp-raised] handler that used to sit here was dead: nothing
+  // renders that attribute — the "Raised with SP" select carries data-v3sel
+  // ="sp_interaction_notes.raised" and is handled by the generic v3sel listener
+  // above (which now migrates the legacy key). This one only ever wrote to the
+  // abandoned sp_interaction store, so it is removed rather than left pointing
+  // at a control that does not exist.)
   const spRecAdd = col.querySelector('[data-sp-rec-add]');
   // The notes key, not the frames key. This wrote to `sp_interaction` — the
   // facts side, which the pipeline owns and the renderer no longer reads for

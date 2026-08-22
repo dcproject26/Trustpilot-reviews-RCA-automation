@@ -1,0 +1,20 @@
+[
+  {
+    "file": "server/api.py",
+    "name": "send: the already-sent guard is gone, so a second send re-runs and downgrades sent_route",
+    "find": "    if r.status == \"sent\":\n        # `posted` is \"did THIS call post\" (bool(ts) on the normal path), so a",
+    "replace": "    if False:\n        # `posted` is \"did THIS call post\" (bool(ts) on the normal path), so a"
+  },
+  {
+    "file": "client/index.html",
+    "name": "similar tile: claims 'none found' even when insights never loaded (found-nothing vs did-not-run)",
+    "find": "    : (r.liveInsights",
+    "replace": "    : (true"
+  },
+  {
+    "file": "client/index.html",
+    "name": "sp legacy: the raised-select migration is skipped, so legacy SP records are shadowed and lost",
+    "find": "      if (parts[0] === 'sp_interaction_notes' && rca.v3.sp_interaction_notes == null",
+    "replace": "      if (false && rca.v3.sp_interaction_notes == null"
+  }
+]

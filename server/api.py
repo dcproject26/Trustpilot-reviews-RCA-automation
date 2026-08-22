@@ -2979,6 +2979,20 @@ async def send_review(review_id: str, db: Session = Depends(get_session)):
     if not r or not d:
         raise HTTPException(404, "Not found")
 
+    # Idempotent. A second /send (double-click, a retry, reopening a sent card)
+    # used to re-run this whole path and recompute sent_route from the NOW-posted
+    # state — downgrading "reply" (reply + RCA both went out) to "rca_posted"
+    # (RCA only), and stamping over a prior /close ("closed"). The RCA is not
+    # re-posted (the guard below sees rca_posted_at), so only the recorded route
+    # degraded. Return what is already recorded instead of rewriting it. The
+    # sibling /post-rca guards re-posts the same way.
+    if r.status == "sent":
+        # `posted` is "did THIS call post" (bool(ts) on the normal path), so a
+        # no-op re-send is False — it posted nothing — regardless of whether the
+        # RCA is already in the thread from an earlier call.
+        return {"ok": True, "already_sent": True, "ts": None, "posted": False,
+                "why": "already sent — not re-sent", "sent_route": r.sent_route}
+
     d.sent_at = datetime.utcnow()
     r.status  = "sent"
     ts = None
@@ -3677,9 +3691,6 @@ async def vs_zendesk(bid: str, x_vs_key: str | None = Header(default=None)):
                                     for i, b in enumerate(raw[:20])],
         "extracted_booking_fields": extracted or {},
     }
-
-
-    return "" if v is None else ("yes" if v else "no")
 
 
 @router.get("/api/vs/search")
