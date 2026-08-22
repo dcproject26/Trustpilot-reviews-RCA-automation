@@ -1,0 +1,26 @@
+[
+  {
+    "file": "client/index.html",
+    "name": "facts rail: the 280-560 clamp is gone, so a hard drag can shrink it to nothing",
+    "find": "  const w = Math.max(RAIL_MIN, Math.min(RAIL_MAX, Math.round(px)));",
+    "replace": "  const w = Math.round(px);"
+  },
+  {
+    "file": "client/index.html",
+    "name": "facts rail: the drag reads the wrong sign, so dragging left narrows instead of widening",
+    "find": "  const onMove = (e) => { last = _setRailW(startW - (e.clientX - startX)); };",
+    "replace": "  const onMove = (e) => { last = _setRailW(startW + (e.clientX - startX)); };"
+  },
+  {
+    "file": "client/index.html",
+    "name": "facts rail: the width is written to a variable the CSS never reads, so the drag moves nothing",
+    "find": "  document.documentElement.style.setProperty('--facts-rail-w', w + 'px');",
+    "replace": "  document.documentElement.style.setProperty('--facts-rail-w-unread', w + 'px');"
+  },
+  {
+    "file": "client/index.html",
+    "name": "case split: the booking data is no longer wrapped in the facts rail, so the two columns collapse into one",
+    "find": "    <div class=\"facts-rail\">\n\n    <div class=\"facts-block\">\n      <div class=\"facts-head\"><span class=\"facts-head-title\">Booking match</span>",
+    "replace": "    <div class=\"facts-rail-not\">\n\n    <div class=\"facts-block\">\n      <div class=\"facts-head\"><span class=\"facts-head-title\">Booking match</span>"
+  }
+]
