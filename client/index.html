@@ -3073,6 +3073,18 @@ function inTab(r, tab) {
   return false;
 }
 
+// Which tab to land on after adding a review, from its pipeline bucket. A
+// just-added review is almost always still PROCESSING (the pipeline runs async
+// and the switch fires right after the fetch); the mapping used to have no
+// processing branch, so it fell through to 'identified' — the Matched tab,
+// which inTab() will not put a processing review on — and the review the person
+// just added appeared to vanish. Each bucket maps to its own tab; 'identified'
+// stays the fallback for anything unexpected (e.g. a straight-to-sent add).
+function _tabForNewReview(type) {
+  return (type === 'identified' || type === 'candidates'
+          || type === 'untraceable' || type === 'processing') ? type : 'identified';
+}
+
 // Does this review match what was typed?
 //
 // Searched across everything the reader might have to hand — the guest's
@@ -8221,16 +8233,29 @@ function openFlagDraftModal(r) {
   // message text, where correcting a wrong TGID meant editing prose and the
   // numbers that actually went out were whatever survived that edit.
   const _pctFromInsights = () => {
-    const li = r.liveInsights;
-    const raw = (li && (li.vidCompletionRate ?? li.completion_rate))
-             ?? r.insights?.completion?.value;
+    // THE REAL KEY IS vid_completion_rate, a 0–1 FRACTION. This read
+    // vidCompletionRate (camelCase — a phantom nothing on the payload ever
+    // sets) and completion_rate (also absent), then fell back to r.insights,
+    // the placeholder view-model seeded to '—'. So the field the associate
+    // flags from was always blank even when the tile beside it showed a real
+    // low rate. Convert the fraction to the percentage this field expects.
+    const li = r.liveInsights || {};
+    if (typeof li.vid_completion_rate === 'number') {
+      return Math.round(li.vid_completion_rate * 1000) / 10;   // 0–1 → percent, 1dp
+    }
+    // Fall back to any pre-formatted string, but never to the '—' placeholder.
+    const raw = li.vidCompletionRate;
     const v = String(raw ?? '').replace('%', '').trim();
     return v && !isNaN(parseFloat(v)) ? parseFloat(v) : '';
   };
   const _issue = (r.rca.issueL2 || '').trim().toLowerCase();
+  // Window that the NUMBERS were computed for, not the global picker. The data
+  // carries its own window (_insightsWindowLabel reads it); labelling a figure
+  // with whatever the picker happens to show is how a supply flag tells Biz the
+  // wrong scope — the exact thing _insightsWindowLabel exists to prevent.
   const defaultMsg = `Flagging low completion rate for review.\n\nFlagged from review BID ${r.booking.bid}`
     + (_issue ? ` — guest reported ${_issue}` : '')
-    + `. Window: ${state.insightsWindow}. Please review supply allocation and `
+    + `. Window: ${_insightsWindowLabel(r)}. Please review supply allocation and `
     + `consider raising completion to market rate.`;
 
   const modal = document.createElement('div');
@@ -8466,10 +8491,7 @@ function openManualReviewModal() {
       if (newId) {
         const rev = REVIEWS.find(r => r.id === newId);
         if (rev) {
-          state.filter = rev.type === 'identified' ? 'identified'
-            : rev.type === 'candidates' ? 'candidates'
-            : rev.type === 'untraceable' ? 'untraceable'
-            : 'identified';
+          state.filter = _tabForNewReview(rev.type);
           state.selected = newId;
           document.querySelectorAll('.inbox-tab').forEach(t =>
             t.classList.toggle('active', t.dataset.tab === state.filter));

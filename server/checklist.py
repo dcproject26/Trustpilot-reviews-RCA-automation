@@ -1095,6 +1095,26 @@ def _overlaps_tokens(a, b) -> bool:
     return len(ta & tb) / max(1, min(len(ta), len(tb))) >= 0.5
 
 
+def _action_text(row) -> str:
+    """The comparable text of an action row, WITHOUT flattening its shape.
+
+    An action row is either a gap-derived string or a hand-added dict
+    ({context, with, handle, owner, ...} from patch_action / the card). Matching
+    and de-duping need a string, but calling str() on a dict yields its Python
+    repr — and appending THAT back into the column (as the old code did) turned a
+    structured, human-authored row into "{'context': ...}" on the next re-run,
+    losing owner/team/detail. So derive a text key here and keep the ORIGINAL row
+    everywhere it is stored.
+    """
+    if isinstance(row, dict):
+        for k in ("context", "with", "action", "text", "detail"):
+            v = str(row.get(k) or "").strip()
+            if v:
+                return v
+        return ""
+    return str(row or "").strip()
+
+
 def hand_typed_actions(stored, prev_gaps) -> tuple:
     """The Actions Taken rows a PERSON put there, and the ones we cannot tell.
 
@@ -1123,14 +1143,14 @@ def hand_typed_actions(stored, prev_gaps) -> tuple:
     if isinstance(prev_gaps, list):
         prior, _ = actions_from_gaps(prev_gaps, keep=None)
         for rows in prior.values():
-            known.update(str(r).strip() for r in (rows or []))
+            known.update(_action_text(r) for r in (rows or []))
     keep, unattributable = {}, 0
     for tab, rows in stored.items():
         for row in (rows or []):
-            txt = str(row or "").strip()
+            txt = _action_text(row)
             if not txt or txt in known:
                 continue
-            keep.setdefault(tab, []).append(txt)
+            keep.setdefault(tab, []).append(row)   # the ORIGINAL row — a dict keeps its structure
             # NO STORED GAPS MEANS NO ATTRIBUTION, not "everything is
             # hand-typed". The row is still carried — deleting a person's work
             # on a guess is the expensive direction — but it is COUNTED, so a
@@ -1197,10 +1217,10 @@ def actions_from_gaps(gaps, keep=None) -> tuple:
         if t not in tabs:
             continue
         for row in (items or []):
-            txt = str(row or "").strip()
+            txt = _action_text(row)
             if txt and not _is_repeat(txt, seen, "action"):
                 _remember(txt, seen, "action")
-                tabs[t].append(txt)
+                tabs[t].append(row)   # the ORIGINAL row — a hand-added dict is not flattened to its repr
                 kept += 1
 
     notes = []

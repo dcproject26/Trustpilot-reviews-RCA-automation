@@ -1,0 +1,32 @@
+[
+  {
+    "file": "client/index.html",
+    "name": "add review: the processing bucket is dropped, so a just-added review lands on Matched and vanishes",
+    "find": "          || type === 'untraceable' || type === 'processing') ? type : 'identified';",
+    "replace": "          || type === 'untraceable') ? type : 'identified';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "flag to biz: the completion field reads the phantom camelCase key again, so it is always blank",
+    "find": "    if (typeof li.vid_completion_rate === 'number') {",
+    "replace": "    if (typeof li.vidCompletionRate === 'number') {"
+  },
+  {
+    "file": "client/index.html",
+    "name": "flag to biz: the message labels the picker window again, not the window the numbers are for",
+    "find": "    + `. Window: ${_insightsWindowLabel(r)}. Please review supply allocation and `",
+    "replace": "    + `. Window: ${state.insightsWindow}. Please review supply allocation and `"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "actions: hand_typed_actions flattens a dict row to text again, losing owner/team/detail",
+    "find": "            keep.setdefault(tab, []).append(row)   # the ORIGINAL row — a dict keeps its structure",
+    "replace": "            keep.setdefault(tab, []).append(_action_text(row))"
+  },
+  {
+    "file": "server/checklist.py",
+    "name": "actions: the regroup flattens a kept dict row to text again",
+    "find": "                tabs[t].append(row)   # the ORIGINAL row — a hand-added dict is not flattened to its repr",
+    "replace": "                tabs[t].append(_action_text(row))"
+  }
+]
