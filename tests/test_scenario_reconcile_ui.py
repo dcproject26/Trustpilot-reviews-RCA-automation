@@ -42,7 +42,7 @@ def _inject(page, routing):
         window.__srKeep = r.rca.scenarioRouting === undefined
           ? null : JSON.parse(JSON.stringify(r.rca.scenarioRouting || null));
       r.rca.scenarioRouting = sr;
-      renderReviewCol();
+      renderRcaCol();
     }""", routing)
     page.wait_for_timeout(350)
 
@@ -52,7 +52,7 @@ def _restore(page):
       const r = REVIEWS.find(x => x.id === state.selected);
       if (window.__srKeep !== undefined) r.rca.scenarioRouting = window.__srKeep;
       window.__srKeep = undefined;
-      renderReviewCol(); }""")
+      renderRcaCol(); }""")
     page.wait_for_timeout(250)
 
 

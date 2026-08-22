@@ -19,7 +19,21 @@ import pytest
 
 pytest.importorskip("playwright.sync_api")
 
-from tests.test_rca_ui_rendered import page, CHROME          # noqa: E402,F401
+from tests.test_rca_ui_rendered import page, CHROME, _rca_tab   # noqa: E402,F401
+
+
+def _reveal(page, sel):
+    """If `sel` sits inside an RCA tab panel, activate that tab so the control
+    is visible and clickable. The six panels all stay mounted (hidden with CSS
+    when inactive), so a control in a non-active tab is present but not
+    interactable until its tab is shown. No-op for facts-column controls."""
+    tab = page.evaluate("""(s) => {
+      const el = document.querySelector(s);
+      if (!el) return null;
+      const p = el.closest('.rca-tab-panel');
+      return p ? p.dataset.tab : null; }""", sel)
+    if tab:
+        _rca_tab(page, tab)
 
 
 # Issue-specific answers is not here because the section is gone (§3), not
@@ -42,6 +56,7 @@ def _collapsed(page, sel):
 
 @pytest.mark.parametrize("sel", SECTIONS)
 def test_every_section_label_collapses_when_clicked(page, sel):
+    _reveal(page, sel)
     page.evaluate("(s) => { const e = document.querySelector(s);"
                   "e.classList.remove('is-collapsed'); }", sel)
     page.click(f"{sel} .section-label")
@@ -97,6 +112,7 @@ def test_every_add_button_produces_a_row(page, btn, row):
     indistinguishable from not having clicked."""
     if not page.evaluate("(s) => !!document.querySelector(s)", btn):
         pytest.skip(f"{btn} is not on this fixture")
+    _reveal(page, btn)
     before = page.evaluate("(s) => document.querySelectorAll(s).length", row)
     page.click(btn)
     page.wait_for_timeout(700)
@@ -226,6 +242,7 @@ def test_a_record_added_to_a_draft_with_no_notes_lands_where_it_renders(page):
       v._kSP = v.sp_interaction_notes;
       delete v.sp_interaction_notes; renderRcaCol(); }""")
     before = _sp_state(page)["rendered"]
+    _rca_tab(page, "inter")   # SP interaction lives in the Interactions tab
     page.click("[data-sp-rec-add]")
     page.wait_for_timeout(700)
     got = _sp_state(page)
@@ -247,6 +264,7 @@ def test_adding_a_record_does_not_discard_raised_and_reason(page):
       v.sp_interaction_notes = {raised: 'Yes', reason: 'Vendor is not partnered.',
                                 records: [{time: '', summary: 'first', zd_ref: ''}]};
       renderRcaCol(); }""")
+    _rca_tab(page, "inter")   # SP interaction lives in the Interactions tab
     page.click("[data-sp-rec-add]")
     page.wait_for_timeout(700)
     got = _sp_state(page)
@@ -270,6 +288,7 @@ def test_a_record_is_never_written_to_the_frames_key(page):
       renderRcaCol(); }""")
     before = page.evaluate(
         "() => JSON.stringify(REVIEWS.find(x=>x.id===state.selected).rca.v3.sp_interaction ?? null)")
+    _rca_tab(page, "inter")   # SP interaction lives in the Interactions tab
     page.click("[data-sp-rec-add]")
     page.wait_for_timeout(700)
     after = page.evaluate(
@@ -582,6 +601,7 @@ DRIVEN = {
     "data-add-action",         # test_rca_ui_rendered::…renders_under_its_team
     "data-scenario-revert",    # test_scenario_override_api
     "data-tab",                # …::test_an_empty_tab_says_which_kind_of_empty…
+    "data-rca-tab",            # test_rca_tabs::test_clicking_a_tab_shows_its_panel…
     "data-window",             # test_insights_window_picker
     "data-mark-sent",          # this file, test_mark_sent_moves_the_review…
     # The guest response. `data-outgoing-reply` is the box that goes to the

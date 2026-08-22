@@ -627,6 +627,32 @@
     font-size: 12px; padding: 5px 12px; border-radius: 6px;
   }
   .rca-head-actions .send-btn { padding: 5px 13px; }
+
+  /* The six-tab bar under the RCA header (handoff §1: the slide-over has six
+     tabs). All six panels stay mounted; the bar only toggles which is shown,
+     so every per-render control binding still attaches. */
+  .rca-tabbar {
+    display: flex; flex-wrap: wrap; column-gap: 16px; row-gap: 2px;
+    border-bottom: 1px solid var(--border); margin-bottom: 14px; max-width: 720px;
+  }
+  .rca-tab {
+    font: inherit; font-size: 12.5px; font-weight: 500; color: var(--muted);
+    background: none; border: none; border-bottom: 2px solid transparent;
+    padding: 9px 0 8px; cursor: pointer; white-space: nowrap;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .rca-tab:hover { color: var(--body); }
+  .rca-tab.active { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+  .rca-tab .tab-n {
+    font-size: 10px; font-variant-numeric: tabular-nums;
+    padding: 0 5px; border-radius: 7px; background: var(--facts-bg); color: var(--muted-2);
+  }
+  .rca-tab.active .tab-n { background: var(--accent-bg); color: var(--accent); }
+  .rca-tab .tab-attn { color: var(--amber, #8A6414); font-size: 9px; }
+  /* Only the active tab's panel shows; the rest stay in the DOM (display:none),
+     so their controls remain bound — a hidden control is not an absent one. */
+  .rca-tab-panel { display: none; flex-direction: column; gap: 12px; }
+  .rca-tab-panel.active { display: flex; }
   .rca-stack-outer { max-width: 720px; display: flex; flex-direction: column; gap: 12px; }
 
   /* every RCA block is a white card with a collapsible header */
@@ -2856,6 +2882,10 @@ const state = {
   // its DOM is exactly the column it replaced, so every edit/save/delete
   // control inside it is unchanged.
   rcaOpen: false,
+  // Which of the six RCA tabs is showing. All six panels stay in the DOM (so
+  // every per-render binder attaches); the tab bar only toggles which is
+  // visible. Diagnosis first, per the handoff.
+  rcaTab: 'diag',
   actionTab: 'sp',
   dssEdit: false,
   rawErrOpen: {},
@@ -4249,90 +4279,6 @@ function renderReviewCol() {
         </div>`}
       </div>
     </div>
-    ${(() => {
-      const rc = r.rca || {};
-      const chipRow = (label, values, addAttr, options, removeAttr) => `
-        <div class="chip-row">
-          <span class="chip-row-label">${label}</span>
-          ${(values || []).map((v, i) => `
-            <span class="chip">${esc(v)}
-              <button ${removeAttr}="${i}" title="Remove">×</button>
-            </span>`).join('')}
-          <select class="chip-add" ${addAttr}>
-            <option value="">+ add</option>
-            ${(options || []).filter(o => !(values || []).includes(o))
-                .map(o => `<option>${esc(o)}</option>`).join('')}
-          </select>
-        </div>`;
-      const subOpts = SUB_THEME_OPTIONS[rc.issueL1 + '::' + rc.issueL2] || [];
-      return `
-      <div class="classify-block">
-        <div class="col-label" style="margin-bottom:10px">Classification</div>
-        <div class="classify-selects">
-          <label class="classify-row">L1
-            <select class="classify-select" data-classify="l1">
-              ${(rc.issueL1 && !L1_CATEGORIES.includes(rc.issueL1)
-                  ? `<option>${esc(rc.issueL1)}</option>` : '')}
-              ${L1_CATEGORIES.map(o =>
-                  `<option${o === rc.issueL1 ? ' selected' : ''}>${esc(o)}</option>`).join('')}
-            </select>
-          </label>
-          <label class="classify-row">L2
-            <select class="classify-select" data-classify="l2">
-              ${(rc.issueL2 && !(L2_OPTIONS[rc.issueL1] || []).includes(rc.issueL2)
-                  ? `<option>${esc(rc.issueL2)}</option>` : '')}
-              ${(L2_OPTIONS[rc.issueL1] || []).map(o =>
-                  `<option${o === rc.issueL2 ? ' selected' : ''}>${esc(o)}</option>`).join('')}
-            </select>
-          </label>
-        </div>
-        ${chipRow('Sub-themes', rc.subThemes || [], 'data-subtheme-add', subOpts, 'data-subtheme-remove')}
-        <!-- ONE LIST, TWO ROWS, NO OVERLAP. rc.scenarios is the whole ordered
-             list; the primary is its first element and the overlays are the
-             rest. Rendering the whole list here AND its tail again as
-             "Overlays" is what showed one scenario twice on the card. -->
-        ${chipRow('Primary', (rc.scenarios || []).slice(0, 1), 'data-scenario-add', SCENARIO_OPTIONS, 'data-scenario-remove')}
-        ${(() => {
-          // The scenario was set by hand and routing has since moved. Not a
-          // "manual" tag: provenance alone makes the reader reconstruct months
-          // later WHY it was set. The contradiction is what matters, and it is
-          // shown the moment L1/L2 changes — while they still remember.
-          //
-          // Nothing renders when the override agrees with routing. A badge
-          // that fires on agreement is one people learn to ignore, and then
-          // it is not there when it counts.
-          const sr = rc.scenarioRouting;
-          if (!sr || !sr.diverged || !sr.routed_now) return '';
-          return `<div class="scenario-reconcile">
-            <span class="reconcile-mark">⚠</span>
-            <span class="reconcile-text">Set by hand as
-              <strong>${esc(sr.primary)}</strong>. This classification now routes to
-              <strong>${esc(sr.routed_now)}</strong>.</span>
-            <button class="reconcile-revert" data-scenario-revert="${esc(sr.routed_now)}"
-                    title="Use the routed scenario instead">Use routed</button>
-          </div>`;
-        })()}
-        ${chipRow('Overlays', (rc.scenarios || []).slice(1), 'data-overlay-add',
-                  SCENARIO_OPTIONS.filter(o => !(rc.scenarios || []).includes(o)), 'data-overlay-remove')}
-        ${(() => {
-          // Output rule 13 guarantees every routed scenario is covered by a
-          // guest issue AT GENERATION TIME. An override applied afterwards
-          // breaks that silently, so the gap is named here rather than left
-          // for someone to notice the RCA does not mention the scenario the
-          // chip claims. Regeneration stays the analyst's call.
-          const un = (rc.scenarioRouting || {}).uncovered || [];
-          if (!un.length) return '';
-          return `<div class="scenario-uncovered">
-            <span class="reconcile-mark">⚠</span>
-            <span class="reconcile-text">${un.length === 1
-              ? `No guest issue covers <strong>${esc(un[0])}</strong>`
-              : `No guest issue covers ${un.map(u => `<strong>${esc(u)}</strong>`).join(', ')}`
-            } — the RCA was written before this scenario was set. Re-run to cover it.</span>
-          </div>`;
-        })()}
-        <span data-scenario-regen-status style="font-size:11px;color:var(--muted-2)"></span>
-      </div>`;
-    })()}
 
   `;
 
@@ -4957,6 +4903,10 @@ document.addEventListener('change', async ev => {
   rca.subTheme = rca.subThemes[0] || null;
   await saveDraft(r.id, {l1: rca.issueL1, l2: rca.issueL2,
                          sub_themes: rca.subThemes});
+  // Classification lives in the RCA (Diagnosis tab) now, not the facts column,
+  // so its L1/L2 change must repaint the RCA — repainting only the facts left
+  // the L2 dropdown stale.
+  renderRcaCol();
   renderReviewCol();
 });
 
@@ -6353,6 +6303,29 @@ function renderRcaCol() {
          come only from rca_v3.flags, which returns failures only. -->
   ` : '';
 
+  // ── Six-tab bar (handoff §1): the slide-over is six tabs, not one scroll ──
+  // Every badge is the number of rows its tab renders; no badge when zero
+  // (handoff: counts are derived from the rows, never hand-written), so the
+  // badge cannot drift from what the panel shows.
+  const _wwr5 = v3d.what_went_wrong || {};
+  const _rcaCounts = {
+    diag: (_wwr5.guest_issues || []).length + (_wwr5.case_findings || []).length,
+    inter: ((v3d['support_interaction_notes']) || []).length
+         + (((v3d.sp_interaction_notes || {}).records) || []).length
+         + (v3d.flags || []).length,
+    actions: Object.values(rca.actionsTaken || {}).reduce((a, x) => a + (x || []).length, 0),
+    res: 3,
+    reply: (rca.reply || '').trim() ? 1 : 0,
+    slack: 0,
+  };
+  const _RCA_TABS = [['diag', 'Diagnosis'], ['inter', 'Interactions'],
+    ['actions', 'Actions'], ['res', 'Resolution'], ['reply', 'Reply'], ['slack', 'Slack']];
+  const _rcaTabBar = `<div class="rca-tabbar">` + _RCA_TABS.map(([k, label]) => {
+    const n = _rcaCounts[k] || 0;
+    return `<button class="rca-tab${state.rcaTab === k ? ' active' : ''}" data-rca-tab="${k}">`
+      + label + (n > 0 ? `<span class="tab-n">${n}</span>` : '') + `</button>`;
+  }).join('') + `</div>`;
+
   col.innerHTML = `
     <!-- §14 one baseline-aligned row, not a two-line stack: the label and the
          sub-line cost ~34px at the top of every review. The dropped clause is
@@ -6372,6 +6345,8 @@ function renderRcaCol() {
     </div>
 
     <div class="rca-stack-outer">
+    ${_rcaTabBar}
+    <div class="rca-tab-panel${state.rcaTab === 'diag' ? ' active' : ''}" data-tab="diag">
     <div class="section">
       <div class="section-label"><span>Guest's stated issue</span><span class="section-chev">▾</span></div>
       <div class="stated-issue">
@@ -6395,8 +6370,94 @@ function renderRcaCol() {
       </div>
     </div>
 
+    ${(() => {
+      const rc = r.rca || {};
+      const chipRow = (label, values, addAttr, options, removeAttr) => `
+        <div class="chip-row">
+          <span class="chip-row-label">${label}</span>
+          ${(values || []).map((v, i) => `
+            <span class="chip">${esc(v)}
+              <button ${removeAttr}="${i}" title="Remove">×</button>
+            </span>`).join('')}
+          <select class="chip-add" ${addAttr}>
+            <option value="">+ add</option>
+            ${(options || []).filter(o => !(values || []).includes(o))
+                .map(o => `<option>${esc(o)}</option>`).join('')}
+          </select>
+        </div>`;
+      const subOpts = SUB_THEME_OPTIONS[rc.issueL1 + '::' + rc.issueL2] || [];
+      return `
+      <div class="classify-block">
+        <div class="col-label" style="margin-bottom:10px">Classification</div>
+        <div class="classify-selects">
+          <label class="classify-row">L1
+            <select class="classify-select" data-classify="l1">
+              ${(rc.issueL1 && !L1_CATEGORIES.includes(rc.issueL1)
+                  ? `<option>${esc(rc.issueL1)}</option>` : '')}
+              ${L1_CATEGORIES.map(o =>
+                  `<option${o === rc.issueL1 ? ' selected' : ''}>${esc(o)}</option>`).join('')}
+            </select>
+          </label>
+          <label class="classify-row">L2
+            <select class="classify-select" data-classify="l2">
+              ${(rc.issueL2 && !(L2_OPTIONS[rc.issueL1] || []).includes(rc.issueL2)
+                  ? `<option>${esc(rc.issueL2)}</option>` : '')}
+              ${(L2_OPTIONS[rc.issueL1] || []).map(o =>
+                  `<option${o === rc.issueL2 ? ' selected' : ''}>${esc(o)}</option>`).join('')}
+            </select>
+          </label>
+        </div>
+        ${chipRow('Sub-themes', rc.subThemes || [], 'data-subtheme-add', subOpts, 'data-subtheme-remove')}
+        <!-- ONE LIST, TWO ROWS, NO OVERLAP. rc.scenarios is the whole ordered
+             list; the primary is its first element and the overlays are the
+             rest. Rendering the whole list here AND its tail again as
+             "Overlays" is what showed one scenario twice on the card. -->
+        ${chipRow('Primary', (rc.scenarios || []).slice(0, 1), 'data-scenario-add', SCENARIO_OPTIONS, 'data-scenario-remove')}
+        ${(() => {
+          // The scenario was set by hand and routing has since moved. Not a
+          // "manual" tag: provenance alone makes the reader reconstruct months
+          // later WHY it was set. The contradiction is what matters, and it is
+          // shown the moment L1/L2 changes — while they still remember.
+          //
+          // Nothing renders when the override agrees with routing. A badge
+          // that fires on agreement is one people learn to ignore, and then
+          // it is not there when it counts.
+          const sr = rc.scenarioRouting;
+          if (!sr || !sr.diverged || !sr.routed_now) return '';
+          return `<div class="scenario-reconcile">
+            <span class="reconcile-mark">⚠</span>
+            <span class="reconcile-text">Set by hand as
+              <strong>${esc(sr.primary)}</strong>. This classification now routes to
+              <strong>${esc(sr.routed_now)}</strong>.</span>
+            <button class="reconcile-revert" data-scenario-revert="${esc(sr.routed_now)}"
+                    title="Use the routed scenario instead">Use routed</button>
+          </div>`;
+        })()}
+        ${chipRow('Overlays', (rc.scenarios || []).slice(1), 'data-overlay-add',
+                  SCENARIO_OPTIONS.filter(o => !(rc.scenarios || []).includes(o)), 'data-overlay-remove')}
+        ${(() => {
+          // Output rule 13 guarantees every routed scenario is covered by a
+          // guest issue AT GENERATION TIME. An override applied afterwards
+          // breaks that silently, so the gap is named here rather than left
+          // for someone to notice the RCA does not mention the scenario the
+          // chip claims. Regeneration stays the analyst's call.
+          const un = (rc.scenarioRouting || {}).uncovered || [];
+          if (!un.length) return '';
+          return `<div class="scenario-uncovered">
+            <span class="reconcile-mark">⚠</span>
+            <span class="reconcile-text">${un.length === 1
+              ? `No guest issue covers <strong>${esc(un[0])}</strong>`
+              : `No guest issue covers ${un.map(u => `<strong>${esc(u)}</strong>`).join(', ')}`
+            } — the RCA was written before this scenario was set. Re-run to cover it.</span>
+          </div>`;
+        })()}
+        <span data-scenario-regen-status style="font-size:11px;color:var(--muted-2)"></span>
+      </div>`;
+    })()}
     ${v3Block}
     ${isaBlock}
+    </div>
+    <div class="rca-tab-panel${state.rcaTab === 'inter' ? ' active' : ''}" data-tab="inter">
 
     <div class="section">
       <!-- The count reads the list the rows are actually built from. It used
@@ -6429,6 +6490,8 @@ function renderRcaCol() {
          is putting this block back.
          NO BACKTICKS IN HERE - this sits inside a JS template literal and one
          would end the string. Third time this session. -->
+    </div>
+    <div class="rca-tab-panel${state.rcaTab === 'actions' ? ' active' : ''}" data-tab="actions">
     <div class="section">
       <div class="section-label"><span>Actions taken</span><span class="section-chev">▾</span></div>
       <div class="action-block">
@@ -6467,6 +6530,8 @@ function renderRcaCol() {
       </div>
     </div>
 
+    </div>
+    <div class="rca-tab-panel${state.rcaTab === 'res' ? ' active' : ''}" data-tab="res">
     <div class="section">
       <div class="section-label"><span>Resolution &amp; takedown</span><span class="section-chev">▾</span></div>
       <!-- Three parts, in this order: what policy prescribes, what the guest
@@ -6614,6 +6679,8 @@ function renderRcaCol() {
       })()}
     </div>
 
+    </div>
+    <div class="rca-tab-panel${state.rcaTab === 'reply' ? ' active' : ''}" data-tab="reply">
     <div class="reply-block" id="rca-reply-section">
       ${(() => {
         // WHICH BOX GOES TO THE GUEST is the thing this block has to make
@@ -6746,7 +6813,10 @@ function renderRcaCol() {
       })()}
     </div>
 
+    </div>
+    <div class="rca-tab-panel${state.rcaTab === 'slack' ? ' active' : ''}" data-tab="slack">
     ${slackPost}
+    </div>
 
     </div>
   `;
@@ -8744,6 +8814,22 @@ function _closeRca() { state.rcaOpen = false; applyRca(); }
 document.getElementById('rca-close')?.addEventListener('click', _closeRca);
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && state.rcaOpen) _closeRca();
+});
+
+// RCA tab switching. Delegated (bound once) and CSS-only: all six panels stay
+// in the DOM, so switching tabs just toggles which is visible — no re-render,
+// so per-render control bindings and any in-progress edit survive the switch.
+document.addEventListener('click', e => {
+  const t = e.target.closest && e.target.closest('[data-rca-tab]');
+  if (!t) return;
+  const tab = t.dataset.rcaTab;
+  state.rcaTab = tab;
+  const col = document.getElementById('rca-col');
+  if (!col) return;
+  col.querySelectorAll('.rca-tab').forEach(b =>
+    b.classList.toggle('active', b.dataset.rcaTab === tab));
+  col.querySelectorAll('.rca-tab-panel').forEach(pnl =>
+    pnl.classList.toggle('active', pnl.dataset.tab === tab));
 });
 
 applyScreen();          // default screen is 'inbox' — set the class before first paint

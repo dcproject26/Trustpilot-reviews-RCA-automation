@@ -33,7 +33,7 @@ import pytest
 
 pytest.importorskip("playwright.sync_api")
 
-from tests.test_rca_ui_rendered import page, CHROME          # noqa: E402,F401
+from tests.test_rca_ui_rendered import page, CHROME, _rca_tab   # noqa: E402,F401
 
 
 # ── (b) the four fields the matching query never selected ───────────────────
@@ -301,7 +301,7 @@ def _card(page):
                           .filter(el => (el.querySelector('.k')||{}).textContent
                                         === 'Booking ID');
                         return rows.length ? rows[0].querySelector('.v').textContent.trim() : null; })(),
-      rca:     document.querySelector('#rca-col').innerText.toUpperCase(),
+      rca:     document.querySelector('#rca-col').textContent.toUpperCase(),
     })""")
 
 
@@ -793,13 +793,14 @@ def _dss(page):
       return {editables: b.querySelectorAll('[data-v3p]').length,
               mark: !!b.querySelector('.dss-hand'),
               btn: (b.querySelector('[data-dss-edit]') || {}).textContent || '',
-              text: b.innerText}; }""")
+              text: b.textContent}; }""")
 
 
 def test_the_dss_block_exists_and_toggles_into_edit(page):
     """NOT BUILT guard plus the toggle. Read-only by default: it is reference
     data, and an always-editable field invites accidental edits to a row
     nobody meant to change."""
+    _rca_tab(page, "res")   # the DSS block lives in the Resolution tab now
     before = _dss(page)
     assert before, "there is no DSS block on the card — NOT BUILT"
     assert before["editables"] == 0, (
@@ -894,7 +895,7 @@ def test_one_scenario_renders_exactly_once(page):
       const keep = [r.rca.scenarios, r.rca.overlayScenarios];
       r.rca.scenarios = ['Refund issues'];
       r.rca.overlayScenarios = ['Refund issues'];
-      renderReviewCol();
+      renderRcaCol();
       const rows = {};
       document.querySelectorAll('.chip-row').forEach(x => {
         const l = (x.querySelector('.chip-row-label') || {}).textContent || '';
@@ -902,7 +903,7 @@ def test_one_scenario_renders_exactly_once(page):
           c => c.textContent.replace('×', '').trim());
       });
       [r.rca.scenarios, r.rca.overlayScenarios] = keep;
-      renderReviewCol();
+      renderRcaCol();
       return rows; }""")
     assert "Primary" in got, f"the scenario rows did not render — NOT BUILT: {got}"
     all_chips = got.get("Primary", []) + got.get("Overlays", [])
@@ -916,7 +917,7 @@ def test_the_overlay_row_is_the_tail_of_the_one_list(page):
       const keep = [r.rca.scenarios, r.rca.overlayScenarios];
       r.rca.scenarios = ['Refund issues', 'Tickets sent late'];
       r.rca.overlayScenarios = ['Tickets sent late'];
-      renderReviewCol();
+      renderRcaCol();
       const rows = {};
       document.querySelectorAll('.chip-row').forEach(x => {
         const l = (x.querySelector('.chip-row-label') || {}).textContent || '';
@@ -924,7 +925,7 @@ def test_the_overlay_row_is_the_tail_of_the_one_list(page):
           c => c.textContent.replace('×', '').trim());
       });
       [r.rca.scenarios, r.rca.overlayScenarios] = keep;
-      renderReviewCol();
+      renderRcaCol();
       return rows; }""")
     assert got["Primary"] == ["Refund issues"], got
     assert got["Overlays"] == ["Tickets sent late"], got
@@ -953,13 +954,13 @@ def test_the_scenario_delete_removes_it_from_the_one_list(page):
       };
       r.rca.scenarios = ['Refund issues', 'Tickets sent late'];
       r.rca.overlayScenarios = ['Tickets sent late'];
-      renderReviewCol();
+      renderRcaCol();
       document.querySelector('[data-overlay-remove]').click();
       await new Promise(x => setTimeout(x, 900));
       const after = [...(r.rca.scenarios || [])];
       window.fetch = window.__realFetch;
       [r.rca.scenarios, r.rca.overlayScenarios] = keep;
-      renderReviewCol();
+      renderRcaCol();
       return {after, sent}; }""")
     assert got["after"] == ["Refund issues"], (
         f"removing the overlay left it in the one list: {got['after']}")
@@ -986,13 +987,13 @@ def test_the_primary_delete_is_live_too(page):
       };
       r.rca.scenarios = ['Refund issues', 'Tickets sent late'];
       r.rca.overlayScenarios = ['Tickets sent late'];
-      renderReviewCol();
+      renderRcaCol();
       document.querySelector('[data-scenario-remove]').click();
       await new Promise(x => setTimeout(x, 900));
       const after = [...(r.rca.scenarios || [])];
       window.fetch = window.__realFetch;
       [r.rca.scenarios, r.rca.overlayScenarios] = keep;
-      renderReviewCol();
+      renderRcaCol();
       return after; }""")
     assert got == ["Tickets sent late"], (
         f"removing the primary did not promote the overlay: {got}")
@@ -1006,9 +1007,10 @@ def test_the_primary_delete_is_live_too(page):
 # that asserts three states do NOT share a colour.
 
 def _res_block(page):
+    _rca_tab(page, "res")   # the block lives in the Resolution tab
     return page.evaluate("""() => {
       const sec = [...document.querySelectorAll('#rca-col .section')].find(
-        s => /resolution/i.test((s.querySelector('.section-label')||{}).innerText || ''));
+        s => /resolution/i.test((s.querySelector('.section-label')||{}).textContent || ''));
       if (!sec) return null;
       const box = el => { const cs = getComputedStyle(el); const r = el.getBoundingClientRect();
         return {h: Math.round(r.height), radius: cs.borderTopLeftRadius,
@@ -1036,6 +1038,7 @@ def test_the_block_was_found_and_has_controls(page):
 
 def test_every_control_in_the_block_is_the_same_height(page):
     """Three heights in one block is what made it read as unfinished."""
+    _rca_tab(page, "res")   # heights need the Resolution tab visible
     got = _res_block(page)
     heights = {c["h"] for c in got["selects"] + got["buttons"] if c["h"]}
     assert len(heights) == 1, (

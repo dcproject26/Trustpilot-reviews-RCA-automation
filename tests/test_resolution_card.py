@@ -19,7 +19,17 @@ import pytest
 
 pytest.importorskip("playwright.sync_api")
 
-from tests.test_rca_ui_rendered import page, CHROME          # noqa: E402,F401
+from tests.test_rca_ui_rendered import page, CHROME, _rca_tab   # noqa: E402,F401
+
+
+@pytest.fixture(autouse=True)
+def _on_res_tab(page):
+    """Resolution & takedown lives in the Resolution tab now (handoff §1). Its
+    controls are in the DOM but hidden until that tab is active, so show it
+    before each test. state.rcaTab persists across in-test reopens; only a full
+    page reload resets it, which the reload test re-activates for itself."""
+    _rca_tab(page, "res")
+    yield
 
 
 def _set_v3(page, patch):
@@ -248,6 +258,7 @@ def test_the_resolution_line_saves_and_survives_a_reload(page):
         page.wait_for_selector(".inbox-row", timeout=15000)
         page.locator(".inbox-row").first.click()
         page.wait_for_timeout(1500)
+        _rca_tab(page, "res")   # reload reset the tab to Diagnosis; show Resolution
         assert "Already actioned by CE" in page.locator(".res-line").first.inner_text(), \
             "the resolution line was accepted and is not there on reload"
     finally:

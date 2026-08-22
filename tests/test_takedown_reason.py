@@ -105,15 +105,19 @@ def test_the_client_does_not_hardcode_the_list():
 
 pytest.importorskip("playwright.sync_api")
 
-from tests.test_rca_ui_rendered import page, CHROME          # noqa: E402,F401
+from tests.test_rca_ui_rendered import page, CHROME, _rca_tab   # noqa: E402,F401
 
 
 def _set_verdict(page, value):
+    # Takedown lives in the Resolution tab now (handoff §1); show it before
+    # touching its controls. Cheap to call repeatedly — a no-op once active.
+    _rca_tab(page, "res")
     page.select_option("[data-takedown-rec]", value)
     page.wait_for_timeout(900)
 
 
 def _reason_select(page):
+    _rca_tab(page, "res")
     return page.locator("[data-takedown-reason]")
 
 

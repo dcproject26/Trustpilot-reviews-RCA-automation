@@ -248,6 +248,17 @@ def page(ui_browser, ui_server):
         pg.close()
 
 
+def _rca_tab(page, tab):
+    """Activate an RCA tab so its panel — and the controls inside it — are
+    visible and clickable. The six panels all stay in the DOM (display:none
+    when inactive), so a control in a non-active tab is present but not
+    interactable until its tab is shown. Shared: other browser modules import
+    this to reach sections outside the default Diagnosis tab."""
+    page.click(f'[data-rca-tab="{tab}"]')
+    page.wait_for_selector(f'.rca-tab-panel[data-tab="{tab}"].active', timeout=8000)
+    page.wait_for_timeout(80)
+
+
 def test_the_column_renders_without_a_javascript_error(page):
     assert page.errors == []
 
@@ -722,6 +733,7 @@ def _n_sections(page):
 
 
 def test_customize_reveals_the_chips_and_done_collapses_them(page):
+    _rca_tab(page, "slack")
     n = _n_sections(page)
     assert n, "the composer published no section list"
     page.click("[data-slack-customize]")
@@ -735,6 +747,7 @@ def test_customize_reveals_the_chips_and_done_collapses_them(page):
 
 def test_the_collapsed_line_still_states_the_current_count(page):
     """A collapsed picker must not hide that sections are switched off."""
+    _rca_tab(page, "slack")
     n = _n_sections(page)
     page.click("[data-slack-customize]")
     page.wait_for_timeout(300)

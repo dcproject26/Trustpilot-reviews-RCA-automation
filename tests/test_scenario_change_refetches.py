@@ -79,7 +79,7 @@ def _inject(page, routing=None):
       if (window.__sKeep === undefined)
         window.__sKeep = JSON.parse(JSON.stringify(r.rca.scenarioRouting || null));
       r.rca.scenarioRouting = sr;
-      renderReviewCol();
+      renderRcaCol();
     }""", routing)
     page.wait_for_timeout(300)
 
@@ -89,7 +89,7 @@ def _restore(page):
       const r = REVIEWS.find(x => x.id === state.selected);
       if (window.__sKeep !== undefined) r.rca.scenarioRouting = window.__sKeep;
       window.__sKeep = undefined;
-      renderReviewCol(); }""")
+      renderRcaCol(); }""")
     page.wait_for_timeout(250)
 
 
@@ -135,7 +135,7 @@ def test_the_refresh_updates_the_routing_verdict(page):
         assert page.locator(".scenario-reconcile").count() == 1
         _kick_refresh(page)
         page.wait_for_timeout(1500)
-        page.evaluate("() => renderReviewCol()")
+        page.evaluate("() => renderRcaCol()")
         page.wait_for_timeout(300)
         assert page.locator(".scenario-reconcile").count() == 0, (
             "the injected divergence survived a refresh — the routing verdict "

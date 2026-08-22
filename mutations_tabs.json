@@ -1,0 +1,20 @@
+[
+  {
+    "file": "client/index.html",
+    "name": "rca tabs: switching shows every panel instead of only the clicked one",
+    "find": "    pnl.classList.toggle('active', pnl.dataset.tab === tab));",
+    "replace": "    pnl.classList.toggle('active', true));"
+  },
+  {
+    "file": "client/index.html",
+    "name": "rca tabs: a zero-count tab still draws a badge",
+    "find": "      + label + (n > 0 ? `<span class=\"tab-n\">${n}</span>` : '') + `</button>`;",
+    "replace": "      + label + `<span class=\"tab-n\">${n}</span>` + `</button>`;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "rca tabs: the Diagnosis badge drops case findings (count is not derived from all its rows)",
+    "find": "    diag: (_wwr5.guest_issues || []).length + (_wwr5.case_findings || []).length,",
+    "replace": "    diag: (_wwr5.guest_issues || []).length,"
+  }
+]

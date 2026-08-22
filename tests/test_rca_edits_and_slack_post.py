@@ -20,7 +20,7 @@ import pytest
 
 pytest.importorskip("playwright.sync_api")
 
-from tests.test_rca_ui_rendered import page, CHROME          # noqa: E402,F401
+from tests.test_rca_ui_rendered import page, CHROME, _rca_tab   # noqa: E402,F401
 
 
 def _draft(page):
@@ -132,6 +132,10 @@ def test_the_backend_still_holds_the_points_the_card_stopped_showing(page):
 # ── the Slack post carries only the chosen sections ─────────────────────────
 
 def _open_picker(page):
+    # The Slack post + section picker live in the Slack tab now (handoff §1);
+    # show it first so its controls are visible. Also re-shows it after a
+    # reload, which resets the active tab to Diagnosis.
+    _rca_tab(page, "slack")
     if not page.locator(".slack-sec-chip").count():
         page.click("[data-slack-customize]")
         page.wait_for_timeout(300)
@@ -288,6 +292,7 @@ def test_an_empty_section_is_not_read_back_as_a_deselection(page):
 def test_a_hand_edit_is_what_gets_sent(page):
     """Typed into the box and pressed post without blurring first. The value
     on screen is the one that goes."""
+    _rca_tab(page, "slack")
     page.click("[data-slack-edit]")
     page.keyboard.type("\nHAND EDITED LINE")
     sent = []
