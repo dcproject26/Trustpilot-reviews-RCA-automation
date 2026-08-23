@@ -1495,6 +1495,23 @@ def _prev_hand_typed_actions(review_id: str):
         s.close()
 
 
+def _needs_booking_extra(booking: dict, candidate_state: bool) -> bool:
+    """A matched booking that no path has enriched with _get_booking_extra yet.
+
+    isPartnered and amountUSD (the DSS partnered filter and the value note)
+    come from _get_booking_extra, a separate fulfilments/vendor query. Several
+    match paths set `booking` straight from verify_bid and never merged it — the
+    direct-BID path (a booking id in the review or an attachment, the commonest
+    match) among them — so DSS ran with is_partnered unknown and no value.
+
+    The signal is the PRESENCE of "isPartnered", not its truthiness: a path that
+    enriched leaves it set even when the answer is None ("we asked the vendor
+    join, nobody said"), which is a different fact from never having asked. Only
+    a booking missing the key entirely still needs the query."""
+    return bool(booking and not candidate_state and booking.get("id")
+                and "isPartnered" not in booking)
+
+
 async def process_review(review_id: str, force_candidates: bool = False):
     """
     force_candidates: an associate re-ran a review whose booking they had already
@@ -3427,6 +3444,24 @@ async def process_review(review_id: str, force_candidates: bool = False):
                     "text": "<strong>Indicator check did not run</strong> — it "
                             f"raised {type(e).__name__}. Nothing was compared "
                             "against this booking; this is not agreement."})
+
+        # ── 5a-bis. ENRICH THE MATCH on every path, before DSS reads it ───────
+        # isPartnered and amountUSD come from _get_booking_extra, and only some
+        # match paths merged it — the direct-BID path (verify_bid) did not. DSS
+        # then ran with is_partnered unknown and the value note empty on the
+        # commonest match. This is where every path has converged, so it is
+        # where the enrichment belongs — exactly the ensure_zendesk_guest_name
+        # pattern below. Idempotent: a path that already enriched has the key
+        # and is skipped, so no booking is queried twice.
+        if _needs_booking_extra(booking, candidate_state) and is_live("bigquery"):
+            try:
+                from server.services.bigquery import _get_booking_extra as _gbe2
+                booking.update(_gbe2(str(booking["id"])))
+                log.info(f"[enrich] {review_id}: merged booking extra for DSS "
+                         f"(isPartnered={booking.get('isPartnered')}, "
+                         f"amountUSD={booking.get('amountUSD')})")
+            except Exception as e:
+                log.warning(f"[enrich] {review_id}: booking extra fetch failed: {e}")
 
         # ── 5b. PERSIST THE MATCH NOW, before anything else can fail ─────────
         # The draft row used to be created only at the final save step, so a

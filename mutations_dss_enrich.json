@@ -1,0 +1,20 @@
+[
+  {
+    "file": "server/pipeline.py",
+    "name": "enrichment guard never fires, so verify_bid bookings reach DSS without isPartnered/amountUSD",
+    "find": "                and \"isPartnered\" not in booking)",
+    "replace": "                and False)"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "guard keys on truthiness not presence, so a known-unknown isPartnered=None is re-queried every run",
+    "find": "                and \"isPartnered\" not in booking)",
+    "replace": "                and not booking.get(\"isPartnered\"))"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "candidate_state check inverted, so candidates are enriched and real matches are not",
+    "find": "    return bool(booking and not candidate_state and booking.get(\"id\")",
+    "replace": "    return bool(booking and candidate_state and booking.get(\"id\")"
+  }
+]
