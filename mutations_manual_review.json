@@ -1,0 +1,26 @@
+[
+  {
+    "file": "server/services/classifier.py",
+    "name": "orphan sub-theme is no longer dropped, so a sub-theme with no valid L1/L2 survives on the card",
+    "find": "        result.warnings.append(\n            f\"Sub-theme '{st}' dropped — no valid L1/L2 to anchor it to\")\n        st = None",
+    "replace": "        result.warnings.append(\n            f\"Sub-theme '{st}' dropped — no valid L1/L2 to anchor it to\")\n        st = st"
+  },
+  {
+    "file": "server/services/classifier.py",
+    "name": "a stranded invalid L2 is no longer cleared, so garbage L2 survives and blocks warehouse recovery",
+    "find": "    if not l1 and l2:\n        result.warnings.append(f\"L2 '{l2}' dropped — no valid L1 to place it under\")\n        l2 = \"\"",
+    "replace": "    if False and l2:\n        result.warnings.append(f\"L2 '{l2}' dropped — no valid L1 to place it under\")\n        l2 = \"\""
+  },
+  {
+    "file": "server/services/classifier.py",
+    "name": "warehouse recovery no longer respects a live classification, so it overrides the model's answer",
+    "find": "    if l1 or l2:\n        return l1, l2, \"\"          # the model produced something — it wins",
+    "replace": "    if False:\n        return l1, l2, \"\"          # the model produced something — it wins"
+  },
+  {
+    "file": "server/services/classifier.py",
+    "name": "warehouse pair is adopted without taxonomy validation, so an invalid pair becomes the classification",
+    "find": "    if wl1 and wl2 and is_valid_l1_l2(wl1, wl2):",
+    "replace": "    if wl1 and wl2 and True:"
+  }
+]

@@ -115,6 +115,18 @@ async def classify(review_text: str, booking: dict, timeline: list,
         else:
             l2 = ""
 
+    # ── An L2 left stranded with no L1 ────────────────────────────────────
+    # The L2 check above only runs when there is an L1 to check it against, so
+    # when L1 was dropped to "" (a bad L1 that L2 could not recover) a bad L2
+    # rode straight through unvalidated. It then survived as a garbage tag AND
+    # — because it is truthy — blocked the warehouse recovery, which only fills
+    # a pair that is empty on BOTH sides. If L2 were a real L2, the recovery
+    # above would have rebuilt L1 from it; reaching here with L1 empty means it
+    # is not. Clear it and say so.
+    if not l1 and l2:
+        result.warnings.append(f"L2 '{l2}' dropped — no valid L1 to place it under")
+        l2 = ""
+
     # ── Sub-theme validation ─────────────────────────────────────────────
     if l1 and l2:
         if has_sub_theme_framework(l1, l2):
@@ -132,6 +144,19 @@ async def classify(review_text: str, booking: dict, timeline: list,
             if st not in (None, "", "N/A", "null"):
                 result.warnings.append(f"Sub-theme '{st}' provided but no framework exists for ({l1}, {l2})")
                 st = None
+    elif st not in (None, "", "N/A", "null"):
+        # AN ORPHAN SUB-THEME. The model named a sub-theme but we could not
+        # settle a valid L1/L2 for it to hang under (the sub-theme registry is
+        # one L2 -> one framework, and many L2s share a framework, so a
+        # sub-theme does NOT identify its L1/L2 on its own — there is nothing to
+        # recover it from here). Left in place it rendered on the card as a lone
+        # "E. Alts related" with both selects blank: a classification that reads
+        # as half-made rather than absent, and the exact state a manual review
+        # came back in. Drop it and say so — a sub-theme with no parent cannot
+        # be trusted, and keeping it hides that the L1/L2 are the real gap.
+        result.warnings.append(
+            f"Sub-theme '{st}' dropped — no valid L1/L2 to anchor it to")
+        st = None
 
     result.l1             = l1
     result.l2             = l2
@@ -216,6 +241,34 @@ def _strip_comments_outside_strings(text: str) -> str:
         out.append(c)
         i += 1
     return "".join(out)
+
+
+def recover_l1_l2_from_warehouse(l1: str, l2: str, wh_l1, wh_l2) -> tuple:
+    """Fill an EMPTY classification from the booking's warehouse tag.
+
+    Claude stays authoritative: if it produced anything at all (an L1 or an L2),
+    this returns the pair unchanged — the warehouse never overrides a live
+    answer, it only fills a total void. That void is the manual-review case that
+    rendered every L1/L2-keyed section blank; the warehouse tag comes off the
+    same taxonomy (fct_reviews.issues), keyed on the booking id, so when it
+    forms a valid pair it is a real classification, not a guess.
+
+    Returns (l1, l2, note). note is "" when nothing changed, or a short
+    human sentence naming the source when the warehouse pair was adopted — so
+    the caller can put a recovery on the trail rather than let a filled-in
+    classification read like the model's own.
+    """
+    if l1 or l2:
+        return l1, l2, ""          # the model produced something — it wins
+    wl1 = str(wh_l1 or "").strip()
+    wl2 = str(wh_l2 or "").strip()
+    if wl1 and wl2 and is_valid_l1_l2(wl1, wl2):
+        return wl1, wl2, (f"recovered L1/L2 from the warehouse tag "
+                          f"({wl1} / {wl2}) — the model returned none")
+    # A warehouse tag that does not form a valid pair is NOT adopted, and the
+    # empty result stands. Saying nothing here is deliberate: the caller's
+    # classification_entry already speaks for a genuinely empty classification.
+    return l1, l2, ""
 
 
 def _find_l1_for_l2(l2: str) -> Optional[str]:

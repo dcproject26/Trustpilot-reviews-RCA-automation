@@ -3826,14 +3826,15 @@ async def process_review(review_id: str, force_candidates: bool = False):
             _classify_err = e
             log.exception(f"Classification failed: {e}")
 
-        # Suppressed when the provider is down: the warning above has already
-        # said so, and said it better.
-        _cls_entry = None if _ai_down else classification_entry(
-            l1, l2, _classify_err, _classify_warnings)
-        if _cls_entry:
-            confidence_trail.append(_cls_entry)
-
-        # ── 11b. Warehouse L1/L2 comparison (log-only; Claude stays authoritative)
+        # ── 11b. Warehouse L1/L2 — comparison AND recovery ────────────────────
+        # RECOVERY, not just a log line. Claude stays authoritative when it
+        # classified; but when it returned NOTHING — the manual-review case that
+        # rendered every L1/L2-keyed section blank — this booking's own warehouse
+        # tag (the same taxonomy, keyed on the booking id) is a real answer and
+        # is adopted rather than left in the log. Runs BEFORE the trail line so
+        # that line tells the truth about what the selects will show, and before
+        # insights/DSS/RCA (11c/11d/12) so they key on the recovered pair.
+        _wh_recovery = ""
         try:
             _bid = (booking or {}).get("id")
             if _bid:
@@ -3842,8 +3843,33 @@ async def process_review(review_id: str, force_candidates: bool = False):
                     log.info(
                         f"[classify {review_id}] L1/L2 comparison for BID {_bid} — "
                         f"Claude: {l1!r} / {l2!r} | warehouse: {_wh['l1']!r} / {_wh['l2']!r}")
+                from server.services.classifier import recover_l1_l2_from_warehouse
+                l1, l2, _wh_recovery = recover_l1_l2_from_warehouse(
+                    l1, l2, _wh.get("l1"), _wh.get("l2"))
+                if _wh_recovery:
+                    log.info(f"[classify {review_id}] {_wh_recovery}")
         except Exception as e:
-            log.exception(f"Warehouse L1/L2 lookup failed: {e}")
+            log.exception(f"Warehouse L1/L2 lookup/recovery failed: {e}")
+
+        # THE TRAIL LINE, after recovery. A warehouse recovery is its OWN
+        # sentence — not the model being "repaired" (classification_entry's
+        # wording), but the model returning nothing and the warehouse tag
+        # filling the gap. Suppressed only when the provider is down, where the
+        # single AI-down warning already covers every model-written field.
+        if _ai_down:
+            _cls_entry = None
+        elif _wh_recovery:
+            _cls_entry = {"mark": "warn", "text":
+                "<strong>Classification recovered from the warehouse</strong> — "
+                f"the model returned no usable L1/L2, so this booking's own "
+                f"warehouse tag ({l1} / {l2}) was used. Check it against the "
+                f"review before trusting the comparisons and the scenario lookup "
+                f"keyed on it."}
+        else:
+            _cls_entry = classification_entry(
+                l1, l2, _classify_err, _classify_warnings)
+        if _cls_entry:
+            confidence_trail.append(_cls_entry)
 
         _progress(review_id, 5, "computing insights (BigQuery)")
         # ── 11c. Insights (after classification — needs L1/L2) ────────────────

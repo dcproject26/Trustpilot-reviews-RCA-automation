@@ -282,7 +282,10 @@ def test_the_pipeline_actually_calls_it():
     as a source read can honestly go. The behaviour above is what is tested."""
     src = open("server/pipeline.py", encoding="utf-8").read()
     body = src[src.find("async def process_review("):]
-    for call in ("classification_entry(\n            l1, l2, _classify_err, _classify_warnings)",
+    # classification_entry is now called in the else branch of the warehouse-
+    # recovery block (a recovered pair gets its own trail line instead), so the
+    # call site is indented one level deeper than before.
+    for call in ("classification_entry(\n                l1, l2, _classify_err, _classify_warnings)",
                  "stated_issue_entry(stated_issue, _si_err)",
                  "timeline_entry(bid_for_zd, timeline,"):
         assert call in body, f"{call} is not called from the pipeline"
