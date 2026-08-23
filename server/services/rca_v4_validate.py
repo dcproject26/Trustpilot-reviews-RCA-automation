@@ -1064,7 +1064,11 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
         # tab the projection forgot.
         "actions_taken":     _actions,
         "area_of_improving": _improve_rows,
-        "resolution":         _clean(rca.get("resolution")),
+        # Resolution is left BLANK by request: it records what the guest ACTUALLY
+        # received, which the model cannot know, so it is not model-generated. The
+        # associate types it on the card; that human edit flows through the
+        # draft-v2 PATCH (which does not re-run this projection) and persists.
+        "resolution":         "",
         "suggested_response": _clean(reply),
         "takedown": {"verdict": _enum(_obj(rca.get("takedown")).get("verdict"),
                                       TAKEDOWN, "Untraceable")},

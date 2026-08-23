@@ -4162,13 +4162,10 @@ function renderReviewCol() {
         <div class="detail-row"><span class="k">Booking date</span><span class="v">${stampDetail(b.bookingDate || b.creationDate)}</span></div>
         <div class="detail-row"><span class="k">Review date</span><span class="v">${b.reviewDate || '—'}</span></div>
         <div class="detail-row"><span class="k">Partnered vendor</span><span class="v">${b.isPartnered == null ? '<span class="placeholder">—</span>' : `<span class="pill-sm ${b.isPartnered ? 'pill-green' : 'pill-grey'}">${b.isPartnered ? 'Yes' : 'No'}</span>`}</span></div>
-        <div class="detail-row"><span class="k">Escalation email</span><span class="v">${
-          b.escalationEmail
-            ? `<a href="mailto:${b.escalationEmail}" style="color:var(--accent)">${b.escalationEmail}</a>`
-              + (b.escalationType ? `<span class="tile-n"> · ${b.escalationType}</span>` : '')
-            : b.escalationEmailSource === 'none_found'
-              ? `<span class="pill-sm pill-grey">None on record</span>`
-              : `<span class="placeholder">not retrieved</span>`}</span></div>
+        <!-- Escalation email row removed by request. The value still reaches the
+             client (r.booking.escalationEmail) but is no longer shown here, and
+             it is no longer fed to the RCA model (see prompts.py::_readable_booking),
+             so it cannot surface in generated RCA text either. -->
         <div class="detail-row"><span class="k">Booking status</span><span class="v">${b.status ? `<span class="booking-status-pill status-${b.status}">${b.status}</span>` : '—'}</span></div>
         <div class="detail-row"><span class="k">Lead time</span><span class="v">${b.leadTime || '—'}</span></div>
       </div>

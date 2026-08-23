@@ -174,14 +174,21 @@ def test_the_v4_columns_are_written_on_regeneration(app_env):
         "the stale flag from the previous run is still there"
 
 
-def test_the_reply_and_resolution_come_from_the_rca_now(app_env):
-    """v4 emits both. Leaving them meant a fresh RCA sat next to a reply
-    written against the previous one."""
+def test_the_reply_comes_from_the_rca_but_the_resolution_is_left_blank(app_env):
+    """v4 emits a reply and the RCA writes it. Resolution is deliberately NOT
+    taken from the model — it records what the guest actually received, which the
+    model cannot know — so a regenerate leaves the stored resolution unchanged
+    rather than overwriting it with the model's guess ("Full refund of EUR 84.").
+    """
     db, api = app_env
     rid = _seed(db)
+    before = _reload(db, rid).resolution
     _regenerate(db, api, rid)
     d = _reload(db, rid)
-    assert d.resolution == "Full refund of EUR 84."
+    assert d.resolution == before, \
+        "the model's resolution overwrote the stored one — it must be left blank"
+    assert d.resolution != "Full refund of EUR 84.", \
+        "the model's resolution reached the draft; it should be withheld"
     assert "refunded you in full" in d.suggested_response
 
 

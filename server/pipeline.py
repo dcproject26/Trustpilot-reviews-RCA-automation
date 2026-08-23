@@ -4211,10 +4211,11 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # The one write is the projection, from validate()'s actions_raised —
         # which is the only place holding both halves of the rule. See
         # V4_PROJECTION in rca_v4_validate.
-        # v4 settles the resolution off the full evidence base; rca_v2's is the
-        # fallback for a draft whose RCA call failed.
-        draft.resolution                  = ((rca_v3 or {}).get("resolution")
-                                             or rca_v2.get("resolution", ""))
+        # Resolution starts BLANK by request — it is what the guest actually
+        # received, not something the model can settle. The associate types it on
+        # the card (persisted via draft-v2). Neither the projected rca_v3 nor the
+        # raw rca_v2 resolution is copied in.
+        draft.resolution                  = ""
 
         # v3 fields — always assign so flag_modified never fires on an unset
         # attribute (empty dict when RCA generation failed or returned nothing)

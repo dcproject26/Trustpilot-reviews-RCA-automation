@@ -1392,11 +1392,11 @@ THE TEAMS, so you attribute correctly:
 - SP (Supply Partner): the vendor. Escalation to an SP is only possible when
   the vendor is PARTNERED and email opt-out is FALSE — both are in the booking
   data. A blocked escalation is a fact to state, not a miss.
-  When the booking has no escalation email, read `escalation_email_status`
-  before writing anything about it: "NOT retrieved" means we did not fetch it
-  (our gap) — do NOT write that the SP has no escalation email, that the field
-  is blank, or that a formal SP escalation could not be sent. Only state the SP
-  has none when the status says it was checked and none is on record.
+  The SP escalation email address is deliberately NOT provided to you. Do not
+  comment on whether the SP has an escalation email, whether one is on record,
+  or whether a formal escalation email could or could not be sent — you have no
+  data on that. Judge escalation only from the partnered / opt-out flags and
+  from what the tickets actually show was done.
 
 WHERE FACTS LIVE — the only sources you may verify against, routed by claim.
 Each maps to a `source` value used in `evidence[]`:
@@ -1901,6 +1901,18 @@ that turned out fine is silence — never a line in the output.
       DSS forks on "social media" -> every case here IS a public review, so
         the social-media variant always applies. Do not treat it as unresolved.
 
+   5. "WRONG POLICY APPLIED" NEEDS THE RULE IT BROKE. Do not write that an agent
+      or an automated bot "applied the wrong policy", "misapplied policy",
+      "applied the standard policy and ignored the exception", or "should have
+      applied" a different one, UNLESS you can name the specific DSS needle line
+      or SOP / scenario-checklist rule it contradicts — and you cite that line as
+      the source_ref. You are NOT told our internal automation rules, so a bare
+      "the AI bot gave a flat refusal / applied the no-reschedule policy" is a
+      guess about a system you cannot see: drop it. A correct-looking denial is
+      not a miss merely because an exception request existed elsewhere — name the
+      rule that made the denial wrong, or do not raise it. This binds `ce_miss`,
+      `sop_gap` and any flag equally.
+
 7. SUPPORT-FAILURE SUPERSEDES. If an external event occurred but CE or RO
    mishandled the contact, the root cause is the mishandling. What did the
    agent DO after acknowledging — escalated, or dropped?
@@ -2371,11 +2383,8 @@ that turned out fine is silence — never a line in the output.
       a booking id    32885089
       a case finding  quote its words, verbatim, from `case_findings`
 
-      NO   "booking record — escalationEmail field is empty"   (that is the gap restated,
-           not a reference; a reader cannot open it)
       NO   "the chat transcript", "the support history", "the exp page"
       YES  ZD-34335318
-      YES  "Escalation email field for this booking is blank"   (the finding's own words)
 
     A gap with no source is DROPPED and counted, and that is deliberate: a process
     improvement that is generally true is not something this case surfaced. Do not raise
@@ -2705,24 +2714,15 @@ def _readable_booking(bk: dict) -> dict:
                 and pretty != str(v):
             out[k] = pretty
 
-    # The SP escalation email, said in words the model cannot misread. When we
-    # have an address the model gets it as-is. When we do not, an empty
-    # "escalationEmail" read to the model as "the supply partner has none" —
-    # true only for none_found. not_fetched is OUR gap (the warehouse
-    # enrichment does not run on every match path and swallows errors), and a
-    # finding that the SP could not be emailed is wrong there. Converted here,
-    # not left to an instruction, for the reason the dates are: an instruction
-    # can be ignored, a value cannot. The enum itself is dropped — it is for the
-    # code and the UI, not for the model to interpret.
-    _src = out.pop("escalationEmailSource", "")
-    if _src and not str(out.get("escalationEmail") or "").strip():
-        out["escalation_email_status"] = {
-            "none_found":  "checked the booking record and the vendor contacts; "
-                           "the supply partner has no escalation email on record",
-            "not_fetched": "NOT retrieved on this run — a gap on our side, NOT "
-                           "evidence the supply partner lacks one; do not state "
-                           "the escalation email is blank or missing",
-        }.get(_src, "")
+    # The SP escalation email is NOT shown to the model, by request. It is a
+    # contact address, not analysis, and feeding it (or a status derived from
+    # it) let the model write findings about whether the SP "could be emailed" —
+    # statements the RCA reader has no way to act on. All escalation-email keys
+    # are dropped here so nothing about it can reach generated RCA text; the
+    # value still flows to the UI's own data (client) independently of this.
+    for _k in ("escalationEmail", "escalationEmailSource", "escalationType",
+               "escalation_email_status"):
+        out.pop(_k, None)
     return out
 
 

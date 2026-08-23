@@ -63,3 +63,12 @@ def test_changing_raised_with_sp_on_a_legacy_draft_keeps_its_records(page):
     assert got["records"] == ["KEEP-ME-SP"], \
         f"the legacy SP records were lost when Raised with SP changed: {got}"
     assert got["raised"] == "Yes", f"the raised value was not written: {got}"
+
+
+def test_the_booking_details_has_no_escalation_email_row(page):
+    """Escalation email was removed from the Booking details field by request.
+    Driven as an absence in the rendered DOM (not a source grep) so a build that
+    brings the row back fails here."""
+    n = page.evaluate("""() => [...document.querySelectorAll('#review-col .detail-row .k')]
+        .filter(k => k.textContent.trim() === 'Escalation email').length""")
+    assert n == 0, "the Escalation email row is still rendered in Booking details"

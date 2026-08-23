@@ -1,0 +1,20 @@
+[
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "resolution: the model's resolution is projected into the draft again instead of blank",
+    "find": "        \"resolution\":         \"\",",
+    "replace": "        \"resolution\":         _clean(rca.get(\"resolution\")),"
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "escalation email: the address is handed to the model again (only the source enum is dropped)",
+    "find": "    for _k in (\"escalationEmail\", \"escalationEmailSource\", \"escalationType\",",
+    "replace": "    for _k in (\"escalationEmailSource\","
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "policy-miss guardrail: the rule no longer requires naming the DSS/SOP line it broke",
+    "find": "name the specific DSS needle line",
+    "replace": "note it felt off"
+  }
+]

@@ -291,9 +291,12 @@ def test_goodwill_paid_afterwards_does_not_close_it():
 def test_the_prompt_shows_the_reference_shapes_with_the_row_that_failed():
     out = _assembled()
     assert "A REFERENCE, NOT A DESCRIPTION" in out
-    assert "booking record — escalationEmail field is empty" in out, \
-        "the NO example is the row from the card; a rule without its own " \
-        "counter-example is the one that gets re-broken"
+    # The escalationEmail counter-examples were removed with that field (it is no
+    # longer shown to the model); the rule still carries a NO example so it keeps
+    # its own counter-example.
+    assert "the chat transcript" in out, \
+        "the NO example is gone; a rule without its own counter-example is the " \
+        "one that gets re-broken"
 
 
 def test_prose_that_merely_contains_a_booking_id_is_still_prose():

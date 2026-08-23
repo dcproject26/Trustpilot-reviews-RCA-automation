@@ -109,39 +109,39 @@ def test_the_resolver_is_a_noop_on_a_non_dict():
     resolve_sp_escalation_email("not a booking", [_PRESENT])
 
 
-# ── the model-facing render: not_fetched must not read as "the SP has none" ──
+# ── the model-facing render: the escalation email is NOT shown to the model ──
+#
+# By request, the SP escalation email is no longer fed to the RCA model at all.
+# It is a contact address, not analysis, and feeding it (or a status derived
+# from it) let the model write findings about whether the SP "could be emailed"
+# that a reader has no way to act on. _readable_booking drops every escalation-
+# email key so nothing about it can reach generated RCA text. resolve_sp_
+# escalation_email above still sets the value for the UI's own data; the two
+# paths are independent.
 
 from server.prompts import _readable_booking
 
 
-def test_not_fetched_becomes_a_phrase_that_forbids_the_blank_claim():
+def test_no_escalation_email_key_reaches_the_model():
+    out = _readable_booking({"id": "1", "escalationEmail": "esc@vendor.com",
+                             "escalationType": "vendor",
+                             "escalationEmailSource": "vendor_escalations"})
+    for k in ("escalationEmail", "escalationType", "escalationEmailSource",
+              "escalation_email_status"):
+        assert k not in out, f"{k} was handed to the model"
+
+
+def test_a_not_fetched_source_produces_no_status_for_the_model():
+    # The old build turned not_fetched into a phrase for the model; now the whole
+    # subject is withheld, so there is nothing for the model to misread as "the
+    # SP has none".
     out = _readable_booking({"id": "1", "escalationEmail": "",
                              "escalationEmailSource": "not_fetched"})
-    # The raw enum is not handed to the model.
-    assert "escalationEmailSource" not in out
-    status = out["escalation_email_status"].lower()
-    assert "not retrieved" in status
-    # It explicitly tells the model this is our gap, not a fact about the SP.
-    assert "not" in status and "evidence" in status
-
-
-def test_none_found_says_the_sp_genuinely_has_none():
-    out = _readable_booking({"id": "1", "escalationEmail": "",
-                             "escalationEmailSource": "none_found"})
-    assert "escalationEmailSource" not in out
-    assert "no escalation email" in out["escalation_email_status"].lower()
-
-
-def test_a_present_address_is_left_alone_and_gets_no_status():
-    out = _readable_booking({"id": "1", "escalationEmail": "esc@vendor.com",
-                             "escalationEmailSource": "vendor_escalations"})
-    assert out["escalationEmail"] == "esc@vendor.com"
     assert "escalation_email_status" not in out
     assert "escalationEmailSource" not in out
 
 
-def test_a_booking_without_the_source_key_is_untouched():
-    # Backward compatibility: drafts made before the resolver ran carry no
-    # source, and must not sprout a status that claims we looked.
-    out = _readable_booking({"id": "1", "escalationEmail": ""})
-    assert "escalation_email_status" not in out
+def test_other_booking_fields_are_left_alone():
+    out = _readable_booking({"id": "1", "experience": "Sunset cruise"})
+    assert out["experience"] == "Sunset cruise"
+    assert out["id"] == "1"
