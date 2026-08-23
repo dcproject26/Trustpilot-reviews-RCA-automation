@@ -1,0 +1,20 @@
+[
+  {
+    "file": "client/index.html",
+    "name": "action field edit no longer persists on blur — the auto-save folks rely on is gone",
+    "find": "      a[field] = el.textContent.trim();\n      await persistActions();",
+    "replace": "      a[field] = el.textContent.trim();"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the action remove splices nothing, so the row never leaves",
+    "find": "      rca.actionsTaken[state.actionTab].splice(idx, 1);",
+    "replace": "      rca.actionsTaken[state.actionTab].splice(idx, 0);"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the blur handler binds to no editable, so no action field ever saves",
+    "find": "  col.querySelectorAll('.act-row [data-af]').forEach(el => {",
+    "replace": "  col.querySelectorAll('.act-row [data-none]').forEach(el => {"
+  }
+]

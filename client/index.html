@@ -6728,21 +6728,18 @@ function renderRcaCol() {
                   ? `${label} is flagged on this card, but the DSS guidelines prescribe no step to raise with them for the routed scenario.`
                   : `Nothing is flagged against ${label}, so nothing was raised with them. A row appears only where the guidelines say it must be raised AND a flag names the team.`;
               })()}</div>`
-            : actions.map((a, i) => `
-                <div class="action-item" data-action-idx="${i}">
-                  <button class="action-delete-btn" data-action-delete="${i}" title="Remove">×</button>
-                  <div class="action-item-head">
-                    <div class="action-raised-with">
-                      <span class="action-edit" contenteditable="true" spellcheck="false">${a.with}</span>
-                      <span class="action-sep"> · </span>
-                      <span class="action-edit handle" contenteditable="true" spellcheck="false">${a.handle}</span>
-                    </div>
-                    <div class="action-time"><span class="action-edit" contenteditable="true" spellcheck="false">${a.time}</span></div>
+            : `<div class="slack-rows action-rows">${actions.map((a, i) => `
+                <div class="spost-row act-row" data-action-idx="${i}">
+                  <div class="spost-head">
+                    <span class="spost-label">
+                      <span class="action-edit" data-af="with" contenteditable="true" spellcheck="false">${esc(a.with)}</span><span class="action-sep"> · </span><span class="action-edit handle" data-af="handle" contenteditable="true" spellcheck="false">${esc(a.handle)}</span>
+                    </span>
+                    <span class="spost-note action-time"><span class="action-edit" data-af="time" contenteditable="true" spellcheck="false">${esc(a.time)}</span></span>
+                    <span class="spost-acts"><button class="spost-drop" data-action-delete="${i}" title="Remove">remove</button></span>
                   </div>
-                  <div class="action-context"><span class="action-edit" contenteditable="true" spellcheck="false">${a.context}</span></div>
-                  <a class="action-where action-edit" contenteditable="true" spellcheck="false" href="#">${a.where}</a>
-                </div>
-              `).join('')}
+                  <div class="spost-body" data-af="context" contenteditable="true" spellcheck="false">${esc(a.context)}</div>
+                  <a class="action-where action-edit" data-af="where" contenteditable="true" spellcheck="false" href="#">${esc(a.where)}</a>
+                </div>`).join('')}</div>`}
           <button class="action-add-btn" data-add-action>+ Add action</button>
         </div>
       </div>
@@ -8160,19 +8157,22 @@ function renderRcaCol() {
     });
   });
 
-  // Inline edits on action fields → update model + persist on blur
-  col.querySelectorAll('.action-item .action-edit').forEach(el => {
+  // Inline edits on action fields → update model + persist on blur. Each
+  // editable carries data-af naming the field it writes, so one handler covers
+  // every row in the Slack one-row-per-section layout (handoff §slack, applied
+  // to Actions taken) — no per-class field guessing.
+  // Client-side only; no unit harness here — driven by the Playwright add/edit
+  // tests. (CLAUDE.md rule 2.)
+  col.querySelectorAll('.act-row [data-af]').forEach(el => {
     el.addEventListener('blur', async () => {
-      const item = el.closest('.action-item');
-      if (!item) return;
-      const idx = parseInt(item.dataset.actionIdx);
+      const row = el.closest('.act-row');
+      if (!row) return;
+      const idx = parseInt(row.dataset.actionIdx);
       const a = (rca.actionsTaken[state.actionTab] || [])[idx];
       if (!a) return;
-      if (el.classList.contains('action-where'))      a.where   = el.textContent.trim();
-      else if (el.classList.contains('handle'))       a.handle  = el.textContent.trim();
-      else if (el.closest('.action-context'))         a.context = el.textContent.trim();
-      else if (el.closest('.action-time'))            a.time    = el.textContent.trim();
-      else                                            a.with    = el.textContent.trim();
+      const field = el.dataset.af;
+      if (!field) return;
+      a[field] = el.textContent.trim();
       await persistActions();
     });
   });

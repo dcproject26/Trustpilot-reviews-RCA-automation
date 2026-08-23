@@ -345,6 +345,26 @@ def test_an_empty_section_is_not_read_back_as_a_deselection(page):
     assert off == [], f"sections were switched off by a reload: {off}"
 
 
+def test_an_action_field_edit_is_saved(page):
+    """Actions taken, rebuilt to the Slack one-row-per-section layout: folks
+    edit these by hand, so a row-field edit must auto-save on blur — the same
+    guarantee as the Slack rows. Each editable carries data-af; the blur handler
+    writes that field and persists via actions_taken."""
+    _rca_tab(page, 'actions')
+    page.click('[data-add-action]')           # guarantee a row to edit
+    page.wait_for_timeout(300)
+    MARK = "ACTION-CONTEXT-EDIT-77"
+    page.evaluate("""(m) => {
+        const el = document.querySelector('.act-row [data-af="context"]');
+        el.focus();
+        el.textContent = m;
+        el.dispatchEvent(new FocusEvent('blur'));
+    }""", MARK)
+    page.wait_for_timeout(500)
+    saved = json.dumps(_draft(page)["actions_taken"] or {})
+    assert MARK in saved, "the action field edit did not auto-save on blur"
+
+
 def test_a_hand_edit_in_a_row_is_saved_and_is_what_gets_sent(page):
     """Auto-save is load-bearing here — folks edit these bodies by hand every
     day. Edit a section's body, and it must (a) persist on blur and (b) be what

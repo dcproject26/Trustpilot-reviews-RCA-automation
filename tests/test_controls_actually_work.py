@@ -102,6 +102,9 @@ ADDS = [
     ("[data-flag-add]", "#rca-flags-section .chk-row.chk-flag"),
     ("[data-aoi-add]", ".rca-point"),
     ("[data-sp-rec-add]", ".sp-frame"),
+    # Actions taken, rebuilt to the Slack one-row-per-section layout: each entry
+    # is a .act-row, and + Add action must produce one.
+    ("[data-add-action]", ".act-row"),
 ]
 
 
@@ -119,6 +122,21 @@ def test_every_add_button_produces_a_row(page, btn, row):
     after = page.evaluate("(s) => document.querySelectorAll(s).length", row)
     assert after == before + 1, \
         f"{btn} left the row count at {after} (was {before})"
+
+
+def test_removing_an_action_takes_its_row_out(page):
+    """The action row's 'remove' (the Slack-row leave-out control's sibling)
+    must delete the row, not just hide it. Add one first so the count move is
+    unambiguous; the control is hover-gated, so drive its handler directly."""
+    _reveal(page, "[data-add-action]")
+    page.click("[data-add-action]")
+    page.wait_for_timeout(400)
+    before = page.evaluate("() => document.querySelectorAll('.act-row').length")
+    assert before >= 1, "add-action produced no row to remove"
+    page.evaluate("() => document.querySelector('.act-row [data-action-delete]').click()")
+    page.wait_for_timeout(400)
+    after = page.evaluate("() => document.querySelectorAll('.act-row').length")
+    assert after == before - 1, f"remove left {after} rows (was {before})"
 
 
 def test_the_contact_count_matches_the_contacts_under_it(page):
@@ -574,6 +592,7 @@ DRIVEN = {
     "data-slack-drop",         # test_rca_edits_and_slack_post::…leaving_a_section_out…
     "data-slack-restore",      # …::…putting_a_section_back… / test_the_selection_survives_a_reload
     "data-slack-sec-body",     # …::test_a_hand_edit_in_a_row_is_saved…
+    "data-af",                 # test_rca_edits_and_slack_post::test_an_action_field_edit_is_saved
     "data-aoi-idx",            # …::test_editing_a_pointer_keeps_the_finding…
     "data-flag-idx",           # test_rca_edits_and_slack_post
     "data-flag-del",           # same
@@ -599,6 +618,7 @@ DRIVEN = {
     "data-fix-del",            # test_fix_lines_can_be_removed
     "data-sp-rec-add",         # …::test_a_record_added_to_a_draft…
     "data-add-action",         # test_rca_ui_rendered::…renders_under_its_team
+    "data-action-delete",      # this file, test_removing_an_action_takes_its_row_out
     "data-scenario-revert",    # test_scenario_override_api
     "data-tab",                # …::test_an_empty_tab_says_which_kind_of_empty…
     "data-rca-tab",            # test_rca_tabs::test_clicking_a_tab_shows_its_panel…
@@ -620,6 +640,10 @@ DRIVEN = {
 NOT_CONTROLS = {
     "data-scenario-regen-status", "data-build", "data-stale", "data-id",
     "data-ph", "data-flag-field", "data-chk-section",
+    # The row index stamped on each action row; the remove and the field-blur
+    # handlers read it to find which action they act on. A marker, not a thing
+    # to click — the remove control is data-action-delete, driven above.
+    "data-action-idx",
     # A provenance marker span, not a control: it carries the source in its
     # title so a reader who doubts a point can check it.
     "data-aoi-src",
