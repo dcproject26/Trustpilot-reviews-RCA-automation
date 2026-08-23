@@ -60,6 +60,17 @@ TABS = {
 
 NO_DSS_MESSAGE = "No DSS available, Please check with your lead/escalation team."
 
+
+def _sel_col(tab: str) -> str:
+    """The selector column THIS tab scores on. Defaults to 'scenarios' so a tab
+    outside the fixed four - the unified export carries an 'other' tab - does
+    not KeyError. It used to: once the checked-in export (which has 'other')
+    merged in, get_recommendation raised on TABS['other'], the pipeline swallowed
+    it, and DSS returned nothing for EVERY review. Ran-vs-not-run, on the tab
+    key itself."""
+    return TABS.get(tab, "scenarios")
+
+
 # Returned by _route_type when the sheet has no tab for this L2 at all.
 NO_TAB = "__no_tab__"
 
@@ -337,27 +348,24 @@ async def get_recommendation(
     bk = booking or {}
     is_partnered = _yn(bk.get("isPartnered"))
     amount = bk.get("amountUSD")
-    value_greater = None if amount is None else ("yes" if float(amount) > 125 else "no")
 
-    dss_type, type_reason = _route_type(l1, l2, review_text)
-    if dss_type == NO_TAB:
-        log.info(f"[dss] no tab for l2={l2!r} (review_id={review_id}): {type_reason}")
-        return {"match_score": 0, "dss_type": "", "type_reason": type_reason,
-                "out_of_scope": True, "fallback": NO_DSS_MESSAGE,
-                "filters": {"for_social_media": "Yes",
-                            "is_partnered": _yn((booking or {}).get("isPartnered")) or "unknown"}}
-    candidates = ([(dss_type, r) for r in tabs.get(dss_type, [])] if dss_type
-                  else [(t, r) for t, rs in tabs.items() for r in rs])
+    # Issue type is decided from the REVIEW by the AI selector below, NOT routed
+    # from L2. Routing on L2 meant a wrong or missing L2 blanked DSS before we
+    # ever read the review — the exact cascade seen on a mis-classified booking
+    # (L2=None -> out_of_scope -> no DSS). _route_type still runs, but only for
+    # the type_reason context/logging; it no longer gates anything, and the
+    # candidate set is ALL rows across ALL tabs.
+    _routed_type, type_reason = _route_type(l1, l2, review_text)
+    candidates = [(t, r) for t, rs in tabs.items() for r in rs]
     # The new unified view goes in FRONT, and any live-sheet row for the same
     # scenario comes out. Not appended: two rows for one scenario would let
-    # the scorer pick either, so the "new one wins" instruction would hold
+    # the selector pick either, so the "new one wins" instruction would hold
     # about half the time and look like it held always.
     #
     # Matched on a normalised selector, because the same scenario is written
     # differently in different exports - "HO Error" against "Ho Error" is the
     # difference between replacing a row and silently keeping both.
-    _new = [(t, r) for t, rs in _UNIFIED.items() for r in rs
-            if not dss_type or t == dss_type]
+    _new = [(t, r) for t, rs in _UNIFIED.items() for r in rs]
     if _new:
         _superseded = {_selector_key(r.get("scenarios")) for _, r in _new}
         _superseded.discard("")
@@ -373,44 +381,84 @@ async def get_recommendation(
     # Escalations desk's variant of the same scenario).
     filtered = []
     for tab, row in candidates:
-        if _is_escalation_row(row, TABS[tab]):
+        if _is_escalation_row(row, _sel_col(tab)):
             continue
         if not _row_passes(row, "for_social_media", "yes"):
             continue
         if tab == "cancelation" and not _row_passes(row, "is_partenered", is_partnered):
             continue
-        if tab in ("cancelation", "delay_fulfilment") \
-                and not _row_passes(row, "is_value_greater", value_greater):
-            continue
+        # value > 125 is NO LONGER a hard gate (removed by request): booking
+        # value is often missing, so gating on it silently excluded valid rows.
+        # The value is passed to the selector as context instead, and a
+        # value-dependent judgement is surfaced to the associate (value_note).
         filtered.append((tab, row))
-
-    # Selector choice - the one soft step. Score the selector column (plus
-    # before/after-visit wording for MP rows) against L2 + review keywords.
-    review_kw = _keywords(f"{l2 or ''} {review_text or ''}")
-    best, best_score = None, 0
-    for tab, row in filtered:
-        selector = row.get(TABS[tab], "")
-        score = len(review_kw & _keywords(selector))
-        if l2 and l2.lower() in selector.lower():
-            score += 3
-        if score > best_score:
-            best, best_score = (tab, row), score
 
     filters_applied = {
         "for_social_media": "Yes",
         "is_partnered":     is_partnered or "unknown",
-        "value_greater_125": value_greater or "unknown",
         "amount_usd":       amount,
     }
+    # Value is context for the associate now, not a gate.
+    value_note = ("" if amount is None else
+                  f"Booking value ${amount} USD — where a resolution depends on "
+                  f"the value threshold, that judgement is yours to make.")
+
+    def _keyword_best(rows):
+        # The old deterministic selector, kept as the FALLBACK when the AI
+        # selector cannot run (no model / model error). Keyword overlap of the
+        # selector column against L2 + review text.
+        review_kw = _keywords(f"{l2 or ''} {review_text or ''}")
+        b, bs = None, 0
+        for tb, rw in rows:
+            sc = len(review_kw & _keywords(rw.get(_sel_col(tb), "")))
+            if l2 and l2.lower() in rw.get(_sel_col(tb), "").lower():
+                sc += 3
+            if sc > bs:
+                b, bs = (tb, rw), sc
+        return b, bs
+
+    # Selector: AI reads the review and picks the scenario that MEANS the same
+    # thing, over all filtered rows (issue type is decided here, not from L2).
+    # Keyword match is the fallback on a model outage so a transient failure
+    # degrades to the old behaviour, never to a false "no DSS available".
+    best, best_score, selector, sel_reason = None, 0, "ai", ""
+    if filtered:
+        # The selector picks by SCENARIO meaning; the full prescription can be a
+        # long multi-step block and there can be >100 candidates (the unified
+        # export alone is 117 rows), so an untruncated payload is an unbounded
+        # prompt. Send the scenario in full and only a short hint of the action -
+        # enough to disambiguate two similar scenario names - and attach the full
+        # action locally from the chosen index after selection.
+        cand_payload = [{"i": i, "scenario": rw.get(_sel_col(tb), ""),
+                         "action": (rw.get("dss", "") or "")[:160]}
+                        for i, (tb, rw) in enumerate(filtered)]
+        try:
+            from server.services import claude
+            choice = await claude.select_dss_scenario(
+                situation=(review_text or ""), candidates=cand_payload,
+                value_usd=amount, is_partnered=is_partnered,
+                experience=bk.get("experience"))
+            sel_reason = choice.get("reason", "")
+            idx = choice.get("index")
+            if isinstance(idx, int) and 0 <= idx < len(filtered):
+                best, best_score, selector = filtered[idx], 5, "ai"
+            else:
+                # AI ran and judged none of the scenarios fits — a real
+                # no-match, distinct from the model failure handled below.
+                selector = "ai-none"
+        except Exception as e:
+            log.warning(f"[dss] AI selection unavailable "
+                        f"({type(e).__name__}: {e}); using keyword fallback "
+                        f"(review_id={review_id})")
+            selector = "keyword-fallback"
+            best, best_score = _keyword_best(filtered)
 
     if not best:
-        # "No tab covers this L2" is a different answer from "the tab was
-        # searched and nothing matched", and only the second is worth a
-        # warning. The first is the sheet's scope, correctly reported.
-        log.warning(f"[dss] no match: type={dss_type!r} l1={l1!r} "
-                    f"l2={l2!r} (review_id={review_id})")
-        return {"match_score": 0, "dss_type": dss_type,
-                "type_reason": type_reason, "filters": filters_applied,
+        log.info(f"[dss] no scenario matched (selector={selector}) "
+                 f"l1={l1!r} l2={l2!r} (review_id={review_id})")
+        return {"match_score": 0, "dss_type": "", "type_reason": type_reason,
+                "filters": filters_applied, "selector": selector,
+                "selector_reason": sel_reason, "value_note": value_note,
                 "fallback": NO_DSS_MESSAGE}
 
     tab, row = best
@@ -421,9 +469,12 @@ async def get_recommendation(
         "coverage":         "CE/RO",
         "dss_type":         tab,
         "type_reason":      type_reason,
-        "matched_selector": row.get(TABS[tab], ""),
+        "matched_selector": row.get(_sel_col(tab), ""),
         "when":             row.get("when_did_the_guest_reached_out", ""),
         "filters":          filters_applied,
         "matched_row":      row,
         "match_score":      best_score,
+        "selector":         selector,
+        "selector_reason":  sel_reason,
+        "value_note":       value_note,
     }

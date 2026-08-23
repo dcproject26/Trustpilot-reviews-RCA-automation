@@ -3330,3 +3330,52 @@ Rules:
 
 REPLY:
 {text}"""
+
+
+# ─── DSS scenario selection (AI, replaces the keyword selector) ─────────────
+def dss_scenario_select_prompt(situation: str, candidates: list,
+                               value_usd=None, is_partnered=None,
+                               experience: str = "") -> str:
+    """Ask the model to pick the DSS scenario row that matches the guest's
+    situation — semantically, not by keyword overlap — or none.
+
+    `candidates` is [{"i": int, "scenario": str, "action": str}, ...], already
+    hard-filtered (public review, CE/RO, partnered where it applies). The model
+    chooses ONLY from these; it never invents a scenario or a prescription. The
+    guest's wording will not match the sheet's wording verbatim — that is the
+    whole reason this replaced the keyword match — so judge by what actually
+    happened, not shared words.
+    """
+    rows = "\n".join(
+        f'[{c["i"]}] SCENARIO: {c["scenario"]}\n     PRESCRIBES: {c.get("action","")}'
+        for c in candidates)
+    ctx = []
+    if experience:              ctx.append(f"Experience: {experience}")
+    if value_usd is not None:   ctx.append(f"Booking value: ${value_usd} USD")
+    if is_partnered:            ctx.append(f"Partnered vendor: {is_partnered}")
+    ctx_block = ("\nContext:\n  " + "\n  ".join(ctx)) if ctx else ""
+    return f"""You are matching a guest's situation to the correct DSS scenario.
+
+Below is the guest's situation, then a NUMBERED list of candidate scenarios from
+the decision sheet. Pick the ONE scenario whose meaning best fits what happened
+to this guest. The guest will not use the sheet's exact words (e.g. "I had a
+medical emergency" matches a "medical grounds / bereavement" scenario) — match
+on MEANING, not shared keywords.
+
+RULES:
+- Choose ONLY a number from the list. Do not invent a scenario or a resolution.
+- If NONE of them genuinely fits, return index -1. Do not force a weak match.
+- Booking value may matter for some scenarios; use it as context, but a
+  value-threshold judgement is the associate's call — do not exclude a scenario
+  just on value.
+- Output STRICT JSON, nothing else:
+  {{"index": <number or -1>, "confidence": "high"|"medium"|"low", "reason": "<one line>"}}
+
+GUEST SITUATION:
+{situation}
+{ctx_block}
+
+CANDIDATE SCENARIOS:
+{rows}
+
+JSON:"""

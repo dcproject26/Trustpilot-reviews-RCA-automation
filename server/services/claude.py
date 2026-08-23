@@ -361,6 +361,38 @@ async def extract_signals(review_text: str, review_id: str = None) -> dict:
         return {}
 
 
+# ─── DSS scenario selection (AI, replaces the keyword selector) ─────────────
+async def select_dss_scenario(situation: str, candidates: list,
+                              value_usd=None, is_partnered=None,
+                              experience: str = "") -> dict:
+    """Pick the DSS scenario row that best matches the guest's situation.
+
+    Returns {"index": int, "confidence": str, "reason": str}; index is -1 when
+    none genuinely fits. RAISES on no-model / model error / unparseable output,
+    so dss.get_recommendation can fall back to the keyword selector rather than
+    silently returning nothing (a model outage must degrade to the old path, not
+    to a false "no DSS available").
+    """
+    if not candidates:
+        return {"index": -1, "confidence": "high", "reason": "no candidate scenarios"}
+    if not is_live("anthropic"):
+        raise RuntimeError("anthropic not live — DSS uses the keyword fallback")
+    raw = await _call(
+        prompts.dss_scenario_select_prompt(
+            situation, candidates, value_usd, is_partnered, experience),
+        max_tokens=400)
+    obj = _extract_json_object(raw)
+    if not isinstance(obj, dict) or "index" not in obj:
+        raise ValueError(f"DSS selection returned no usable JSON: {raw[:120]!r}")
+    try:
+        idx = int(obj.get("index"))
+    except Exception:
+        raise ValueError(f"DSS selection index is not an int: {obj.get('index')!r}")
+    return {"index": idx,
+            "confidence": str(obj.get("confidence") or "").lower(),
+            "reason": str(obj.get("reason") or "").strip()}
+
+
 # ─── 3. Stated Issue ────────────────────────────────────────────────────────
 async def stated_issue(review_text: str, review_id: str = None) -> str:
     if not is_live("anthropic"):

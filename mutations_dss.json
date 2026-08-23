@@ -1,0 +1,62 @@
+[
+  {
+    "file": "server/services/dss.py",
+    "name": "_sel_col loses its default, so the unified 'other' tab KeyErrors again and DSS silently returns nothing",
+    "find": "    return TABS.get(tab, \"scenarios\")",
+    "replace": "    return TABS[tab]"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "cancelation partnered hard filter is dropped, so a partnered-only row reaches an unpartnered booking",
+    "find": "        if tab == \"cancelation\" and not _row_passes(row, \"is_partenered\", is_partnered):",
+    "replace": "        if False and not _row_passes(row, \"is_partenered\", is_partnered):"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "for_social_media hard filter is dropped, so the NON-social row can win",
+    "find": "        if not _row_passes(row, \"for_social_media\", \"yes\"):",
+    "replace": "        if False:"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "AI index range check is gone, so an out-of-range index (e.g. -1) picks a row instead of no-match",
+    "find": "            if isinstance(idx, int) and 0 <= idx < len(filtered):",
+    "replace": "            if isinstance(idx, int):"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "AI 'none fits' is mislabelled as a real pick, erasing the no-match vs picked distinction",
+    "find": "                selector = \"ai-none\"",
+    "replace": "                selector = \"ai\""
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "model outage no longer falls back to the keyword scorer, so a transient failure becomes a false 'no DSS'",
+    "find": "            selector = \"keyword-fallback\"\n            best, best_score = _keyword_best(filtered)",
+    "replace": "            selector = \"keyword-fallback\"\n            best, best_score = None, 0"
+  },
+  {
+    "file": "server/services/claude.py",
+    "name": "select_dss_scenario no longer raises when the model is offline, so DSS cannot tell to fall back",
+    "find": "    if not is_live(\"anthropic\"):\n        raise RuntimeError(\"anthropic not live — DSS uses the keyword fallback\")",
+    "replace": "    if False:\n        raise RuntimeError(\"anthropic not live — DSS uses the keyword fallback\")"
+  },
+  {
+    "file": "server/services/claude.py",
+    "name": "empty candidate list no longer short-circuits, so the model is called with nothing to choose from",
+    "find": "    if not candidates:\n        return {\"index\": -1, \"confidence\": \"high\", \"reason\": \"no candidate scenarios\"}",
+    "replace": "    if False:\n        return {\"index\": -1, \"confidence\": \"high\", \"reason\": \"no candidate scenarios\"}"
+  },
+  {
+    "file": "server/services/claude.py",
+    "name": "index is no longer coerced to int, so a string index slips through unvalidated",
+    "find": "        idx = int(obj.get(\"index\"))",
+    "replace": "        idx = obj.get(\"index\")"
+  },
+  {
+    "file": "server/services/claude.py",
+    "name": "confidence is no longer lower-cased, so callers comparing 'high' silently miss 'HIGH'",
+    "find": "            \"confidence\": str(obj.get(\"confidence\") or \"\").lower(),",
+    "replace": "            \"confidence\": str(obj.get(\"confidence\") or \"\"),"
+  }
+]

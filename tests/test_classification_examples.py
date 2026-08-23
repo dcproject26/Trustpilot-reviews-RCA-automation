@@ -134,3 +134,27 @@ def test_the_prompt_did_not_balloon():
     """Examples are worth prompt budget; an unbounded set is not. This is a
     tripwire, not a limit — if it fires, prune rather than raise it blindly."""
     assert len(PROMPT) < 70_000, len(PROMPT)
+
+
+# ── the scorecard's failed clusters are now taught (data-driven fix) ─────────
+
+def test_the_top_confusion_clusters_have_worked_examples():
+    """The 500-label scorecard's biggest L2 confusions — Guide Behaviour
+    mis-filed as Venue facility, SP Timing vs Guide-quality, Ops/Ticket and
+    Meeting Point mix-ups — were fixed by adding the missed reviews as worked
+    examples (not by inventing rules). Guard that each cluster is represented,
+    so a regression that strips them out fails here rather than silently
+    regressing accuracy.
+    """
+    pairs = {(e["l1"], e["l2"]) for e in EX}
+    required = [
+        ("Supply Partner Issue", "Guide Behaviour Issues"),
+        ("Supply Partner Issue", "Timing Issues"),
+        ("Operations Issue", "Ticket Issues"),
+        ("Operations Issue", "Meeting Point Issues"),
+    ]
+    missing = [p for p in required if p not in pairs]
+    assert not missing, f"failed-cluster pairs have no worked example: {missing}"
+    # and the biggest miss cluster (Guide Behaviour, 9 misses) carries several
+    gb = sum(1 for e in EX if (e["l1"], e["l2"]) == ("Supply Partner Issue", "Guide Behaviour Issues"))
+    assert gb >= 5, f"Guide Behaviour has only {gb} examples; the miss cluster needs more"

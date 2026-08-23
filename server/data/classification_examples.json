@@ -1,436 +1,597 @@
 [
- {
-  "review": "Incorrect meeting point led to missed experience.",
-  "l1": "Operations Issue",
-  "l2": "Meeting Point Issues",
-  "sub_theme": "A. Meeting Point Instruction Mismatches",
-  "was_a_miss": false
- },
- {
-  "review": "Couldn't find the tour group due to name and logo changes.",
-  "l1": "Operations Issue",
-  "l2": "Meeting Point Issues",
-  "sub_theme": "C. Guide or Host Issues",
-  "was_a_miss": true
- },
- {
-  "review": "No guidance or support for return transport after the show.",
-  "l1": "Operations Issue",
-  "l2": "Meeting Point Issues",
-  "sub_theme": "C. Guide or Host Issues",
-  "was_a_miss": true
- },
- {
-  "review": "Couldn't find meeting point and lost tickets.",
-  "l1": "Operations Issue",
-  "l2": "Meeting Point Issues",
-  "sub_theme": "D. Meeting Point Instructions Unclear",
-  "was_a_miss": false
- },
- {
-  "review": "Unclear pickup location disrupted entire day's plans.",
-  "l1": "Operations Issue",
-  "l2": "Meeting Point Issues",
-  "sub_theme": "D. Meeting Point Instructions Unclear",
-  "was_a_miss": false
- },
- {
-  "review": "Couldn't board due to uncommunicated change in boarding point.",
-  "l1": "Operations Issue",
-  "l2": "Meeting Point Issues",
-  "sub_theme": "E. Conflicting or Incorrect Timing Information",
-  "was_a_miss": true
- },
- {
-  "review": "Difficulties finding the shuttle and poor tour experience.",
-  "l1": "Operations Issue",
-  "l2": "Meeting Point Issues",
-  "sub_theme": "F. Any Other Meeting Point Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Long queue and no guide despite expectations.",
-  "l1": "Operations Issue",
-  "l2": "Meeting Point Issues",
-  "sub_theme": "G. Irrelevant",
-  "was_a_miss": true
- },
- {
-  "review": "QR code missing, had to queue for tickets.",
-  "l1": "Operations Issue",
-  "l2": "Ticket Issues",
-  "sub_theme": "A. Ticket Invalid / Not Working",
-  "was_a_miss": true
- },
- {
-  "review": "Paid twice for tickets and requested a refund.",
-  "l1": "Operations Issue",
-  "l2": "Ticket Issues",
-  "sub_theme": "A. Ticket Invalid / Not Working",
-  "was_a_miss": true
- },
- {
-  "review": "Unable to access the visit due to ticket issues.",
-  "l1": "Operations Issue",
-  "l2": "Ticket Issues",
-  "sub_theme": "B. Ticket Not Received",
-  "was_a_miss": true
- },
- {
-  "review": "Short tour and delayed ticket delivery for the spa.",
-  "l1": "Operations Issue",
-  "l2": "Ticket Issues",
-  "sub_theme": "B. Ticket Not Received",
-  "was_a_miss": true
- },
- {
-  "review": "Tickets were delayed and not accepted at the venue.",
-  "l1": "Operations Issue",
-  "l2": "Ticket Issues",
-  "sub_theme": "C. Ticket Delayed",
-  "was_a_miss": true
- },
- {
-  "review": "Ticket arrived 2 hours late.",
-  "l1": "Operations Issue",
-  "l2": "Ticket Issues",
-  "sub_theme": "C. Ticket Delayed",
-  "was_a_miss": false
- },
- {
-  "review": "Tickets were not honored, feels like theft.",
-  "l1": "Operations Issue",
-  "l2": "Ticket Issues",
-  "sub_theme": "D. Wrong Ticket (Date / Time / Variant)",
-  "was_a_miss": true
- },
- {
-  "review": "Conflicting times caused us to miss the boat.",
-  "l1": "Operations Issue",
-  "l2": "Ticket Issues",
-  "sub_theme": "D. Wrong Ticket (Date / Time / Variant)",
-  "was_a_miss": true
- },
- {
-  "review": "Overbooked experience led to lost tickets and missed visit.",
-  "l1": "Operations Issue",
-  "l2": "Ticket Issues",
-  "sub_theme": "E. Alts related",
-  "was_a_miss": true
- },
- {
-  "review": "Frustrating ticketing system with poor usability.",
-  "l1": "Operations Issue",
-  "l2": "Ticket Issues",
-  "sub_theme": "F. Ticket Instructions / Information Unclear",
-  "was_a_miss": false
- },
- {
-  "review": "Paid for shuttle but had to walk instead.",
-  "l1": "Operations Issue",
-  "l2": "Ticket Issues",
-  "sub_theme": "G. Any Other Ticket Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Booking number was not found on the ticket.",
-  "l1": "Operations Issue",
-  "l2": "Ticket Issues",
-  "sub_theme": "G. Any Other Ticket Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Long queues and audio guide not received.",
-  "l1": "Operations Issue",
-  "l2": "Ticket Issues",
-  "sub_theme": "H. Irrelevant",
-  "was_a_miss": true
- },
- {
-  "review": "Audio guide QR code missing and Wi-Fi not working.",
-  "l1": "Product Issue",
-  "l2": "Audio Guide Issues",
-  "sub_theme": "A. AG Not Sent / Not Received",
-  "was_a_miss": true
- },
- {
-  "review": "Audio guide not received and unavailable in French.",
-  "l1": "Product Issue",
-  "l2": "Audio Guide Issues",
-  "sub_theme": "A. AG Not Sent / Not Received",
-  "was_a_miss": true
- },
- {
-  "review": "App and support unclear, audio access not provided.",
-  "l1": "Product Issue",
-  "l2": "Audio Guide Issues",
-  "sub_theme": "B. AG App / Technical Issues",
-  "was_a_miss": true
- },
- {
-  "review": "Complicated access to the digital guide and ticket release issues.",
-  "l1": "Product Issue",
-  "l2": "Audio Guide Issues",
-  "sub_theme": "B. AG App / Technical Issues",
-  "was_a_miss": true
- },
- {
-  "review": "No instructions received for using the audio guide.",
-  "l1": "Product Issue",
-  "l2": "Audio Guide Issues",
-  "sub_theme": "C. AG Redemption Instruction Issues",
-  "was_a_miss": false
- },
- {
-  "review": "Audio guide malfunctioned and lacked language options.",
-  "l1": "Product Issue",
-  "l2": "Audio Guide Issues",
-  "sub_theme": "D. AG Language Issues",
-  "was_a_miss": true
- },
- {
-  "review": "Audio guide was not available in German.",
-  "l1": "Product Issue",
-  "l2": "Audio Guide Issues",
-  "sub_theme": "D. AG Language Issues",
-  "was_a_miss": false
- },
- {
-  "review": "Audio guide issues affected the overall experience.",
-  "l1": "Product Issue",
-  "l2": "Audio Guide Issues",
-  "sub_theme": "E. AG Quality & Content Issues",
-  "was_a_miss": true
- },
- {
-  "review": "Audio guide malfunctioned and tour quality was poor.",
-  "l1": "Product Issue",
-  "l2": "Audio Guide Issues",
-  "sub_theme": "E. AG Quality & Content Issues",
-  "was_a_miss": true
- },
- {
-  "review": "Could not access the audio guide.",
-  "l1": "Product Issue",
-  "l2": "Audio Guide Issues",
-  "sub_theme": "F. Any Other Audio Guide Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Paid for audio guide but could not access it.",
-  "l1": "Product Issue",
-  "l2": "Audio Guide Issues",
-  "sub_theme": "F. Any Other Audio Guide Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Audio guide not functioning during the experience.",
-  "l1": "Product Issue",
-  "l2": "Audio Guide Issues",
-  "sub_theme": "G. Irrelevant",
-  "was_a_miss": true
- },
- {
-  "review": "Food quality was poor and caused illness.",
-  "l1": "Supply Partner Issue",
-  "l2": "Food & Catering",
-  "sub_theme": "G. Other Supply Partner Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Poor food quality for the high prices paid.",
-  "l1": "Supply Partner Issue",
-  "l2": "Food & Catering",
-  "sub_theme": "G. Other Supply Partner Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Staff was generally unfriendly and rude.",
-  "l1": "Supply Partner Issue",
-  "l2": "Guide Behaviour Issues",
-  "sub_theme": "C. Guide Behaviour Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Lost item on the boat, no effort to return it.",
-  "l1": "Supply Partner Issue",
-  "l2": "Guide Behaviour Issues",
-  "sub_theme": "C. Guide Behaviour Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Guide was dishonest about included meals and entry tickets.",
-  "l1": "Supply Partner Issue",
-  "l2": "Guide Behaviour Issues",
-  "sub_theme": "G. Other Supply Partner Issue",
-  "was_a_miss": true
- },
- {
-  "review": "The guide abandoned the group, and the cruise was not completed.",
-  "l1": "Supply Partner Issue",
-  "l2": "Guide Left / Abandoned Tour",
-  "sub_theme": "B. Guide Left Mid Tour",
-  "was_a_miss": false
- },
- {
-  "review": "The tour was canceled due to the guide's unavailability.",
-  "l1": "Supply Partner Issue",
-  "l2": "Guide No Show",
-  "sub_theme": "A. Guide No Show",
-  "was_a_miss": true
- },
- {
-  "review": "Guide did not show up for the tour.",
-  "l1": "Supply Partner Issue",
-  "l2": "Guide No Show",
-  "sub_theme": "A. Guide No Show",
-  "was_a_miss": false
- },
- {
-  "review": "Guide was unprofessional and provided incorrect timing information.",
-  "l1": "Supply Partner Issue",
-  "l2": "Guide providing irrelevant/inexperienced/not clear",
-  "sub_theme": "C. Guide Behaviour Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Guide was late, hard to understand, and unhelpful.",
-  "l1": "Supply Partner Issue",
-  "l2": "Guide providing irrelevant/inexperienced/not clear",
-  "sub_theme": "D. Guide Timing Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Guide was unhappy and provided limited information.",
-  "l1": "Supply Partner Issue",
-  "l2": "Guide providing irrelevant/inexperienced/not clear",
-  "sub_theme": "E. Guide Quality Issue",
-  "was_a_miss": true
- },
- {
-  "review": "The guide did not speak French, only Hebrew.",
-  "l1": "Supply Partner Issue",
-  "l2": "Guide providing irrelevant/inexperienced/not clear",
-  "sub_theme": "E. Guide Quality Issue",
-  "was_a_miss": false
- },
- {
-  "review": "Poor guiding experience with unhelpful guides.",
-  "l1": "Supply Partner Issue",
-  "l2": "Guide providing irrelevant/inexperienced/not clear",
-  "sub_theme": "G. Other Supply Partner Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Guide walked too fast, making it hard to keep up.",
-  "l1": "Supply Partner Issue",
-  "l2": "Guide providing irrelevant/inexperienced/not clear",
-  "sub_theme": "G. Other Supply Partner Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Poor view from the second row during the play.",
-  "l1": "Supply Partner Issue",
-  "l2": "Seating Issues",
-  "sub_theme": "G. Other Supply Partner Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Poor seating affected our view of the penguins.",
-  "l1": "Supply Partner Issue",
-  "l2": "Seating Issues",
-  "sub_theme": "G. Other Supply Partner Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Long wait time before the tram ride.",
-  "l1": "Supply Partner Issue",
-  "l2": "Timing Issues",
-  "sub_theme": "D. Guide Timing Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Beautiful place, but the cruise was too short.",
-  "l1": "Supply Partner Issue",
-  "l2": "Timing Issues",
-  "sub_theme": "D. Guide Timing Issue",
-  "was_a_miss": true
- },
- {
-  "review": "No boarding service available despite indicated schedule.",
-  "l1": "Supply Partner Issue",
-  "l2": "Timing Issues",
-  "sub_theme": "G. Other Supply Partner Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Booking was cancelled without prior notice.",
-  "l1": "Supply Partner Issue",
-  "l2": "Tour Cancelled by Operator",
-  "sub_theme": "G. Other Supply Partner Issue",
-  "was_a_miss": false
- },
- {
-  "review": "Tour was cancelled without any communication.",
-  "l1": "Supply Partner Issue",
-  "l2": "Tour Cancelled by Operator",
-  "sub_theme": "G. Other Supply Partner Issue",
-  "was_a_miss": false
- },
- {
-  "review": "The cruise was canceled and refund was not received.",
-  "l1": "Supply Partner Issue",
-  "l2": "Tour Cancelled by Operator",
-  "sub_theme": "H. Irrelevant",
-  "was_a_miss": true
- },
- {
-  "review": "Could not hear the guide from our seating area.",
-  "l1": "Supply Partner Issue",
-  "l2": "Guide Service Issues",
-  "sub_theme": "E. Guide Quality Issue",
-  "was_a_miss": true
- },
- {
-  "review": "The guide was good, but management was lacking.",
-  "l1": "Supply Partner Issue",
-  "l2": "Guide Service Issues",
-  "sub_theme": "E. Guide Quality Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Lounge was overcrowded and food quality was disappointing.",
-  "l1": "Supply Partner Issue",
-  "l2": "Venue Conditions",
-  "sub_theme": "G. Other Supply Partner Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Poor cleanliness and equipment issues on the bus.",
-  "l1": "Supply Partner Issue",
-  "l2": "Venue Conditions",
-  "sub_theme": "G. Other Supply Partner Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Guides were great, but radios didn't work during the tour.",
-  "l1": "Supply Partner Issue",
-  "l2": "Audio Guide Device",
-  "sub_theme": "G. Other Supply Partner Issue",
-  "was_a_miss": true
- },
- {
-  "review": "Long wait despite skip-the-line ticket; poor crowd management.",
-  "l1": "Venue Related Issue",
-  "l2": "Venue Overcrowding (Venue)",
-  "sub_theme": null,
-  "was_a_miss": true
- },
- {
-  "review": "Paid for skip-the-line but still had to wait in line.",
-  "l1": "Venue Related Issue",
-  "l2": "Venue Overcrowding (Venue)",
-  "sub_theme": null,
-  "was_a_miss": true
- }
+  {
+    "review": "Incorrect meeting point led to missed experience.",
+    "l1": "Operations Issue",
+    "l2": "Meeting Point Issues",
+    "sub_theme": "A. Meeting Point Instruction Mismatches",
+    "was_a_miss": false
+  },
+  {
+    "review": "Couldn't find the tour group due to name and logo changes.",
+    "l1": "Operations Issue",
+    "l2": "Meeting Point Issues",
+    "sub_theme": "C. Guide or Host Issues",
+    "was_a_miss": true
+  },
+  {
+    "review": "No guidance or support for return transport after the show.",
+    "l1": "Operations Issue",
+    "l2": "Meeting Point Issues",
+    "sub_theme": "C. Guide or Host Issues",
+    "was_a_miss": true
+  },
+  {
+    "review": "Couldn't find meeting point and lost tickets.",
+    "l1": "Operations Issue",
+    "l2": "Meeting Point Issues",
+    "sub_theme": "D. Meeting Point Instructions Unclear",
+    "was_a_miss": false
+  },
+  {
+    "review": "Unclear pickup location disrupted entire day's plans.",
+    "l1": "Operations Issue",
+    "l2": "Meeting Point Issues",
+    "sub_theme": "D. Meeting Point Instructions Unclear",
+    "was_a_miss": false
+  },
+  {
+    "review": "Couldn't board due to uncommunicated change in boarding point.",
+    "l1": "Operations Issue",
+    "l2": "Meeting Point Issues",
+    "sub_theme": "E. Conflicting or Incorrect Timing Information",
+    "was_a_miss": true
+  },
+  {
+    "review": "Difficulties finding the shuttle and poor tour experience.",
+    "l1": "Operations Issue",
+    "l2": "Meeting Point Issues",
+    "sub_theme": "F. Any Other Meeting Point Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Long queue and no guide despite expectations.",
+    "l1": "Operations Issue",
+    "l2": "Meeting Point Issues",
+    "sub_theme": "G. Irrelevant",
+    "was_a_miss": true
+  },
+  {
+    "review": "QR code missing, had to queue for tickets.",
+    "l1": "Operations Issue",
+    "l2": "Ticket Issues",
+    "sub_theme": "A. Ticket Invalid / Not Working",
+    "was_a_miss": true
+  },
+  {
+    "review": "Paid twice for tickets and requested a refund.",
+    "l1": "Operations Issue",
+    "l2": "Ticket Issues",
+    "sub_theme": "A. Ticket Invalid / Not Working",
+    "was_a_miss": true
+  },
+  {
+    "review": "Unable to access the visit due to ticket issues.",
+    "l1": "Operations Issue",
+    "l2": "Ticket Issues",
+    "sub_theme": "B. Ticket Not Received",
+    "was_a_miss": true
+  },
+  {
+    "review": "Short tour and delayed ticket delivery for the spa.",
+    "l1": "Operations Issue",
+    "l2": "Ticket Issues",
+    "sub_theme": "B. Ticket Not Received",
+    "was_a_miss": true
+  },
+  {
+    "review": "Tickets were delayed and not accepted at the venue.",
+    "l1": "Operations Issue",
+    "l2": "Ticket Issues",
+    "sub_theme": "C. Ticket Delayed",
+    "was_a_miss": true
+  },
+  {
+    "review": "Ticket arrived 2 hours late.",
+    "l1": "Operations Issue",
+    "l2": "Ticket Issues",
+    "sub_theme": "C. Ticket Delayed",
+    "was_a_miss": false
+  },
+  {
+    "review": "Tickets were not honored, feels like theft.",
+    "l1": "Operations Issue",
+    "l2": "Ticket Issues",
+    "sub_theme": "D. Wrong Ticket (Date / Time / Variant)",
+    "was_a_miss": true
+  },
+  {
+    "review": "Conflicting times caused us to miss the boat.",
+    "l1": "Operations Issue",
+    "l2": "Ticket Issues",
+    "sub_theme": "D. Wrong Ticket (Date / Time / Variant)",
+    "was_a_miss": true
+  },
+  {
+    "review": "Overbooked experience led to lost tickets and missed visit.",
+    "l1": "Operations Issue",
+    "l2": "Ticket Issues",
+    "sub_theme": "E. Alts related",
+    "was_a_miss": true
+  },
+  {
+    "review": "Frustrating ticketing system with poor usability.",
+    "l1": "Operations Issue",
+    "l2": "Ticket Issues",
+    "sub_theme": "F. Ticket Instructions / Information Unclear",
+    "was_a_miss": false
+  },
+  {
+    "review": "Paid for shuttle but had to walk instead.",
+    "l1": "Operations Issue",
+    "l2": "Ticket Issues",
+    "sub_theme": "G. Any Other Ticket Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Booking number was not found on the ticket.",
+    "l1": "Operations Issue",
+    "l2": "Ticket Issues",
+    "sub_theme": "G. Any Other Ticket Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Long queues and audio guide not received.",
+    "l1": "Operations Issue",
+    "l2": "Ticket Issues",
+    "sub_theme": "H. Irrelevant",
+    "was_a_miss": true
+  },
+  {
+    "review": "Audio guide QR code missing and Wi-Fi not working.",
+    "l1": "Product Issue",
+    "l2": "Audio Guide Issues",
+    "sub_theme": "A. AG Not Sent / Not Received",
+    "was_a_miss": true
+  },
+  {
+    "review": "Audio guide not received and unavailable in French.",
+    "l1": "Product Issue",
+    "l2": "Audio Guide Issues",
+    "sub_theme": "A. AG Not Sent / Not Received",
+    "was_a_miss": true
+  },
+  {
+    "review": "App and support unclear, audio access not provided.",
+    "l1": "Product Issue",
+    "l2": "Audio Guide Issues",
+    "sub_theme": "B. AG App / Technical Issues",
+    "was_a_miss": true
+  },
+  {
+    "review": "Complicated access to the digital guide and ticket release issues.",
+    "l1": "Product Issue",
+    "l2": "Audio Guide Issues",
+    "sub_theme": "B. AG App / Technical Issues",
+    "was_a_miss": true
+  },
+  {
+    "review": "No instructions received for using the audio guide.",
+    "l1": "Product Issue",
+    "l2": "Audio Guide Issues",
+    "sub_theme": "C. AG Redemption Instruction Issues",
+    "was_a_miss": false
+  },
+  {
+    "review": "Audio guide malfunctioned and lacked language options.",
+    "l1": "Product Issue",
+    "l2": "Audio Guide Issues",
+    "sub_theme": "D. AG Language Issues",
+    "was_a_miss": true
+  },
+  {
+    "review": "Audio guide was not available in German.",
+    "l1": "Product Issue",
+    "l2": "Audio Guide Issues",
+    "sub_theme": "D. AG Language Issues",
+    "was_a_miss": false
+  },
+  {
+    "review": "Audio guide issues affected the overall experience.",
+    "l1": "Product Issue",
+    "l2": "Audio Guide Issues",
+    "sub_theme": "E. AG Quality & Content Issues",
+    "was_a_miss": true
+  },
+  {
+    "review": "Audio guide malfunctioned and tour quality was poor.",
+    "l1": "Product Issue",
+    "l2": "Audio Guide Issues",
+    "sub_theme": "E. AG Quality & Content Issues",
+    "was_a_miss": true
+  },
+  {
+    "review": "Could not access the audio guide.",
+    "l1": "Product Issue",
+    "l2": "Audio Guide Issues",
+    "sub_theme": "F. Any Other Audio Guide Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Paid for audio guide but could not access it.",
+    "l1": "Product Issue",
+    "l2": "Audio Guide Issues",
+    "sub_theme": "F. Any Other Audio Guide Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Audio guide not functioning during the experience.",
+    "l1": "Product Issue",
+    "l2": "Audio Guide Issues",
+    "sub_theme": "G. Irrelevant",
+    "was_a_miss": true
+  },
+  {
+    "review": "Food quality was poor and caused illness.",
+    "l1": "Supply Partner Issue",
+    "l2": "Food & Catering",
+    "sub_theme": "G. Other Supply Partner Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Poor food quality for the high prices paid.",
+    "l1": "Supply Partner Issue",
+    "l2": "Food & Catering",
+    "sub_theme": "G. Other Supply Partner Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Staff was generally unfriendly and rude.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide Behaviour Issues",
+    "sub_theme": "C. Guide Behaviour Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Lost item on the boat, no effort to return it.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide Behaviour Issues",
+    "sub_theme": "C. Guide Behaviour Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Guide was dishonest about included meals and entry tickets.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide Behaviour Issues",
+    "sub_theme": "G. Other Supply Partner Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "The guide abandoned the group, and the cruise was not completed.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide Left / Abandoned Tour",
+    "sub_theme": "B. Guide Left Mid Tour",
+    "was_a_miss": false
+  },
+  {
+    "review": "The tour was canceled due to the guide's unavailability.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide No Show",
+    "sub_theme": "A. Guide No Show",
+    "was_a_miss": true
+  },
+  {
+    "review": "Guide did not show up for the tour.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide No Show",
+    "sub_theme": "A. Guide No Show",
+    "was_a_miss": false
+  },
+  {
+    "review": "Guide was unprofessional and provided incorrect timing information.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide providing irrelevant/inexperienced/not clear",
+    "sub_theme": "C. Guide Behaviour Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Guide was late, hard to understand, and unhelpful.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide providing irrelevant/inexperienced/not clear",
+    "sub_theme": "D. Guide Timing Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Guide was unhappy and provided limited information.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide providing irrelevant/inexperienced/not clear",
+    "sub_theme": "E. Guide Quality Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "The guide did not speak French, only Hebrew.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide providing irrelevant/inexperienced/not clear",
+    "sub_theme": "E. Guide Quality Issue",
+    "was_a_miss": false
+  },
+  {
+    "review": "Poor guiding experience with unhelpful guides.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide providing irrelevant/inexperienced/not clear",
+    "sub_theme": "G. Other Supply Partner Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Guide walked too fast, making it hard to keep up.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide providing irrelevant/inexperienced/not clear",
+    "sub_theme": "G. Other Supply Partner Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Poor view from the second row during the play.",
+    "l1": "Supply Partner Issue",
+    "l2": "Seating Issues",
+    "sub_theme": "G. Other Supply Partner Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Poor seating affected our view of the penguins.",
+    "l1": "Supply Partner Issue",
+    "l2": "Seating Issues",
+    "sub_theme": "G. Other Supply Partner Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Long wait time before the tram ride.",
+    "l1": "Supply Partner Issue",
+    "l2": "Timing Issues",
+    "sub_theme": "D. Guide Timing Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Beautiful place, but the cruise was too short.",
+    "l1": "Supply Partner Issue",
+    "l2": "Timing Issues",
+    "sub_theme": "D. Guide Timing Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "No boarding service available despite indicated schedule.",
+    "l1": "Supply Partner Issue",
+    "l2": "Timing Issues",
+    "sub_theme": "G. Other Supply Partner Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Booking was cancelled without prior notice.",
+    "l1": "Supply Partner Issue",
+    "l2": "Tour Cancelled by Operator",
+    "sub_theme": "G. Other Supply Partner Issue",
+    "was_a_miss": false
+  },
+  {
+    "review": "Tour was cancelled without any communication.",
+    "l1": "Supply Partner Issue",
+    "l2": "Tour Cancelled by Operator",
+    "sub_theme": "G. Other Supply Partner Issue",
+    "was_a_miss": false
+  },
+  {
+    "review": "The cruise was canceled and refund was not received.",
+    "l1": "Supply Partner Issue",
+    "l2": "Tour Cancelled by Operator",
+    "sub_theme": "H. Irrelevant",
+    "was_a_miss": true
+  },
+  {
+    "review": "Could not hear the guide from our seating area.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide Service Issues",
+    "sub_theme": "E. Guide Quality Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "The guide was good, but management was lacking.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide Service Issues",
+    "sub_theme": "E. Guide Quality Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Lounge was overcrowded and food quality was disappointing.",
+    "l1": "Supply Partner Issue",
+    "l2": "Venue Conditions",
+    "sub_theme": "G. Other Supply Partner Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Poor cleanliness and equipment issues on the bus.",
+    "l1": "Supply Partner Issue",
+    "l2": "Venue Conditions",
+    "sub_theme": "G. Other Supply Partner Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Guides were great, but radios didn't work during the tour.",
+    "l1": "Supply Partner Issue",
+    "l2": "Audio Guide Device",
+    "sub_theme": "G. Other Supply Partner Issue",
+    "was_a_miss": true
+  },
+  {
+    "review": "Long wait despite skip-the-line ticket; poor crowd management.",
+    "l1": "Venue Related Issue",
+    "l2": "Venue Overcrowding (Venue)",
+    "sub_theme": null,
+    "was_a_miss": true
+  },
+  {
+    "review": "Paid for skip-the-line but still had to wait in line.",
+    "l1": "Venue Related Issue",
+    "l2": "Venue Overcrowding (Venue)",
+    "sub_theme": null,
+    "was_a_miss": true
+  },
+  {
+    "review": "Only one drink promotion was recognized, losing the other.",
+    "l1": "Operations Issue",
+    "l2": "Ticket Issues",
+    "sub_theme": "G. Any Other Ticket Issue",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "Tour started on time but lacked value and caused frustration.",
+    "l1": "Supply Partner Issue",
+    "l2": "Timing Issues",
+    "sub_theme": "D. Guide Timing Issue",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "Overbooking issue and payment problems reported.",
+    "l1": "Operations Issue",
+    "l2": "Ticket Issues",
+    "sub_theme": "G. Any Other Ticket Issue",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "The tour felt rushed and lacked sufficient time for reflection.",
+    "l1": "Supply Partner Issue",
+    "l2": "Timing Issues",
+    "sub_theme": "D. Guide Timing Issue",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "Tour timing changed last minute and guide's explanations were unclear.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide providing irrelevant/inexperienced/not clear",
+    "sub_theme": "G. Other Supply Partner Issue",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "Had difficulties being recognized by the service despite showing documents.",
+    "l1": "Operations Issue",
+    "l2": "Meeting Point Issues",
+    "sub_theme": "F. Any Other Meeting Point Issue",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "Long wait time for bus pickup in extreme weather conditions.",
+    "l1": "Operations Issue",
+    "l2": "Meeting Point Issues",
+    "sub_theme": "G. Irrelevant",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "Unfriendly guide rushed the tour, affecting the experience.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide Behaviour Issues",
+    "sub_theme": "C. Guide Behaviour Issue",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "Missed activities due to transportation issues and lack of communication.",
+    "l1": "Operations Issue",
+    "l2": "Meeting Point Issues",
+    "sub_theme": "F. Any Other Meeting Point Issue",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "Paid twice for the audio guide due to redemption issues.",
+    "l1": "Operations Issue",
+    "l2": "Ticket Issues",
+    "sub_theme": "G. Any Other Ticket Issue",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "Inconsistent commentary quality on the second day of the tour.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide providing irrelevant/inexperienced/not clear",
+    "sub_theme": "G. Other Supply Partner Issue",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "Tour was shortened and lacked sufficient explanations.",
+    "l1": "Supply Partner Issue",
+    "l2": "Timing Issues",
+    "sub_theme": "D. Guide Timing Issue",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "Beautiful castle, but staff were untrained and unhelpful.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide Behaviour Issues",
+    "sub_theme": "C. Guide Behaviour Issue",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "Tour was too short and guide rushed through the experience.",
+    "l1": "Supply Partner Issue",
+    "l2": "Timing Issues",
+    "sub_theme": "D. Guide Timing Issue",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "Rude staff made us buy tickets again despite having them.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide Behaviour Issues",
+    "sub_theme": "C. Guide Behaviour Issue",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "Rude staff and poor assistance during the experience.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide Behaviour Issues",
+    "sub_theme": "C. Guide Behaviour Issue",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "Rude staff and poor cleanliness at the airport lounge.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide Behaviour Issues",
+    "sub_theme": "C. Guide Behaviour Issue",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "The tour was too short and rushed, lacking time to explore.",
+    "l1": "Supply Partner Issue",
+    "l2": "Timing Issues",
+    "sub_theme": "G. Other Supply Partner Issue",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "Staff was unhelpful and ignored me during the cruise.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide Behaviour Issues",
+    "sub_theme": "C. Guide Behaviour Issue",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "Ticket not available on app; cheaper to buy directly.",
+    "l1": "Operations Issue",
+    "l2": "Ticket Issues",
+    "sub_theme": "A. Ticket Invalid / Not Working",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "Unprofessional behavior from staff and lack of information about audio guides.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide Behaviour Issues",
+    "sub_theme": "C. Guide Behaviour Issue",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "Unfriendly treatment and accusations from museum staff.",
+    "l1": "Supply Partner Issue",
+    "l2": "Guide Behaviour Issues",
+    "sub_theme": "C. Guide Behaviour Issue",
+    "was_a_miss": "True"
+  },
+  {
+    "review": "App malfunctioned, causing issues with accessing tickets.",
+    "l1": "Operations Issue",
+    "l2": "Ticket Issues",
+    "sub_theme": "A. Ticket Invalid / Not Working",
+    "was_a_miss": "True"
+  }
 ]
