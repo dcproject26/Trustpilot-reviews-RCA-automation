@@ -93,6 +93,21 @@ def test_an_incomplete_first_answer_is_polled_to_completion(monkeypatch):
     assert fake.get_calls == 1, "it did not poll getQueryResults for the result"
 
 
+def test_a_slow_query_incomplete_for_several_polls_still_returns_its_rows(monkeypatch):
+    """The realistic slow query: jobComplete:false on the POST and for several
+    getQueryResults rounds before it finishes. The loop must keep polling and
+    return the rows, not give up on the first still-running answer."""
+    fake = _FakeRequests(
+        post_payloads=[_INCOMPLETE],
+        # three still-running rounds, then the result
+        get_payloads=[_INCOMPLETE, _INCOMPLETE, _INCOMPLETE, _COMPLETE])
+    monkeypatch.setattr(bq, "requests", fake)
+    rows = bq.run_query("select bid from x")
+    assert rows == [{"bid": "33204378"}], rows
+    assert fake.get_calls == 4, \
+        f"expected 4 polls (3 still-running + 1 complete), got {fake.get_calls}"
+
+
 def test_a_job_that_never_completes_raises_rather_than_returning_empty(monkeypatch):
     """THE POINT. [] would mean 'no such booking' to every caller. A job stuck
     on jobComplete:false must raise, not come back empty."""
