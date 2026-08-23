@@ -64,6 +64,29 @@ def test_no_cutoff_never_calls_anything_a_prior_trip():
     assert Z._is_prior_trip(Z._sort_key("2026-07-06T00:00:00Z"), None) is False
 
 
+# ── the booking-date key, under whatever name the match path used ────────────
+
+def test_booking_date_reads_bookedon():
+    assert Z._booking_date({"bookedOn": "2026-08-21"}) == "2026-08-21"
+
+
+def test_booking_date_falls_back_to_date_of_booking():
+    # verify_bid (the direct/confirmed-BID path) names it date_of_booking, NOT
+    # bookedOn — reading only bookedOn is what made the filter silently skip.
+    assert Z._booking_date(
+        {"date_of_booking": "2026-08-21 10:34:00+00:00"}) == "2026-08-21 10:34:00+00:00"
+
+
+def test_booking_date_prefers_bookedon_when_both_present():
+    assert Z._booking_date(
+        {"bookedOn": "2026-08-21", "date_of_booking": "2026-07-01"}) == "2026-08-21"
+
+
+def test_booking_date_is_empty_when_no_date_key():
+    assert Z._booking_date({"id": "123"}) == ""
+    assert Z._booking_date(None) == ""
+
+
 # ── the wiring: _get_timeline_sync actually drops and reports ────────────────
 
 class _Cmt:
@@ -128,6 +151,26 @@ def test_a_prior_trip_ticket_is_dropped_and_reported(monkeypatch):
     assert meta["prior_trip_reason"] == ""          # the filter ran
     assert "33535069" not in meta["ticket_ids"]
     assert "34806407" in meta["ticket_ids"]
+
+
+def test_a_direct_bid_booking_with_only_date_of_booking_still_filters(monkeypatch):
+    # The regression: verify_bid gives `date_of_booking`, not `bookedOn`. This
+    # is exactly what get_timeline does — derive the date with _booking_date,
+    # then run the sync. A July ticket must still drop even though the booking
+    # dict has no `bookedOn` key at all.
+    jul = _Ticket("33535069", [_Cmt("2026-07-06T17:42:00Z", "old antelope trip")])
+    aug = _Ticket("34863785", [_Cmt("2026-08-21T10:36:00Z", "this booking")])
+    client = _wire(monkeypatch, [jul, aug])
+
+    booking = {"id": "33587369", "date_of_booking": "2026-08-21 10:34:00+00:00"}
+    raw, _extracted, meta = Z._get_timeline_sync(
+        client, "33587369", booked_on=Z._booking_date(booking))
+
+    tids = {e["ticket_id"] for e in raw}
+    assert "33535069" not in tids, "prior-trip ticket leaked (date_of_booking not read)"
+    assert "34863785" in tids
+    assert {e["ticket_id"] for e in meta["prior_trip_excluded"]} == {"33535069"}
+    assert meta["prior_trip_reason"] == ""      # the filter RAN
 
 
 def test_without_a_booking_date_nothing_is_dropped_and_it_is_said(monkeypatch):

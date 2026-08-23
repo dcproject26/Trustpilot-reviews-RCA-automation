@@ -28,5 +28,11 @@
     "name": "prior-trip tickets are left in ticket_ids, double-reporting them as this booking's timeline tickets",
     "find": "    ticket_ids = [str(t.id) for t in tickets if str(t.id) not in _prior_ids]",
     "replace": "    ticket_ids = [str(t.id) for t in tickets]"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "_booking_date only reads bookedOn, so the direct-BID path (date_of_booking) skips the filter",
+    "find": "    for k in (\"bookedOn\", \"date_of_booking\", \"creationDate\", \"booked_on\"):",
+    "replace": "    for k in (\"bookedOn\",):"
   }
 ]

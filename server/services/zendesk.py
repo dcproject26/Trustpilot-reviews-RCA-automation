@@ -568,6 +568,24 @@ def _booking_cutoff(booked_on) -> tuple:
     return cutoff, ""
 
 
+def _booking_date(booking: dict) -> str:
+    """The booking's creation date, under whatever key the match path used.
+
+    THE JOIN-KEY BUG THIS CODEBASE KEEPS HITTING. verify_bid — the direct- and
+    confirmed-BID path, which is the commonest match — names this date
+    `date_of_booking`; the warehouse row dict names it `bookedOn`; the candidate
+    picker `creationDate`. Reading only `bookedOn` meant the cutoff got "" on the
+    direct-BID path, so _booking_cutoff reported "no booked-on date" and the
+    prior-trip filter silently did not run — an earlier trip stayed in the
+    timeline, and the fix looked deployed but inert. Read every spelling."""
+    b = booking or {}
+    for k in ("bookedOn", "date_of_booking", "creationDate", "booked_on"):
+        v = b.get(k)
+        if v:
+            return str(v)
+    return ""
+
+
 def _is_prior_trip(last_activity, cutoff) -> bool:
     """True when a ticket's NEWEST activity is before the booking existed.
 
@@ -1177,8 +1195,7 @@ async def get_timeline(
         if waited > 2.0:
             log.warning(f"[zendesk] wait time exceeded 2s: {waited:.1f}s")
         raw_events, extracted, meta = await asyncio.get_running_loop().run_in_executor(
-            None, _get_timeline_sync, _z, booking_id,
-            str((booking or {}).get("bookedOn") or ""))
+            None, _get_timeline_sync, _z, booking_id, _booking_date(booking))
 
     try:
         timeline = await _shape_via_claude(
