@@ -3596,6 +3596,30 @@ async def process_review(review_id: str, force_candidates: bool = False):
             if _sr_entry:
                 confidence_trail.append(_sr_entry)
 
+        # PRIOR-TRIP TICKETS, DROPPED AND SAID. The requester search casts by
+        # the guest's email, so it also pulls their earlier trips — a July chat
+        # about another booking that would otherwise sit at the top of an August
+        # booking's timeline, wrecking the chronology. Those are kept out of the
+        # timeline; this line is what stops "dropped" from looking like "never
+        # there". The reason branch covers the case where the filter could not
+        # run at all (no booking date) — did-not-run, not found-nothing.
+        _pt = zd_meta.get("prior_trip_excluded") or []
+        _pt_reason = zd_meta.get("prior_trip_reason") or ""
+        if _pt:
+            _pt_ids = ", ".join(f"ZD-{e.get('ticket_id')}" for e in _pt[:4])
+            confidence_trail.append({"mark": "pass",
+                "text": f"<strong>{len(_pt)} earlier-trip ticket(s) kept off the "
+                        f"timeline</strong> ({_pt_ids}) — their activity predates "
+                        f"booking {bid_for_zd}, so they are the same guest's "
+                        f"earlier trip, not this booking. They were still found "
+                        f"as contacts; they are only kept out of the chronology."})
+        elif _pt_reason:
+            confidence_trail.append({"mark": "warn",
+                "text": f"<strong>The earlier-trip filter did not run.</strong> "
+                        f"{_pt_reason.capitalize()}. A ticket from an earlier trip "
+                        f"by this guest could therefore sit in the timeline as if "
+                        f"it were this booking's."})
+
         # THE SHAPING FAILED, SAID OUT LOUD. A fallback timeline is raw ticket
         # bodies under category labels, and it rendered in the same rows as a
         # shaped one — so a failed model call read as a redesign of the card.

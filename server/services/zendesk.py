@@ -540,6 +540,49 @@ def _sort_key(dt):
     return dt
 
 
+_SORT_MAX = datetime.max.replace(tzinfo=timezone.utc)
+
+
+def _booking_cutoff(booked_on) -> tuple:
+    """(cutoff_datetime, reason) for the prior-trip filter.
+
+    A ticket whose activity entirely predates the booking cannot be about it —
+    a guest does not contact support about a booking that does not exist yet.
+    The requester search deliberately pulls every ticket by the guest's email
+    (to catch a contact filed under the wrong booking id), so it also pulls the
+    guest's OTHER, earlier trips; those are what put a July chat about booking
+    32358141 at the top of an August booking's timeline.
+
+    Returns the cutoff and "" when it can be computed, or (None, reason) when it
+    cannot — a missing or unparseable booking date. The caller must then keep
+    every ticket and SAY the filter did not run: a filter that silently keeps
+    everything reads exactly like one that found nothing to drop.
+    """
+    if not booked_on:
+        return None, ("the booking has no booked-on date, so the prior-trip "
+                      "filter did not run")
+    cutoff = _sort_key(booked_on)
+    if cutoff == _SORT_MAX:
+        return None, (f"the booking's booked-on date ({booked_on!r}) could not "
+                      f"be parsed, so the prior-trip filter did not run")
+    return cutoff, ""
+
+
+def _is_prior_trip(last_activity, cutoff) -> bool:
+    """True when a ticket's NEWEST activity is before the booking existed.
+
+    Both are aware datetimes. A ticket we cannot date — no cutoff, no last
+    activity, or the unparseable sentinel on either side — is NOT called a prior
+    trip: an undatable ticket is kept, because dropping it would be inventing a
+    date it does not have. Only a ticket we can place, and can place before the
+    booking, is excluded."""
+    if last_activity is None or cutoff is None:
+        return False
+    if last_activity == _SORT_MAX or cutoff == _SORT_MAX:
+        return False
+    return last_activity < cutoff
+
+
 def _clean_summary(body: str) -> str:
     """Strip HTML + email signatures, truncate to 200 chars with an ellipsis."""
     text = _TAG_RE.sub(" ", body or "")
@@ -1134,7 +1177,8 @@ async def get_timeline(
         if waited > 2.0:
             log.warning(f"[zendesk] wait time exceeded 2s: {waited:.1f}s")
         raw_events, extracted, meta = await asyncio.get_running_loop().run_in_executor(
-            None, _get_timeline_sync, _z, booking_id)
+            None, _get_timeline_sync, _z, booking_id,
+            str((booking or {}).get("bookedOn") or ""))
 
     try:
         timeline = await _shape_via_claude(
@@ -1146,13 +1190,18 @@ async def get_timeline(
     return timeline, extracted, meta
 
 
-def _get_timeline_sync(_z, booking_id: str):
+def _get_timeline_sync(_z, booking_id: str, booked_on: str = ""):
     """Synchronous Zendesk work — called from get_timeline via run_in_executor.
 
     Returns (raw_events, extracted, meta) where raw_events is a list of:
         {idx, time, thread, actor, ticket_id, raw_body}
     meta contains ticket_ids, timeline_raw (parallel raw bodies), and
     zendesk_requester_name.
+
+    `booked_on` anchors the prior-trip filter: a ticket whose newest activity
+    predates the booking is a different, earlier trip by the same guest (pulled
+    in by the requester search) and is dropped from the timeline and counted in
+    meta["prior_trip_excluded"]. See _booking_cutoff.
     """
     # ── Search: ALL THREE ROUTES, unioned ────────────────────────────────────
     # Not fieldvalue-then-fallback. The custom field is set on a minority of a
@@ -1258,6 +1307,14 @@ def _get_timeline_sync(_z, booking_id: str):
         _role_cache[author_id] = role
         return role
 
+    # ── Prior-trip cutoff ────────────────────────────────────────────────────
+    # A ticket whose newest comment predates the booking is an earlier trip by
+    # the same guest (the requester search casts by email, so it catches them).
+    # Those tickets are dropped from the timeline and counted, never silently.
+    _cutoff, _cutoff_reason = _booking_cutoff(booked_on)
+    _prior_excluded = []          # [{ticket_id, last_activity}]
+    _prior_ids = set()            # ticket ids kept out of the timeline
+
     # ── Fetch comments per ticket (zenpy paginates), build raw events ─────────
     events = []   # (sort_dt, raw_event_dict, raw_body)
     for ticket in tickets:
@@ -1273,6 +1330,21 @@ def _get_timeline_sync(_z, booking_id: str):
                 comments = list(_z2.tickets.comments(ticket=ticket.id))
             else:
                 log.warning(f"[zendesk] comments fetch failed for ZD-{ticket.id}: {e}")
+                continue
+
+        # A ticket whose LATEST comment is still before the booking existed is a
+        # prior trip: drop the whole ticket (comments and side conversations),
+        # and record it so the trail can say so.
+        if _cutoff is not None and comments:
+            _last = max((_sort_key(getattr(c, "created_at", None))
+                         for c in comments), default=None)
+            if _is_prior_trip(_last, _cutoff):
+                _prior_ids.add(str(ticket.id))
+                _prior_excluded.append({"ticket_id": str(ticket.id),
+                                        "last_activity": _to_iso(_last)})
+                log.info(f"[zendesk] ZD-{ticket.id} dropped from timeline: "
+                         f"last activity {_to_iso(_last)} predates booking "
+                         f"(bookedOn {booked_on!r})")
                 continue
 
         for c in comments:
@@ -1393,6 +1465,8 @@ def _get_timeline_sync(_z, booking_id: str):
     # the RCA. These are a separate Zendesk object from ticket comments and were
     # never fetched, which is why SP interactions were routinely empty.
     for ticket in tickets:
+        if str(getattr(ticket, "id", "")) in _prior_ids:
+            continue   # prior trip — its SP thread is not this booking's either
         for sc in side_conversations(getattr(ticket, "id", "")):
             for m in sc.get("messages", []):
                 # Machinery reaches the SP thread too - the vendor-portal login
@@ -1450,7 +1524,10 @@ def _get_timeline_sync(_z, booking_id: str):
 
     timeline_raw = [e[2] for e in events]
     timeline_raw_ticket_ids = [e[1].get("ticket_id", "") for e in events]
-    ticket_ids = [str(t.id) for t in tickets]
+    # ticket_ids is the timeline's tickets — a prior-trip ticket was found but
+    # is not part of this booking's timeline, so it is reported separately in
+    # prior_trip_excluded, not here.
+    ticket_ids = [str(t.id) for t in tickets if str(t.id) not in _prior_ids]
 
     return raw_events, extracted, {
         "ticket_ids": ticket_ids,
@@ -1462,6 +1539,11 @@ def _get_timeline_sync(_z, booking_id: str):
         "search_tally": _search_tally,
         "internal_notes": {"kept": _private_kept, "dropped": _private_dropped},
         "elided_note": _elided_note,
+        # Prior-trip tickets dropped from the timeline, and why the filter did
+        # or did not run — a filter that silently kept everything reads like one
+        # that found nothing to drop.
+        "prior_trip_excluded": _prior_excluded,
+        "prior_trip_reason": _cutoff_reason,
     }
 
 

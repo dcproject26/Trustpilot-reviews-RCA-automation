@@ -1,0 +1,32 @@
+[
+  {
+    "file": "server/services/zendesk.py",
+    "name": "prior-trip test always says no, so an earlier-trip ticket is never dropped from the timeline",
+    "find": "    return last_activity < cutoff",
+    "replace": "    return False"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "missing booking date no longer short-circuits, so the reason is 'unparseable' instead of 'did not run'",
+    "find": "    if not booked_on:\n        return None, (\"the booking has no booked-on date, so the prior-trip \"\n                      \"filter did not run\")",
+    "replace": "    if False:\n        return None, (\"the booking has no booked-on date, so the prior-trip \"\n                      \"filter did not run\")"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "a prior-trip ticket is recorded but NOT skipped, so its comments still reach the timeline",
+    "find": "                log.info(f\"[zendesk] ZD-{ticket.id} dropped from timeline: \"\n                         f\"last activity {_to_iso(_last)} predates booking \"\n                         f\"(bookedOn {booked_on!r})\")\n                continue",
+    "replace": "                log.info(f\"[zendesk] ZD-{ticket.id} dropped from timeline: \"\n                         f\"last activity {_to_iso(_last)} predates booking \"\n                         f\"(bookedOn {booked_on!r})\")\n                pass"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "a prior-trip ticket's side conversation is no longer skipped, so its SP thread leaks into the timeline",
+    "find": "        if str(getattr(ticket, \"id\", \"\")) in _prior_ids:\n            continue   # prior trip — its SP thread is not this booking's either",
+    "replace": "        if False:\n            continue   # prior trip — its SP thread is not this booking's either"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "prior-trip tickets are left in ticket_ids, double-reporting them as this booking's timeline tickets",
+    "find": "    ticket_ids = [str(t.id) for t in tickets if str(t.id) not in _prior_ids]",
+    "replace": "    ticket_ids = [str(t.id) for t in tickets]"
+  }
+]
