@@ -393,6 +393,39 @@ async def select_dss_scenario(situation: str, candidates: list,
             "reason": str(obj.get("reason") or "").strip()}
 
 
+async def select_reply_macro(review_text: str, candidates: list,
+                             l1: str = "", l2: str = "", sub_theme: str = "",
+                             dss_action: str = "") -> dict:
+    """Pick the approved macro whose scenario matches this guest's review.
+
+    Returns {"index": int, "confidence": str, "reason": str}; index is -1 when
+    none genuinely fits. RAISES on no-model / model error / unparseable output,
+    so the caller can fall back to the keyword scorer rather than silently
+    sending nothing — a model outage must degrade to the old behaviour, never
+    to "no approved macro matches" on a review that has one.
+
+    `candidates` is already gated on the DSS-permitted remedy, so this call
+    chooses a SCENARIO and never a remedy.
+    """
+    if not candidates:
+        return {"index": -1, "confidence": "high", "reason": "no candidate macros"}
+    if not is_live("anthropic"):
+        raise RuntimeError("anthropic not live — macro match uses the keyword fallback")
+    raw = await _call(
+        prompts.reply_macro_select_prompt(
+            review_text, candidates, l1, l2, sub_theme, dss_action),
+        max_tokens=400)
+    obj = _extract_json_object(raw)
+    if not isinstance(obj, dict) or "index" not in obj:
+        raise ValueError(f"macro selection returned no usable JSON: {raw[:120]!r}")
+    try:
+        idx = int(obj.get("index"))
+    except Exception:
+        raise ValueError(f"macro selection index is not an int: {obj.get('index')!r}")
+    return {"index": idx,
+            "confidence": str(obj.get("confidence") or "").lower(),
+            "reason": str(obj.get("reason") or "").strip()}
+
 # ─── 3. Stated Issue ────────────────────────────────────────────────────────
 async def stated_issue(review_text: str, review_id: str = None) -> str:
     if not is_live("anthropic"):

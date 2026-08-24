@@ -1,0 +1,38 @@
+[
+  {
+    "file": "server/services/canned.py",
+    "name": "the gate is skipped, so the selector may offer a remedy the DSS never named",
+    "find": "    _kept, _dropped, _ = _rm.gate(rows, dss_rec)",
+    "replace": "    _kept, _dropped, _ = (rows, [], \"\")"
+  },
+  {
+    "file": "server/services/canned.py",
+    "name": "an out-of-range AI index is trusted, indexing whatever it lands on",
+    "find": "        if isinstance(idx, int) and 0 <= idx < len(_on_channel):",
+    "replace": "        if isinstance(idx, int):"
+  },
+  {
+    "file": "server/services/canned.py",
+    "name": "a model outage returns nothing instead of falling back, so a transient failure reads as 'no macro matches'",
+    "find": "        return _keyword_best(rows)",
+    "replace": "        return []"
+  },
+  {
+    "file": "server/services/canned.py",
+    "name": "an everything-withheld gate reports no reason, so it reads as a review nothing fits",
+    "find": "        _last_reason = (_gate_note or \"every approved macro promises a remedy \"\n                                      \"the DSS did not name\")",
+    "replace": "        _last_reason = \"\""
+  },
+  {
+    "file": "server/services/claude.py",
+    "name": "select_reply_macro no longer raises when the model is offline, so the caller cannot tell to fall back",
+    "find": "    if not is_live(\"anthropic\"):\n        raise RuntimeError(\"anthropic not live — macro match uses the keyword fallback\")",
+    "replace": "    if False:\n        raise RuntimeError(\"anthropic not live — macro match uses the keyword fallback\")"
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the prompt stops showing what each macro offers, so a payout is indistinguishable from an acknowledgement",
+    "find": "        offer = (f\"  [offers: {', '.join(promises)}]\" if promises\n                 else \"  [offers nothing — acknowledgement / information only]\")",
+    "replace": "        offer = \"\""
+  }
+]

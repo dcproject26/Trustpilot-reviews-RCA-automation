@@ -612,6 +612,7 @@ async def get_canned_responses(
     sub_theme: str | None,
     review_text: str,
     untraceable: bool = False,
+    dss_rec: dict | None = None,
 ) -> list[dict]:
     """
     Approved macros that actually apply, best first, or [] when none do.
@@ -620,6 +621,21 @@ async def get_canned_responses(
     plain warm English" and the model would invent a reply that read as though
     it had been approved. It now means the associate writes it - see
     MATCH_MIN, and the prompt rule that forbids inventing one.
+
+    TWO STAGES, IN THIS ORDER, for the reason services/reply_macro.py sets out:
+
+      1. GATE on the remedy the DSS named. The list files one scenario several
+         times, differing only by what it promises — HOC, partial refund, full
+         refund — and the review is identical across them. The DSS is the only
+         thing that can choose, so macros promising anything it did not name are
+         withheld before anything looks at wording.
+      2. SELECT a scenario from what survived. An AI reads the review and picks
+         by meaning; the keyword scorer is the FALLBACK when the model cannot
+         run, so an outage degrades to the old behaviour rather than to "no
+         approved macro matches" on a review that has one.
+
+    The gate's own reporting (what it withheld, and which kind of empty a DSS
+    with no remedy was) is carried on the returned rows so the trail can say it.
     """
     global _last_reason
     rows = await _get_rows()
@@ -645,8 +661,24 @@ async def get_canned_responses(
         log.warning(f"[canned] untraceable, but no macro named "
                     f"{_TRACE_MACRO!r} exists in the checked-in copy")
 
+    # ── 1. the DSS remedy gate ──────────────────────────────────────────────
+    from server.services import reply_macro as _rm
+    _permitted, _gate_reason = _rm.dss_permits(dss_rec)
+    _kept, _dropped, _ = _rm.gate(rows, dss_rec)
+    _gate_note = _rm.gate_note(_kept, _dropped, _gate_reason, _permitted)
+    if _dropped:
+        log.info(f"[canned] DSS gate withheld {len(_dropped)} macro(s); "
+                 f"{len(_kept)} remain (permits: {sorted(_permitted) or 'none'})")
+    if not _kept:
+        # Everything the sheet offers promises a remedy this case is not
+        # entitled to. NOT the same as the sheet having nothing for this
+        # review, and the caller must be able to say which.
+        _last_reason = (_gate_note or "every approved macro promises a remedy "
+                                      "the DSS did not name")
+        return []
+    rows = _kept
+
     review_kw = _toks(review_text)
-    scored = [(_score_row(r, l1, l2, sub_theme, review_kw), r) for r in rows]
 
     # Channel first. A Trustpilot macro at the bar beats a Twitter one above
     # it, because the wrong voice is the wrong answer.
@@ -655,8 +687,50 @@ async def get_canned_responses(
         on_channel = TP_TAB_HINT in (r.get("tab") or "")
         return (on_channel, sc)
 
-    scored = [p for p in scored if p[0] >= MATCH_MIN]
-    scored.sort(key=_rank, reverse=True)
-    return [{"situation": r["situation"], "response": r["response"],
-             "tab": r.get("tab", ""), "score": sc}
-            for sc, r in scored[:5]]
+    def _keyword_best(candidate_rows):
+        """The old deterministic scorer, kept as the FALLBACK for a model
+        outage. Unchanged behaviour, now running over the gated set."""
+        scored = [(_score_row(r, l1, l2, sub_theme, review_kw), r)
+                  for r in candidate_rows]
+        scored = [p for p in scored if p[0] >= MATCH_MIN]
+        scored.sort(key=_rank, reverse=True)
+        return [{"situation": r["situation"], "response": r["response"],
+                 "tab": r.get("tab", ""), "score": sc,
+                 "promises": r.get("_promises", []),
+                 "selector": "keyword-fallback", "gate_note": _gate_note}
+                for sc, r in scored[:5]]
+
+    # ── 2. the scenario selector ────────────────────────────────────────────
+    # On-channel only: a Twitter macro is the wrong voice whatever it says, and
+    # handing the model 200 candidates across every channel invites it to pick
+    # one. Falls back to the whole gated set if this sheet has no TP tab.
+    _on_channel = [r for r in rows if TP_TAB_HINT in (r.get("tab") or "")] or rows
+    payload = [{"i": i, "situation": r.get("situation", ""),
+                "promises": r.get("_promises", [])}
+               for i, r in enumerate(_on_channel)]
+    try:
+        from server.services import claude
+        choice = await claude.select_reply_macro(
+            review_text=review_text or "", candidates=payload,
+            l1=l1 or "", l2=l2 or "", sub_theme=sub_theme or "",
+            dss_action=str((dss_rec or {}).get("action") or ""))
+        idx = choice.get("index")
+        if isinstance(idx, int) and 0 <= idx < len(_on_channel):
+            r = _on_channel[idx]
+            return [{"situation": r["situation"], "response": r["response"],
+                     "tab": r.get("tab", ""), "score": None,
+                     "promises": r.get("_promises", []),
+                     "selector": "ai",
+                     "selector_reason": choice.get("reason", ""),
+                     "confidence": choice.get("confidence", ""),
+                     "gate_note": _gate_note}]
+        # The model read the scenarios and judged none of them fits. A real
+        # no-match, and distinct from the outage handled below: a near-miss
+        # macro answers a complaint the guest did not make.
+        _last_reason = ("no approved macro describes this guest's situation "
+                        + (f"({choice.get('reason')})" if choice.get("reason") else ""))
+        return []
+    except Exception as e:
+        log.warning(f"[canned] AI macro selection unavailable "
+                    f"({type(e).__name__}: {e}); using keyword fallback")
+        return _keyword_best(rows)

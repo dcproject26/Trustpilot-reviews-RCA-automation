@@ -162,12 +162,44 @@ def test_a_missing_map_falls_back_to_word_overlap_and_says_so(monkeypatch,
 ])
 def test_the_lookup_returns_the_macro_filed_under_that_pair(l1, l2, monkeypatch):
     """Driven through get_canned_responses, not _score_row, so a scoring change
-    that never reaches the caller fails here."""
+    that never reaches the caller fails here.
+
+    A PERMISSIVE DSS IS PASSED because what this asserts is the FILING — that
+    the macro filed under this pair is the one that comes back. The remedy gate
+    is a separate guarantee with its own tests
+    (tests/test_reply_macro_gate.py); leaving it to bite here would make this
+    test fail for a reason that has nothing to do with L1/L2 filing, which is
+    how a test stops meaning what its name says.
+    """
     monkeypatch.setattr(C, "is_live", lambda s: False)
     monkeypatch.setattr(C, "_cache_rows", [], raising=False)
     monkeypatch.setattr(C, "_cache_at", 0, raising=False)
-    got = asyncio.run(C.get_canned_responses(l1, l2, "", "the tour was bad"))
+    permissive = {"action": "refund, partial refund, credits/HOC, coupon, "
+                            "reschedule — every remedy named",
+                  "match_score": 5}
+    got = asyncio.run(C.get_canned_responses(l1, l2, "", "the tour was bad",
+                                             dss_rec=permissive))
     assert got, f"no macro at all for {l1} / {l2}"
     filed_for_pair = {s for s, p in C.macro_l1l2().items() if p == [l1, l2]}
     assert C._norm_sit(got[0]["situation"]) in filed_for_pair, (
         f"top match {got[0]['situation']!r} is not filed under {l1} / {l2}")
+
+
+def test_a_filed_remedy_macro_is_withheld_when_no_dss_prescribed_it(monkeypatch):
+    """The new behaviour the parametrised test above deliberately steps around,
+    pinned here so it is asserted somewhere: the macro filed under "Venue
+    Related Issue / Venue closure" promises a partial refund, so with no DSS to
+    authorise it, it must NOT come back as the reply — however well it matches
+    on filing and on words."""
+    monkeypatch.setattr(C, "is_live", lambda s: False)
+    monkeypatch.setattr(C, "_cache_rows", [], raising=False)
+    monkeypatch.setattr(C, "_cache_at", 0, raising=False)
+    got = asyncio.run(C.get_canned_responses(
+        "Venue Related Issue", "Venue closure", "", "the venue was closed",
+        dss_rec={"match_score": 0, "fallback": "No DSS available"}))
+    tops = {C._norm_sit(g["situation"]) for g in got}
+    assert "venue closure - partial refund as a part of the venue was closed" \
+        not in tops, "an unprescribed partial refund was offered to the guest"
+    for g in got:
+        assert not g.get("promises"), \
+            f"{g['situation']!r} promises {g['promises']} with no DSS to authorise it"

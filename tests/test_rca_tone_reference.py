@@ -1,15 +1,26 @@
 import re
-"""Approved replies reach the model as VOICE, and never as content.
+"""The approved macro reaches the model as THE REPLY, and is adapted, not copied
+blind and not paraphrased away.
 
-Dropping the standalone drafter bought grounding at the cost of brand voice.
-Passing the canned replies into the RCA call buys it back — but a tone example
-sitting next to a "write a reply" instruction is the single easiest way to get
-a canned answer with this guest's name pasted into it. The token is only safe
-while output rule 18 is next to it, so both are asserted together.
+THIS FILE USED TO ASSERT THE OPPOSITE. The macros were passed as "voice only,
+never content", because a reply nobody approved is indistinguishable on the card
+from one that was, and a tone example next to a "write a reply" instruction is
+the easiest way to get exactly that. The protection was the wrong one: what it
+actually produced was the model writing its own reply in the approved register —
+the very thing it was guarding against — while the approved text went unused.
 
-The rendering is checked at source rather than by calling the model: what
-matters is that the examples arrive labelled as voice, under a rule that says
-copy none of their content.
+What makes the macro safe to send now is structural rather than instructional.
+It is selected for THIS review by a model that read it, and the candidate set is
+first gated on the remedy the DSS named (services/reply_macro.py), so a macro
+promising a refund cannot even be offered unless the playbook named one. The
+prompt no longer has to be trusted not to carry a remedy across; the remedy
+never reaches it.
+
+So the guarantees asserted here changed shape: the macro's own sentences must
+survive, the guest's specifics must be addressed, and nothing beyond what the
+macro promises may be offered. Checked at source rather than by calling the
+model — what matters is that the text arrives labelled as the reply, under rules
+that say keep it, adapt it, and do not exceed it.
 """
 import server.prompts as prompts
 
@@ -41,7 +52,7 @@ def _prompt(**over):
 
 def test_the_template_carries_a_tone_token():
     assert "<<CANNED_TONE>>" in prompts.RCA_V4_TEMPLATE
-    assert "APPROVED REPLY VOICE" in prompts.RCA_V4_TEMPLATE
+    assert "APPROVED REPLY FOR THIS CASE" in prompts.RCA_V4_TEMPLATE
 
 
 def test_every_token_is_substituted():
@@ -56,13 +67,15 @@ def test_the_approved_replies_reach_the_model():
     assert "Ticket delivered late" in out
 
 
-def test_only_the_first_three_examples_go_in():
-    """More than three starts reading like a pattern to match rather than a
-    register to borrow."""
+def test_only_the_selected_macro_goes_in():
+    """ONE macro, not three. Three of them was a pattern to blend, which is how
+    the model came to write its own reply in their register instead of sending
+    one of them; the selector has already chosen which applies to this review,
+    so the others are noise that invites a merge."""
     many = [{"situation": f"S{i}", "response": f"UNIQUE_BODY_{i}"} for i in range(6)]
     out = _prompt(canned_list=many)
-    assert "UNIQUE_BODY_2" in out
-    assert "UNIQUE_BODY_3" not in out
+    assert "UNIQUE_BODY_0" in out
+    assert "UNIQUE_BODY_1" not in out, "a second macro reached the prompt to blend with"
 
 
 def test_no_matching_macro_tells_the_model_to_return_null():
@@ -80,7 +93,7 @@ def test_no_matching_macro_tells_the_model_to_return_null():
     assert "Do NOT write one" in out
     assert "plain, warm, direct English" not in out, \
         "the old invent-a-reply instruction is back alongside the new one"
-    assert "APPROVED REPLY VOICE" in out
+    assert "APPROVED REPLY FOR THIS CASE" in out
     assert "NO APPROVED MACRO, NO REPLY" in out, "rule 20 is not in the prompt"
 
 
@@ -91,17 +104,33 @@ def test_a_malformed_canned_row_does_not_break_the_prompt():
 
 # ── the rule that makes the token safe ──────────────────────────────────────
 
-def test_the_no_copying_rule_ships_with_the_examples():
-    """Without the no-copying rule the token is a liability, not a feature.
-    Asserted on the rule's own text, not on its number — the number surviving
-    while the clause is gone is the failure this has to catch."""
+def test_the_keep_adapt_and_do_not_exceed_rule_ships_with_the_macro():
+    """The three clauses that make sending the macro safe. Asserted on the
+    rule's own text, not on its number — the number surviving while a clause is
+    gone is the failure this has to catch.
+
+    The one that matters most is the last: the gate stops an unauthorised
+    remedy reaching the prompt, and this stops the model inventing one past the
+    macro it was given. Both, because they fail differently — the gate cannot
+    see a sentence the model writes."""
     t = prompts.RCA_V4_TEMPLATE
-    head = "19. `suggested_response` follows the voice of the APPROVED REPLY VOICE examples"
-    assert head in t, "the no-copying output rule is missing or reworded"
-    rule = t[t.find(head):]
-    for phrase in ("Never copy a sentence", "never carry over a remedy",
-                   "never use one as a template"):
-        assert phrase in rule, f"the no-copying rule lost its {phrase!r} clause"
+    head = "19. `suggested_response` IS THE APPROVED MACRO"
+    assert head in t, "the keep-adapt-do-not-exceed rule is missing or reworded"
+    # Whitespace-normalised: a prompt gets rewrapped routinely, and a clause
+    # that only fails because it now spans a line break is a test measuring
+    # the wrap rather than the rule.
+    rule = re.sub(r"\s+", " ", t[t.find(head):t.find("20.", t.find(head))])
+    # KEEP the approved sentences.
+    assert "Keep them." in rule, "the rule no longer says to keep the macro's sentences"
+    assert "do not compress it to a summary" in rule
+    # ADAPT to this guest.
+    assert "ADAPT IT" in rule, "the rule no longer says to address this guest's specifics"
+    assert "form letter" in rule
+    # DO NOT EXCEED what it promises.
+    assert "NEVER GO BEYOND WHAT THE MACRO PROMISES" in rule, \
+        "the rule lost the clause that stops an unauthorised remedy being added"
+    assert "do not turn that into a refund" in rule
+    assert "add no compensation of any kind" in rule
     assert "only from this case's evidence" in rule
 
 
@@ -120,12 +149,18 @@ def test_the_pipeline_stops_writing_a_template_name():
     assert "template_name" not in PIPE
 
 
-def test_the_examples_are_labelled_as_voice_where_they_appear():
-    """The label sits next to the text, not only in the rules block — the
-    model reads the block in place."""
+def test_the_macro_is_labelled_as_the_reply_where_it_appears():
+    """The label sits next to the text, not only in the rules block — the model
+    reads the block in place. Labelled "example" beside a "write a reply"
+    instruction is what produced a reply nobody approved."""
     out = _prompt(canned_list=CANNED)
     i = out.find("I've refunded the full amount today.")
-    assert "never content to copy" in out[max(0, i - 600):i]
+    # The label leads the block and the instructions follow the text, so the
+    # window spans both sides of the macro body.
+    block = re.sub(r"\s+", " ", out[max(0, i - 900):i + 1400])
+    assert "THIS IS THE APPROVED REPLY FOR THIS CASE" in block
+    assert "backbone" in block
+    assert "ADDRESS WHAT THIS GUEST ACTUALLY RAISED" in block
 
 
 # ── two rules a live v3 row showed we needed ────────────────────────────────

@@ -1304,16 +1304,42 @@ def rca_v3_prompt(
         scenario_block = ("\n━━ SCENARIO CHECKS - every routed scenario, run all ━━\n"
                           + "\n".join(sc_lines) + "\n" + "━" * 40)
 
-    # Approved replies, as VOICE only. Output rule 18 is what keeps them from
-    # becoming content: a tone example sitting next to a "write a reply"
-    # instruction is the easiest way to get a canned answer with this guest's
-    # name pasted into it. Two or three is enough to establish a register;
-    # more starts reading like a pattern to match.
+    # THE MACRO IS THE REPLY, not a register to imitate. It was a "tone
+    # example" and the model wrote its own reply beside it — which is how a
+    # reply nobody approved reached the card in the approved one's voice. The
+    # macro has been chosen for this case by a selector that read the review,
+    # and gated so what it promises is a remedy the DSS actually named; a model
+    # paraphrasing it can only lose one of those properties.
+    #
+    # ONE macro, not three. Three "examples" is a pattern to blend; one is the
+    # text to work from. The selector picks it.
     if canned_list:
-        tone = "\n\n".join(
-            f"Example {i} [{(ex.get('situation') or '').strip()}]:\n"
-            f"{(ex.get('response') or '').strip()}"
-            for i, ex in enumerate(canned_list[:3], 1))
+        _m = canned_list[0] or {}
+        _promises = _m.get("promises") or []
+        tone = (
+            "THIS IS THE APPROVED REPLY FOR THIS CASE. Use its wording as the\n"
+            "backbone of `suggested_response`.\n\n"
+            f"[approved macro — {(_m.get('situation') or '').strip()}]\n"
+            f"{(_m.get('response') or '').strip()}\n\n"
+            "HOW TO USE IT:\n"
+            "- Keep the macro's approved sentences. Do not rewrite it into your\n"
+            "  own words, do not shorten it to a summary, do not restructure it.\n"
+            "- ADDRESS WHAT THIS GUEST ACTUALLY RAISED. The macro covers the\n"
+            "  general situation; this guest also named specifics. Work those in\n"
+            "  — a reply that ignores half their complaint reads as a form\n"
+            "  letter, which is what they are already angry about.\n"
+            "- Fill every placeholder from the record: <first name>/<Name> from\n"
+            "  the guest's name, <date>, {{experience}}, <$X>/<X%> from the\n"
+            "  booking. Never send a placeholder through, and never invent a\n"
+            "  figure to fill one — if the record does not have it, rephrase so\n"
+            "  the sentence does not need it.\n"
+            + (f"- This macro commits us to: {', '.join(_promises)}. That is\n"
+               "  authorised for this case. Do not offer anything beyond it.\n"
+               if _promises else
+               "- This macro promises the guest no compensation. Do not add any:\n"
+               "  no refund, no credit, no coupon. Nothing has authorised one.\n")
+            + "- The voice rules above are hard policy and outrank the macro's\n"
+              "  own phrasing where they conflict.")
     else:
         # No approved macro fits this review. The instruction that used to sit
         # here - "write in plain, warm, direct English" - got a reply that read
@@ -1484,7 +1510,9 @@ Use it to write `case_side` on each issue. It was pasted in here and referred
 to by no rule, so it was ignored on every card.
 <<SUPPORT_SUMMARY>>
 
-APPROVED REPLY VOICE — tone reference only, never content to copy:
+APPROVED REPLY FOR THIS CASE — the backbone of `suggested_response`.
+Chosen for this review and gated so what it promises is a remedy the DSS
+named. Keep its sentences; work in what this guest actually raised.
 <<CANNED_TONE>>
 
 ━━ ISSUE-SPECIFIC QUESTIONS — CHECKS TO WRITE AGAINST, not a section to fill in ━━
@@ -2644,10 +2672,20 @@ that turned out fine is silence — never a line in the output.
     `sp_interaction_notes.reason` says why escalation did not happen when `raised` is No or N/A —
     a blocked escalation (non-partnered vendor, opted-out contact) is a FACT about this booking,
     not a miss, and with no reason stated "N/A" is indistinguishable from a section you skipped.
-19. `suggested_response` follows the voice of the APPROVED REPLY VOICE examples — their register,
-    warmth and sentence rhythm — and NONE of their content. Never copy a sentence from them,
-    never carry over a remedy they mention, and never use one as a template to fill in. The
-    facts of this reply come only from this case's evidence.
+19. `suggested_response` IS THE APPROVED MACRO, adapted to this guest. The macro shown above was
+    chosen for this review and gated so that what it promises is a remedy the DSS actually
+    named — so its sentences are the approved ones and they are what goes out. Keep them.
+    Do not rewrite it in your own words, do not compress it to a summary, do not use it only
+    as a register to imitate.
+    ADAPT IT, because a macro covers the general situation and this guest raised specifics:
+    work in what they actually said, drop a paragraph that plainly does not apply to them, and
+    fill every placeholder from the record. A reply that answers half their complaint reads as
+    a form letter, which is usually what they are already angry about.
+    NEVER GO BEYOND WHAT THE MACRO PROMISES. If it offers a credit, do not turn that into a
+    refund; if it promises nothing, add no compensation of any kind. What it offers has been
+    authorised for this case and anything past that has not — that is a policy decision, not a
+    wording one. Every FACT in the reply still comes only from this case's evidence: never
+    invent a figure, a date or a status to fill a placeholder the record cannot fill.
 20. `area_of_improving` IS POINTERS, NOT A PARAGRAPH. One short pointer per array element, one
     line each, no semicolons, no "and also". It used to come back as a single paragraph welding
     five recommendations together, half of it material that appears in no finding on this card.
@@ -3377,5 +3415,73 @@ GUEST SITUATION:
 
 CANDIDATE SCENARIOS:
 {rows}
+
+JSON:"""
+
+
+def reply_macro_select_prompt(review_text: str, candidates: list,
+                              l1: str = "", l2: str = "", sub_theme: str = "",
+                              dss_action: str = "") -> str:
+    """Ask the model to pick the approved macro whose SCENARIO matches this
+    guest's situation — by meaning, not by shared words.
+
+    `candidates` is [{"i": int, "situation": str, "promises": [str, ...]}, ...],
+    already gated on the remedy the DSS named (see services/reply_macro.py), so
+    every option here is one the playbook permits. The model chooses the
+    scenario; it never chooses the remedy, because that gate has already run and
+    offering an unauthorised one is not a judgement call.
+
+    L1/L2 ARE HINTS, NOT THE KEY. They are frequently wrong or absent — the
+    whole manual-review cascade came from treating a missing L2 as decisive — so
+    the model is told to read the review and deduce which of the listed themes
+    it belongs to, using the classification only as corroboration.
+    """
+    rows = []
+    for c in candidates:
+        promises = c.get("promises") or []
+        offer = (f"  [offers: {', '.join(promises)}]" if promises
+                 else "  [offers nothing — acknowledgement / information only]")
+        rows.append(f'[{c["i"]}] {c["situation"]}{offer}')
+    rows_block = "\n".join(rows)
+
+    ctx = []
+    if l1:        ctx.append(f"Classified L1: {l1}")
+    if l2:        ctx.append(f"Classified L2: {l2}")
+    if sub_theme: ctx.append(f"Sub-theme: {sub_theme}")
+    if dss_action:
+        ctx.append(f"DSS prescribes: {dss_action[:600]}")
+    ctx_block = ("\nContext (corroboration only — the review decides):\n  "
+                 + "\n  ".join(ctx)) if ctx else ""
+
+    return f"""You are choosing which APPROVED reply macro fits a guest's review.
+
+Below is the guest's review, then a NUMBERED list of macro scenarios. Pick the
+ONE whose scenario best describes WHAT HAPPENED TO THIS GUEST.
+
+HOW TO CHOOSE:
+- Match on MEANING. The guest describes their experience in their own words and
+  will not use the macro's vocabulary. "We stood at the door for an hour and
+  nobody came" is a meeting-point/no-show scenario however it is phrased.
+- Read the review first and decide which of the listed themes it belongs to.
+  The classification below is corroboration, not the answer: it is often absent
+  and sometimes wrong, so never pick a scenario only because its words resemble
+  the L1/L2 label.
+- Every option listed is already permitted for this case. What each one offers
+  the guest is shown so you can prefer the one that fits what actually
+  happened — but do NOT reject a scenario because you would have offered
+  something different. That decision has already been made.
+- If NONE of the scenarios genuinely describes this guest's situation, return
+  index -1. A near-miss macro sent to a guest is worse than no draft: it answers
+  a complaint they did not make.
+
+Output STRICT JSON, nothing else:
+{{"index": <number or -1>, "confidence": "high"|"medium"|"low", "reason": "<one line>"}}
+
+GUEST REVIEW:
+{review_text}
+{ctx_block}
+
+MACRO SCENARIOS:
+{rows_block}
 
 JSON:"""

@@ -250,9 +250,18 @@ def test_a_dead_canned_sheet_does_not_take_the_rca_down(app_env, monkeypatch):
 def test_the_pipeline_passes_the_approved_reply_voice():
     i = PIPE.find("claude.generate_rca_v3(")
     assert "canned_list=canned_list" in PIPE[i:i + 1200], \
-        "the pipeline generates a reply with no voice reference"
-    assert "get_canned_responses(" in PIPE[max(0, i - 1200):i], \
+        "the pipeline generates a reply with no approved macro"
+    lookback = PIPE[max(0, i - 2400):i]
+    assert "get_canned_responses(" in lookback, \
         "canned_list is passed but never looked up"
+    # THE DSS MUST REACH THE LOOKUP. The macro list files one scenario several
+    # times, differing only by what it promises the guest; without dss_rec the
+    # gate permits nothing and every remedy macro is withheld, so the reply
+    # silently degrades to acknowledgement-only on every review. Behaviour is
+    # covered in tests/test_reply_macro_gate.py — this is the wiring that
+    # decides whether that gate is ever handed anything to work with.
+    assert "dss_rec=dss_rec" in lookback, \
+        "the macro lookup runs without the DSS, so no remedy is ever authorised"
 
 
 

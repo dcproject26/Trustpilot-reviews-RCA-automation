@@ -4000,9 +4000,15 @@ async def process_review(review_id: str, force_candidates: bool = False):
             # Output rule 18 is what stops the examples becoming content.
             _tone_err = None
             try:
+                # dss_rec GATES THE MACRO SET. The list files one scenario
+                # several times, differing only by what it promises the guest,
+                # and the review reads identically across them — the DSS is the
+                # only thing that can choose. Passing it here is what stops a
+                # reply offering a refund the playbook never prescribed. See
+                # services/reply_macro.py.
                 canned_list = await get_canned_responses(
                     l1, l2, sub_theme, review_text or "",
-                    untraceable=not booking)
+                    untraceable=not booking, dss_rec=dss_rec)
             except Exception as e:
                 canned_list = []
                 _tone_err = e
@@ -4016,6 +4022,18 @@ async def process_review(review_id: str, force_candidates: bool = False):
                                      else "")
             if _tone_entry:
                 confidence_trail.append(_tone_entry)
+            # WHAT THE GATE WITHHELD, in words. A macro set narrowed by the DSS
+            # renders exactly like the whole set, and "nothing in the sheet fits
+            # this review" reads the same as "eleven fitted and every one
+            # promised a remedy the playbook did not name" — different problems,
+            # fixed by different people. The gate counts them; this is where the
+            # reader is told.
+            _gate_note = (canned_list[0] or {}).get("gate_note") if canned_list \
+                else last_failure_reason()
+            if _gate_note:
+                confidence_trail.append({"mark": "pass", "text":
+                    f"<strong>Approved replies narrowed by the DSS</strong> — "
+                    f"{_gate_note}"})
             rca_v3 = await claude.generate_rca_v3(
                 review_text=review_text,
                 booking=booking,
