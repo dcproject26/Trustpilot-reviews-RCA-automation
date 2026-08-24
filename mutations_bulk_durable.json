@@ -1,0 +1,38 @@
+[
+  {
+    "file": "server/jobs.py",
+    "name": "a dead job counts as done, so the bar reaches 100% while reviews failed",
+    "find": "        done = [r for r in rows if r.status == \"done\"]",
+    "replace": "        done = [r for r in rows if r.status in (\"done\", \"dead\")]"
+  },
+  {
+    "file": "server/jobs.py",
+    "name": "already-booked reviews are reported as queued by this batch, over-counting the work",
+    "find": "            if existing is not None:\n                already.append(rid)\n                continue",
+    "replace": "            if existing is not None:\n                queued.append(rid)\n                continue"
+  },
+  {
+    "file": "server/jobs.py",
+    "name": "batch_status reports every batch ever run, so two runs add up into one bar",
+    "find": "        rows = s.query(d.RunJob).filter(d.RunJob.reason == newest.reason).all()",
+    "replace": "        rows = s.query(d.RunJob).filter(d.RunJob.reason.like(f\"{reason_prefix}:%\")).all()"
+  },
+  {
+    "file": "server/jobs.py",
+    "name": "cancel kills running jobs too, abandoning a mid-pipeline run and its half-written draft",
+    "find": "                      d.RunJob.status == \"queued\")",
+    "replace": "                      d.RunJob.status.in_((\"queued\", \"running\")))"
+  },
+  {
+    "file": "server/jobs.py",
+    "name": "an ETA is projected before anything finished, from no rate at all",
+    "find": "        if live and done and started:",
+    "replace": "        if live and started:"
+  },
+  {
+    "file": "server/jobs.py",
+    "name": "a batch still queued reports itself as not running, so the progress bar never shows",
+    "find": "            \"running\": bool(live),",
+    "replace": "            \"running\": False,"
+  }
+]

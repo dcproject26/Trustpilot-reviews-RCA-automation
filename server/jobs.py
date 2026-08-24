@@ -266,3 +266,150 @@ async def run_drain_loop(runner, worker_id: str, idle_sleep_s: float = 15.0,
             log.info(f"[jobs] {rid} -> {outcome} (attempt {job['attempts']}/{job['max_attempts']})")
         finally:
             _ACTIVE.pop(rid, None)
+
+
+# ── batches, for the bulk re-run ────────────────────────────────────────────
+# "Fix incomplete" was the ONE re-run path still using a fire-and-forget
+# BackgroundTask with in-process progress state, while every other path
+# (per-review re-run, candidate-confirmed, bid-set-by-hand, slack-refresh)
+# already used the rows above. On autoscale that is two separate failures:
+#
+#   * the work may never run. A BackgroundTask executes AFTER the response, and
+#     the container can be reclaimed the moment the response is sent — the same
+#     defect measured at "0 of 9 re-runs executed" that these job rows exist to
+#     fix.
+#   * the progress cannot be seen. The counters lived in a module-level dict,
+#     so a poll landing on another instance found a run that, as far as that
+#     process knew, had never started.
+#
+# A batch is just a shared `reason` on ordinary job rows, so the drain loop
+# needs no special case and progress is a query rather than a memory.
+
+BULK_REASON_PREFIX = "fix-incomplete"
+
+
+def start_batch(review_ids, reason_prefix: str = BULK_REASON_PREFIX) -> dict:
+    """Queue one durable job per review under a single batch reason.
+
+    Returns {"batch", "reason", "queued": [...], "already_booked": [...]}.
+
+    ALREADY_BOOKED IS RETURNED, NOT SWALLOWED. `enqueue` dedupes a review that
+    already has a job queued or running, which is right — a bulk run must not
+    start a second run over a review someone is already re-running. But then
+    "60 reviews queued" and "60 reviews looked at, 12 of which were already
+    booked and are not part of this batch" are the same number, and the second
+    is what happened. The caller can say so.
+    """
+    import uuid as _uuid
+    d = _db()
+    s = d.SessionLocal()
+    batch = _uuid.uuid4().hex[:8]
+    reason = f"{reason_prefix}:{batch}"
+    queued, already = [], []
+    try:
+        for rid in review_ids:
+            existing = (s.query(d.RunJob)
+                         .filter(d.RunJob.review_id == rid,
+                                 d.RunJob.status.in_(("queued", "running")))
+                         .first())
+            if existing is not None:
+                already.append(rid)
+                continue
+            now = datetime.utcnow()
+            s.add(d.RunJob(id=_uuid.uuid4().hex, review_id=rid, reason=reason,
+                           force_candidates=False, status="queued", attempts=0,
+                           created_at=now, updated_at=now))
+            queued.append(rid)
+        s.commit()
+    finally:
+        s.close()
+    return {"batch": batch, "reason": reason,
+            "queued": queued, "already_booked": already}
+
+
+def batch_status(reason_prefix: str = BULK_REASON_PREFIX) -> dict:
+    """Progress of the most recent batch, read from the job rows.
+
+    Survives the request, the container and the instance, because it is a
+    query rather than a process's memory — which is the whole point of moving
+    the bulk run onto these rows.
+    """
+    d = _db()
+    s = d.SessionLocal()
+    try:
+        newest = (s.query(d.RunJob)
+                   .filter(d.RunJob.reason.like(f"{reason_prefix}:%"))
+                   .order_by(d.RunJob.created_at.desc()).first())
+        if newest is None:
+            return {"running": False, "total": 0, "done": 0, "failed": 0,
+                    "remaining": 0, "current": "", "scope": "", "batch": "",
+                    "started_at": None, "finished_at": None, "results": []}
+        rows = s.query(d.RunJob).filter(d.RunJob.reason == newest.reason).all()
+
+        done = [r for r in rows if r.status == "done"]
+        dead = [r for r in rows if r.status == "dead"]
+        live = [r for r in rows if r.status in ("queued", "running")]
+        running = [r for r in rows if r.status == "running"]
+
+        started = min((r.created_at for r in rows if r.created_at), default=None)
+        finished = (max((r.updated_at for r in rows if r.updated_at), default=None)
+                    if not live else None)
+
+        # An ETA is only honest once something has finished: with no completed
+        # run there is no rate to project from, and a number invented before
+        # the first one lands is a guess wearing a clock.
+        eta_s = None
+        if live and done and started:
+            elapsed = (datetime.utcnow() - started).total_seconds()
+            per = elapsed / max(1, len(done))
+            eta_s = int(per * len(live))
+
+        return {
+            "running": bool(live),
+            "total": len(rows),
+            # done counts FINISHED work, so a dead job is not counted as done.
+            # A bar that reaches 100% while three reviews failed reads as a
+            # clean run.
+            "done": len(done),
+            "failed": len(dead),
+            "remaining": len(live),
+            "current": (running[0].review_id if running else ""),
+            "scope": "incomplete",
+            "batch": newest.reason.split(":", 1)[-1],
+            "started_at": started.isoformat() if started else None,
+            "finished_at": finished.isoformat() if finished else None,
+            "eta_s": eta_s,
+            "results": ([{"id": r.review_id, "ok": True, "error": ""} for r in done]
+                        + [{"id": r.review_id, "ok": False,
+                            "error": r.last_error or "the run failed"} for r in dead]),
+        }
+    finally:
+        s.close()
+
+
+def cancel_batch(reason_prefix: str = BULK_REASON_PREFIX) -> int:
+    """Drop the QUEUED jobs of the newest batch. Returns how many were dropped.
+
+    Only the queued ones: a running job holds a lease on an instance that is
+    mid-pipeline, and killing its row would leave a half-written draft — the
+    thing the old in-process cancel was careful about too. Those finish.
+    """
+    d = _db()
+    s = d.SessionLocal()
+    try:
+        newest = (s.query(d.RunJob)
+                   .filter(d.RunJob.reason.like(f"{reason_prefix}:%"))
+                   .order_by(d.RunJob.created_at.desc()).first())
+        if newest is None:
+            return 0
+        n = (s.query(d.RunJob)
+              .filter(d.RunJob.reason == newest.reason,
+                      d.RunJob.status == "queued")
+              .update({d.RunJob.status: "dead",
+                       d.RunJob.last_error: "cancelled before it started",
+                       d.RunJob.updated_at: datetime.utcnow()},
+                      synchronize_session=False))
+        s.commit()
+        return int(n or 0)
+    finally:
+        s.close()

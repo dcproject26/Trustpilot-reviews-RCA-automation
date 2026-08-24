@@ -572,9 +572,16 @@ def test_a_run_stopped_by_the_watchdog_says_the_budget_was_ours(live_db,
 
 def test_the_bulk_re_run_survives_a_review_that_never_returns(monkeypatch):
     """The bulk job already survived a review that RAISES. A review that never
-    returns is the other way to stop a queue: three of them hold every
-    semaphore slot while the job reports itself as still running."""
-    import server.api as api
+    returns is the other way to stop a queue: one of them used to hold the
+    runner while the job reported itself as still running.
+
+    DRIVEN THROUGH run_batch, which is where this guarantee lives now. The
+    bulk re-run used to have its own worker with its own timeout; it is durable
+    job rows drained by run_batch (server/main.py::_job_runner) since the
+    in-process version could not survive the container. The guarantee is
+    unchanged and so is this test's point — one hanging review must not stop
+    the queue, and the reason must say it was OUR budget rather than a failure
+    any service reported."""
     import server.pipeline as P
 
     async def _hang(rid, force_candidates=False):
@@ -582,18 +589,12 @@ def test_the_bulk_re_run_survives_a_review_that_never_returns(monkeypatch):
 
     monkeypatch.setattr(P, "process_review", _hang)
     monkeypatch.setattr(P, "RUN_TIMEOUT_S", 0.05)
-    monkeypatch.setitem(api._BULK, "cancel", False)
-    monkeypatch.setitem(api._BULK, "total", 2)
-    monkeypatch.setitem(api._BULK, "done", 0)
-    monkeypatch.setitem(api._BULK, "failed", 0)
-    monkeypatch.setitem(api._BULK, "results", [])
 
-    asyncio.run(asyncio.wait_for(api._bulk_worker(["tp_1", "tp_2"]), 10))
+    out = asyncio.run(asyncio.wait_for(
+        P.run_batch(["tp_1", "tp_2"], "fix-incomplete"), 10))
 
-    assert api._BULK["done"] == 2, "the bulk job never finished its queue"
-    assert api._BULK["failed"] == 2
-    errors = [r["error"] for r in api._BULK["results"]]
-    assert all("our budget" in e for e in errors), errors
+    assert out["timed_out"] == 2, f"the queue did not survive the hang: {out}"
+    assert out["completed"] == 0, out
 
 
 # ── The wiring, at the endpoint ─────────────────────────────────────────────

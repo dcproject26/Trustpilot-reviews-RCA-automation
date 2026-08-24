@@ -556,7 +556,8 @@ def sec_fix():
     import asyncio
     import logging
     logging.basicConfig(level=logging.WARNING, force=True)
-    from server.api import _bulk_targets, _bulk_worker, _BULK
+    from server.api import _bulk_targets
+    from server.pipeline import run_batch
     from server.db import SessionLocal
     s = SessionLocal()
     try:
@@ -568,17 +569,17 @@ def sec_fix():
         return
     line(INFO, f"re-running {len(ids)} review(s), 3 at a time "
                f"(~{max(1, len(ids) // 3) * 40}s)")
-    _BULK.update({"running": True, "scope": "incomplete", "total": len(ids),
-                  "done": 0, "failed": 0, "current": "", "cancel": False,
-                  "results": [], "started_at": datetime.utcnow().isoformat(),
-                  "finished_at": None})
-    asyncio.run(_bulk_worker(ids))
-    ok = [r for r in _BULK["results"] if r["ok"]]
-    bad = [r for r in _BULK["results"] if not r["ok"]]
+    # Runs INLINE via run_batch rather than queueing durable jobs: a
+    # diagnostic that queues work and exits has diagnosed nothing, and this
+    # tool is normally run where no drain loop is going. The bulk ENDPOINT
+    # queues; this deliberately does not.
+    out = asyncio.run(run_batch(ids, "diagnose-incomplete"))
+    bad = int(out.get("failed", 0)) + int(out.get("timed_out", 0))
     line(OK if not bad else BAD,
-         f"re-ran {len(ok)}/{len(ids)}"
-         + (f", {len(bad)} failed" if bad else ""),
-         "\n".join(f"{r['id']}: {r['error']}" for r in bad[:10]))
+         f"re-ran {out.get('completed', 0)}/{len(ids)}"
+         + (f", {bad} failed" if bad else ""),
+         f"{out.get('timed_out', 0)} timed out, {out.get('failed', 0)} raised"
+         if bad else "")
     # Say what it looks like NOW, so the run is self-verifying.
     try:
         sec_database()

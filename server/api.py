@@ -1189,7 +1189,10 @@ async def add_manual_review(
 # in a background poll is invisible unless you are watching the console.
 @router.get("/api/reviews/bulk-status")
 def bulk_status():
-    return _bulk_public()
+    """Read from the job rows, not from this process's memory. The counters
+    used to live in a module-level dict, so a poll landing on another instance
+    reported a batch that instance had never heard of as "not running"."""
+    return jobs.batch_status()
 
 
 @router.get("/api/reviews/{review_id}")
@@ -2254,16 +2257,6 @@ async def refresh_slack(hours: float | None = None, background_tasks: Background
 _BULK_MAX = 60
 
 
-# Job state lives on the server, not in the browser: a ten-review re-run takes
-# minutes, and a tab close or reload must not lose it or leave work orphaned.
-_BULK: dict = {
-    "running": False, "scope": "", "total": 0, "done": 0, "failed": 0,
-    "current": "", "started_at": None, "finished_at": None,
-    "results": [], "cancel": False,
-}
-_BULK_CONCURRENCY = 3
-
-
 def _bulk_targets(db, scope: str, limit: int) -> list[str]:
     """Which reviews need re-running.
 
@@ -2306,52 +2299,6 @@ def _bulk_targets(db, scope: str, limit: int) -> list[str]:
     return ids
 
 
-async def _bulk_worker(ids: list[str]):
-    from server.pipeline import process_review as _pipeline, RUN_TIMEOUT_S
-    sem = asyncio.Semaphore(_BULK_CONCURRENCY)
-
-    async def one(rid: str):
-        if _BULK["cancel"]:
-            return
-        async with sem:
-            if _BULK["cancel"]:
-                return
-            _BULK["current"] = rid
-            try:
-                # Bounded. This loop already survives a review that RAISES;
-                # a review that never returns is the other way to stop a
-                # queue, and three of them hold every semaphore slot for
-                # ever with the job reporting itself as still running.
-                await asyncio.wait_for(_pipeline(rid), RUN_TIMEOUT_S)
-                _BULK["results"].append({"id": rid, "ok": True, "error": ""})
-                log.info(f"[bulk] {rid} done ({_BULK['done'] + 1}/{_BULK['total']})")
-            except (asyncio.TimeoutError, TimeoutError):
-                _BULK["failed"] += 1
-                _BULK["results"].append({
-                    "id": rid, "ok": False,
-                    "error": f"stopped after {RUN_TIMEOUT_S // 60} minutes — "
-                             f"our budget, not a reported failure"})
-                log.error(f"[bulk] {rid} timed out after {RUN_TIMEOUT_S}s")
-            except Exception as e:
-                # One bad review must never stop the queue, and the failure
-                # must survive into the status so it is not just a log line.
-                _BULK["failed"] += 1
-                _BULK["results"].append({"id": rid, "ok": False,
-                                         "error": f"{type(e).__name__}: {e}"[:300]})
-                log.exception(f"[bulk] {rid} failed: {e}")
-            finally:
-                _BULK["done"] += 1
-
-    try:
-        await asyncio.gather(*(one(r) for r in ids))
-    finally:
-        _BULK["running"] = False
-        _BULK["current"] = ""
-        _BULK["finished_at"] = datetime.utcnow().isoformat()
-        log.info(f"[bulk] finished: {_BULK['done']}/{_BULK['total']}, "
-                 f"{_BULK['failed']} failed")
-
-
 @router.post("/api/reviews/reprocess-all")
 async def reprocess_all(tab: str = "incomplete", limit: int = _BULK_MAX,
                         background_tasks: BackgroundTasks = None,
@@ -2365,55 +2312,53 @@ async def reprocess_all(tab: str = "incomplete", limit: int = _BULK_MAX,
     # a query, then setting it, leaves a window where two clicks both pass the
     # check and start two workers over the same reviews - each re-running the
     # other's rows and both writing the same drafts.
-    if _BULK["running"]:
-        return {"ok": False, "already_running": True, **_bulk_public()}
-    _BULK["running"] = True
-    try:
-        limit = max(1, min(int(limit), _BULK_MAX))
-        ids = _bulk_targets(db, tab, limit)
-    except Exception:
-        _BULK["running"] = False
-        raise
+    # ONE JOB ROW PER REVIEW, drained by the loop in server/main.py — the same
+    # path every other re-run already used. This was a BackgroundTask writing
+    # counters into a module-level dict, which on autoscale meant the work
+    # might never run (the container is reclaimed once the response is sent)
+    # and the progress could not be seen from another instance. See
+    # jobs.start_batch.
+    live = jobs.batch_status()
+    if live.get("running"):
+        return {"ok": False, "already_running": True, **live}
+
+    limit = max(1, min(int(limit), _BULK_MAX))
+    ids = _bulk_targets(db, tab, limit)
     if not ids:
-        _BULK["running"] = False
         return {"ok": True, "queued": 0, "scope": tab,
                 "note": "nothing matched that scope"}
 
-    _BULK.update({"running": True, "scope": tab, "total": len(ids), "done": 0,
-                  "failed": 0, "current": "", "cancel": False, "results": [],
-                  "started_at": datetime.utcnow().isoformat(),
-                  "finished_at": None})
-    if background_tasks is not None:
-        background_tasks.add_task(lambda x: asyncio.run(_bulk_worker(x)), ids)
-    else:
-        await _bulk_worker(ids)
-    log.info(f"[bulk] started: {len(ids)} review(s), scope={tab}, "
-             f"concurrency={_BULK_CONCURRENCY}")
-    return {"ok": True, "queued": len(ids), "scope": tab, "review_ids": ids,
-            **_bulk_public()}
-
-
-def _bulk_public() -> dict:
-    d = {k: v for k, v in _BULK.items() if k != "cancel"}
-    d["remaining"] = max(0, _BULK["total"] - _BULK["done"])
-    if _BULK["running"] and _BULK["started_at"] and _BULK["done"]:
-        started = datetime.fromisoformat(_BULK["started_at"])
-        per = (datetime.utcnow() - started).total_seconds() / _BULK["done"]
-        d["eta_s"] = int(per * d["remaining"])
-    else:
-        d["eta_s"] = None
-    return d
+    started = jobs.start_batch(ids)
+    n, already = len(started["queued"]), started["already_booked"]
+    if already:
+        # Counted, not swallowed: these were skipped because a run is already
+        # booked for them, which is not the same as their being re-run here.
+        log.info(f"[bulk] {len(already)} review(s) already had a run booked "
+                 f"and are not part of this batch: {already[:5]}")
+    log.info(f"[bulk] queued {n} durable job(s), scope={tab}, "
+             f"batch={started['batch']}")
+    return {"ok": True, "queued": n, "scope": tab,
+            "review_ids": started["queued"],
+            "already_booked": already,
+            **jobs.batch_status()}
 
 
 @router.post("/api/reviews/bulk-cancel")
 def bulk_cancel():
     """Stops after the in-flight reviews finish - a pipeline killed mid-run
-    would leave a half-written draft."""
-    if not _BULK["running"]:
-        return {"ok": True, "note": "nothing running"}
-    _BULK["cancel"] = True
-    log.info("[bulk] cancel requested")
-    return {"ok": True, "cancelling": True, **_bulk_public()}
+    would leave a half-written draft.
+
+    Drops the QUEUED job rows of the newest batch. The running ones hold a
+    lease on an instance that is mid-pipeline and are left to finish, which is
+    the same care the in-process version took — cancelling is "start no more",
+    not "abandon what is open"."""
+    dropped = jobs.cancel_batch()
+    if not dropped:
+        return {"ok": True, "note": "nothing queued to cancel",
+                **jobs.batch_status()}
+    log.info(f"[bulk] cancelled {dropped} queued job(s)")
+    return {"ok": True, "cancelling": True, "dropped": dropped,
+            **jobs.batch_status()}
 
 
 # ── Scenario change → RCA regeneration ──────────────────────────────────────
