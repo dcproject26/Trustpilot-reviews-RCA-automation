@@ -3638,6 +3638,21 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # timeline; this line is what stops "dropped" from looking like "never
         # there". The reason branch covers the case where the filter could not
         # run at all (no booking date) — did-not-run, not found-nothing.
+        # TICKETS THAT NAME ANOTHER BOOKING. The date cutoff below can only
+        # catch a trip that ended before this booking existed; this catches the
+        # guest's other booking made in the same week or after, which is the
+        # case still reported after the cutoff shipped.
+        _ob = zd_meta.get("other_booking_excluded") or []
+        if _ob:
+            _ob_ids = ", ".join(
+                f"ZD-{e.get('ticket_id')} (booking {e.get('names_booking')})"
+                for e in _ob[:4])
+            confidence_trail.append({"mark": "pass",
+                "text": f"<strong>{len(_ob)} ticket(s) about another booking kept "
+                        f"off the timeline</strong> — {_ob_ids}. Their own Zendesk "
+                        f"booking field names a different booking, so they are the "
+                        f"same guest's other trip rather than this one."})
+
         _pt = zd_meta.get("prior_trip_excluded") or []
         _pt_reason = zd_meta.get("prior_trip_reason") or ""
         if _pt:

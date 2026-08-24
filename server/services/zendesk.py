@@ -586,6 +586,32 @@ def _booking_date(booking: dict) -> str:
     return ""
 
 
+def other_booking_named(ticket, booking_id) -> str:
+    """The DIFFERENT booking id this ticket names in its own field, or "".
+
+    The date cutoff below can only catch a trip that finished before this
+    booking existed. It is blind to the guest's OTHER booking made in the same
+    week, or after — the dates overlap, so nothing fires, and the requester
+    search (which casts by email) puts that booking's tickets in this booking's
+    timeline. That is the case still reported after the cutoff shipped.
+
+    This is the authoritative signal for it: Zendesk stores the booking id in a
+    dedicated field, so a ticket that names 32938379 while we are building
+    33543686's timeline is not this booking's, whatever its dates say.
+
+    AN EMPTY FIELD IS NOT EVIDENCE. It is frequently empty — the codebase's own
+    `bids_from_ticket_text` exists because of that — so "no id on the ticket"
+    means we do not know, not "it belongs elsewhere". Only a field that is SET
+    and DIFFERS excludes anything; everything else returns "" and the ticket is
+    judged on the dates alone.
+    """
+    own = booking_id_from_ticket(ticket)
+    if not own:
+        return ""
+    own, mine = str(own).strip(), str(booking_id or "").strip()
+    return "" if (not mine or own == mine) else own
+
+
 def _is_prior_trip(last_activity, cutoff) -> bool:
     """True when a ticket's NEWEST activity is before the booking existed.
 
@@ -1331,10 +1357,28 @@ def _get_timeline_sync(_z, booking_id: str, booked_on: str = ""):
     _cutoff, _cutoff_reason = _booking_cutoff(booked_on)
     _prior_excluded = []          # [{ticket_id, last_activity}]
     _prior_ids = set()            # ticket ids kept out of the timeline
+    # Tickets that name a DIFFERENT booking in their own field. Separate from
+    # the date exclusions because they are a different finding: one says "this
+    # happened before the booking existed", the other says "this is about
+    # another booking of the same guest's" — and only the second can catch a
+    # concurrent trip.
+    _other_booking_excluded = []  # [{ticket_id, names_booking}]
 
     # ── Fetch comments per ticket (zenpy paginates), build raw events ─────────
     events = []   # (sort_dt, raw_event_dict, raw_body)
     for ticket in tickets:
+        # A ticket that names a different booking in its own field is not this
+        # booking's, whatever its dates. Checked FIRST because it needs no
+        # comments — the date test does, so this also saves the fetch.
+        _names = other_booking_named(ticket, booking_id)
+        if _names:
+            _prior_ids.add(str(ticket.id))
+            _other_booking_excluded.append({"ticket_id": str(ticket.id),
+                                            "names_booking": _names})
+            log.info(f"[zendesk] ZD-{ticket.id} dropped from timeline: its "
+                     f"booking field says {_names}, not {booking_id}")
+            continue
+
         is_sp = bool(ZENDESK_BRAND_GUEST and ZENDESK_BRAND_SP
                      and _brand_matches(ticket, ZENDESK_BRAND_SP))
         tags = getattr(ticket, "tags", None) or []
@@ -1561,6 +1605,11 @@ def _get_timeline_sync(_z, booking_id: str, booked_on: str = ""):
         # that found nothing to drop.
         "prior_trip_excluded": _prior_excluded,
         "prior_trip_reason": _cutoff_reason,
+        # Tickets whose own booking field named a different booking. Reported
+        # separately: "this predates the booking" and "this is about another
+        # booking" are different findings, and only the second catches a trip
+        # that overlaps this one in time.
+        "other_booking_excluded": _other_booking_excluded,
     }
 
 

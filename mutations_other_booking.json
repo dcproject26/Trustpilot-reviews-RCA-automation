@@ -1,0 +1,32 @@
+[
+  {
+    "file": "server/services/zendesk.py",
+    "name": "an empty booking field is treated as belonging elsewhere, dropping every ticket without an id",
+    "find": "    own = booking_id_from_ticket(ticket)\n    if not own:\n        return \"\"",
+    "replace": "    own = booking_id_from_ticket(ticket)\n    if not own:\n        return \"unknown\""
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "a ticket naming THIS booking is excluded as another booking's",
+    "find": "    return \"\" if (not mine or own == mine) else own",
+    "replace": "    return own"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "with no booking id of our own every ticket is excluded",
+    "find": "    return \"\" if (not mine or own == mine) else own",
+    "replace": "    return \"\" if own == mine else own"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "the other-booking ticket is recorded but still contributes its events",
+    "find": "            log.info(f\"[zendesk] ZD-{ticket.id} dropped from timeline: its \"\n                     f\"booking field says {_names}, not {booking_id}\")\n            continue",
+    "replace": "            log.info(f\"[zendesk] ZD-{ticket.id} dropped from timeline: its \"\n                     f\"booking field says {_names}, not {booking_id}\")\n            pass"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "other-booking exclusions are folded into the date exclusions, hiding which filter fired",
+    "find": "            _other_booking_excluded.append({\"ticket_id\": str(ticket.id),\n                                            \"names_booking\": _names})",
+    "replace": "            _prior_excluded.append({\"ticket_id\": str(ticket.id),\n                                    \"last_activity\": \"\"})"
+  }
+]

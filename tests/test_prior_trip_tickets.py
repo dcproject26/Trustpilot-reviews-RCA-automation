@@ -214,3 +214,75 @@ def test_a_prior_trip_side_conversation_is_also_dropped(monkeypatch):
 
     assert all(e["thread"] != "sp" for e in raw), "prior-trip SP thread leaked in"
     assert "900" in {e["ticket_id"] for e in meta["prior_trip_excluded"]}
+
+
+# ── the ticket's own booking field ──────────────────────────────────────────
+# The date cutoff can only catch a trip that ENDED before this booking existed.
+# It is blind to the guest's other booking made in the same week, or after —
+# the dates overlap, nothing fires, and the requester search puts that
+# booking's tickets in this booking's timeline. That is the case still reported
+# after the cutoff shipped.
+
+class _FieldTicket(_Ticket):
+    def __init__(self, tid, comments, names_booking=None):
+        super().__init__(tid, comments)
+        self.custom_fields = ([] if names_booking is None else
+                              [{"id": 360021524471, "value": names_booking}])
+
+
+def test_a_ticket_naming_another_booking_is_not_ours():
+    assert Z.other_booking_named(
+        _FieldTicket("1", [], names_booking="32938379"), "33543686") == "32938379"
+
+
+def test_a_ticket_naming_this_booking_is_ours():
+    assert Z.other_booking_named(
+        _FieldTicket("1", [], names_booking="33543686"), "33543686") == ""
+
+
+def test_an_empty_booking_field_is_not_evidence():
+    """It is frequently empty — bids_from_ticket_text exists because of that.
+    "No id on the ticket" means we do not know, not "it belongs elsewhere"."""
+    assert Z.other_booking_named(_FieldTicket("1", []), "33543686") == ""
+    assert Z.other_booking_named(
+        _FieldTicket("1", [], names_booking=""), "33543686") == ""
+
+
+def test_with_no_booking_id_of_our_own_nothing_is_excluded():
+    """Nothing to compare against — excluding on that would drop every ticket."""
+    assert Z.other_booking_named(
+        _FieldTicket("1", [], names_booking="32938379"), "") == ""
+
+
+def test_a_concurrent_other_booking_is_dropped_though_its_dates_overlap(monkeypatch):
+    """THE GAP THE DATE CUTOFF LEAVES. Both tickets are active AFTER the
+    booking was made, so the cutoff cannot fire on either — only the booking
+    field tells them apart."""
+    ours = _FieldTicket("111", [_Cmt("2026-08-22T10:00:00Z", "our issue")],
+                        names_booking="33543686")
+    theirs = _FieldTicket("222", [_Cmt("2026-08-23T10:00:00Z", "other trip")],
+                          names_booking="32938379")
+    client = _wire(monkeypatch, [ours, theirs])
+
+    raw, _extracted, meta = Z._get_timeline_sync(
+        client, "33543686", booked_on="2026-08-21")
+
+    tids = {e["ticket_id"] for e in raw}
+    assert "111" in tids, "this booking's own ticket went missing"
+    assert "222" not in tids, \
+        "a concurrent other-booking ticket is still in the timeline"
+    assert meta["prior_trip_excluded"] == [], "it is not a date exclusion"
+    assert {e["ticket_id"] for e in meta["other_booking_excluded"]} == {"222"}
+    assert meta["other_booking_excluded"][0]["names_booking"] == "32938379"
+
+
+def test_a_ticket_with_no_field_still_gets_the_date_test(monkeypatch):
+    """The two filters compose: an empty field is not evidence, so such a
+    ticket is still judged on its dates."""
+    nofield = _FieldTicket("333", [_Cmt("2026-07-01T00:00:00Z", "old")])
+    client = _wire(monkeypatch, [nofield])
+    raw, _extracted, meta = Z._get_timeline_sync(
+        client, "33543686", booked_on="2026-08-21")
+    assert not raw
+    assert {e["ticket_id"] for e in meta["prior_trip_excluded"]} == {"333"}
+    assert meta["other_booking_excluded"] == []
