@@ -1,0 +1,38 @@
+[
+  {
+    "file": "server/services/reply_macro.py",
+    "name": "the gate accepts any overlap, so a macro promising an unprescribed refund alongside credits goes out",
+    "find": "    return promises.issubset(permitted or set())",
+    "replace": "    return bool(promises & (permitted or set()))"
+  },
+  {
+    "file": "server/services/reply_macro.py",
+    "name": "a macro promising nothing is withheld, so a no-DSS case has no reply at all",
+    "find": "    if not promises:\n        return True",
+    "replace": "    if not promises:\n        return False"
+  },
+  {
+    "file": "server/services/reply_macro.py",
+    "name": "the gate passes everything, so DSS no longer decides which remedy is offered",
+    "find": "        if macro_is_permitted(promises, permitted):",
+    "replace": "        if True:"
+  },
+  {
+    "file": "server/services/reply_macro.py",
+    "name": "a DSS miss and an absent DSS lookup report the same reason, merging two different problems",
+    "find": "        return set(), (\"the DSS lookup returned nothing at all, so no remedy \"\n                       \"is prescribed — this is the playbook being unavailable, \"\n                       \"not a case it is silent about\")",
+    "replace": "        return set(), (\"no DSS row matched this case, so no remedy is \"\n                       \"prescribed and only replies that promise nothing \"\n                       \"are available\")"
+  },
+  {
+    "file": "server/services/reply_macro.py",
+    "name": "withheld macros are not counted, so a gated-out list reads as a list with nothing to offer",
+    "find": "    if dropped:\n        bits.append(",
+    "replace": "    if False:\n        bits.append("
+  },
+  {
+    "file": "server/services/reply_macro.py",
+    "name": "a matched DSS row naming no remedy is reported as clean, hiding that the reply was narrowed",
+    "find": "        return set(), (\"the matched DSS row names no remedy, so only replies \"\n                       \"that promise nothing are available\")",
+    "replace": "        return set(), \"\""
+  }
+]
