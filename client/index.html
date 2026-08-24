@@ -8734,7 +8734,12 @@ document.addEventListener('click', async (ev) => {
   btn.disabled = true;
   btn.textContent = '↻ checking Slack…';
   try {
-    const resp = await fetch('/api/reviews/refresh-slack?hours=72', {method: 'POST'});
+    // NO ?hours= HERE. A fixed window was a permanent blind spot: any gap
+    // older than it could never surface, and the button would say "up to
+    // date" forever over a hole that kept growing. The server sizes the
+    // window itself from the gap since the last review it has — see
+    // slack.sync_channel_to_db — so this always reaches back far enough.
+    const resp = await fetch('/api/reviews/refresh-slack', {method: 'POST'});
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.detail || 'refresh failed');
     if (data.queued > 0) {
@@ -8749,9 +8754,13 @@ document.addEventListener('click', async (ev) => {
       }
       btn.textContent = `↻ ${data.queued} added`;
     } else {
+      // THE WINDOW IT ACTUALLY CHECKED, not a bare "up to date" — a claim
+      // with no scope reads as "nothing is missing, ever" when it only ever
+      // meant "nothing missing in the Xh I just looked at".
+      const win = Math.round(data.window_hours || 0);
       btn.textContent = data.trustpilot_found
-        ? `↻ up to date (${data.trustpilot_found} found)`
-        : '↻ nothing new in Slack';
+        ? `↻ up to date (${win}h checked, ${data.trustpilot_found} found)`
+        : `↻ nothing new in Slack (${win}h checked)`;
     }
   } catch (e) {
     btn.textContent = '↻ failed — retry';

@@ -348,6 +348,136 @@ def parse_review(event: dict) -> dict:
     }
 
 
+async def sync_channel_to_db(db, hours: float | None = None,
+                             max_lookback_hours: float = 24 * 30,
+                             max_pages: int = 25) -> dict:
+    """Pull SLACK_CHANNEL_ORM history, insert any Trustpilot review with no
+    Review row yet, and return counts. The one ingest path — /refresh-slack
+    and the background poller both call this, so there is one cascade to get
+    right instead of two that drift.
+
+    SELF-HEALING BY DEFAULT. `hours=None` sizes the lookback from the gap
+    since the newest review already in the DB (capped at max_lookback_hours),
+    not a fixed number. A fixed 72h window was a permanent blind spot: a
+    webhook outage measured at ~14 days wide was invisible to it forever —
+    every check inside the window said "up to date" truthfully while a real
+    gap sat just past its edge, unable to ever surface because nothing looked
+    that far back. `hours` given explicitly still means exactly that window
+    (used by the diagnostic tool's --hours and by tests) — this only changes
+    what "no window given" means.
+
+    PAGINATED. A wide self-healed window can hold more than one page of Slack
+    history; conversations_history's own 200-message cap silently truncated a
+    long-enough gap before this, the same "found nothing because it did not
+    look far enough" shape as the fixed window. Bounded at max_pages so a
+    pathologically busy channel cannot loop forever.
+
+    Returns {"ok": False, "error": ..., "error_kind": "not_configured"|
+    "history_failed"} on failure, so the caller can pick an HTTP status without
+    string-matching the message. On success: {"ok": True, "window_hours",
+    "window_reason", "messages_scanned", "trustpilot_found", "already_present",
+    "queued", "review_ids"} — the same shape /refresh-slack has always
+    returned, so nothing downstream (the button, its tests) needs the shape to
+    change.
+    """
+    import asyncio as _asyncio
+    from datetime import datetime, timezone as _tzz
+    from server.config import SLACK_CHANNEL_ORM
+    from server.db import Review
+
+    client = _bot or _user
+    if not client or not SLACK_CHANNEL_ORM:
+        return {"ok": False, "error_kind": "not_configured",
+                "error": "Slack not configured (needs SLACK_BOT_TOKEN + "
+                         "SLACK_CHANNEL_ORM)"}
+
+    now_ts = datetime.now(_tzz.utc).timestamp()
+    if hours is not None:
+        window_hours = float(hours)
+        window_reason = f"{hours}h requested"
+    else:
+        # Only queried in the self-heal path: a caller giving an explicit
+        # window (a test's stub DB, the diagnostic tool) never needs it.
+        latest = db.query(Review).order_by(Review.slack_ts.desc()).first()
+        gap_hours = None
+        if latest and latest.slack_ts:
+            try:
+                gap_hours = (now_ts - float(latest.slack_ts)) / 3600.0
+            except (TypeError, ValueError):
+                gap_hours = None
+        if gap_hours is not None:
+            # +1h margin: a review posted in the same minute as the newest DB
+            # row is a race with this check, not a gap, and must stay inside
+            # the window.
+            window_hours = min(max(gap_hours + 1.0, 1.0), max_lookback_hours)
+            window_reason = f"since the last ingested review ({gap_hours:.1f}h ago)"
+        else:
+            window_hours = max_lookback_hours
+            window_reason = "no reviews ingested yet"
+
+    oldest = now_ts - window_hours * 3600.0
+
+    msgs = []
+    cursor = None
+    for _page in range(max_pages):
+        kwargs = dict(channel=SLACK_CHANNEL_ORM, oldest=str(oldest), limit=200)
+        if cursor:
+            kwargs["cursor"] = cursor
+        try:
+            res = await _asyncio.to_thread(
+                lambda kw=kwargs: client.conversations_history(**kw))
+        except Exception as e:
+            return {"ok": False, "error_kind": "history_failed",
+                    "error": f"Slack history read failed: {e}"}
+        page_msgs = res.get("messages") or []
+        msgs.extend(page_msgs)
+        cursor = (res.get("response_metadata") or {}).get("next_cursor") or None
+        if not cursor:
+            break
+
+    # Lazy: _received_at_from lives in api.py (webhook.py already imports it
+    # the same way) — a top-level import here would cycle with api.py's own
+    # (also lazy) import of this module.
+    from server.api import _received_at_from
+
+    found = skipped = queued = 0
+    ingested = []
+    for m in msgs:
+        ev = {**m, "channel": SLACK_CHANNEL_ORM}
+        if not is_trustpilot_message(ev):
+            continue
+        found += 1
+        parsed = parse_review(ev)
+        rid = f"tp_{parsed['slack_ts'].replace('.', '_')}"
+        if db.query(Review).filter(Review.id == rid).first():
+            skipped += 1
+            continue
+        # WHEN THE REVIEW CAME IN, not when we happened to fetch it. See the
+        # comment this carried in refresh_slack before the move here.
+        _at = _received_at_from(parsed["slack_ts"], rid,
+                                parsed.get("published_at"),
+                                parsed.get("published_at_source", ""))
+        db.add(Review(
+            id=rid, slack_ts=parsed["slack_ts"],
+            slack_channel=parsed["slack_channel"], rating=parsed["rating"],
+            language=parsed["language"], author=parsed.get("author") or None,
+            body_original=parsed["body_original"], received_at=_at,
+            reference_number=parsed["reference_number"], status="new"))
+        db.commit()
+        try:
+            from server.services.sheet_export import on_review_arrived
+            on_review_arrived(db.query(Review).filter(Review.id == rid).first())
+        except Exception as _e:
+            log.warning(f"[ingest] {rid}: sheet arrival row not written: {_e}")
+        queued += 1
+        ingested.append(rid)
+
+    return {"ok": True, "window_hours": round(window_hours, 1),
+            "window_reason": window_reason, "messages_scanned": len(msgs),
+            "trustpilot_found": found, "already_present": skipped,
+            "queued": queued, "review_ids": ingested}
+
+
 # A Zendesk ticket id and a Headout booking id are both 7-12 digits and occupy
 # the same numeric range, so a bare number in a Slack message is ambiguous. The
 # message itself carries the disambiguating context, which is self-contained —

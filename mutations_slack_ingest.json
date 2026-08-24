@@ -1,0 +1,50 @@
+[
+  {
+    "file": "server/services/slack.py",
+    "name": "explicit hours no longer skips the gap query, so a caller with a no-order_by stub DB crashes",
+    "find": "    if hours is not None:\n        window_hours = float(hours)\n        window_reason = f\"{hours}h requested\"\n    else:",
+    "replace": "    if False:\n        window_hours = float(hours)\n        window_reason = f\"{hours}h requested\"\n    else:"
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "the gap-since-last-review computation is dropped, so the window never grows past the cap default",
+    "find": "        if gap_hours is not None:",
+    "replace": "        if False:"
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "the lookback cap is removed, so a year-old gap is scanned in full instead of bounded",
+    "find": "            window_hours = min(max(gap_hours + 1.0, 1.0), max_lookback_hours)",
+    "replace": "            window_hours = gap_hours + 1.0"
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "pagination stops after the first page, so a wide window truncates at 200 messages again",
+    "find": "        cursor = (res.get(\"response_metadata\") or {}).get(\"next_cursor\") or None\n        if not cursor:\n            break",
+    "replace": "        cursor = None\n        if not cursor:\n            break"
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "the page cap is removed, so a pathological cursor chain loops beyond bounds unnoticed",
+    "find": "    for _page in range(max_pages):",
+    "replace": "    for _page in range(max_pages + 1000):"
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "not-configured is no longer distinguished from a history-read failure, so the caller cannot pick the right HTTP status",
+    "find": "        return {\"ok\": False, \"error_kind\": \"not_configured\",",
+    "replace": "        return {\"ok\": False, \"error_kind\": \"history_failed\","
+  },
+  {
+    "file": "server/main.py",
+    "name": "a poll cycle that queued new reviews is never actually enqueued as jobs",
+    "find": "    if result.get(\"ok\") and result.get(\"queued\"):\n        from server import jobs as _jobs2\n        for rid in result[\"review_ids\"]:\n            _jobs2.enqueue(rid, \"slack-poll\")",
+    "replace": "    if False:\n        from server import jobs as _jobs2\n        for rid in result[\"review_ids\"]:\n            _jobs2.enqueue(rid, \"slack-poll\")"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the fixed 72h window comes back on the refresh button, reintroducing the permanent blind spot",
+    "find": "const resp = await fetch('/api/reviews/refresh-slack', {method: 'POST'});",
+    "replace": "const resp = await fetch('/api/reviews/refresh-slack?hours=72', {method: 'POST'});"
+  }
+]

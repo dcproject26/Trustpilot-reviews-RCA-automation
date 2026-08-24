@@ -2201,76 +2201,20 @@ async def connect_dss(review_id: str, db: Session = Depends(get_session)):
 # messages are skipped by id.
 
 @router.post("/api/reviews/refresh-slack")
-async def refresh_slack(hours: int = 72, background_tasks: BackgroundTasks = None,
+async def refresh_slack(hours: float | None = None, background_tasks: BackgroundTasks = None,
                         db: Session = Depends(get_session)):
-    from datetime import timedelta, timezone as _tzz
-    from server.config import SLACK_CHANNEL_ORM
-    from server.services.slack import (
-        _bot, _user, is_trustpilot_message, parse_review)
+    """Pull any Trustpilot review the webhook missed. `hours` unset (the
+    dashboard button's normal call) is SELF-HEALING — see
+    slack.sync_channel_to_db — so a gap of any age is found, not just the last
+    72h; pass `hours` explicitly to force a specific window (the diagnostic
+    tool's --hours)."""
+    from server.services.slack import sync_channel_to_db
+    result = await sync_channel_to_db(db, hours=hours)
+    if not result.get("ok"):
+        code = 502 if result.get("error_kind") == "history_failed" else 503
+        raise HTTPException(code, result.get("error") or "Slack refresh failed")
 
-    client = _bot or _user
-    if not client or not SLACK_CHANNEL_ORM:
-        raise HTTPException(
-            503, "Slack not configured (needs SLACK_BOT_TOKEN + SLACK_CHANNEL_ORM)")
-
-    oldest = (datetime.now(_tzz.utc) - timedelta(hours=hours)).timestamp()
-    try:
-        res = await asyncio.to_thread(
-            lambda: client.conversations_history(
-                channel=SLACK_CHANNEL_ORM, oldest=str(oldest), limit=200))
-    except Exception as e:
-        raise HTTPException(502, f"Slack history read failed: {e}")
-
-    msgs = res.get("messages") or []
-    found = skipped = queued = 0
-    ingested = []
-    for m in msgs:
-        ev = {**m, "channel": SLACK_CHANNEL_ORM}
-        if not is_trustpilot_message(ev):
-            continue
-        found += 1
-        parsed = parse_review(ev)
-        rid = f"tp_{parsed['slack_ts'].replace('.', '_')}"
-        if db.query(Review).filter(Review.id == rid).first():
-            skipped += 1
-            continue
-        # WHEN THE REVIEW CAME IN, not when we happened to fetch it. This row
-        # was created without received_at, so the column default fired and
-        # every review in a batch got the same value - the ingest moment. On
-        # screen that is fifteen reviews all stamped 05 Aug 07:47, which reads
-        # as fifteen reviews posted in the same second.
-        #
-        # slack_ts is the message's own timestamp and it is already in hand -
-        # the review id is built from it. It is when the review reached the
-        # channel, which is the closest thing to the review's own date that
-        # this pipeline ever sees; Trustpilot's publish time is not in the
-        # payload.
-        _at = _received_at_from(parsed["slack_ts"], rid,
-                                parsed.get("published_at"),
-                                parsed.get("published_at_source", ""))
-        db.add(Review(
-            id=rid, slack_ts=parsed["slack_ts"],
-            slack_channel=parsed["slack_channel"], rating=parsed["rating"],
-            language=parsed["language"], author=parsed.get("author") or None,
-            body_original=parsed["body_original"], received_at=_at,
-            reference_number=parsed["reference_number"], status="new"))
-        db.commit()
-        # PHASE ONE OF THE SHEET: the row exists from the moment the review
-        # does, carrying its id, its arrival time and the Slack link. Every
-        # later write is then an UPDATE, which is what makes this safe with
-        # several people working at once — two appends racing is the dangerous
-        # shape, and after this there are none.
-        #
-        # After the commit and never in front of it: a sheet that is unshared
-        # or rate-limited must not cost us the review.
-        try:
-            from server.services.sheet_export import on_review_arrived
-            on_review_arrived(db.query(Review).filter(Review.id == rid).first())
-        except Exception as _e:
-            log.warning(f"[ingest] {rid}: sheet arrival row not written: {_e}")
-        queued += 1
-        ingested.append(rid)
-
+    ingested = result.get("review_ids") or []
     # Pipelines run in the background so the button returns at once; the
     # dashboard's own poll fills each card in as its run finishes.
     #
@@ -2292,11 +2236,11 @@ async def refresh_slack(hours: int = 72, background_tasks: BackgroundTasks = Non
         from server.pipeline import run_batch
         await run_batch(list(ingested), "slack-refresh")
 
-    log.info(f"[refresh-slack] {hours}h: {found} Trustpilot posts, "
-             f"{skipped} already had rows, {queued} queued")
-    return {"ok": True, "window_hours": hours, "messages_scanned": len(msgs),
-            "trustpilot_found": found, "already_present": skipped,
-            "queued": queued, "review_ids": ingested}
+    log.info(f"[refresh-slack] window={result['window_hours']}h "
+             f"({result['window_reason']}): {result['trustpilot_found']} "
+             f"Trustpilot posts, {result['already_present']} already had rows, "
+             f"{result['queued']} queued")
+    return result
 
 
 # ── Bulk re-run ─────────────────────────────────────────────────────────────

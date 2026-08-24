@@ -103,6 +103,57 @@ def seed_mocks():
         db.close()
 
 
+async def _slack_poll_once(db) -> dict:
+    """One reconcile cycle's worth of work, factored out of the loop so it can
+    be driven directly in a test without running `while True` forever.
+
+    This is the SAME cascade as the manual "Refresh from Slack" button
+    (slack.sync_channel_to_db), run on a timer instead of a click — so new
+    reviews land without anyone remembering to press it, and a webhook outage
+    of any length self-heals on the very next cycle rather than staying
+    invisible until someone widens a window by hand."""
+    from server.services.slack import sync_channel_to_db
+    result = await sync_channel_to_db(db)
+    if result.get("ok") and result.get("queued"):
+        from server import jobs as _jobs2
+        for rid in result["review_ids"]:
+            _jobs2.enqueue(rid, "slack-poll")
+        log.info(f"[slack-poll] queued {result['queued']} new review(s) "
+                 f"(window {result['window_hours']}h, {result['window_reason']})")
+    return result
+
+
+_SLACK_POLL_NOT_CONFIGURED_LOGGED = False
+
+
+async def _slack_poll_loop() -> None:
+    """Reconciles the DB against Slack every few minutes. The webhook is the
+    fast path when it works; this is the guarantee when it does not — see
+    _slack_poll_once."""
+    global _SLACK_POLL_NOT_CONFIGURED_LOGGED
+    await asyncio.sleep(30)          # let the app finish booting first
+    while True:
+        try:
+            db = _db.SessionLocal()
+            try:
+                result = await _slack_poll_once(db)
+                if (not result.get("ok")
+                        and result.get("error_kind") == "not_configured"
+                        and not _SLACK_POLL_NOT_CONFIGURED_LOGGED):
+                    # Once, not every cycle — a dev/mock environment with no
+                    # Slack tokens would otherwise spam this every 3 minutes
+                    # forever, and repetition is what makes a real warning
+                    # easy to stop reading.
+                    log.info(f"[slack-poll] {result.get('error')} — will keep "
+                             f"checking, logging this once")
+                    _SLACK_POLL_NOT_CONFIGURED_LOGGED = True
+            finally:
+                db.close()
+        except Exception:
+            log.exception("[slack-poll] loop error")
+        await asyncio.sleep(180)     # 3 minutes
+
+
 async def _heartbeat_loop() -> None:
     """Logs a heartbeat line every 5 minutes."""
     _app_start = time.time()
@@ -174,12 +225,22 @@ async def lifespan(app: FastAPI):
         drain_task = asyncio.create_task(
             _jobs.run_drain_loop(_job_runner, _worker_id,
                                  should_stop=lambda: _stop["v"]))
+
+    # Same pytest gate as the drain loop, same reason: it mutates the DB on a
+    # timer, and started under a TestClient it would race every test. Tests
+    # drive it explicitly (call _slack_poll_once) — see
+    # tests/test_slack_poll_loop.py.
+    slack_poll_task = None
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        slack_poll_task = asyncio.create_task(_slack_poll_loop())
     yield
     _stop["v"] = True
     hb_task.cancel()
     if drain_task is not None:
         drain_task.cancel()
-    for _t in (hb_task, drain_task):
+    if slack_poll_task is not None:
+        slack_poll_task.cancel()
+    for _t in (hb_task, drain_task, slack_poll_task):
         if _t is None:
             continue
         try:

@@ -139,6 +139,37 @@ def test_removing_an_action_takes_its_row_out(page):
     assert after == before - 1, f"remove left {after} rows (was {before})"
 
 
+def test_refresh_slack_sends_no_fixed_window(page):
+    """A NAMED GAP closed: data-refresh-slack rendered and nothing ever
+    clicked it. Also the regression guard for the fix itself — the button used
+    to hardcode ?hours=72, which made any gap older than 3 days invisible to
+    it forever (it would say "up to date" truthfully while a real hole sat
+    just past the window's edge). The server now sizes the window itself; the
+    button must send no hours param at all."""
+    seen = []
+    page.route("**/api/reviews/refresh-slack*", lambda route: (
+        seen.append(route.request.url),
+        route.fulfill(status=200, content_type="application/json",
+                      body='{"ok":true,"window_hours":50.3,'
+                           '"window_reason":"since the last ingested review",'
+                           '"messages_scanned":2,"trustpilot_found":0,'
+                           '"already_present":0,"queued":0,"review_ids":[]}')))
+    try:
+        page.click("[data-refresh-slack]")
+        page.wait_for_timeout(300)
+    finally:
+        page.unroute("**/api/reviews/refresh-slack*")
+    assert seen, "the button never called refresh-slack"
+    assert "hours=" not in seen[0], \
+        f"the button still sends a fixed window: {seen[0]}"
+
+    # And the "up to date" text names the window it actually checked, rather
+    # than a bare claim with no scope.
+    text = page.evaluate(
+        "() => document.querySelector('[data-refresh-slack]').textContent")
+    assert "50h checked" in text, text
+
+
 def test_the_contact_count_matches_the_contacts_under_it(page):
     """The heading read "0 contacts" above eight rendered rows: it counted
     v3d.support_interaction while the rows came from the frames plus notes."""
@@ -565,6 +596,8 @@ DRIVEN = {
     # and once for a dismissed prompt, which must leave the button unchanged
     # rather than dressed as a failure.
     "data-export-csv",
+    # ↻ Refresh from Slack. this file, test_refresh_slack_sends_no_fixed_window
+    "data-refresh-slack",
     # §1 case findings and §3 fixes — add and delete for each, all four
     # driven in tests/test_wwr_three_cards.py by clicking them and counting
     # rows, and the fix delete is additionally checked to SURVIVE A RELOAD:
@@ -693,7 +726,7 @@ UNDRIVEN_BY_DESIGN = {
 NOT_YET_DRIVEN = {
     "data-aoi-add", "data-chk-group-toggle", "data-claim-del",
     "data-contact-add", "data-flag-add", "data-ix-toggle",
-    "data-rca-only-regen", "data-refresh-slack", "data-reply-copy",
+    "data-rca-only-regen", "data-reply-copy",
     "data-reply-edit", "data-rerun-all", "data-slack-post", "data-slack-regen",
     "data-slack-sec-all", "data-slack-sec-none", "data-trail-toggle",
     "data-v3sel", "data-wwr-all", "data-wwr-toggle",
