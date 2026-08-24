@@ -3889,17 +3889,26 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # THE TRAIL LINE, after recovery. A warehouse recovery is its OWN
         # sentence — not the model being "repaired" (classification_entry's
         # wording), but the model returning nothing and the warehouse tag
-        # filling the gap. Suppressed only when the provider is down, where the
-        # single AI-down warning already covers every model-written field.
-        if _ai_down:
-            _cls_entry = None
-        elif _wh_recovery:
+        # filling the gap.
+        #
+        # A RECOVERY OUTRANKS THE AI-DOWN SUPPRESSION, and the order here is the
+        # whole point. `_ai_down` silences the per-field warnings because one
+        # sentence already says every model-written field is empty — but a
+        # recovery is the opposite fact: this field is NOT empty, and what fills
+        # it did not come from the model. Checked second, it was swallowed in
+        # exactly the case it matters most: the provider being down is what
+        # empties the classification, which is what makes the recovery fire. The
+        # card then showed a populated L1/L2 with nothing anywhere saying it was
+        # the warehouse's tag rather than the model's answer.
+        if _wh_recovery:
             _cls_entry = {"mark": "warn", "text":
                 "<strong>Classification recovered from the warehouse</strong> — "
                 f"the model returned no usable L1/L2, so this booking's own "
                 f"warehouse tag ({l1} / {l2}) was used. Check it against the "
                 f"review before trusting the comparisons and the scenario lookup "
                 f"keyed on it."}
+        elif _ai_down:
+            _cls_entry = None
         else:
             _cls_entry = classification_entry(
                 l1, l2, _classify_err, _classify_warnings)

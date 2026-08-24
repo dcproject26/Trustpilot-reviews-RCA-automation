@@ -380,13 +380,17 @@ def test_an_unavailable_model_is_disclosed_like_an_unavailable_warehouse():
     # every model-written field is empty and one sentence covers all of them.
     # Repeating it for the stated issue and again for the classification is
     # three warnings for one fact.
-    # classification_entry moved into the warehouse-recovery if/elif/else, so
-    # the suppression now reads as an explicit `if _ai_down: _cls_entry = None`
-    # branch rather than a one-line ternary — same guarantee, different shape.
     assert "_ai_down else stated_issue_entry" in PIPE, \
         "the stated-issue warning is not suppressed when the provider is down"
-    assert "if _ai_down:\n            _cls_entry = None" in PIPE, \
-        "the classification warning is not suppressed when the provider is down"
+    # The classification half is NOT asserted here any more. It moved into the
+    # warehouse-recovery if/elif/else, and the obvious source assertion for it
+    # — `"if _ai_down:\n            _cls_entry = None"` — passes against
+    # `elif _ai_down:` too, because "elif _ai_down:" CONTAINS "if _ai_down:".
+    # It went on passing after the branch order changed underneath it, which is
+    # the spelling check CLAUDE.md forbids doing its usual trick. The real
+    # guarantee is behavioural and lives in
+    # tests/test_enrichment_and_recovery_reach_the_run.py, which drives a run
+    # with the provider down and reads the trail it produced.
     # ...and it must NOT fire in MOCK_MODE, where claude._call still reaches
     # the model and the RCA really is generated. Warning there would tell an
     # associate the analysis in front of them does not exist.

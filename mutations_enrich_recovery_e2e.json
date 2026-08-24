@@ -1,0 +1,32 @@
+[
+  {
+    "file": "server/pipeline.py",
+    "name": "the recovery line is checked after _ai_down again, so a provider outage swallows it (the bug this found)",
+    "find": "        if _wh_recovery:\n            _cls_entry = {\"mark\": \"warn\", \"text\":",
+    "replace": "        if _wh_recovery and not _ai_down:\n            _cls_entry = {\"mark\": \"warn\", \"text\":"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the AI-down suppression is dropped, so the per-field warning fires on top of the one-sentence outage notice",
+    "find": "        elif _ai_down:\n            _cls_entry = None",
+    "replace": "        elif False:\n            _cls_entry = None"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the booking enrichment never runs, so DSS gets no isPartnered/amountUSD on the direct-BID path",
+    "find": "        if _needs_booking_extra(booking, candidate_state) and is_live(\"bigquery\"):",
+    "replace": "        if False and is_live(\"bigquery\"):"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the enrichment result is discarded instead of merged onto the booking",
+    "find": "                booking.update(_gbe2(str(booking[\"id\"])))",
+    "replace": "                _gbe2(str(booking[\"id\"]))"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the recovered l1/l2 are dropped instead of replacing the empty pair",
+    "find": "                l1, l2, _wh_recovery = recover_l1_l2_from_warehouse(\n                    l1, l2, _wh.get(\"l1\"), _wh.get(\"l2\"))",
+    "replace": "                _l1x, _l2x, _wh_recovery = recover_l1_l2_from_warehouse(\n                    l1, l2, _wh.get(\"l1\"), _wh.get(\"l2\"))"
+  }
+]
