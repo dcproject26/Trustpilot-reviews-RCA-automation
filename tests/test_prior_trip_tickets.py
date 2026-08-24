@@ -286,3 +286,86 @@ def test_a_ticket_with_no_field_still_gets_the_date_test(monkeypatch):
     assert not raw
     assert {e["ticket_id"] for e in meta["prior_trip_excluded"]} == {"333"}
     assert meta["other_booking_excluded"] == []
+
+
+# ── the subject fallback, when the booking field is empty ───────────────────
+# MEASURED on the reported case. The free-text route — searching for the
+# literal booking id — matched "[Support History] BID-32358051 — Mohammad
+# Algouneh" while building 33543686's timeline: a digest about a different
+# booking AND a different guest, which lists many booking ids in its body and
+# so matches a text search for any of them. No date rule could catch that; the
+# ticket is contemporaneous and belongs to a stranger.
+
+class _SubjTicket(_Ticket):
+    def __init__(self, tid, comments, subject="", names_booking=None):
+        super().__init__(tid, comments)
+        self.subject = subject
+        self.custom_fields = ([] if names_booking is None else
+                              [{"id": 360021524471, "value": names_booking}])
+
+
+def other_booking_named_subject(t):
+    """Every subject case below is judged against the same booking."""
+    return Z.other_booking_named(t, "33543686")
+
+
+def test_a_foreign_digest_with_no_field_is_caught_by_its_subject():
+    """The hole the field check left: same digest, booking field unfilled."""
+    t = _SubjTicket("1", [], subject="[Support History] BID-32358051 — Mohammad Algouneh")
+    assert other_booking_named_subject(t) == "32358051"
+
+
+def test_our_own_digest_is_kept():
+    t = _SubjTicket("1", [], subject="[Support History] BID-33543686 — web User 6a8510b7")
+    assert other_booking_named_subject(t) == ""
+
+
+def test_a_phone_number_in_the_subject_is_not_read_as_a_booking_id():
+    """One of this booking's OWN tickets is subject "Call with Caller +61 438
+    474 311". A bare-digit rule reads a number like that as a booking id and
+    throws away a real contact, which is why only LABELLED ids count.
+
+    THE UNSPACED FORM IS THE ONE THAT DISCRIMINATES. The spaced original has no
+    run of 7+ digits, so it survives a bare-number rule by accident and proves
+    nothing about this guarantee — a mutation swapping the labelled pattern for
+    a bare one passed against it. Phone numbers are written both ways, and the
+    unspaced one is 11 straight digits: exactly a booking id's shape."""
+    for subj in ("Call with Caller +61 438 474 311",
+                 "Call with Caller +61438474311",
+                 "Order 4471234567 shipped"):
+        assert other_booking_named_subject(_SubjTicket("1", [], subject=subj)) == "", \
+            f"a bare number in {subj!r} was read as another booking's id"
+
+
+def test_an_ordinary_subject_names_nothing():
+    t = _SubjTicket("1", [], subject="Tickets for Singapore River Sightseeing Cruise")
+    assert other_booking_named_subject(t) == ""
+    assert other_booking_named_subject(_SubjTicket("1", [], subject="")) == ""
+
+
+def test_the_field_still_wins_over_the_subject():
+    """The field is authoritative; the subject is only consulted when it is
+    empty. A ticket correctly filed under THIS booking must not be dropped
+    because its subject quotes another case."""
+    t = _SubjTicket("1", [], subject="[Support History] BID-32358051 — someone",
+                    names_booking="33543686")
+    assert other_booking_named_subject(t) == ""
+
+
+def test_a_foreign_digest_with_no_field_is_dropped_from_the_timeline(monkeypatch):
+    """End to end: the free-text route's false match never reaches the events."""
+    ours = _SubjTicket("34806407", [_Cmt("2026-08-22T10:00:00Z", "our issue")],
+                       subject="Tickets for Singapore River Cruise",
+                       names_booking="33543686")
+    foreign = _SubjTicket("33535069", [_Cmt("2026-08-22T11:00:00Z", "other case")],
+                          subject="[Support History] BID-32358051 — Mohammad Algouneh")
+    client = _wire(monkeypatch, [ours, foreign])
+
+    raw, _extracted, meta = Z._get_timeline_sync(
+        client, "33543686", booked_on="2026-08-21")
+
+    tids = {e["ticket_id"] for e in raw}
+    assert "34806407" in tids
+    assert "33535069" not in tids, \
+        "a free-text false match with no booking field is still in the timeline"
+    assert {e["ticket_id"] for e in meta["other_booking_excluded"]} == {"33535069"}

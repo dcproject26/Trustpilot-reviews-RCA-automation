@@ -318,6 +318,15 @@ _BID_LABEL = re.compile(
     r"\s*(?:id|no|num(?:ber)?|#)?\s*[.:#-]*\s*(\d{7,12})\b", re.I)
 _ANY_NUMBER = re.compile(r"\b\d{7,12}\b")
 
+# The booking id as ZENDESK'S OWN subject line writes it: "[Support History]
+# BID-32358051", "BID 32358051". Deliberately much narrower than _BID_LABEL,
+# which also accepts "order", "reference" and "confirmation" — right for
+# harvesting a booking id out of a guest's prose, wrong for DROPPING a ticket
+# from a timeline. "Order 4471234567 shipped" is a labelled id by that rule,
+# and excluding a real contact on the strength of it is a worse error than
+# keeping a stray digest. Only the machine-generated form counts here.
+_SUBJECT_BID_RE = re.compile(r"\bBID[\s:#-]*(\d{7,12})\b", re.I)
+
 # More than this many distinct numbers in one ticket is prose, not a record.
 # Admitting them all would turn one ticket into a page of candidates, each
 # indistinguishable from the others.
@@ -605,11 +614,37 @@ def other_booking_named(ticket, booking_id) -> str:
     and DIFFERS excludes anything; everything else returns "" and the ticket is
     judged on the dates alone.
     """
-    own = booking_id_from_ticket(ticket)
-    if not own:
+    mine = str(booking_id or "").strip()
+    if not mine:
+        # Nothing to compare against; excluding on that would drop every ticket.
         return ""
-    own, mine = str(own).strip(), str(booking_id or "").strip()
-    return "" if (not mine or own == mine) else own
+
+    own = booking_id_from_ticket(ticket)
+    if own:
+        own = str(own).strip()
+        return "" if own == mine else own
+
+    # ── the field is empty: fall back to the SUBJECT ────────────────────────
+    # Measured on the reported case, the free-text route — searching for the
+    # literal booking id — matched "[Support History] BID-32358051 — Mohammad
+    # Algouneh" while building 33543686's timeline: a digest about a different
+    # booking AND a different guest, which lists many booking ids in its body
+    # and so matches a text search for any of them. No date rule could catch
+    # that; the ticket is contemporaneous and belongs to a stranger.
+    #
+    # THE SUBJECT ONLY, AND LABELLED ONLY. Two deliberate limits:
+    #   * not the body. A support-history digest MENTIONS many bookings by
+    #     design; the subject names the one it is ABOUT. Reading the body would
+    #     drop legitimate tickets that merely reference another case.
+    #   * labelled only ("BID-32358051", "booking 32358051"), never a bare
+    #     number. One of this booking's own tickets is subject "Call with
+    #     Caller +61 438 474 311" — a bare-digit rule reads a phone number as a
+    #     booking id and throws away a real contact.
+    subj = str(getattr(ticket, "subject", "") or "")
+    for found in _SUBJECT_BID_RE.findall(subj):
+        if str(found).strip() != mine:
+            return str(found).strip()
+    return ""
 
 
 def _is_prior_trip(last_activity, cutoff) -> bool:

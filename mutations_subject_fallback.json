@@ -1,0 +1,32 @@
+[
+  {
+    "file": "server/services/zendesk.py",
+    "name": "the subject fallback is dropped, so a foreign digest with no booking field leaks in again",
+    "find": "    subj = str(getattr(ticket, \"subject\", \"\") or \"\")\n    for found in _SUBJECT_BID_RE.findall(subj):",
+    "replace": "    subj = \"\"\n    for found in _SUBJECT_BID_RE.findall(subj):"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "bare numbers count, so a phone number in the subject is read as a booking id",
+    "find": "    for found in _SUBJECT_BID_RE.findall(subj):",
+    "replace": "    for found in _ANY_NUMBER.findall(subj):"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "the subject is consulted even when the field is set, dropping a correctly-filed ticket",
+    "find": "    own = booking_id_from_ticket(ticket)\n    if own:\n        own = str(own).strip()\n        return \"\" if own == mine else own",
+    "replace": "    own = booking_id_from_ticket(ticket)\n    if own and str(own).strip() != mine:\n        return str(own).strip()"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "our own booking id in the subject is treated as foreign, dropping our own digest",
+    "find": "        if str(found).strip() != mine:",
+    "replace": "        if True:"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "the broad label pattern returns, so 'Order 4471234567' drops a real contact",
+    "find": "    for found in _SUBJECT_BID_RE.findall(subj):",
+    "replace": "    for found in _BID_LABEL.findall(subj):"
+  }
+]
