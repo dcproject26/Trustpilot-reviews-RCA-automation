@@ -1,0 +1,20 @@
+[
+  {
+    "file": "server/pipeline.py",
+    "name": "the stale merge returns, reverting a close-out the associate made mid-run (the reported bug)",
+    "find": "        _live = db.query(Review).filter(Review.id == review_id).first()\n        if _live is None:",
+    "replace": "        _live = db.merge(review)\n        if _live is None:"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the sent guard is dropped, so every finished review is pulled back into a working tab",
+    "find": "            if review.status != \"sent\":\n                review.status             = \"draft\"",
+    "replace": "            review.status             = \"draft\""
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a review deleted mid-run is recreated from the stale copy",
+    "find": "        if _live is None:\n            # Deleted mid-run (a purge). Nothing to write, and re-adding it\n            # from the stale copy would resurrect a row someone removed.",
+    "replace": "        if _live is None:\n            _live = db.merge(review)\n            _live.status = \"draft\"\n        if False:"
+  }
+]

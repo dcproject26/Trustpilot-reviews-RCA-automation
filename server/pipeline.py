@@ -4402,14 +4402,37 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # status would pull it out of Sent and back into a working tab, as if
         # the reply had never gone out.
         #
-        # review was DETACHED before the model-call phase to release the
-        # connection (see the early-persist block). Re-attach it here so this
-        # status write is tracked and committed; a detached write would be
-        # silently dropped and the row would stay "new" — a finished run still
-        # reading as unstarted, the exact Part A visibility defect.
-        review = db.merge(review)
-        if review.status != "sent":
-            review.status                 = "draft"
+        # RE-READ, NEVER MERGE. `review` was DETACHED before the model-call
+        # phase to release the connection, so it holds the row as it was
+        # MINUTES ago — a full RCA run is the longest window in this system.
+        # `db.merge(review)` writes that whole stale object back, every column
+        # of it, so anything a person did to the review while the run was in
+        # flight was silently reverted on the run's way out:
+        #
+        #     associate closes the review   -> status=sent, sent_route=closed,
+        #                                      closed_at, close_reason set
+        #     the in-flight run finishes    -> merge puts back status=new,
+        #                                      sent_route=None, closed_at=None,
+        #                                      close_reason=None
+        #
+        # and the guard below could not see it, because it tested the STALE
+        # object's status ("new"), not the row's ("sent"). That is the reported
+        # "reviews revert out of Sent": a finished review pulled back into a
+        # working tab by a run that started before it was finished, with the
+        # reason it was closed erased along with it.
+        #
+        # So the live row is fetched and the ONE field this step owns is set on
+        # it. Everything else the row carries belongs to whoever wrote it.
+        _live = db.query(Review).filter(Review.id == review_id).first()
+        if _live is None:
+            # Deleted mid-run (a purge). Nothing to write, and re-adding it
+            # from the stale copy would resurrect a row someone removed.
+            log.warning(f"[pipeline] {review_id}: the review row is gone — "
+                        f"skipping the status write rather than recreating it")
+        else:
+            review = _live
+            if review.status != "sent":
+                review.status             = "draft"
 
         # Force SQLAlchemy to detect JSON column changes on re-runs
         # (JSON type does not track in-place mutations automatically)
