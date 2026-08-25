@@ -1,0 +1,20 @@
+[
+  {
+    "file": "tools/check_timeline.py",
+    "name": "the migration is skipped, so a fresh database dies on 'no such table' (the CI failure)",
+    "find": "        from server.db import init_db\n        init_db()\n        return \"\"",
+    "replace": "        return \"\""
+  },
+  {
+    "file": "tools/check_timeline.py",
+    "name": "an unopenable database raises out of the tool instead of being reported",
+    "find": "    except Exception as e:\n        return (f\"this database could not be opened: {type(e).__name__}: \"\n                f\"{str(e).splitlines()[0][:200]}\")",
+    "replace": "    except Exception:\n        raise"
+  },
+  {
+    "file": "tools/check_timeline.py",
+    "name": "an unreadable database raises out of resolve() instead of being reported",
+    "find": "    except Exception as e:\n        print(f\"[{BAD}] this database could not be read: \"",
+    "replace": "    except ZeroDivisionError as e:\n        print(f\"[{BAD}] this database could not be read: \""
+  }
+]

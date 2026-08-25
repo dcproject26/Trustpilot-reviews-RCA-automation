@@ -33,12 +33,53 @@ def line(state, label, detail=""):
     print(f"[{state}] {label}" + (f"\n         {detail}" if detail else ""))
 
 
+def _migrate_first():
+    """Bring the schema up to the models before querying them.
+
+    Same reason tools/check_slack_ingestion.py does it: a diagnostic is what
+    someone runs BEFORE restarting anything, so it cannot assume the server has
+    already created the tables. Without this the first query dies on "no such
+    table: rca_drafts" — a raw SQLAlchemy traceback, which reads as a broken
+    tool rather than an empty database. init_db() is idempotent.
+
+    Returns "" when the schema is ready, or the sentence to report with. A
+    database this tool cannot even open is a FINDING — it is most of the answer
+    when someone asks why a timeline is empty — so it comes back as one rather
+    than as a stack trace out of a diagnostic.
+    """
+    try:
+        from server.db import init_db
+        init_db()
+        return ""
+    except Exception as e:
+        return (f"this database could not be opened: {type(e).__name__}: "
+                f"{str(e).splitlines()[0][:200]}")
+
+
 def resolve(target: str):
-    """(booking_id, booked_on, review_id) from a booking id or a review id."""
+    """(booking_id, booked_on, review_id) from a booking id or a review id.
+
+    Never raises. A database this tool cannot read is a FINDING — it is most of
+    the answer when someone asks why a timeline is empty — so it is returned as
+    one rather than thrown as a stack trace.
+    """
     from server.db import SessionLocal, Review, RcaDraft
     from server.services.zendesk import _booking_date
     s = SessionLocal()
     try:
+        return _resolve(s, target, Review, RcaDraft, _booking_date)
+    except Exception as e:
+        print(f"[{BAD}] this database could not be read: "
+              f"{type(e).__name__}: {str(e).splitlines()[0][:200]}")
+        print("         That is most of the answer: with no readable database "
+              "there is no booking to look up. Run this where the server runs.")
+        return None, "", ""
+    finally:
+        s.close()
+
+
+def _resolve(s, target, Review, RcaDraft, _booking_date):
+    if True:
         if target.startswith("tp_"):
             r = s.query(Review).filter(Review.id == target).first()
             if not r:
@@ -53,8 +94,6 @@ def resolve(target: str):
             if str((row.booking or {}).get("id") or "") == target:
                 return target, _booking_date(row.booking or {}), row.review_id
         return target, "", ""
-    finally:
-        s.close()
 
 
 def main() -> int:
@@ -67,6 +106,13 @@ def main() -> int:
     from server.config import is_live
     from server.services import zendesk as Z
 
+    _bad_db = _migrate_first()
+    if _bad_db:
+        print(f"\n═══ target {args.target} ═══")
+        line(BAD, _bad_db,
+             "With no readable database there is no booking to look up. Run "
+             "this where the server runs, with its DATABASE_URL.")
+        return 2
     bid, booked_on, review_id = resolve(args.target)
     print(f"\n═══ target {args.target} ═══")
     line(OK if bid else BAD, f"booking id: {bid or '(none)'}",
