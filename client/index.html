@@ -8791,6 +8791,34 @@ document.addEventListener('click', async (ev) => {
 // or reloading does not lose the run; the bar reattaches to whatever is
 // already in flight.
 let _bulkTimer = null;
+// How long a finished batch's summary stays on screen. Long enough to read on
+// the tab you were already looking at; short enough that it is never mistaken
+// for live status on a tab you came back to.
+const BULK_SUMMARY_S = 120;
+// How long a summary that went stale WHILE SOMEONE WAS WATCHING stays up before
+// the page takes it down itself. Named so a test can shrink it: a 20-second
+// wait in a browser test is 20 seconds of suite, every run, for ever.
+let BULK_HIDE_MS = 20000;
+
+// Seconds since the batch finished, or null when it has not.
+//
+// PARSED AS UTC, EXPLICITLY. The server sends datetime.utcnow().isoformat() —
+// "2026-08-25T10:00:00" with NO timezone suffix — and `new Date(...)` reads a
+// bare local-time string as LOCAL. In IST (+5:30) that puts the parsed instant
+// five and a half hours AHEAD of the real one, so the age comes out negative,
+// every finished batch reads as fresh, and the bar never hides. The bug would
+// be invisible in UTC and permanent in Asia/Kolkata — the timezone this team
+// actually works in.
+function _bulkFinishedAgeS(st) {
+  const raw = st && st.finished_at;
+  if (!raw) return null;
+  const iso = /[Zz]|[+-]\d\d:?\d\d$/.test(raw) ? raw : raw + 'Z';
+  const t = Date.parse(iso);
+  if (!isFinite(t)) return null;
+  // Never negative: a clock skew that puts "finished" in the future must not
+  // read as an infinitely fresh summary.
+  return Math.max(0, (Date.now() - t) / 1000);
+}
 
 function _bulkRender(st) {
   const bar = document.getElementById('bulk-bar');
@@ -8800,6 +8828,28 @@ function _bulkRender(st) {
   const total = st.total || 0;
   const done = st.done || 0;
   if (!total || (!st.running && !st.finished_at)) { bar.hidden = true; return; }
+  // A FINISHED SUMMARY IS NEWS FOR A MINUTE, THEN IT IS HISTORY.
+  //
+  // THE BUG: /api/reviews/bulk-status always answers about the NEWEST batch,
+  // and once that batch is over it keeps a finished_at for ever. This function
+  // showed the bar whenever finished_at was set, so every page load after any
+  // batch had ever run put "finished 1/1" on screen and left it there. The
+  // 20-second auto-hide below could not save it: that lived inside
+  // `else if (_bulkTimer)`, so it ran only when THIS page session had been
+  // polling a live batch. A reload has no timer, so the branch never ran.
+  //
+  // Reported as "even after completing the run, it's not going away" — and the
+  // database was clean the whole time (done: 83, dead: 1, nothing queued or
+  // running). The server had nothing left to fix; the bar was refusing to go.
+  //
+  // Nothing is lost by hiding it. A review that failed is still in the
+  // incomplete tab, still carries its own state, and "Fix incomplete" still
+  // finds it. What is lost by KEEPING it is worse: a stale summary reads as
+  // current status, which is how "0/1" was believed hours after the fact.
+  const _fin = _bulkFinishedAgeS(st);
+  if (!st.running && _fin != null && _fin > BULK_SUMMARY_S) {
+    bar.hidden = true; return;
+  }
   bar.hidden = false;
   fill.style.width = total ? `${Math.round((done / total) * 100)}%` : '0%';
   const eta = (st.eta_s != null && st.running)
@@ -8839,19 +8889,27 @@ async function pollBulk(reloadInbox) {
       if (reloadInbox) {
         await fetchInbox(); await loadDraftOverlays(); renderInbox();
       }
-    } else if (_bulkTimer) {
-      clearInterval(_bulkTimer);
-      _bulkTimer = null;
-      // One last reload so finished work is on screen. The summary stays up
-      // for a while rather than vanishing from under the reader.
-      await fetchInbox(); await loadDraftOverlays();
-      renderInbox(); renderReviewCol(); renderRcaCol();
-      const failed = (st.results || []).filter(x => !x.ok);
-      if (failed.length) console.warn('[bulk] failures:', failed);
+    } else {
+      if (_bulkTimer) {
+        clearInterval(_bulkTimer);
+        _bulkTimer = null;
+        // One last reload so finished work is on screen. Only on the
+        // transition — a page that merely LOADED after the batch ended has
+        // nothing new to pull in, and reloading the inbox on every poll of a
+        // finished batch is a request per four seconds for no reason.
+        await fetchInbox(); await loadDraftOverlays();
+        renderInbox(); renderReviewCol(); renderRcaCol();
+        const failed = (st.results || []).filter(x => !x.ok);
+        if (failed.length) console.warn('[bulk] failures:', failed);
+      }
+      // OUTSIDE the timer branch, which is where it used to live. A reload
+      // has no timer, so the bar it painted was never scheduled to come down.
+      // _bulkRender hides a stale summary on its own; this is what takes down
+      // one that went stale while somebody was looking at it.
       setTimeout(() => {
         const b = document.getElementById('bulk-bar');
         if (b && !_bulkTimer) b.hidden = true;
-      }, 20000);
+      }, BULK_HIDE_MS);
     }
   } catch (e) { /* a failed poll is not a reason to tear the bar down */ }
 }

@@ -304,5 +304,53 @@
     "name": "--reap also cancels the queue, ending work nobody asked to stop",
     "find": "        if args.close:\n            m = jobs.cancel_batch()",
     "replace": "        if True:\n            m = jobs.cancel_batch()"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a finished batch's bar is shown for ever (the bar that would not go away)",
+    "find": "  const _fin = _bulkFinishedAgeS(st);\n  if (!st.running && _fin != null && _fin > BULK_SUMMARY_S) {\n    bar.hidden = true; return;\n  }",
+    "replace": "  ;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a batch that just finished is whisked away before anyone reads it",
+    "find": "  if (!st.running && _fin != null && _fin > BULK_SUMMARY_S) {",
+    "replace": "  if (!st.running && _fin != null && _fin > -1) {"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a running batch has its own progress bar taken away as stale",
+    "find": "  if (!st.running && _fin != null && _fin > BULK_SUMMARY_S) {",
+    "replace": "  if (_fin != null && _fin > BULK_SUMMARY_S) {"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the finished timestamp is read as local time (never stale east of Greenwich)",
+    "find": "  const iso = /[Zz]|[+-]\\d\\d:?\\d\\d$/.test(raw) ? raw : raw + 'Z';",
+    "replace": "  const iso = raw;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an already-zoned timestamp is double-suffixed and never parses again",
+    "find": "  const iso = /[Zz]|[+-]\\d\\d:?\\d\\d$/.test(raw) ? raw : raw + 'Z';",
+    "replace": "  const iso = raw + 'Z';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "clock skew makes a finished batch infinitely fresh",
+    "find": "  return Math.max(0, (Date.now() - t) / 1000);",
+    "replace": "  return (Date.now() - t) / 1000;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an unparseable timestamp hides a real result",
+    "find": "  if (!isFinite(t)) return null;",
+    "replace": "  if (!isFinite(t)) return 1e9;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the auto-hide goes back inside the timer branch, so a reload never schedules one",
+    "find": "      setTimeout(() => {\n        const b = document.getElementById('bulk-bar');\n        if (b && !_bulkTimer) b.hidden = true;\n      }, BULK_HIDE_MS);\n    }",
+    "replace": "    }"
   }
 ]
