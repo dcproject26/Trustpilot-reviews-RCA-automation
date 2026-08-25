@@ -2648,9 +2648,16 @@ that turned out fine is silence — never a line in the output.
     `overlay_scenarios` must not repeat anything already in `scenarios`.
 16. `suggested_response` is guest-facing: no BID, no ticket ids, no internal team or system
     names (Selenium, Minded AI, DSS, BMS), no policy jargon. State the remedy concretely with
-    its reference if one exists. Write it in the guest's language where the review is not in
-    English; the English draft goes in `suggested_response` and the translation is a separate
-    step.
+    its reference if one exists.
+    WRITE IT IN ENGLISH — ALWAYS, including when the review is in another language.
+    Translating it is a separate, later step that reads this field as its English SOURCE.
+    This rule used to say "write it in the guest's language ... the English draft goes in
+    `suggested_response`", which is two opposite instructions in one sentence. Drafting in the
+    guest's language put French here, and the translation step — whose instruction begins
+    "translate this reply from English into French" — was then handed French, and returned
+    ENGLISH. The guest got an English reply in the box that gets sent, while the box labelled
+    "English working copy — not sent" held the French. Draft English; the pipeline handles the
+    rest.
 17. `resolution` records what the guest ACTUALLY received, not what was recommended. If nothing
     has been given yet, say so plainly ("Nothing offered yet") rather than describing an intent.
 17b. Two hard length ceilings, because both fields are read by someone outside this system.

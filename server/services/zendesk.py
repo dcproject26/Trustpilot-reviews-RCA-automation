@@ -637,14 +637,45 @@ def _normalize_time(value) -> tuple[str, str]:
     return _to_ist(dt), iso
 
 
+# Epoch seconds, as a number or as the string a float turns into. BigQuery
+# hands the booking date back as a numeric, and str() of it is scientific
+# notation — "1.787097364E9", which is 18 Aug 2026 and which fromisoformat
+# rejects outright. The prior-trip filter then reported "the date could not be
+# parsed, so the filter did not run" on real bookings that had a perfectly good
+# date: correct disclosure (rule 1 doing its job) over a gap that should not
+# have existed.
+#
+# BOUNDED to 2001-2033 rather than accepting any float. An unbounded reading
+# turns every stray number into a date, which is how a phone number becomes a
+# timestamp; outside the range it stays unparseable and says so.
+_EPOCH_MIN, _EPOCH_MAX = 1_000_000_000, 2_000_000_000
+
+
+def _from_epoch(value):
+    """A datetime from epoch seconds, or None when this is not one."""
+    try:
+        n = float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    if not (_EPOCH_MIN <= n <= _EPOCH_MAX):
+        return None
+    try:
+        return datetime.fromtimestamp(n, timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
 def _sort_key(dt):
     if dt is None:
         return datetime.max.replace(tzinfo=timezone.utc)
+    if isinstance(dt, (int, float)):
+        return _from_epoch(dt) or datetime.max.replace(tzinfo=timezone.utc)
     if isinstance(dt, str):
         try:
             dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
         except ValueError:
-            return datetime.max.replace(tzinfo=timezone.utc)
+            # Not ISO — it may still be epoch seconds from the warehouse.
+            return _from_epoch(dt) or datetime.max.replace(tzinfo=timezone.utc)
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt

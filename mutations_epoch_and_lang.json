@@ -1,0 +1,20 @@
+[
+  {
+    "file": "server/services/zendesk.py",
+    "name": "epoch dates stop parsing, so the prior-trip filter silently never runs on a warehouse date",
+    "find": "            return _from_epoch(dt) or datetime.max.replace(tzinfo=timezone.utc)",
+    "replace": "            return datetime.max.replace(tzinfo=timezone.utc)"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "the epoch window is removed, so any stray number becomes a date",
+    "find": "    if not (_EPOCH_MIN <= n <= _EPOCH_MAX):\n        return None",
+    "replace": "    if False:\n        return None"
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the English-draft rule goes, so the reply is drafted in the guest's language and the translation inverts it",
+    "find": "    WRITE IT IN ENGLISH — ALWAYS, including when the review is in another language.",
+    "replace": "    Write it in the guest's language where the review is not in English."
+  }
+]

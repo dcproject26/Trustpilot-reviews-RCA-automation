@@ -369,3 +369,51 @@ def test_a_foreign_digest_with_no_field_is_dropped_from_the_timeline(monkeypatch
     assert "33535069" not in tids, \
         "a free-text false match with no booking field is still in the timeline"
     assert {e["ticket_id"] for e in meta["other_booking_excluded"]} == {"33535069"}
+
+
+# ── epoch dates from the warehouse ──────────────────────────────────────────
+# MEASURED on booking 33543686: booked_on arrived as "1.787097364E9". BigQuery
+# hands the date back as a numeric and str() of it is scientific notation, which
+# fromisoformat rejects — so the prior-trip filter reported "the date could not
+# be parsed, so the filter did not run" on a booking with a perfectly good date
+# (18 Aug 2026). The disclosure was right; the gap should not have existed.
+
+def test_epoch_seconds_in_scientific_notation_parse():
+    """The exact string the live diagnostic printed."""
+    got = Z._sort_key("1.787097364E9")
+    assert got.year == 2026 and got.month == 8 and got.day == 18, got
+
+
+def test_epoch_parses_as_float_and_as_a_plain_string():
+    want = Z._sort_key("1.787097364E9")
+    assert Z._sort_key(1787097364.0) == want
+    assert Z._sort_key("1787097364") == want
+    assert Z._sort_key(1787097364) == want
+
+
+def test_the_cutoff_now_runs_on_a_warehouse_date():
+    cut, reason = Z._booking_cutoff("1.787097364E9")
+    assert reason == "", f"the filter still refuses to run: {reason}"
+    assert cut is not None
+    assert Z._is_prior_trip(Z._sort_key("2026-07-06T00:00:00Z"), cut) is True
+
+
+def test_iso_dates_still_parse():
+    """The epoch fallback must not shadow the primary path."""
+    got = Z._sort_key("2026-08-21T10:34:00Z")
+    assert (got.year, got.month, got.day, got.hour) == (2026, 8, 21, 10)
+
+
+def test_a_number_outside_the_epoch_window_is_still_unparseable():
+    """Unbounded, every stray number becomes a date — which is how a phone
+    number turns into a timestamp. Outside 2001-2033 it stays unreadable and
+    says so."""
+    assert Z._sort_key("42") == Z._SORT_MAX
+    assert Z._sort_key("99999999999999") == Z._SORT_MAX
+    assert Z._booking_cutoff("42")[0] is None
+
+
+def test_real_junk_is_still_reported_as_unparseable():
+    assert Z._sort_key("last tuesday") == Z._SORT_MAX
+    cut, reason = Z._booking_cutoff("last tuesday")
+    assert cut is None and "could not" in reason
