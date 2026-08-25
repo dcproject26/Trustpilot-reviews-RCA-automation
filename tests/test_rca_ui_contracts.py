@@ -115,7 +115,7 @@ def test_the_claim_editable_is_inline_inside_the_quote():
 def test_an_absent_claim_is_never_quote_marks_around_nothing():
     """A blank quote reads as a guest who said "". The neutral empty state
     says what actually happened, and "+ Claim" recreates the field."""
-    i = CLIENT.find('<span class="wwr-blk-label">What the guest said</span>')
+    i = CLIENT.find('<span class="wwr-blk-label">Claim</span>')
     assert i > 0
     body = CLIENT[i:i + 1400]
     assert "does not state this in the guest's own words" in body
@@ -134,7 +134,7 @@ def test_every_delete_uses_the_one_class():
 
 def test_root_cause_has_no_delete():
     """An issue with no root cause is not an RCA."""
-    i = CLIENT.find("What broke:</span>")
+    i = CLIENT.find("Root cause:</span>")
     assert i > 0
     assert "data-aline-del" not in CLIENT[i:i + 400]
 

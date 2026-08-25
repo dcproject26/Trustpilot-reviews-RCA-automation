@@ -233,6 +233,17 @@ def main() -> int:
              str(meta["prior_trip_excluded"]))
     if meta.get("prior_trip_reason"):
         line(WARN, "prior-trip filter did not run", meta["prior_trip_reason"])
+    # The one that is our fault rather than a decision. Section 3's empty-state
+    # used to tell the reader to "look for a WARN line" above — this is that
+    # line, promoted to a finding, because a conversation the search found and
+    # the fetch could not open is missing evidence and the RCA is written
+    # without it.
+    if meta.get("unreadable_tickets"):
+        _ur = meta["unreadable_tickets"]
+        line(BAD, f"{len(_ur)} ticket(s) FOUND BUT UNREADABLE",
+             "; ".join(f"ZD-{e.get('ticket_id')} — {e.get('error')}" for e in _ur)
+             + ". Nothing from these is in the timeline. An 'not on record' "
+               "finding about this booking may be one of these conversations.")
 
     # ── 4. re-runs ──────────────────────────────────────────────────────────
     print(f"\n═══ 4. re-run health ═══")

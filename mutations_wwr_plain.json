@@ -62,8 +62,8 @@
   {
     "file": "server/services/rca_v4_validate.py",
     "name": "hits beyond the first three vanish silently",
-    "find": "    more = f\" and {len(hits) - 3} more\" if len(hits) > 3 else \"\"",
-    "replace": "    more = \"\""
+    "find": "    hits = jargon_hits(issues)\n    if not hits:\n        return \"\"\n    shown = \"; \".join(f\"{w}: {t!r} ({y})\" for w, t, y in hits[:3])\n    more = f\" and {len(hits) - 3} more\" if len(hits) > 3 else \"\"",
+    "replace": "    hits = jargon_hits(issues)\n    if not hits:\n        return \"\"\n    shown = \"; \".join(f\"{w}: {t!r} ({y})\" for w, t, y in hits[:3])\n    more = \"\""
   },
   {
     "file": "server/services/rca_v4_validate.py",
@@ -74,8 +74,8 @@
   {
     "file": "server/services/rca_v4_validate.py",
     "name": "a malformed issue list takes the whole run down",
-    "find": "        if not isinstance(issue, dict):\n            continue",
-    "replace": "        pass"
+    "find": "    for n, issue in enumerate(issues or [], 1):\n        if not isinstance(issue, dict):\n            continue\n        fields = [(f, issue.get(f)) for f in _PROSE_FIELDS]",
+    "replace": "    for n, issue in enumerate(issues or [], 1):\n        fields = [(f, issue.get(f)) for f in _PROSE_FIELDS]"
   },
   {
     "file": "server/prompts.py",
@@ -130,5 +130,83 @@
     "name": "the bar trusts `current` over `current_state`, so a stale name outlives the worker",
     "find": "  const where = st.current_state === 'running' && st.current\n    ? st.current.slice(0, 22)",
     "replace": "  const where = st.current\n    ? st.current.slice(0, 22)"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "an unreadable ticket is dropped with only a log line again (the timeline bug)",
+    "find": "            _unreadable.append({\"ticket_id\": str(ticket.id),\n                                \"subject\": str(getattr(ticket, \"subject\", \"\") or \"\")[:120],\n                                \"error\": f\"{type(e).__name__}: {e}\"[:200]})",
+    "replace": "            pass"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "an unreadable ticket is still counted among the tickets the timeline covers",
+    "find": "    ticket_ids = [str(t.id) for t in tickets\n                  if str(t.id) not in _prior_ids and str(t.id) not in _unread_ids]",
+    "replace": "    ticket_ids = [str(t.id) for t in tickets if str(t.id) not in _prior_ids]"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "a rate limit is filed as an unreadable ticket instead of being re-raised",
+    "find": "        except ZendeskRateLimited:\n            raise\n        except Exception as e:\n            # A TICKET WE FOUND AND COULD NOT READ IS A FINDING, NOT A LOG LINE.",
+    "replace": "        except Exception as e:\n            # A TICKET WE FOUND AND COULD NOT READ IS A FINDING, NOT A LOG LINE."
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "the unreadable-ticket line is written but never appended to the trail",
+    "find": "        _ur_row = unreadable_tickets_entry(zd_meta)\n        if _ur_row:\n            confidence_trail.append(_ur_row)",
+    "replace": "        _ur_row = unreadable_tickets_entry(zd_meta)"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "missing evidence is reported as a step that succeeded",
+    "find": "    return {\"mark\": \"fail\",\n            \"text\": f\"<strong>{len(rows)} ticket(s) were found but could NOT be \"",
+    "replace": "    return {\"mark\": \"pass\",\n            \"text\": f\"<strong>{len(rows)} ticket(s) were found but could NOT be \""
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a missing fetch reason renders as the word None",
+    "find": "        f\"({_html.escape(str(r.get('error') or 'no reason recorded'))})\"",
+    "replace": "        f\"({_html.escape(str(r.get('error')))})\""
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "a fix on two desks passes as one fix",
+    "find": "        if len(others) >= 2:",
+    "replace": "        if len(others) >= 99:"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "an ordinary CO-escalates-to-SP fix is flagged as noise",
+    "find": "        if len(others) >= 2:",
+    "replace": "        if len(others) >= 1:"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "naming the guest counts as a second desk",
+    "find": "        others = sorted({t for t in _TEAM_RE.findall(action)\n                         if t != owner and t != \"GUEST\"})",
+    "replace": "        others = sorted({t for t in _TEAM_RE.findall(action) if t != owner})"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the fix-scope check is wired into nothing",
+    "find": "    _scope = fix_scope_note(issues)\n    if _scope:\n        notes.append(_scope)",
+    "replace": "    _scope = fix_scope_note(issues)"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "a bare internal code like 'TGID rate' stops being flagged",
+    "find": "    (re.compile(r\"\\b(?:tgid|vid|pid|eid|sku)\\b(?![\\s:#_-]*\\d)\", re.I),\n     \"an internal code used as a word\"),",
+    "replace": "    (re.compile(r\"\\bzzzzz_never\\b\"),\n     \"an internal code used as a word\"),"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "a fix with no owner crashes the validator, so the card shows raw model output",
+    "find": "        owner = str(_clean(fx.get(\"owner\")) or \"\").upper()",
+    "replace": "        owner = _clean(fx.get(\"owner\")).upper()"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "a non-string prose field reaches a regex",
+    "find": "            if not isinstance(text, str) or not text:",
+    "replace": "            if not text:"
   }
 ]

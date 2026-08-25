@@ -1530,6 +1530,11 @@ def _get_timeline_sync(_z, booking_id: str, booked_on: str = ""):
     # another booking of the same guest's" — and only the second can catch a
     # concurrent trip.
     _other_booking_excluded = []  # [{ticket_id, names_booking}]
+    # Tickets found by the search whose CONTENTS could not be fetched. A third
+    # kind of absence, and the only one that is our fault: the first two are
+    # decisions ("this is a prior trip", "this is another booking's"), this one
+    # is a failure. Kept apart so the trail can word them differently.
+    _unreadable = []              # [{ticket_id, subject, error}]
 
     # ── Fetch comments per ticket (zenpy paginates), build raw events ─────────
     events = []   # (sort_dt, raw_event_dict, raw_body)
@@ -1558,7 +1563,23 @@ def _get_timeline_sync(_z, booking_id: str, booked_on: str = ""):
         except ZendeskRateLimited:
             raise
         except Exception as e:
+            # A TICKET WE FOUND AND COULD NOT READ IS A FINDING, NOT A LOG LINE.
+            # This was `log.warning(...); continue` — so the ticket stayed in
+            # ticket_ids (it is not a prior trip and not another booking's), the
+            # card counted it as found, and not one word of it reached the
+            # timeline. "We could not read this conversation" and "this
+            # conversation is empty" came out identical, in a card whose whole
+            # job is to say what the records show.
+            #
+            # It is worse than a missing line, because the RCA is written FROM
+            # this timeline: with the guest's chat unreadable, the model has
+            # nothing to check the claim against and reports the contact as not
+            # being on record — stating an absence on the strength of a lookup
+            # that failed.
             log.warning(f"[zendesk] comments fetch failed for ZD-{ticket.id}: {e}")
+            _unreadable.append({"ticket_id": str(ticket.id),
+                                "subject": str(getattr(ticket, "subject", "") or "")[:120],
+                                "error": f"{type(e).__name__}: {e}"[:200]})
             continue
 
         # A ticket whose LATEST comment is still before the booking existed is a
@@ -1756,7 +1777,13 @@ def _get_timeline_sync(_z, booking_id: str, booked_on: str = ""):
     # ticket_ids is the timeline's tickets — a prior-trip ticket was found but
     # is not part of this booking's timeline, so it is reported separately in
     # prior_trip_excluded, not here.
-    ticket_ids = [str(t.id) for t in tickets if str(t.id) not in _prior_ids]
+    # An unreadable ticket is NOT in ticket_ids. It was found, but nothing of
+    # it is in this timeline, and leaving it in the count is how "4 tickets"
+    # gets printed over a timeline built from 3. It is reported in
+    # meta["unreadable_tickets"] instead, which says the number AND why.
+    _unread_ids = {u["ticket_id"] for u in _unreadable}
+    ticket_ids = [str(t.id) for t in tickets
+                  if str(t.id) not in _prior_ids and str(t.id) not in _unread_ids]
 
     return raw_events, extracted, {
         "ticket_ids": ticket_ids,
@@ -1778,6 +1805,10 @@ def _get_timeline_sync(_z, booking_id: str, booked_on: str = ""):
         # booking" are different findings, and only the second catches a trip
         # that overlaps this one in time.
         "other_booking_excluded": _other_booking_excluded,
+        # Found, and could not be read. NOT an exclusion — nobody decided to
+        # leave these out, the fetch failed — so it is reported as a gap in the
+        # evidence rather than as a filter doing its job.
+        "unreadable_tickets": _unreadable,
     }
 
 

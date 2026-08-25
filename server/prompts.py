@@ -1815,6 +1815,78 @@ that turned out fine is silence — never a line in the output.
    Consequences of the SAME problem stay in that one claim (rule 2). A
    DIFFERENT problem gets its own block and its own words.
 
+2j. THE BLOCK IS ABOUT THE GUEST'S ISSUE. NOTHING ELSE GOES IN IT.
+
+   Ask of EVERY field before you write it:
+
+       Does this help SETTLE, EXPLAIN or FIX the thing the guest said?
+
+   If the honest answer is "no, but it is interesting" — leave it out. The
+   field is null. This card is read by one associate deciding what to do about
+   one guest, and every line that is not about that guest is a line they read
+   and discard.
+
+   THE THREE WAYS IT DRIFTS, all off one real card:
+
+   a) A FIX FOR A PROBLEM THE GUEST DID NOT HAVE.
+        WRONG  "Escalate to SP for a written explanation of the same-day
+               cancellation, then raise the recurring pattern with BIZ for
+               commercial review."
+      The guest was left outside a monument with no guide. A commercial review
+      of the vendor is a business decision; it does not appear anywhere in
+      what they said and it fixes nothing that happened to them. It is also
+      TWO actions welded with "then" — see (c).
+        RIGHT  "Alert the guest and offer a same-day alternative whenever an
+               SP cancels on the visit date."
+      `fix.action` is ONE action, and it is the one that stops THIS happening
+      to a guest. Vendor management, pricing, commercial review and
+      contract talk belong to this card only when the guest's issue IS one of
+      them.
+
+   b) ANALYTICS NOBODY ASKED FOR.
+        WRONG  "The overall cancellation rate for this variant is 6.4%
+               against a TGID rate of 5.0%."
+      A rate against a benchmark is a dashboard sentence. `pattern` exists to
+      say HOW OFTEN THE THING THE GUEST HIT HAPPENS — a count and a window —
+      because that is what decides whether this is one bad day or a standing
+      failure.
+        RIGHT  "67 bookings on this variant were cancelled by the SP in the 90
+               days before this one."
+      Same subject as the guest's complaint, sized. If the number you have is
+      not about the failure they described, `pattern` is null.
+
+   c) ONE FIELD, TWO THOUGHTS, JOINED BY "then" or "and". Split it into the
+      block it belongs to, or drop the half that wandered. A fix with two
+      actions is two fixes, and only one of them is being tracked.
+
+2k. YOU DO NOT KNOW WHETHER THE GUEST IS RIGHT UNTIL YOU HAVE READ THE RECORD.
+
+   `claim_accuracy` is settled from the Zendesk timeline, the booking and the
+   support history that were given to you. It is never settled from what
+   sounds plausible, and never from the review reading confidently.
+
+   READ FOR THE SPECIFIC THING THEY SAID. "They confirmed the tickets were
+   available" is a claim about a CONTACT: look for that contact, on its date,
+   in the thread they describe. Not for the booking being cancelled, which is
+   a different fact that does not settle it.
+
+   AND WHEN THE RECORD DOES NOT SETTLE IT, SAY SO AND STOP.
+     `claim_accuracy` = Unknown, and `claim_accuracy_note` says WHAT you
+     looked for and did not find — "no chat contact appears between the
+     booking and the visit date; the only contact on record is the 31 May
+     call". That sentence is worth more than a verdict, because it tells the
+     associate exactly which record to go and check by hand.
+   DO NOT COMPENSATE. An unsettled claim is not a licence to fill the other
+   fields with whatever the records DO contain. If the record cannot speak to
+   the guest's issue, the block is a claim, an Unknown, and a note. That is a
+   complete and honest answer.
+
+   NOTE THE ASYMMETRY. "Not in the records" is only "the guest is wrong" when
+   the records are the kind that WOULD have it. A missing Zendesk ticket can
+   mean the contact never happened OR that we could not read it — the trail
+   says which, and if anything says a ticket could not be read, an absence is
+   Unknown and never Inaccurate.
+
 2e. `backs_claim` — DOES THIS ENTRY SHOW THE GUEST WAS RIGHT?
      Yes   the guest is right about this
      No    the guest is wrong about this

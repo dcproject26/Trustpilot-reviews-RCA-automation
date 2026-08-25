@@ -1419,6 +1419,39 @@ def dss_entry(dss_rec, err: Exception | None, live: bool,
     return None
 
 
+def unreadable_tickets_entry(zd_meta) -> dict | None:
+    """The trail line for tickets the search FOUND and the fetch could not
+    read. `None` when every ticket was readable.
+
+    EXTRACTED SO IT CAN BE DRIVEN, for the same reason shape_counts_entry was:
+    the alternative is `assert \'"mark": "fail"\' in pipeline_source`, which is
+    a spelling check — it passes against a build where the line it names sits
+    behind a condition that is never true.
+
+    MARKED `fail`, NEVER `pass`. The prior-trip and other-booking lines are
+    `pass` because they report the filter WORKING — we looked at a ticket and
+    decided it belongs to a different trip. This one reports missing evidence:
+    nobody decided anything, the fetch failed, and every finding under it was
+    written without that conversation. Reporting a gap in the record as a step
+    that succeeded is the specific miswording CLAUDE.md calls out.
+    """
+    rows = (zd_meta or {}).get("unreadable_tickets") or []
+    if not rows:
+        return None
+    named = "; ".join(
+        f"ZD-{r.get('ticket_id')} "
+        f"({_html.escape(str(r.get('error') or 'no reason recorded'))})"
+        for r in rows[:4])
+    more = f" and {len(rows) - 4} more" if len(rows) > 4 else ""
+    return {"mark": "fail",
+            "text": f"<strong>{len(rows)} ticket(s) were found but could NOT be "
+                    f"read</strong> — {named}{more}. Nothing from them is in the "
+                    f"timeline, and the RCA below was written without them. This "
+                    f"is not the same as a ticket with nothing in it: an absence "
+                    f"stated on this booking may simply be a conversation we "
+                    f"failed to open. Re-run to try again."}
+
+
 def shape_counts_entry(timeline) -> dict | None:
     """The trail line for what the timeline shaping collapsed, dropped or
     re-attributed. `None` when no shaping happened.
@@ -3664,6 +3697,16 @@ async def process_review(review_id: str, force_candidates: bool = False):
                         f"off the timeline</strong> — {_ob_ids}. Their own Zendesk "
                         f"booking field names a different booking, so they are the "
                         f"same guest's other trip rather than this one."})
+
+        # FOUND, AND COULD NOT BE READ. The two lines above report DECISIONS
+        # — we looked at the ticket and chose to leave it out. This one is a
+        # FAILURE, and it is marked `fail` for that reason: a conversation the
+        # search found and the fetch could not open is missing evidence, and
+        # every finding below was written without it. Reported before the
+        # exclusions so a reader meets the gap first.
+        _ur_row = unreadable_tickets_entry(zd_meta)
+        if _ur_row:
+            confidence_trail.append(_ur_row)
 
         _pt = zd_meta.get("prior_trip_excluded") or []
         _pt_reason = zd_meta.get("prior_trip_reason") or ""

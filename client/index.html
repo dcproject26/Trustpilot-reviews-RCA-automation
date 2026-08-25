@@ -6168,14 +6168,9 @@ function renderRcaCol() {
     // §2 the four optional analysis lines. Present ones render as an editable
     // key-value row with a ×; absent ones become a "+" button in the wrap row.
     const ALINES = [
-      // PLAIN LABELS, BECAUSE THIS CARD IS READ AT SPEED. "Operational
-      // failure", "SOP / process gap" and "Pattern" are the field names; they
-      // named the schema rather than the question the associate is answering,
-      // and the reading order was not obvious from them. The KEYS are
-      // unchanged — only what a human sees.
-      ['operational_failure', 'What we got wrong',        'what a person or system of ours did wrong'],
-      ['sop_gap',             'What should have caught it', 'the check nobody was required to do'],
-      ['pattern',             'Has this happened before',   'how often, with the numbers and the window'],
+      ['operational_failure', 'Operational failure', 'what a person or system did wrong'],
+      ['sop_gap',             'SOP / process gap',   'the missing or deficient process step'],
+      ['pattern',             'Pattern',             'recurrence evidence, with counts and window'],
     ];
     // `fix` is no longer one of these. It is an object — action, owner, the
     // gap it closes, where that gap was read, and the count that sizes it —
@@ -6228,7 +6223,7 @@ function renderRcaCol() {
         ${open ? `
         <div class="wwr-issue-body">
           <div class="wwr-blk">
-            <span class="wwr-blk-label">What the guest said</span>
+            <span class="wwr-blk-label">Claim</span>
             ${claim && String(claim).trim() ? `
               <div class="wwr-claim-row">
                 <span class="wwr-claim wwr-claim-q">“${edSpan(`${bp}.claim`, claim)}”</span>
@@ -6239,14 +6234,14 @@ function renderRcaCol() {
                review not stating it in their words, or our own finding filed
                as a complaint, and the empty state says which. */
             : `<div class="rca-empty">The review does not state this in the guest's own words.</div>
-               <button class="row-add wwr-add" data-claim-add="${i}">+ Quote</button>`}
+               <button class="row-add wwr-add" data-claim-add="${i}">+ Claim</button>`}
           </div>
           <!-- EVIDENCE MOVED TO §1 CASE FINDINGS. It was per-issue, so a fact
                cited by two claims rendered twice — the single biggest source
                of repeated text on this card. The rows keep their claim
                association in the data; only the rendering moved. -->
           <div class="wwr-blk">
-            <span class="wwr-blk-label">What actually happened</span>
+            <span class="wwr-blk-label">Analysis — what actually happened?</span>
             <div class="wwr-analysis">
               <div class="wwr-analysis-head">
                 ${chipSel(`${bp}.claim_accuracy`, acc, ACC, accCls(acc), 'chip-acc-sel', rawAcc)}
@@ -6254,10 +6249,10 @@ function renderRcaCol() {
               </div>
               ${tail ? `<div class="wwr-analysis-note">${esc(tail)}</div>` : ''}
               <div class="wwr-aline">
-                <span class="wwr-aline-key">What broke:</span>
+                <span class="wwr-aline-key">Root cause:</span>
                 <span class="wwr-aline-val">${
                   causeText ? edSpan(causePath, causeText)
-                            : edSpan(`${bp}.root_cause`, '', 'click to write what broke')}</span>
+                            : edSpan(`${bp}.root_cause`, '', 'click to write the failing step')}</span>
                 <!-- no ×: an issue with no root cause is not an RCA -->
               </div>
               ${present.map(([k, label]) => `
@@ -6278,14 +6273,9 @@ function renderRcaCol() {
                 // put one number in two places and let them disagree.
                 const fx = gi.fix;
                 if (!fx || typeof fx !== 'object') return '';
-                // "Closes" read as jargon and, worse, invited a
-                // restatement of the gap two lines above it — the model
-                // obliged, and the card carried one sentence under two
-                // labels. `because` is now what it COST the guest (see
-                // prompts.py rule 2g), and the label asks for that.
                 const rows = [
                   ['action',   'Fix'],
-                  ['because',  'Why it matters'],
+                  ['because',  'Closes'],
                 ].filter(([k]) => String(fx[k] || '').trim());
                 if (!rows.length) return '';
                 // THE SAME × AS EVERY OTHER LINE IN THIS BLOCK. Operational
@@ -6330,13 +6320,11 @@ function renderRcaCol() {
     // would delete analysis someone wrote. They render as extra rows under the
     // LAST issue, at their own v3 paths so an edit still saves where the value
     // actually lives, and labelled so nobody reads them as issue-scoped.
-    // Same plain labels as the issue-scoped rows above. Two names for one
-    // field is how a reader concludes they are two different fields.
     const _legacyRows = [
-      ['what_went_wrong.what_happened.operational_failure', 'What we got wrong',        wh.operational_failure],
-      ['what_went_wrong.what_happened.sop_gap',             'What should have caught it', wh.sop_gap],
-      ['what_went_wrong.what_happened.pattern',             'Has this happened before',   wh.pattern],
-      ['what_went_wrong.fixes.actions',                     'Fix',                        fx.actions],
+      ['what_went_wrong.what_happened.operational_failure', 'Operational failure', wh.operational_failure],
+      ['what_went_wrong.what_happened.sop_gap',             'SOP / process gap',   wh.sop_gap],
+      ['what_went_wrong.what_happened.pattern',             'Pattern',             wh.pattern],
+      ['what_went_wrong.fixes.actions',                     'Fix',                 fx.actions],
     ].filter(([, , v]) => asPoints(v).length);
     const _spLegacy = asPoints(spx.detail).length || spx.escalated;
     const legacyExtras = (_legacyRows.length || _spLegacy) ? `

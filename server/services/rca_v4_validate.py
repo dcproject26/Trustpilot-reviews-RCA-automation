@@ -857,6 +857,13 @@ _JARGON = [
     (re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b"), "a field name"),
     # an internal id with no name on it: vid 6057, pid_12, eid-9
     (re.compile(r"\b(?:vid|pid|eid|tgid|sku)\b[\s:#_-]*\d+", re.I), "an unnamed internal id"),
+    # The same codes used as a BARE NOUN, which the pattern above misses
+    # because it wants a number: "against a TGID rate of 5.0%" reached a real
+    # card. A reader who has to expand an acronym to parse a comparison is
+    # doing our job, and the comparison was not about the guest's issue
+    # anyway. Word-boundary + explicit list, so ordinary words are safe.
+    (re.compile(r"\b(?:tgid|vid|pid|eid|sku)\b(?![\s:#_-]*\d)", re.I),
+     "an internal code used as a word"),
     # boolean-field talk
     (re.compile(r"\b(?:is|was|are|were)\s+(?:true|false)\b", re.I), "boolean field talk"),
     (re.compile(r"\bflag(?:\s+is)?\s+not\s+set\b", re.I), "boolean field talk"),
@@ -888,13 +895,81 @@ def jargon_hits(issues) -> list:
             if isinstance(ev, dict):
                 fields.append(("evidence", ev.get("text")))
         for name, val in fields:
+            # Same reason as fix_scope_hits: _clean hands back None, and a
+            # non-string field (a model returning a list) must not reach a
+            # regex either.
             text = _clean(val)
-            if not text:
+            if not isinstance(text, str) or not text:
                 continue
             for pat, why in _JARGON:
                 for hit in pat.findall(text):
                     out.append((f"issue {n} {name}", str(hit), why))
     return out
+
+
+# A fix that lands on more than one desk is more than one fix. This came off a
+# real card, under `fix.owner` = CO:
+#
+#   "Escalate to SP for a written explanation of the same-day cancellation,
+#    then raise the recurring pattern with BIZ for commercial review."
+#
+# Two actions, two teams, one row. The half after the comma is a commercial
+# decision about the vendor — it fixes nothing that happened to the guest, and
+# because it is welded to a fix owned by CO, nobody at BIZ is ever told. A card
+# reader sees one tracked action and one that only looks tracked.
+#
+# CO ESCALATING TO SP IS NORMAL and must not be flagged: naming ONE team
+# besides the owner is how an action gets addressed. TWO is the tell.
+_TEAM_RE = re.compile(r"\b(" + "|".join(t for t in FLAG_TEAMS if t != "OTHER")
+                      + r")\b")
+
+
+def fix_scope_hits(issues) -> list:
+    """[(where, teams, why)] for each fix action that spans two desks."""
+    out = []
+    for n, issue in enumerate(issues or [], 1):
+        if not isinstance(issue, dict):
+            continue
+        fx = issue.get("fix")
+        if not isinstance(fx, dict):
+            continue
+        # str() BOTH, because _clean returns None for a non-value — not "" —
+        # and an owner is legitimately absent: validate() drops one it cannot
+        # map to the nine teams, so the commonest way to reach this line is
+        # with owner already None. `.upper()` on that took the whole validator
+        # down, and the except above it would have logged "keeping raw output"
+        # over a card that then showed unvalidated model text. A check about
+        # wording must never be able to cost an RCA.
+        action = str(_clean(fx.get("action")) or "")
+        if not action:
+            continue
+        owner = str(_clean(fx.get("owner")) or "").upper()
+        # GUEST is not a desk work is assigned to — "offer the guest an
+        # alternative" names the person the fix is FOR, not a second owner.
+        others = sorted({t for t in _TEAM_RE.findall(action)
+                         if t != owner and t != "GUEST"})
+        if len(others) >= 2:
+            out.append((f"issue {n} fix.action", ", ".join(others),
+                        "one action, more than one desk"))
+    return out
+
+
+def fix_scope_note(issues) -> str:
+    """One sentence for the confidence trail, or "" when every fix is one fix.
+
+    Reported, not split: deciding WHICH half is the real fix, and which block
+    the other belongs to, is a judgement about the case. Guessing it would
+    move a real action onto a desk nobody chose.
+    """
+    hits = fix_scope_hits(issues)
+    if not hits:
+        return ""
+    shown = "; ".join(f"{w} names {t}" for w, t, _y in hits[:3])
+    more = f" and {len(hits) - 3} more" if len(hits) > 3 else ""
+    return (f"{len(hits)} fix(es) span more than one team — {shown}{more}. A fix "
+            f"on two desks is two fixes, and only the one under fix.owner gets "
+            f"tracked. Split it, or drop the half that is not about this "
+            f"guest's issue.")
 
 
 def jargon_note(issues) -> str:
@@ -939,6 +1014,9 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
     _jargon = jargon_note(issues)
     if _jargon:
         notes.append(_jargon)
+    _scope = fix_scope_note(issues)
+    if _scope:
+        notes.append(_scope)
     _dss_followed, _dss_note = dss_check.gate_dss_followed(
         _obj(rca.get("dss")).get("followed"), events, review_at)
     if _dss_note:
