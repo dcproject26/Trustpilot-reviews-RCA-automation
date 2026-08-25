@@ -162,8 +162,19 @@ def _post(page, send_ok=True):
         }
         return Promise.resolve({ok: true, json: () => Promise.resolve({})});
       };
-      // Post-to-thread asks for confirmation on the first click when the RCA
-      // has already gone; with rcaPostedAt null it posts straight away.
+      // TWO CLICKS. Post-to-thread is a confirm button on EVERY send now, not
+      // only on a repeat: the first click arms it, the second posts. Clicking
+      // once here would make no request at all and this test would report the
+      // MOVE-TO-SENT as broken when nothing had been posted in the first
+      // place. Asserted rather than assumed, so a regression in the arming
+      // shows up as itself.
+      b.click();
+      await new Promise(x => setTimeout(x, 300));
+      const armed = b.textContent || '';
+      if (!/Confirm|second copy/i.test(armed)) {
+        window.fetch = real;
+        return {error: 'the first click did not arm the post button: ' + armed};
+      }
       b.click();
       await new Promise(x => setTimeout(x, 700));
       const out = {hits, before: keep.s, status: r.status,

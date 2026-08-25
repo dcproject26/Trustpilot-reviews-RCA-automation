@@ -181,19 +181,25 @@ def _row_state(page):
 
 
 def _post(page):
-    """Click Post, answering the second-copy confirmation if it appears.
+    """Click Post twice — the button is a two-step confirm on EVERY send.
 
-    An already-posted review turns the button into "Post a second copy?" —
-    deliberately, because a repeat drops another copy into a thread people are
-    reading. Tests that ignore it get no request at all and read as a silent
-    failure of the thing under test rather than of the test.
+    It used to confirm only a REPEAT post; a first post went to the channel on
+    one click, from a button sitting directly under nine contenteditable rows.
+    A Slack post cannot be recalled, so the guard is on every send now, with
+    two different sentences for the two different risks ("this is going to the
+    channel" / "there is already a copy in the thread").
+
+    Tests that click once get no request at all, and that reads as a silent
+    failure of the thing under test rather than of the test — so this asserts
+    the button really did arm rather than clicking twice and hoping.
     """
     page.click("[data-slack-post]")
-    page.wait_for_timeout(400)
-    if "second copy" in (page.locator("[data-slack-post]").text_content() or ""):
-        page.click("[data-slack-post]")
-        page.wait_for_timeout(400)
-    page.wait_for_timeout(400)
+    page.wait_for_timeout(300)
+    armed = page.locator("[data-slack-post]").text_content() or ""
+    assert "Confirm" in armed or "second copy" in armed, (
+        f"the first click did not arm the post button: {armed!r}")
+    page.click("[data-slack-post]")
+    page.wait_for_timeout(600)
 
 
 def test_the_post_renders_one_row_per_section_not_a_wall_of_text(page):

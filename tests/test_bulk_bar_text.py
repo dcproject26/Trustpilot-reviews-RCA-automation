@@ -81,3 +81,22 @@ def test_the_state_decides_what_is_shown_not_a_leftover_review_id(page):
     assert "tp_1787158427" not in txt, (
         "the bar named a review while reporting that nothing is running: " + txt)
     assert "stalled" in txt, txt
+
+
+def test_a_stranded_batch_does_not_promise_a_retry(page):
+    """A stranded run is out of attempts: claim_next matches neither of its
+    branches, so nothing reclaims it. "They retry once the lease lapses" is
+    false for it, and that sentence is why someone waits an hour in front of a
+    bar reading 0/1."""
+    txt = _render(page, current="", current_state="stalled",
+                  stalled=1, stranded=1, total=1, remaining=1)
+    assert "retry once the lease lapses" not in txt, txt
+    assert "gave up" in txt or "out of retries" in txt, txt
+
+
+def test_a_retryable_stall_still_says_it_comes_back(page):
+    """The counterpart. Telling someone to restart when the run is about to
+    resume on its own is the opposite error."""
+    txt = _render(page, current="", current_state="stalled",
+                  stalled=1, stranded=0)
+    assert "retry once the lease lapses" in txt, txt

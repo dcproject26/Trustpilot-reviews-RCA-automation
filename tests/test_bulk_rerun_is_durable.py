@@ -289,3 +289,203 @@ def test_a_row_with_no_timestamps_at_all_is_not_reported_as_moving(db):
         created_at = datetime.utcnow() - timedelta(seconds=STALL_AFTER_S + 60)
 
     assert jobs.worker_liveness(_Row())[0] == "stalled"
+
+
+# ── a claimed run that never came back must not pin the bar open for ever ───
+# THE REPORT: "re-running 0/1 · tp_1786450673_643689", still on screen long
+# after the run, and no amount of waiting cleared it.
+#
+# It is a hole in the state machine, not a slow run. claim_next takes a QUEUED
+# job, or a RUNNING job whose lease has lapsed AND that has attempts left. A row
+# that is running, lapsed and OUT of attempts matches neither branch — it can
+# never be claimed, never fail, never finish. batch_status counts queued+running
+# as live, so `running` stays true for ever and the bar, which hides itself only
+# when the batch is not running, never goes away.
+#
+# It arrives the ordinary way: the container dies mid-run, so fail() never runs
+# to spend the attempt properly. Three of those and the row is stranded.
+
+def _lease(db, review_id, seconds_from_now, attempts=None):
+    from datetime import datetime, timedelta
+    s = db.SessionLocal()
+    try:
+        vals = {db.RunJob.lease_expires_at:
+                datetime.utcnow() + timedelta(seconds=seconds_from_now)}
+        if attempts is not None:
+            vals[db.RunJob.attempts] = attempts
+        s.query(db.RunJob).filter(db.RunJob.review_id == review_id).update(
+            vals, synchronize_session=False)
+        s.commit()
+    finally:
+        s.close()
+
+
+def _status_of(db, review_id):
+    s = db.SessionLocal()
+    try:
+        return (s.query(db.RunJob)
+                 .filter(db.RunJob.review_id == review_id).first().status)
+    finally:
+        s.close()
+
+
+def test_a_stranded_run_is_invisible_to_the_claim_loop(db):
+    """The guard for the bug itself. If this ever starts passing a job to a
+    worker, the reap below is no longer load-bearing — but until then, nothing
+    else in the system will ever look at this row again."""
+    _seed(db, "tp_stuck")
+    jobs.start_batch(["tp_stuck"])
+    _set_status(db, "tp_stuck", "running")
+    _lease(db, "tp_stuck", -60, attempts=3)
+    assert jobs.claim_next("w1") is None, \
+        "claim_next now takes it — re-check whether reap_abandoned is still needed"
+
+
+def test_a_stranded_run_is_reaped_as_failed(db):
+    _seed(db, "tp_stuck")
+    jobs.start_batch(["tp_stuck"])
+    _set_status(db, "tp_stuck", "running")
+    _lease(db, "tp_stuck", -60, attempts=3)
+
+    assert jobs.reap_abandoned() == 1
+    assert _status_of(db, "tp_stuck") == "dead"
+
+
+def test_the_bar_closes_once_the_stranded_run_is_reaped(db):
+    """THE SYMPTOM. `running` is what keeps the bar on screen."""
+    _seed(db, "tp_stuck")
+    jobs.start_batch(["tp_stuck"])
+    _set_status(db, "tp_stuck", "running")
+    _lease(db, "tp_stuck", -60, attempts=3)
+    assert jobs.batch_status()["running"] is True, "guard: it should be stuck open"
+
+    jobs.reap_abandoned()
+    st = jobs.batch_status()
+    assert st["running"] is False, "the bar would still be on screen"
+    assert st["failed"] == 1, "a run that never finished was not counted as failed"
+    assert st["done"] == 0, \
+        "a run that never completed was reported as done — the bar would read 1/1"
+
+
+def test_the_reason_says_what_happened_to_it(db):
+    """"dead" with no cause sends nobody anywhere. This one has a specific
+    cause and it is not the review's fault."""
+    _seed(db, "tp_stuck")
+    jobs.start_batch(["tp_stuck"])
+    _set_status(db, "tp_stuck", "running")
+    _lease(db, "tp_stuck", -60, attempts=3)
+    jobs.reap_abandoned()
+    err = jobs.batch_status()["results"][0]["error"]
+    assert "never finished" in err, err
+
+
+def test_a_run_with_a_live_lease_is_never_reaped(db):
+    """A long run renews its lease at every pipeline stage. Reaping one would
+    leave a half-written draft and let a second run start over the same
+    review — the thing the whole claim mechanism exists to prevent."""
+    _seed(db, "tp_live")
+    jobs.start_batch(["tp_live"])
+    _set_status(db, "tp_live", "running")
+    _lease(db, "tp_live", +600, attempts=3)
+    assert jobs.reap_abandoned() == 0
+    assert _status_of(db, "tp_live") == "running"
+
+
+def test_a_run_with_attempts_left_is_reclaimed_not_reaped(db):
+    """Reaping is the LAST resort. A lapsed lease with retries left is the
+    ordinary autoscale case and must still come back."""
+    _seed(db, "tp_retry")
+    jobs.start_batch(["tp_retry"])
+    _set_status(db, "tp_retry", "running")
+    _lease(db, "tp_retry", -60, attempts=1)
+    assert jobs.reap_abandoned() == 0, "a retryable run was killed off"
+    assert jobs.claim_next("w1") is not None, "and it was not reclaimed either"
+
+
+def test_a_row_with_no_lease_at_all_is_left_alone(db):
+    """finish() and fail() null the lease, so a NULL here is a row
+    mid-transition. Reading it as "lapsed infinitely ago" would reap rows on
+    their way to done.
+
+    WHAT DELIVERS THIS is SQL's three-valued logic — `NULL < now` is NULL, not
+    true — and not any guard in the query. An explicit `isnot(None)` was there
+    and survived mutation testing precisely because it could not change an
+    outcome. The behaviour is worth pinning anyway: move this filter into
+    Python and `None < datetime` raises instead, and the equivalence that makes
+    the guard redundant disappears with it."""
+    _seed(db, "tp_nolease")
+    jobs.start_batch(["tp_nolease"])
+    _set_status(db, "tp_nolease", "running")
+    _lease(db, "tp_nolease", -60, attempts=3)
+    s = db.SessionLocal()
+    try:
+        s.query(db.RunJob).filter(db.RunJob.review_id == "tp_nolease").update(
+            {db.RunJob.lease_expires_at: None}, synchronize_session=False)
+        s.commit()
+    finally:
+        s.close()
+    assert jobs.reap_abandoned() == 0
+    assert _status_of(db, "tp_nolease") == "running"
+
+
+def test_reaping_nothing_is_not_an_error(db):
+    assert jobs.reap_abandoned() == 0
+
+
+def test_the_bar_does_not_promise_a_retry_that_is_not_coming(db):
+    """`stranded` is what lets the bar word it correctly. A stranded row does
+    NOT come back on its own; "they retry once the lease lapses" is false for
+    it, and that sentence is why someone waits an hour."""
+    _seed(db, "tp_stuck", "tp_soon")
+    jobs.start_batch(["tp_stuck", "tp_soon"])
+    _set_status(db, "tp_stuck", "running")
+    _lease(db, "tp_stuck", -60, attempts=3)
+    _touch(db, "tp_stuck", 40 * 60)
+
+    st = jobs.batch_status()
+    assert st["stranded"] == 1, st
+    assert st["stalled"] == 1, "a stranded row is also frozen"
+    assert st["current_state"] == "stalled"
+
+
+def test_a_retryable_frozen_run_is_not_reported_as_stranded(db):
+    """The counterpart: this one IS coming back, and the bar should say so."""
+    _seed(db, "tp_retry")
+    jobs.start_batch(["tp_retry"])
+    _set_status(db, "tp_retry", "running")
+    _lease(db, "tp_retry", -60, attempts=1)
+    _touch(db, "tp_retry", 40 * 60)
+    st = jobs.batch_status()
+    assert st["stalled"] == 1 and st["stranded"] == 0, st
+
+
+def test_the_drain_loop_reaps_before_it_claims(db, monkeypatch):
+    """The wiring. A reap function nobody calls is the CLAUDE.md opener, and a
+    stranded row is invisible to claim_next by construction — so if the loop
+    does not reap, nothing in the system ever looks at that row again."""
+    import asyncio
+    _seed(db, "tp_stuck")
+    jobs.start_batch(["tp_stuck"])
+    _set_status(db, "tp_stuck", "running")
+    _lease(db, "tp_stuck", -60, attempts=3)
+
+    stop = {"v": False}
+
+    async def _runner(job):
+        return None
+
+    async def _drive():
+        task = asyncio.ensure_future(jobs.run_drain_loop(
+            _runner, "w1", idle_sleep_s=0.01, should_stop=lambda: stop["v"]))
+        await asyncio.sleep(0.2)
+        stop["v"] = True
+        await asyncio.sleep(0.1)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(_drive())
+    assert _status_of(db, "tp_stuck") == "dead", \
+        "the drain loop ran and the stranded row is still pinning the bar open"

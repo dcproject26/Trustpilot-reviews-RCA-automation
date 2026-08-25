@@ -127,6 +127,71 @@ def claim_next(worker_id: str, lease_s: int = LEASE_S):
         s.close()
 
 
+def reap_abandoned() -> int:
+    """Mark stranded `running` jobs dead. Returns how many were reaped.
+
+    THE DEADLOCK THIS CLEARS, and it is a hole in the state machine rather than
+    a slow run. claim_next takes a queued job, or a `running` job whose lease
+    has lapsed AND that has attempts left. A row that is `running`, lapsed, and
+    OUT of attempts matches neither:
+
+        queued            no  — it is `running`
+        reclaimable       no  — attempts >= max_attempts
+        done / dead       no  — nothing ever moved it there
+
+    It happens the ordinary way: the container dies mid-run, so `fail()` never
+    runs to spend the attempt properly, three times over. The row then sits in
+    `running` for ever. batch_status counts queued+running as live, so
+    `running` stays true, and the bulk bar — which hides itself only when the
+    batch is not running — never goes away. That is the "0/1 and it will not
+    clear" report, and no amount of waiting fixes it because nothing is left
+    that would ever look at the row again.
+
+    Reaping is the honest end: we tried it max_attempts times and every attempt
+    died with the container. It becomes `dead`, which the bar counts as FAILED
+    rather than done — a run that never completed must not be reported as one
+    that did.
+
+    A LIVE LEASE IS NEVER TOUCHED. A long run renews its lease at every stage
+    (note_progress), so only a row nobody has renewed for its whole lease can
+    be reaped — killing a live run's row would leave a half-written draft and
+    put a second run over the same review.
+    """
+    d = _db()
+    s = d.SessionLocal()
+    try:
+        now = datetime.utcnow()
+        n = (s.query(d.RunJob)
+              .filter(d.RunJob.status == "running",
+                      # NO EXPLICIT NULL GUARD, and that is deliberate. finish()
+                      # and fail() null the lease, so a NULL here is a row
+                      # mid-transition and must never be reaped. SQL already
+                      # delivers that: `NULL < now` is NULL, not true, so those
+                      # rows do not match. An `isnot(None)` alongside it read as
+                      # a defence and could not change a single outcome —
+                      # mutation-tested, it survived because it is equivalent
+                      # code. If this filter is ever moved into Python, `None <
+                      # datetime` RAISES and the equivalence is gone: the
+                      # behaviour is pinned by
+                      # test_a_row_with_no_lease_at_all_is_left_alone.
+                      d.RunJob.lease_expires_at < now,
+                      d.RunJob.attempts >= d.RunJob.max_attempts)
+              .update({d.RunJob.status: "dead",
+                       d.RunJob.last_error:
+                           "the run was claimed and never finished; every "
+                           "attempt was lost with the instance running it",
+                       d.RunJob.lease_expires_at: None,
+                       d.RunJob.updated_at: now},
+                      synchronize_session=False))
+        s.commit()
+        if n:
+            log.warning(f"[jobs] reaped {n} abandoned run(s) — claimed, out of "
+                        f"attempts, and never finished")
+        return int(n or 0)
+    finally:
+        s.close()
+
+
 def note_progress(review_id: str, step: int, total: int, stage: str) -> None:
     """Write a running job's progress to its row and renew its lease.
 
@@ -235,7 +300,20 @@ def job_states() -> dict:
         s.close()
 
 
-async def run_drain_loop(runner, worker_id: str, idle_sleep_s: float = 15.0,
+# HOW LONG A CLICK WAITS BEFORE ANYTHING LOOKS AT IT. This was 15 seconds, and
+# that is the whole of the "it takes a long time to start" a re-run shows: the
+# job row is written the instant the button is pressed, and then nothing reads
+# the table until the next tick. Three seconds is a single indexed SELECT on a
+# table with tens of rows — the cost is nothing next to a button that appears
+# not to have worked.
+#
+# It does NOT make a run faster. Runs are serial and each costs its full
+# pipeline latency, so a queue of nine still drains one at a time; this only
+# shortens the dead air before the FIRST one moves.
+IDLE_SLEEP_S = 3.0
+
+
+async def run_drain_loop(runner, worker_id: str, idle_sleep_s: float = IDLE_SLEEP_S,
                          should_stop=None) -> None:
     """Claim and run jobs, one at a time, for as long as this instance lives.
 
@@ -249,6 +327,14 @@ async def run_drain_loop(runner, worker_id: str, idle_sleep_s: float = 15.0,
     while not (should_stop and should_stop()):
         job = None
         try:
+            # BEFORE claiming, not after: a stranded row is invisible to
+            # claim_next by construction (see reap_abandoned), so nothing else
+            # in this loop would ever look at it again. Best-effort — a reap
+            # that fails must not stop the loop from draining real work.
+            try:
+                reap_abandoned()
+            except Exception as e:
+                log.warning(f"[jobs] reap failed (non-fatal): {e}")
             job = claim_next(worker_id)
         except Exception as e:
             log.warning(f"[jobs] claim failed (non-fatal): {e}")
@@ -371,7 +457,7 @@ def batch_status(reason_prefix: str = BULK_REASON_PREFIX) -> dict:
         if newest is None:
             return {"running": False, "total": 0, "done": 0, "failed": 0,
                     "remaining": 0, "current": "", "current_state": "",
-                    "stalled": 0, "scope": "", "batch": "",
+                    "stalled": 0, "stranded": 0, "scope": "", "batch": "",
                     "started_at": None, "finished_at": None, "eta_s": None,
                     "results": []}
         rows = s.query(d.RunJob).filter(d.RunJob.reason == newest.reason).all()
@@ -389,6 +475,14 @@ def batch_status(reason_prefix: str = BULK_REASON_PREFIX) -> dict:
         _now = datetime.utcnow()
         _moving = [r for r in running if worker_liveness(r, _now)[0] == "running"]
         _frozen = [r for r in running if r not in _moving]
+        # Frozen AND out of attempts: reap_abandoned's rows. These do NOT come
+        # back on their own — that is the whole point of the reap — so the bar
+        # must not tell a reader to wait for a retry that is not coming. In a
+        # healthy app they exist for at most one drain tick; seeing them means
+        # nothing is draining, which is exactly when the accurate sentence
+        # matters.
+        _stranded = [r for r in _frozen
+                     if (r.attempts or 0) >= (r.max_attempts or 3)]
         _cur = max(_moving, key=lambda r: (r.updated_at or r.created_at or _now),
                    default=None)
 
@@ -431,6 +525,7 @@ def batch_status(reason_prefix: str = BULK_REASON_PREFIX) -> dict:
             # `remaining` because they ARE unfinished work — they become
             # reclaimable when their lease lapses — but they are not progress.
             "stalled": len(_frozen),
+            "stranded": len(_stranded),
             "scope": "incomplete",
             "batch": newest.reason.split(":", 1)[-1],
             "started_at": started.isoformat() if started else None,

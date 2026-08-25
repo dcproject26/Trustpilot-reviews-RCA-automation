@@ -732,7 +732,10 @@ def test_the_post_shows_one_editable_row_per_section(page):
     assert page.locator(".slack-sec-chip").count() == 0, "the old chips are back"
     assert page.locator("[data-slack-customize]").count() == 0, \
         "the old 'customize' toggle is back"
-    rows = page.locator(".spost-row").count()
+    # :not(.spost-fixed) — the header block has a row of its own now and is
+    # not a section. It carries the BID/guest line and the Issue
+    # classification, is never toggled, and is never edited here.
+    rows = page.locator(".spost-row:not(.spost-fixed)").count()
     assert rows == n, \
         f"{rows} rows for {n} sections — every section gets exactly one row"
 

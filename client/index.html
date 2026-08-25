@@ -1138,6 +1138,11 @@
     border-radius: 7px; border: none; background: var(--accent); color: #fff; cursor: pointer;
   }
   .slack-post-btn:hover { background: var(--accent-hov); }
+  /* The armed state. A colour change as well as a wording change, because the
+     wording is what a reader skims past — and this button's second click
+     cannot be undone. */
+  .slack-post-btn.confirming { background: var(--red); }
+  .slack-post-btn.confirming:hover { background: var(--red); filter: brightness(0.94); }
   /* Mark sent sits beside Post-to-thread and shares its box exactly — same
      height, radius and padding — so the pair reads as one row rather than as
      a primary button with something bolted next to it. Secondary fill,
@@ -1199,6 +1204,18 @@
   }
   .spost-body:hover { background: var(--card); }
   .spost-body:focus { background: var(--card); box-shadow: 0 0 0 2px var(--accent); }
+  /* The header row is shown, never edited: its values live in the RCA above.
+     No hover/focus affordance, so it does not look like the editable rows. */
+  .spost-readonly { color: var(--muted); cursor: default; }
+  .spost-readonly:hover, .spost-readonly:focus { background: transparent; box-shadow: none; }
+  .spost-fixed .spost-head { opacity: 0.85; }
+  /* An empty classification is a WARNING, not a blank line — off screen it was
+     indistinguishable from a classified review. */
+  .spost-warn {
+    color: var(--red); background: var(--accent-bg);
+    border-left: 2px solid var(--red); margin-top: 5px; padding: 4px 8px;
+  }
+  .spost-warn:hover, .spost-warn:focus { background: var(--accent-bg); box-shadow: none; }
   .spost-foot { font-size: 11px; color: var(--empty); margin-top: 8px; }
 
   /* Slack refused the post. This used to be the error text crammed into the
@@ -6014,6 +6031,35 @@ function renderRcaCol() {
         </span>
       </div>
       <div class="slack-rows" data-slack-rows>
+        <!-- THE HEADER BLOCK, SHOWN. It always went into the post — BID, guest,
+             stars, and the Issue classification — and it was rendered NOWHERE on
+             this page. The nine editable rows below start at "Booking details",
+             so whoever checks the draft before sending it to the whole team
+             could not see the two lines at the top of what they were sending.
+             That matters most where it is WRONG: an unclassified review posts
+             with no Issue line at all (a deliberate rule — "Issue: — / —" once
+             reached a thread and read as a broken generator), and off screen
+             that is indistinguishable from a classified one.
+
+             READ-ONLY on purpose. The classification's home is the L1/L2/
+             sub-theme selects in the RCA above; making it editable here would
+             be a second place to set it, and the two would disagree. The empty
+             state says where to go instead. -->
+        ${(() => {
+          const head = (_genSlackText.header || []).filter(h => String(h || '').trim());
+          const cls  = (_genSlackText.header || [])[1] || '';
+          return `
+            <div class="spost-row spost-fixed"><div class="spost-head">
+              <span class="spost-label">Header</span>
+              <span class="spost-note">always sent \u00b7 set above, not here</span>
+            </div>
+            <div class="spost-body spost-readonly">${esc(head.join('\n'))}</div>
+            ${String(cls).trim() ? '' : `
+            <div class="spost-body spost-warn">No classification on this RCA, so
+              the post will carry no <b>Issue:</b> line. Set L1 / L2 in
+              Classification above and press \u21bb Regenerate from RCA.</div>`}
+            </div>`;
+        })()}
         ${_slackSectionKeys.map(([key, label]) => {
           const _canon = (_genSlackText.sections.find(s => s[0] === key) || [])[2] || '';
           const _off = (state.slackSections[r.id] || {})[key] === false;
@@ -7684,19 +7730,41 @@ function renderRcaCol() {
     slackPostBtn.textContent = '✓ Posted ' + _shortWhen(r.rcaPostedAt);
     slackPostBtn.classList.add('posted');
   }
+  // TWO CLICKS, ALWAYS. The confirm step used to apply ONLY to a repeat post:
+  // a first post went to the whole channel on a single click, from a button
+  // that sits directly under nine editable rows people are constantly clicking
+  // in and out of. A post cannot be recalled, so the cheap guard belongs on
+  // every send, not only the one we had already noticed was risky.
+  //
+  // The two confirmations say DIFFERENT things, because they are different
+  // risks: the first is "this is going to the channel", the second is "there
+  // is already a copy in the thread and you are adding another". Collapsing
+  // them into one wording would lose the warning that actually needed saying.
+  //
+  // The window is 4s and then it reverts, so a click someone walked away from
+  // cannot be completed by a later, unrelated click.
   if (slackPostBtn) slackPostBtn.addEventListener('click', async () => {
     const orig = slackPostBtn.textContent;
-    if (r.rcaPostedAt && !slackPostBtn.dataset.confirming) {
-      slackPostBtn.dataset.confirming = '1';
-      slackPostBtn.textContent = 'Post a second copy?';
-      setTimeout(() => {
+    if (!slackPostBtn.dataset.confirming) {
+      slackPostBtn.dataset.confirming = r.rcaPostedAt ? 'again' : '1';
+      slackPostBtn.textContent = r.rcaPostedAt
+        ? 'Post a second copy?' : 'Confirm — post to the thread ↑';
+      slackPostBtn.classList.add('confirming');
+      slackPostBtn.dataset.confirmTimer = String(setTimeout(() => {
         delete slackPostBtn.dataset.confirming;
+        slackPostBtn.classList.remove('confirming');
         slackPostBtn.textContent = orig;
-      }, 4000);
+      }, 4000));
       return;
     }
-    const again = !!slackPostBtn.dataset.confirming;
+    // `again` only when the FIRST click knew a copy was already posted. Reading
+    // r.rcaPostedAt here instead would send force=true on the ordinary first
+    // post the moment anything set it mid-flight.
+    const again = slackPostBtn.dataset.confirming === 'again';
+    clearTimeout(Number(slackPostBtn.dataset.confirmTimer));
+    delete slackPostBtn.dataset.confirmTimer;
     delete slackPostBtn.dataset.confirming;
+    slackPostBtn.classList.remove('confirming');
     slackPostBtn.disabled = true; slackPostBtn.textContent = 'posting…';
     try {
       // Send the post that is ON SCREEN. This used to send no body, so the
@@ -8745,7 +8813,14 @@ function _bulkRender(st) {
   const where = st.current_state === 'running' && st.current
     ? st.current.slice(0, 22)
     : st.current_state === 'stalled'
-      ? `<span class="err">stalled — ${st.stalled} run(s) claimed by a worker that is gone; they retry once the lease lapses</span>`
+      // TWO KINDS OF FROZEN, and only one of them comes back. A STRANDED row
+      // is out of attempts: claim_next matches neither of its branches, so
+      // nothing reclaims it and nothing ever moves it — see jobs.reap_abandoned.
+      // Telling a reader to wait for a retry that is not coming is how a bar
+      // sits at "re-running 0/1" indefinitely.
+      ? (st.stranded
+          ? `<span class="err">${st.stranded} run(s) gave up — claimed and never finished, out of retries. Nothing is draining them; restart the app and they are marked failed.</span>`
+          : `<span class="err">stalled — ${st.stalled} run(s) claimed by a worker that is gone; they retry once the lease lapses</span>`)
       : st.current_state === 'waiting' ? 'waiting for a worker'
       : 'starting';
   text.innerHTML = st.running

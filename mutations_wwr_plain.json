@@ -32,7 +32,7 @@
   {
     "file": "server/jobs.py",
     "name": "the empty-batch payload loses the keys a live one has",
-    "find": "                    \"remaining\": 0, \"current\": \"\", \"current_state\": \"\",\n                    \"stalled\": 0, \"scope\": \"\", \"batch\": \"\",",
+    "find": "                    \"remaining\": 0, \"current\": \"\", \"current_state\": \"\",\n                    \"stalled\": 0, \"stranded\": 0, \"scope\": \"\", \"batch\": \"\",",
     "replace": "                    \"remaining\": 0, \"current\": \"\", \"scope\": \"\", \"batch\": \"\","
   },
   {
@@ -175,12 +175,6 @@
   },
   {
     "file": "server/services/rca_v4_validate.py",
-    "name": "an ordinary CO-escalates-to-SP fix is flagged as noise",
-    "find": "        if len(others) >= 2:",
-    "replace": "        if len(others) >= 1:"
-  },
-  {
-    "file": "server/services/rca_v4_validate.py",
     "name": "naming the guest counts as a second desk",
     "find": "        others = sorted({t for t in _TEAM_RE.findall(action)\n                         if t != owner and t != \"GUEST\"})",
     "replace": "        others = sorted({t for t in _TEAM_RE.findall(action) if t != owner})"
@@ -208,5 +202,77 @@
     "name": "a non-string prose field reaches a regex",
     "find": "            if not isinstance(text, str) or not text:",
     "replace": "            if not text:"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the header block vanishes from the preview again (classification unseen)",
+    "find": "            <div class=\"spost-body spost-readonly\">${esc(head.join('\\n'))}</div>",
+    "replace": "            <div class=\"spost-body spost-readonly\"></div>"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an unclassified RCA says nothing about posting with no Issue line",
+    "find": "            ${String(cls).trim() ? '' : `",
+    "replace": "            ${true ? '' : `"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a first post goes on ONE click again",
+    "find": "    if (!slackPostBtn.dataset.confirming) {",
+    "replace": "    if (r.rcaPostedAt && !slackPostBtn.dataset.confirming) {"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the armed button looks exactly like the unarmed one",
+    "find": "      slackPostBtn.classList.add('confirming');",
+    "replace": "      ;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an ordinary first post is sent with force=true",
+    "find": "    const again = slackPostBtn.dataset.confirming === 'again';",
+    "replace": "    const again = true;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the confirm window never lapses, leaving a live trigger on screen",
+    "find": "      slackPostBtn.dataset.confirmTimer = String(setTimeout(() => {",
+    "replace": "      slackPostBtn.dataset.confirmTimer = String(0) || String(setTimeout(() => {"
+  },
+  {
+    "file": "server/jobs.py",
+    "name": "the reap is written but the drain loop never calls it (the bar stays open)",
+    "find": "            try:\n                reap_abandoned()\n            except Exception as e:\n                log.warning(f\"[jobs] reap failed (non-fatal): {e}\")",
+    "replace": "            pass"
+  },
+  {
+    "file": "server/jobs.py",
+    "name": "a run with a LIVE lease is reaped, killing a run mid-pipeline",
+    "find": "                      d.RunJob.lease_expires_at < now,\n                      d.RunJob.attempts >= d.RunJob.max_attempts)",
+    "replace": "                      d.RunJob.attempts >= d.RunJob.max_attempts)"
+  },
+  {
+    "file": "server/jobs.py",
+    "name": "a retryable run is reaped instead of being reclaimed",
+    "find": "                      d.RunJob.attempts >= d.RunJob.max_attempts)\n              .update({d.RunJob.status: \"dead\",",
+    "replace": "                      d.RunJob.attempts >= 0)\n              .update({d.RunJob.status: \"dead\","
+  },
+  {
+    "file": "server/jobs.py",
+    "name": "a reaped run is marked done, so the bar reads 1/1 over a run that never happened",
+    "find": "              .update({d.RunJob.status: \"dead\",\n                       d.RunJob.last_error:\n                           \"the run was claimed and never finished; every \"",
+    "replace": "              .update({d.RunJob.status: \"done\",\n                       d.RunJob.last_error:\n                           \"the run was claimed and never finished; every \""
+  },
+  {
+    "file": "server/jobs.py",
+    "name": "stranded and merely-stalled collapse, so the bar promises a retry that is not coming",
+    "find": "        _stranded = [r for r in _frozen\n                     if (r.attempts or 0) >= (r.max_attempts or 3)]",
+    "replace": "        _stranded = []"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the bar tells a reader to wait for a retry that will never arrive",
+    "find": "      ? (st.stranded\n          ? `<span class=\"err\">${st.stranded} run(s) gave up",
+    "replace": "      ? (false\n          ? `<span class=\"err\">${st.stranded} run(s) gave up"
   }
 ]
