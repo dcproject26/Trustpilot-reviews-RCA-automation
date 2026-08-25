@@ -1152,6 +1152,18 @@ def timeline_entry(bid, events: list, ticket_ids: list,
                 "events timeline is a lookup that never ran. This is not a "
                 "guest who never wrote in: confirm a booking, or re-run once "
                 "one is matched, and the tickets will load")
+    elif type(err).__name__ == "ZendeskRateLimited":
+        # NOT "the lookup failed", and the difference is what the reader should
+        # do about it. A rate limit is a volume problem that clears by itself,
+        # and the usual instruction — re-run it — spends more calls and makes
+        # it worse. This is the one empty timeline nobody should act on.
+        head = ("<strong>Zendesk rate-limited this lookup</strong> — we asked "
+                "for more than the account allows per minute, usually because a "
+                "bulk re-run is in flight. The events timeline is empty for that "
+                "reason alone: nothing is broken and this booking's tickets are "
+                "still there. Wait for the batch to finish and re-run this one "
+                "review then — re-running now costs more calls and makes it "
+                "worse")
     elif err is not None:
         msg = _human_error(err).strip().rstrip(".")
         head = (f"<strong>The Zendesk timeline lookup failed</strong> — {msg}. "

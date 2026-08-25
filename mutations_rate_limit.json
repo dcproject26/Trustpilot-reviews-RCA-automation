@@ -1,0 +1,38 @@
+[
+  {
+    "file": "server/services/zendesk.py",
+    "name": "a rate limit is not recognised, so the first 429 kills the timeline again",
+    "find": "    if not (code == 429 or \"429\" in msg or \"too many requests\" in msg\n            or \"rate limit\" in msg):\n        return None",
+    "replace": "    if True:\n        return None"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "Retry-After is ignored, so we retry sooner than Zendesk allows and burn a call",
+    "find": "        if ra:\n            return max(0.0, min(float(ra), _RATE_LIMIT_MAX_WAIT_S))",
+    "replace": "        if False:\n            return max(0.0, min(float(ra), _RATE_LIMIT_MAX_WAIT_S))"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "the wait cap is removed, so a wild Retry-After outlives the run budget",
+    "find": "            return max(0.0, min(float(ra), _RATE_LIMIT_MAX_WAIT_S))",
+    "replace": "            return max(0.0, float(ra))"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "an ordinary failure is retried as though it were a rate limit",
+    "find": "            wait = rate_limit_wait(e)\n            if wait is None:\n                raise",
+    "replace": "            wait = rate_limit_wait(e) or 0.0"
+  },
+  {
+    "file": "server/services/zendesk.py",
+    "name": "the retry loop is unbounded, so a persistent limit never surfaces",
+    "find": "            if attempt >= _RATE_LIMIT_ATTEMPTS:",
+    "replace": "            if False:"
+  },
+  {
+    "file": "server/pipeline.py",
+    "name": "a rate limit is reported as a generic lookup failure, telling the reader to re-run",
+    "find": "    elif type(err).__name__ == \"ZendeskRateLimited\":",
+    "replace": "    elif False:"
+  }
+]

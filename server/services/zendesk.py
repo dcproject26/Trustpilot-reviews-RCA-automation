@@ -216,16 +216,89 @@ def _get_client():
     return None
 
 
-def _search_with_retry(_z, query: str):
-    """Run a Zendesk search; on 401, refresh the connector token and retry once."""
+class ZendeskRateLimited(RuntimeError):
+    """Zendesk asked us to slow down and kept asking. Its own class so the
+    trail can say THAT rather than "the lookup failed" — a rate limit is a
+    volume problem that clears on its own, and telling an associate to re-run
+    is the one instruction that makes it worse."""
+
+
+# Zendesk's limit is per-minute and per-account, so it is a BULK problem: one
+# review costs roughly 15-20 calls (three searches, then comments and side
+# conversations per ticket, plus user lookups), and "Fix incomplete" over sixty
+# reviews is on the order of a thousand. Nothing here handled 429 — only 401 —
+# so the first rate-limited search raised, the timeline came back EMPTY, and
+# the card showed a booking with no events until someone re-ran it. Which cost
+# more calls.
+_RATE_LIMIT_ATTEMPTS = 3
+_RATE_LIMIT_MAX_WAIT_S = 60
+
+
+def rate_limit_wait(exc) -> float | None:
+    """Seconds Zendesk wants us to wait, or None when this is not a rate limit.
+
+    Reads Retry-After when the exception carries a response, because Zendesk
+    states the real number and guessing a smaller one just burns another call.
+    Falls back to 0 (the caller's backoff decides) when the header is absent.
+    """
+    resp = getattr(exc, "response", None)
+    code = getattr(resp, "status_code", None) or getattr(exc, "status_code", None)
+    msg = str(exc).lower()
+    if not (code == 429 or "429" in msg or "too many requests" in msg
+            or "rate limit" in msg):
+        return None
     try:
-        return list(_z.search(query=query, type="ticket"))
-    except Exception as e:
-        from server.services import zd_connector
-        if zd_connector.is_auth_error(e) and zd_connector.available():
-            _z = zd_connector.retry_client_on_auth_error()
-            return list(_z.search(query=query, type="ticket"))
-        raise
+        hdrs = getattr(resp, "headers", None) or {}
+        ra = hdrs.get("Retry-After") or hdrs.get("retry-after")
+        if ra:
+            return max(0.0, min(float(ra), _RATE_LIMIT_MAX_WAIT_S))
+    except (TypeError, ValueError):
+        pass
+    return 0.0
+
+
+def zd_call(fn, what: str = "Zendesk call"):
+    """Run a Zendesk call, retrying a 401 once and a 429 with backoff.
+
+    Bounded on purpose: the pipeline's own budget is RUN_TIMEOUT_S (12
+    minutes), and a retry loop that outlives it turns a slow lookup into a
+    killed run. Three attempts with a capped wait costs at most ~90s.
+
+    Every wait is LOGGED. A run that silently paused for a minute and a run
+    that was quick look identical afterwards, and the difference is the whole
+    diagnosis when someone asks why the batch was slow.
+    """
+    import time as _time
+    for attempt in range(1, _RATE_LIMIT_ATTEMPTS + 1):
+        try:
+            return fn()
+        except Exception as e:
+            from server.services import zd_connector
+            if zd_connector.is_auth_error(e) and zd_connector.available():
+                zd_connector.retry_client_on_auth_error()
+                # The caller closes over its own client; re-running fn() picks
+                # up the refreshed token because get_client caches globally.
+                return fn()
+            wait = rate_limit_wait(e)
+            if wait is None:
+                raise
+            if attempt >= _RATE_LIMIT_ATTEMPTS:
+                raise ZendeskRateLimited(
+                    f"{what}: Zendesk rate-limited us {attempt} times. This is "
+                    f"a volume problem, not a broken lookup — it clears on its "
+                    f"own, and re-running now costs more calls and makes it "
+                    f"worse.") from e
+            wait = wait or min(2 ** attempt, _RATE_LIMIT_MAX_WAIT_S)
+            log.warning(f"[zendesk] {what}: rate limited (attempt {attempt}/"
+                        f"{_RATE_LIMIT_ATTEMPTS}), waiting {wait:.0f}s")
+            _time.sleep(wait)
+    raise ZendeskRateLimited(f"{what}: exhausted rate-limit retries")
+
+
+def _search_with_retry(_z, query: str):
+    """Run a Zendesk search; retry a 401 once and a 429 with backoff."""
+    return zd_call(lambda: list(_z.search(query=query, type="ticket")),
+                   f"search {query!r}")
 
 
 try:
@@ -398,10 +471,38 @@ def _zd_get(path: str):
                              auth=(f"{ZENDESK_EMAIL}/token", ZENDESK_API_TOKEN), timeout=20)
         else:
             return None
+        # A 429 MUST NOT READ AS "NOTHING THERE". This returned None for every
+        # non-200, so a rate-limited side-conversation fetch was indistinguishable
+        # from a ticket with no SP thread — the SP section then rendered empty and
+        # correct-looking. Retried here, and raised if it persists, so it reaches
+        # the trail as the volume problem it is.
+        if r.status_code == 429:
+            import time as _time
+            for attempt in range(1, _RATE_LIMIT_ATTEMPTS + 1):
+                wait = 0.0
+                try:
+                    wait = float(r.headers.get("Retry-After") or 0)
+                except (TypeError, ValueError):
+                    wait = 0.0
+                wait = min(wait or 2 ** attempt, _RATE_LIMIT_MAX_WAIT_S)
+                log.warning(f"[zendesk] GET {path}: rate limited (attempt "
+                            f"{attempt}/{_RATE_LIMIT_ATTEMPTS}), waiting {wait:.0f}s")
+                _time.sleep(wait)
+                r = (requests.get(r.url, headers=r.request.headers, timeout=20)
+                     if r.request is not None else r)
+                if r.status_code != 429:
+                    break
+            if r.status_code == 429:
+                raise ZendeskRateLimited(
+                    f"GET {path}: Zendesk rate-limited us {_RATE_LIMIT_ATTEMPTS} "
+                    f"times. A volume problem, not an empty result — re-running "
+                    f"now costs more calls and makes it worse.")
         if r.status_code != 200:
             log.info(f"[zendesk] GET {path} -> {r.status_code}")
             return None
         return r.json()
+    except ZendeskRateLimited:
+        raise
     except Exception as e:
         log.warning(f"[zendesk] GET {path} failed: {e}")
         return None
@@ -1418,15 +1519,16 @@ def _get_timeline_sync(_z, booking_id: str, booked_on: str = ""):
                      and _brand_matches(ticket, ZENDESK_BRAND_SP))
         tags = getattr(ticket, "tags", None) or []
         try:
-            comments = list(_z.tickets.comments(ticket=ticket.id))
+            # zd_call handles the 401-refresh and the 429-backoff; a rate limit
+            # is re-raised as ZendeskRateLimited so it reaches the trail as the
+            # volume problem it is rather than as "this ticket had no comments".
+            comments = zd_call(lambda t=ticket: list(_z.tickets.comments(ticket=t.id)),
+                               f"comments ZD-{ticket.id}")
+        except ZendeskRateLimited:
+            raise
         except Exception as e:
-            from server.services import zd_connector
-            if zd_connector.is_auth_error(e) and zd_connector.available():
-                _z2 = zd_connector.retry_client_on_auth_error()
-                comments = list(_z2.tickets.comments(ticket=ticket.id))
-            else:
-                log.warning(f"[zendesk] comments fetch failed for ZD-{ticket.id}: {e}")
-                continue
+            log.warning(f"[zendesk] comments fetch failed for ZD-{ticket.id}: {e}")
+            continue
 
         # A ticket whose LATEST comment is still before the booking existed is a
         # prior trip: drop the whole ticket (comments and side conversations),
