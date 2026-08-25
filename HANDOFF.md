@@ -1,7 +1,7 @@
 # ORM RCA Workbench — session handoff
 
 Everything a fresh Claude session needs to continue this work. Written
-2026-08-24. Current head: **`b22334a`** on branch
+2026-08-25. Current head: **`0a11f21`** on branch
 **`claude/vectorshift-pipeline-review-coj74p`**.
 
 ---
@@ -155,12 +155,16 @@ python3 -m pytest -q -p no:cacheprovider tests/test_rca_ui_rendered.py $BROWSER 
 
 ---
 
-## 5. What this session changed (15 commits, all pushed)
+## 5. What this session changed (19 commits, all pushed)
 
 Newest first. Every one is full-suite green + mutation-tested.
 
 | Commit | Change |
 |---|---|
+| `0a11f21` | Parse warehouse **epoch dates**; draft the reply in **English** (fixes the FR/EN swap) |
+| `1732f23` | `tools/check_timeline.py` — why each ticket is in or out, and are re-runs running |
+| `351b664` | Zendesk **rate limit** (429) handled instead of returning an empty timeline |
+| `8a1ea78` | This handoff document |
 | `b22334a` | Zendesk: catch a foreign digest whose booking field is **empty** (subject fallback) |
 | `a80eead` | Zendesk: drop tickets whose own booking field names **another booking** |
 | `879fd99` | **"Fix incomplete"** → durable job rows (was fire-and-forget + in-process progress) |
@@ -220,13 +224,33 @@ slack_*    = False      sheet_export = False (no GCP creds)
 So: **every "green" claim means the logic is correct and tested. None of it
 means "works in production."** That distinction bit us twice this session.
 
-### Verified deterministically ✅
-Timeline chronology + filters, the DSS remedy gate (against the real 117-row
-sheet), macro promise classification (against the real 80 macros), durable job
-batching, the close-mid-run fix, ingest window sizing + pagination, all client
-UI behaviour (Playwright).
+### Verified LIVE, against real data ✅✅
+Run on 2026-08-25 via `tools/check_timeline.py 33543686` on Replit:
+
+- **Zendesk timeline filtering.** ZD-33535069 — a support-history digest for
+  booking 32358051 and a *different guest*, pulled in by the free-text route —
+  is dropped by its booking field. The 4 real tickets are kept and build 32
+  events. No false drops: all 4 post-date the booking.
+- **Epoch date parsing.** `booked_on` arrives as `1.787097364E9`; the
+  prior-trip filter now runs instead of reporting that it could not.
+- **The durable re-run lifecycle.** A queued job was observed moving
+  `queued → running → done` (`run_jobs: {'done': 69}`).
+
+### Verified deterministically (tests only) ✅
+The DSS remedy gate (against the real 117-row sheet), macro promise
+classification (against the real 80 macros), durable job batching, the
+close-mid-run fix, ingest window sizing + pagination, rate-limit backoff, all
+client UI behaviour (Playwright).
 
 ### NOT verified — needs a live run ❌
+- **The FR/EN reply swap fix** (`0a11f21`). Output rule 16 contradicted itself
+  ("write it in the guest's language ... the English draft goes in
+  `suggested_response`"), so French landed in the field the translation step
+  treats as its English source — and that step, told "translate from English
+  into French" and handed French, returned ENGLISH. The guest got an English
+  reply while "English working copy — not sent" held the French. The rule is
+  fixed and the contradictory sentence is pinned as absent, but it is a PROMPT
+  change: only a re-run of a non-English review proves the model now complies.
 - **AI selection quality** (DSS scenario, macro scenario). Everything ran
   through the *keyword fallback* here.
 - **Whether the adapted reply keeps the macro** while addressing specifics.
@@ -251,15 +275,19 @@ UI behaviour (Playwright).
 ## 7. Open items
 
 ### Needs live verification (highest value first)
-1. **Zendesk timeline** — deploy `b22334a`, re-run Charlea Graham's review
-   (booking `33543686`). `ZD-33535069` should vanish and the trail should name
-   it. *If a stray ticket survives, get its subject + booking field.*
-2. **"Fix incomplete"** — click it, then `GET /api/reviews/bulk-status` should
-   show a live count, and `run_jobs` should have rows with
-   `reason` starting `fix-incomplete:`.
-3. **DSS + macro AI selection** — do the picks make sense on real reviews?
+1. **The FR/EN reply swap** — re-run a non-English review (Frédéric's, French).
+   The box that gets SENT must hold the guest's language; the "English working
+   copy" must hold English. This is the one open correctness bug.
+2. **DSS + macro AI selection** — do the picks make sense on real reviews?
+   Everything tested here ran through the keyword fallback.
+3. **"Fix incomplete"** — never exercised live. Click it, then
+   `GET /api/reviews/bulk-status` should show a live count and `run_jobs`
+   should carry rows with `reason` starting `fix-incomplete:`.
 4. **Slack ingest** — the 3-min poller should keep the DB current with no
-   clicking.
+   clicking. (`slack-poll` rows are appearing in `run_jobs`, so it is running.)
+
+~~Zendesk timeline~~ and ~~the durable re-run~~ are **done** — verified live,
+see §6.
 
 ### Known-broken / not fixed
 - **Google Sheet export is not live.** `is_live("sheet_export") = False`, no GCP
