@@ -274,5 +274,35 @@
     "name": "the bar tells a reader to wait for a retry that will never arrive",
     "find": "      ? (st.stranded\n          ? `<span class=\"err\">${st.stranded} run(s) gave up",
     "replace": "      ? (false\n          ? `<span class=\"err\">${st.stranded} run(s) gave up"
+  },
+  {
+    "file": "tools/check_runs.py",
+    "name": "stranded and reclaimable collapse, so the tool tells you to wait for a retry that is not coming",
+    "find": "    if att < mx:\n        return (\"reclaimable\",",
+    "replace": "    if True:\n        return (\"reclaimable\","
+  },
+  {
+    "file": "tools/check_runs.py",
+    "name": "a live lease that stopped moving is reported as a healthy worker",
+    "find": "        if since is not None and since < stall_after_s:\n            return (\"running\", f\"a worker is on it \u2014 last moved {since}s ago.\")",
+    "replace": "        return (\"running\", f\"a worker is on it \u2014 last moved {since}s ago.\")"
+  },
+  {
+    "file": "tools/check_runs.py",
+    "name": "a row with a live lease is called stranded, sending someone to reap a running job",
+    "find": "    if lease is not None and lease > now:",
+    "replace": "    if False:"
+  },
+  {
+    "file": "tools/check_runs.py",
+    "name": "the tool reaps without being asked",
+    "find": "    if args.reap or args.close:\n        n = jobs.reap_abandoned()",
+    "replace": "    if True:\n        n = jobs.reap_abandoned()"
+  },
+  {
+    "file": "tools/check_runs.py",
+    "name": "--reap also cancels the queue, ending work nobody asked to stop",
+    "find": "        if args.close:\n            m = jobs.cancel_batch()",
+    "replace": "        if True:\n            m = jobs.cancel_batch()"
   }
 ]
