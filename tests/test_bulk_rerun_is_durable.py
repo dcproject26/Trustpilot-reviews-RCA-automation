@@ -172,3 +172,120 @@ def test_cancel_drops_the_queued_but_leaves_the_running(db):
 
 def test_cancelling_nothing_is_not_an_error(db):
     assert jobs.cancel_batch() == 0
+
+
+# ── a claimed row a dead worker left behind is not "current" ────────────────
+# THE BUG THESE CLOSE, observed on the repl. A `git pull` restarted the app
+# mid-batch. The row claimed by the dying container kept status `running` on a
+# lease with fourteen minutes left, so `batch_status` — which picked
+# `running[0]` out of an unordered list — put that review on the progress bar
+# and it never moved. Two rows were `running` in a drain that runs one at a
+# time, which is itself the tell.
+#
+# The discriminator is already written every stage: note_progress bumps
+# updated_at on the row a worker is actually on, so a live claim moves and an
+# abandoned one is frozen at the instant it was claimed.
+
+def _touch(db, review_id, seconds_ago):
+    """Backdate a row's updated_at, as an abandoned claim's would be."""
+    from datetime import datetime, timedelta
+    s = db.SessionLocal()
+    try:
+        s.query(db.RunJob).filter(db.RunJob.review_id == review_id).update(
+            {db.RunJob.updated_at: datetime.utcnow() - timedelta(seconds=seconds_ago)},
+            synchronize_session=False)
+        s.commit()
+    finally:
+        s.close()
+
+
+def test_current_names_the_run_a_worker_is_on_not_an_abandoned_claim(db):
+    _seed(db, "tp_dead", "tp_live", "tp_wait")
+    jobs.start_batch(["tp_dead", "tp_live", "tp_wait"])
+    _set_status(db, "tp_dead", "running")
+    _set_status(db, "tp_live", "running")
+    _touch(db, "tp_dead", 40 * 60)      # claimed, then its container died
+    _touch(db, "tp_live", 5)            # writing progress right now
+
+    st = jobs.batch_status()
+    assert st["current"] == "tp_live", (
+        f"the bar named {st['current']!r} — a review nothing is processing")
+    assert st["current_state"] == "running"
+    assert st["stalled"] == 1, "the abandoned claim was not counted"
+
+
+def test_every_claim_frozen_reads_as_stalled_and_never_as_starting(db):
+    """An empty `current` had three causes and the bar said "starting" to all
+    three. After a restart mid-batch that word is false: nothing is draining,
+    and nothing will until the leases lapse."""
+    _seed(db, "tp_a", "tp_b")
+    jobs.start_batch(["tp_a", "tp_b"])
+    _set_status(db, "tp_a", "running")
+    _touch(db, "tp_a", 40 * 60)
+
+    st = jobs.batch_status()
+    assert st["current"] == ""
+    assert st["current_state"] == "stalled", st["current_state"]
+    assert st["stalled"] == 1
+    # It is unfinished work, not lost work: it is reclaimed on lease lapse.
+    assert st["remaining"] == 2 and st["failed"] == 0
+
+
+def test_queued_with_nothing_claimed_is_waiting_not_running(db):
+    _seed(db, "tp_a", "tp_b")
+    jobs.start_batch(["tp_a", "tp_b"])
+    st = jobs.batch_status()
+    assert st["current"] == "" and st["current_state"] == "waiting"
+    assert st["stalled"] == 0
+
+
+def test_a_finished_batch_claims_no_state_at_all(db):
+    _seed(db, "tp_a")
+    jobs.start_batch(["tp_a"])
+    _set_status(db, "tp_a", "done")
+    assert jobs.batch_status()["current_state"] == ""
+
+
+def test_no_batch_reports_the_same_keys_as_a_live_one(db):
+    """A caller reading current_state must not get one shape when a batch
+    exists and a shorter one when none does — that is how a client ends up
+    branching on undefined and rendering the wrong empty."""
+    _seed(db, "tp_a")
+    jobs.start_batch(["tp_a"])
+    live = set(jobs.batch_status())
+    s = db.SessionLocal()
+    try:
+        s.query(db.RunJob).delete()
+        s.commit()
+    finally:
+        s.close()
+    assert set(jobs.batch_status()) == live
+
+
+def test_liveness_uses_the_same_threshold_as_the_in_process_reader(db):
+    """A run must not read alive in the bulk bar and stalled on its own card.
+    tiers.liveness is the other reader; both take STALL_AFTER_S."""
+    from datetime import datetime, timedelta
+    from server.tiers import STALL_AFTER_S
+
+    class _Row:
+        created_at = None
+        def __init__(self, ago):
+            self.updated_at = datetime.utcnow() - timedelta(seconds=ago)
+
+    assert jobs.worker_liveness(_Row(STALL_AFTER_S - 5))[0] == "running"
+    assert jobs.worker_liveness(_Row(STALL_AFTER_S + 5))[0] == "stalled"
+
+
+def test_a_row_with_no_timestamps_at_all_is_not_reported_as_moving(db):
+    """created_at is the floor when updated_at is missing; both missing must
+    not read as "moved just now" — that would call a row nobody has touched a
+    live worker."""
+    from datetime import datetime, timedelta
+    from server.tiers import STALL_AFTER_S
+
+    class _Row:
+        updated_at = None
+        created_at = datetime.utcnow() - timedelta(seconds=STALL_AFTER_S + 60)
+
+    assert jobs.worker_liveness(_Row())[0] == "stalled"

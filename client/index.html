@@ -240,6 +240,19 @@
     font: inherit; font-size: 12px; font-weight: 600; color: var(--body);
   }
   .ch-owner input::placeholder { color: var(--dim); font-weight: 400; }
+  /* The roster dropdown wears the text box's clothes: same pill, same weight,
+     so swapping the control did not restyle the header. `width: auto` because
+     a name is shorter than 108px and a select pads its own arrow. */
+  .ch-owner-sel {
+    max-width: 148px; border: 0; outline: none; background: transparent;
+    font: inherit; font-size: 12px; font-weight: 600; color: var(--body);
+    cursor: pointer; appearance: none; padding-right: 12px;
+    background-image: linear-gradient(45deg, transparent 50%, var(--dim) 50%),
+                      linear-gradient(135deg, var(--dim) 50%, transparent 50%);
+    background-position: right 4px center, right 0px center;
+    background-size: 4px 4px, 4px 4px;
+    background-repeat: no-repeat;
+  }
   .case-body { flex: 1 1 auto; min-height: 0; display: flex; align-items: stretch; position: relative; }
   /* The case body is the story column + the resizable facts rail; the RCA
      slides over the pair of them. The old inbox|facts and facts|RCA drag
@@ -1704,6 +1717,13 @@ let SCENARIO_OPTIONS = [];
 // until it loads, and an empty list draws no control at all rather than an
 // empty dropdown - a select with nothing in it reads as a broken lookup.
 let TAKEDOWN_REASONS = [];
+// The "Picked up by" roster, from content/orm_macros.yaml via /api/taxonomy.
+// Empty until it loads, and an empty list is NOT the same as a roster of
+// nobody: renderCaseHeader says the roster could not be loaded rather than
+// drawing a dropdown with one blank option, which reads as "there is nobody
+// to assign this to".
+let REVIEWERS = [];
+let REVIEWERS_LOADED = false;
 
 async function loadSubThemeOptions() {
   try {
@@ -1722,9 +1742,19 @@ async function loadSubThemeOptions() {
     // still hardcoded, and they were hardcoded WRONG.
     L1_CATEGORIES = t.l1_categories || [];
     L2_OPTIONS = t.l2_options || {};
+    REVIEWERS = t.reviewers || [];
+    // Set only on a call that came back. A fetch that threw leaves this false,
+    // so "the roster is empty" and "the roster never arrived" stay two
+    // different sentences on the card instead of one blank dropdown.
+    REVIEWERS_LOADED = true;
   } catch (e) { /* leave empty — row still shows the assigned sub_theme */ }
   // re-render so the sub-theme row appears once options are available
   if (typeof renderRcaCol === 'function' && state.selected) renderRcaCol();
+  // ...and the case header, whose owner dropdown is drawn from REVIEWERS.
+  // Without this the header rendered before the taxonomy landed keeps an
+  // empty roster until the associate navigates away and back.
+  if (typeof renderCaseHeader === 'function' && state.screen === 'case'
+      && state.selected) renderCaseHeader();
 }
 // call once on load; re-render picks up options after taxonomy resolves
 loadSubThemeOptions();
@@ -3281,8 +3311,7 @@ function renderCaseHeader() {
     <span class="tag stage-${kind} ch-stage">${stage}</span>
     <label class="ch-owner ${owner.trim() ? 'is-owned' : ''}">
       <span class="ch-owner-label">Picked up by</span>
-      <input type="text" id="case-owner-input" value="${esc(owner)}"
-             placeholder="unassigned" autocomplete="off" spellcheck="false" />
+      ${ownerControl(owner)}
     </label>
     <button class="ch-rca" id="open-rca">RCA &amp; response →</button>`;
   el.querySelector('#back-to-inbox').addEventListener('click', () => {
@@ -3292,10 +3321,56 @@ function renderCaseHeader() {
     state.rcaOpen = true; applyRca();
   });
   const inp = el.querySelector('#case-owner-input');
-  // Saved on blur, and on Enter (which blurs). No claim button — the associate
-  // types the name, and it stays editable because reviews get handed over.
-  inp.addEventListener('blur', () => saveOwner(r.id, inp.value));
-  inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
+  // A select saves on change; the free-text fallback saves on blur and on
+  // Enter (which blurs). Still no claim button — reviews get handed over, so
+  // the control stays editable whichever shape it took.
+  if (inp.tagName === 'SELECT') {
+    inp.addEventListener('change', () => saveOwner(r.id, inp.value));
+  } else {
+    inp.addEventListener('blur', () => saveOwner(r.id, inp.value));
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
+  }
+}
+
+// The "Picked up by" control: a roster dropdown, or the old text box when
+// there is no roster to offer.
+//
+// WHY THIS IS NOT JUST `REVIEWERS.map(...)`. Three cases wear the same shape
+// and only one of them is "pick from the list":
+//
+//   1. the stored owner is ON the roster           — ordinary select
+//   2. the stored owner is NOT on the roster       — someone typed a name
+//      before this dropdown existed, or has since been taken off the roster.
+//      That name MUST still render. A select that silently drops an
+//      unrecognised value shows "unassigned" over a review that is assigned,
+//      and the next save writes that lie to the database. It is kept as its
+//      own option, marked, so the card says who owns it and still lets the
+//      owner be changed.
+//   3. the roster is empty or never arrived        — /api/taxonomy failed, or
+//      the key was deleted from the copy file. A dropdown holding only
+//      "unassigned" would say nobody can be assigned, which is a claim about
+//      the team rather than about a failed fetch. Falls back to the text box
+//      it replaced, with the reason in the tooltip, so work is never blocked
+//      on a lookup — and the two reasons are worded differently, because one
+//      is fixed by editing content and the other by the server coming back.
+function ownerControl(owner) {
+  const cur = (owner || '').trim();
+  if (!REVIEWERS.length) {
+    const why = REVIEWERS_LOADED
+      ? 'No roster is configured (reviewers: in content/orm_macros.yaml) — type a name.'
+      : 'The roster has not loaded yet — type a name, or reload to pick from the list.';
+    return `<input type="text" id="case-owner-input" value="${esc(cur)}"
+             placeholder="unassigned" title="${esc(why)}"
+             autocomplete="off" spellcheck="false" />`;
+  }
+  const known = REVIEWERS.some(n => n === cur);
+  const opts = [`<option value=""${cur ? '' : ' selected'}>unassigned</option>`]
+    .concat(REVIEWERS.map(n =>
+      `<option value="${esc(n)}"${n === cur ? ' selected' : ''}>${esc(n)}</option>`));
+  if (cur && !known) {
+    opts.push(`<option value="${esc(cur)}" selected>${esc(cur)} (not on the roster)</option>`);
+  }
+  return `<select id="case-owner-input" class="ch-owner-sel">${opts.join('')}</select>`;
 }
 
 // Persist the typed owner. Optimistic, then reconciled with what the server
@@ -6093,9 +6168,14 @@ function renderRcaCol() {
     // §2 the four optional analysis lines. Present ones render as an editable
     // key-value row with a ×; absent ones become a "+" button in the wrap row.
     const ALINES = [
-      ['operational_failure', 'Operational failure', 'what a person or system did wrong'],
-      ['sop_gap',             'SOP / process gap',   'the missing or deficient process step'],
-      ['pattern',             'Pattern',             'recurrence evidence, with counts and window'],
+      // PLAIN LABELS, BECAUSE THIS CARD IS READ AT SPEED. "Operational
+      // failure", "SOP / process gap" and "Pattern" are the field names; they
+      // named the schema rather than the question the associate is answering,
+      // and the reading order was not obvious from them. The KEYS are
+      // unchanged — only what a human sees.
+      ['operational_failure', 'What we got wrong',        'what a person or system of ours did wrong'],
+      ['sop_gap',             'What should have caught it', 'the check nobody was required to do'],
+      ['pattern',             'Has this happened before',   'how often, with the numbers and the window'],
     ];
     // `fix` is no longer one of these. It is an object — action, owner, the
     // gap it closes, where that gap was read, and the count that sizes it —
@@ -6148,7 +6228,7 @@ function renderRcaCol() {
         ${open ? `
         <div class="wwr-issue-body">
           <div class="wwr-blk">
-            <span class="wwr-blk-label">Claim</span>
+            <span class="wwr-blk-label">What the guest said</span>
             ${claim && String(claim).trim() ? `
               <div class="wwr-claim-row">
                 <span class="wwr-claim wwr-claim-q">“${edSpan(`${bp}.claim`, claim)}”</span>
@@ -6159,14 +6239,14 @@ function renderRcaCol() {
                review not stating it in their words, or our own finding filed
                as a complaint, and the empty state says which. */
             : `<div class="rca-empty">The review does not state this in the guest's own words.</div>
-               <button class="row-add wwr-add" data-claim-add="${i}">+ Claim</button>`}
+               <button class="row-add wwr-add" data-claim-add="${i}">+ Quote</button>`}
           </div>
           <!-- EVIDENCE MOVED TO §1 CASE FINDINGS. It was per-issue, so a fact
                cited by two claims rendered twice — the single biggest source
                of repeated text on this card. The rows keep their claim
                association in the data; only the rendering moved. -->
           <div class="wwr-blk">
-            <span class="wwr-blk-label">Analysis — what actually happened?</span>
+            <span class="wwr-blk-label">What actually happened</span>
             <div class="wwr-analysis">
               <div class="wwr-analysis-head">
                 ${chipSel(`${bp}.claim_accuracy`, acc, ACC, accCls(acc), 'chip-acc-sel', rawAcc)}
@@ -6174,10 +6254,10 @@ function renderRcaCol() {
               </div>
               ${tail ? `<div class="wwr-analysis-note">${esc(tail)}</div>` : ''}
               <div class="wwr-aline">
-                <span class="wwr-aline-key">Root cause:</span>
+                <span class="wwr-aline-key">What broke:</span>
                 <span class="wwr-aline-val">${
                   causeText ? edSpan(causePath, causeText)
-                            : edSpan(`${bp}.root_cause`, '', 'click to write the failing step')}</span>
+                            : edSpan(`${bp}.root_cause`, '', 'click to write what broke')}</span>
                 <!-- no ×: an issue with no root cause is not an RCA -->
               </div>
               ${present.map(([k, label]) => `
@@ -6198,9 +6278,14 @@ function renderRcaCol() {
                 // put one number in two places and let them disagree.
                 const fx = gi.fix;
                 if (!fx || typeof fx !== 'object') return '';
+                // "Closes" read as jargon and, worse, invited a
+                // restatement of the gap two lines above it — the model
+                // obliged, and the card carried one sentence under two
+                // labels. `because` is now what it COST the guest (see
+                // prompts.py rule 2g), and the label asks for that.
                 const rows = [
                   ['action',   'Fix'],
-                  ['because',  'Closes'],
+                  ['because',  'Why it matters'],
                 ].filter(([k]) => String(fx[k] || '').trim());
                 if (!rows.length) return '';
                 // THE SAME × AS EVERY OTHER LINE IN THIS BLOCK. Operational
@@ -6245,11 +6330,13 @@ function renderRcaCol() {
     // would delete analysis someone wrote. They render as extra rows under the
     // LAST issue, at their own v3 paths so an edit still saves where the value
     // actually lives, and labelled so nobody reads them as issue-scoped.
+    // Same plain labels as the issue-scoped rows above. Two names for one
+    // field is how a reader concludes they are two different fields.
     const _legacyRows = [
-      ['what_went_wrong.what_happened.operational_failure', 'Operational failure', wh.operational_failure],
-      ['what_went_wrong.what_happened.sop_gap',             'SOP / process gap',   wh.sop_gap],
-      ['what_went_wrong.what_happened.pattern',             'Pattern',             wh.pattern],
-      ['what_went_wrong.fixes.actions',                     'Fix',                 fx.actions],
+      ['what_went_wrong.what_happened.operational_failure', 'What we got wrong',        wh.operational_failure],
+      ['what_went_wrong.what_happened.sop_gap',             'What should have caught it', wh.sop_gap],
+      ['what_went_wrong.what_happened.pattern',             'Has this happened before',   wh.pattern],
+      ['what_went_wrong.fixes.actions',                     'Fix',                        fx.actions],
     ].filter(([, , v]) => asPoints(v).length);
     const _spLegacy = asPoints(spx.detail).length || spx.escalated;
     const legacyExtras = (_legacyRows.length || _spLegacy) ? `
@@ -8662,8 +8749,19 @@ function _bulkRender(st) {
   const eta = (st.eta_s != null && st.running)
     ? ` · ~${st.eta_s < 60 ? st.eta_s + 's' : Math.ceil(st.eta_s / 60) + 'm'} left` : '';
   const failed = st.failed ? ` · <span class="err">${st.failed} failed</span>` : '';
+  // WHAT THE BAR SAYS WHEN NOTHING IS MOVING. `current` empty used to render
+  // as "starting" whatever the reason, and after a restart mid-batch that is
+  // false: the rows are claimed by a container that is gone, and nothing will
+  // move until their leases lapse. current_state distinguishes the three (see
+  // jobs.batch_status), so a bar that is not advancing says why it is not.
+  const where = st.current_state === 'running' && st.current
+    ? st.current.slice(0, 22)
+    : st.current_state === 'stalled'
+      ? `<span class="err">stalled — ${st.stalled} run(s) claimed by a worker that is gone; they retry once the lease lapses</span>`
+      : st.current_state === 'waiting' ? 'waiting for a worker'
+      : 'starting';
   text.innerHTML = st.running
-    ? `re-running ${done}/${total}${eta} · ${st.current ? st.current.slice(0, 22) : 'starting'}${failed}`
+    ? `re-running ${done}/${total}${eta} · ${where}${failed}`
     : `finished ${done}/${total}${failed}`;
   const cancel = document.getElementById('bulk-cancel');
   if (cancel) cancel.style.display = st.running ? '' : 'none';

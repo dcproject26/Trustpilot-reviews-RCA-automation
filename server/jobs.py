@@ -327,6 +327,34 @@ def start_batch(review_ids, reason_prefix: str = BULK_REASON_PREFIX) -> dict:
             "queued": queued, "already_booked": already}
 
 
+def worker_liveness(row, now=None) -> tuple:
+    """(state, seconds_since_it_moved) for one `running` job row.
+
+    "running" | "stalled". A row goes `running` the moment it is CLAIMED, and
+    its updated_at moves only while a worker writes progress onto it
+    (note_progress, called from pipeline._progress at every stage). So the row
+    of a worker that died mid-run keeps status `running` and a lease that has
+    not lapsed for another fourteen minutes, while its updated_at is frozen at
+    the instant it was claimed.
+
+    That is not a corner case — it is what a restart does, and a `git pull` on
+    the repl is a restart. It left two rows `running` in one serial drain, and
+    the bulk bar picked the dead one to display.
+
+    The lease is the RECLAIM clock and this is the DISPLAY clock, deliberately
+    different: reclaiming early would start a second run over a review that is
+    merely slow, but calling a frozen row "running" on screen tells a reader a
+    worker is on it when none is. STALL_AFTER_S is the same threshold
+    tiers.liveness applies to the in-process entry, so a run does not read as
+    alive in one place and stalled in the other.
+    """
+    from server.tiers import STALL_AFTER_S
+    now = now or datetime.utcnow()
+    last = row.updated_at or row.created_at or now
+    since = max(0, int((now - last).total_seconds()))
+    return ("stalled" if since >= STALL_AFTER_S else "running"), since
+
+
 def batch_status(reason_prefix: str = BULK_REASON_PREFIX) -> dict:
     """Progress of the most recent batch, read from the job rows.
 
@@ -342,14 +370,27 @@ def batch_status(reason_prefix: str = BULK_REASON_PREFIX) -> dict:
                    .order_by(d.RunJob.created_at.desc()).first())
         if newest is None:
             return {"running": False, "total": 0, "done": 0, "failed": 0,
-                    "remaining": 0, "current": "", "scope": "", "batch": "",
-                    "started_at": None, "finished_at": None, "results": []}
+                    "remaining": 0, "current": "", "current_state": "",
+                    "stalled": 0, "scope": "", "batch": "",
+                    "started_at": None, "finished_at": None, "eta_s": None,
+                    "results": []}
         rows = s.query(d.RunJob).filter(d.RunJob.reason == newest.reason).all()
 
         done = [r for r in rows if r.status == "done"]
         dead = [r for r in rows if r.status == "dead"]
         live = [r for r in rows if r.status in ("queued", "running")]
         running = [r for r in rows if r.status == "running"]
+
+        # WHICH running row is a worker actually on. See worker_liveness: a row
+        # claimed by an instance that then died stays `running` on a live lease
+        # with a frozen updated_at, and `current` used to be running[0] — an
+        # arbitrary row out of an unordered list. The bar then named a review
+        # nothing was processing and never advanced off it.
+        _now = datetime.utcnow()
+        _moving = [r for r in running if worker_liveness(r, _now)[0] == "running"]
+        _frozen = [r for r in running if r not in _moving]
+        _cur = max(_moving, key=lambda r: (r.updated_at or r.created_at or _now),
+                   default=None)
 
         started = min((r.created_at for r in rows if r.created_at), default=None)
         finished = (max((r.updated_at for r in rows if r.updated_at), default=None)
@@ -373,7 +414,23 @@ def batch_status(reason_prefix: str = BULK_REASON_PREFIX) -> dict:
             "done": len(done),
             "failed": len(dead),
             "remaining": len(live),
-            "current": (running[0].review_id if running else ""),
+            "current": (_cur.review_id if _cur is not None else ""),
+            # WHAT AN EMPTY `current` MEANS, SAID OUT LOUD. It had three causes
+            # wearing one blank: nothing claimed yet, every claim frozen on a
+            # dead instance, and the batch being over. The bar rendered all
+            # three as "starting" — the word for the first one only, and a lie
+            # for the second, which is the state a restart mid-batch leaves.
+            #   waiting  queued rows and no worker on any of them
+            #   running  a worker is writing progress onto a row right now
+            #   stalled  every running row is frozen; nothing is draining
+            #   ""       the batch is not live
+            "current_state": ("running" if _cur is not None
+                              else "stalled" if _frozen
+                              else "waiting" if live else ""),
+            # Claimed rows that have stopped moving. They are still counted in
+            # `remaining` because they ARE unfinished work — they become
+            # reclaimable when their lease lapses — but they are not progress.
+            "stalled": len(_frozen),
             "scope": "incomplete",
             "batch": newest.reason.split(":", 1)[-1],
             "started_at": started.isoformat() if started else None,

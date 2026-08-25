@@ -343,3 +343,24 @@ macro_tags:
     - "How to use Headout Creator Partneship"
     - "Default macro (with DM fallback)"
     - "Variant A: For users who already mention they can’t DM"
+
+# ── Who can pick a review up ─────────────────────────────────────────────────
+# The roster the "Picked up by" dropdown on the case header offers. It was a
+# free-text box, which is how the same person arrived as "Avi", "avi" and
+# "Avi " — three owners as far as any grouping is concerned.
+#
+# EDIT THIS WHEN SOMEONE JOINS OR LEAVES. No code change, no deploy beyond a
+# restart. Order is the order the dropdown shows.
+#
+# REMOVING A NAME DOES NOT REWRITE HISTORY, and it must not. Reviews already
+# picked up by that person keep their name, and the dropdown still shows it on
+# those cards (marked as no longer on the roster) rather than silently
+# reassigning them to nobody — a card that quietly forgets who owns it is worse
+# than one naming someone who left.
+reviewers:
+    - "Devshree"
+    - "Swagatom"
+    - "Avi"
+    - "Shruti"
+    - "Paul"
+    - "Test"

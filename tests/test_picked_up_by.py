@@ -146,3 +146,62 @@ def test_the_migration_adds_the_column_to_a_pre_existing_table(tmp_path, monkeyp
     db._ensure_columns()
     again = {c["name"] for c in inspect(eng).get_columns("reviews")}
     assert "picked_up_by" in again
+
+
+# ── the roster the dropdown offers ──────────────────────────────────────────
+# The text box let the same person arrive as "Avi", "avi" and "Avi " — three
+# owners as far as any grouping is concerned. The roster closes that, and it
+# lives in content/orm_macros.yaml so joining and leaving is a content edit.
+
+def test_the_roster_is_served_to_the_dashboard(client):
+    """The client must not hold its own copy of the team. This project already
+    carries a comment about a team vocabulary existing in four places."""
+    t = client.get("/api/taxonomy").json()
+    assert "reviewers" in t, "the dropdown has nothing to render from"
+    assert t["reviewers"], "the roster came back empty"
+
+
+def test_the_roster_is_the_content_file_not_a_hardcoded_list():
+    """Read from the copy file, so a name added there reaches the dropdown
+    without a code change."""
+    import yaml
+    from server.prompts import REVIEWERS
+    with open("content/orm_macros.yaml", encoding="utf-8") as f:
+        on_disk = [str(r).strip() for r in (yaml.safe_load(f)["reviewers"] or [])]
+    assert REVIEWERS == on_disk, "the served roster and the file disagree"
+
+
+def test_a_deleted_roster_serves_empty_rather_than_an_invented_one():
+    """An empty roster and a made-up fallback roster are not the same thing.
+    The second offers names nobody chose while looking perfectly healthy, and
+    the dashboard would show them as assignable people.
+
+    Driven through the real derivation, not a copy of it inline: a first
+    version of this test rebuilt the comprehension in the test body, so a
+    mutation putting a fallback name into prompts.py survived it untouched."""
+    from server.prompts import _reviewers
+    assert _reviewers({}) == []
+    assert _reviewers({"reviewers": None}) == []
+    assert _reviewers({"reviewers": []}) == []
+
+
+def test_blank_entries_in_the_roster_are_dropped_not_offered():
+    """A stray "- " in the YAML must not become a nameless option that saves
+    an empty owner while looking like a person."""
+    from server.prompts import _reviewers
+    assert _reviewers({"reviewers": ["Avi", "  ", "", None, " Paul "]}) == ["Avi", "Paul"]
+
+
+def test_a_name_off_the_roster_can_still_be_saved(client, live_db):
+    """THE RULE THIS ENCODES. The write endpoint stays permissive on purpose.
+    Reviews picked up before the dropdown existed carry free-typed names, and
+    a name taken OFF the roster still owns the cards it owns — a server that
+    rejected those values would make exactly those cards unsaveable, and the
+    associate would be told their own colleague is not a valid owner."""
+    _seed(live_db)
+    r = client.patch("/api/reviews/tp_p1/picked-up-by",
+                     json={"name": "Someone Who Left"})
+    assert r.status_code == 200, r.text
+    assert r.json()["picked_up_by"] == "Someone Who Left"
+    assert (client.get("/api/reviews/tp_p1").json()["review"]["picked_up_by"]
+            == "Someone Who Left"), "it did not survive the round trip"

@@ -103,6 +103,16 @@ def main() -> int:
                     help="queue a durable re-run for the review and report it")
     args = ap.parse_args()
 
+    # KEEP UNRELATED WARNINGS OUT OF A DIAGNOSTIC. Importing the pipeline pulls
+    # in the Sheets connector, which logs "Google Sheets connector not
+    # available" twice per run. Printed between "═══ 1. ticket search ═══" and
+    # its result, it reads as the ticket search failing — a report whose job is
+    # to tell a real fault from a healthy empty must not manufacture a false
+    # one. Sheets export is not on any path this tool exercises. Silenced HERE
+    # only; the server still logs it.
+    import logging as _lg
+    _lg.getLogger("server.services.sheets_connector").setLevel(_lg.ERROR)
+
     from server.config import is_live
     from server.services import zendesk as Z
 
@@ -119,10 +129,20 @@ def main() -> int:
          "" if bid else "Nothing to search Zendesk with — every ticket lookup "
                         "is keyed on a booking id, so the timeline would be "
                         "empty for that reason alone.")
-    line(OK if booked_on else WARN, f"booked on: {booked_on or '(unknown)'}",
-         "" if booked_on else "With no booking date the prior-trip filter "
-                              "CANNOT RUN — it says so rather than silently "
-                              "keeping everything.")
+    # SHOW THE DATE, NOT THE STORED STRING. The warehouse hands back booked-on
+    # as epoch seconds in scientific notation ("1.787097364E9"). _sort_key
+    # parses it, so the filter runs — but printing the raw value made the
+    # headline field of this report look like garbage, which teaches a reader
+    # to distrust every section under it. Both are shown: the date because it
+    # is the fact, the raw string because it is what a mis-parse would have to
+    # be diagnosed from.
+    _when, _why = Z._booking_cutoff(booked_on)
+    if booked_on and _when is not None:
+        line(OK, f"booked on: {Z._to_iso(_when)[:19]}  (stored as {booked_on!r})")
+    else:
+        line(WARN, f"booked on: {booked_on or '(unknown)'}",
+             (_why or "no booking date") + " — the prior-trip filter CANNOT "
+             "RUN, and says so rather than silently keeping everything.")
     if review_id:
         line(INFO, f"review: {review_id}")
     if not bid:
@@ -229,19 +249,51 @@ def main() -> int:
                                "queued through the durable path on this DB.")
         for r in recent:
             print(f"    {(r.created_at or '')!s:19} {r.status:<8} {r.reason:<24} {r.review_id}")
+        # IS ANYTHING DRAINING? ANSWER IT, DO NOT ASK THE READER TO.
+        # This used to print "if this does not fall to 0 in a minute or two,
+        # the drain loop is not running" — handing back the one question the
+        # rows can already answer. A claimed row's updated_at moves at every
+        # pipeline stage (jobs.note_progress), so a worker that is alive is
+        # visible in the table and one that died mid-run is too: its row keeps
+        # status `running` on a lease that has not lapsed, frozen at the
+        # instant it was claimed. That is what a restart leaves behind, and a
+        # `git pull` on the repl is a restart.
         stuck = [r for r in recent if r.status == "queued"]
-        if stuck:
-            line(WARN, f"{len(stuck)} job(s) queued and not started",
-                 "If this does not fall to 0 within a minute or two, the drain "
-                 "loop is not running — it starts in server/main.py's lifespan, "
-                 "so check the app actually booted.")
+        allrun = s.query(RunJob).filter(RunJob.status == "running").all()
+        moving = [(r, jobs.worker_liveness(r)[1]) for r in allrun
+                  if jobs.worker_liveness(r)[0] == "running"]
+        frozen = [(r, jobs.worker_liveness(r)[1]) for r in allrun
+                  if jobs.worker_liveness(r)[0] == "stalled"]
+        if moving:
+            r, since = min(moving, key=lambda x: x[1])
+            line(OK, f"a worker IS draining — {r.review_id} moved {since}s ago",
+                 f"claimed by {r.claimed_by or '(unrecorded)'}. Queued jobs are "
+                 f"waiting their turn, not abandoned: runs go one at a time.")
+        elif allrun:
+            line(BAD, f"{len(allrun)} job(s) claimed, NONE of them moving",
+                 "Every running row is frozen — the instance that claimed it is "
+                 "gone. They are not lost: each becomes reclaimable when its "
+                 "14-minute lease lapses. If this repeats, the drain loop is "
+                 "not starting — it lives in server/main.py's lifespan.")
+        elif stuck:
+            line(BAD, f"{len(stuck)} job(s) queued and NOTHING has claimed one",
+                 "No row is in `running` at all, so no drain loop is claiming. "
+                 "It starts in server/main.py's lifespan — check the app booted.")
+        if frozen and moving:
+            line(WARN, f"{len(frozen)} claimed row(s) frozen alongside a live one",
+                 "Runs are serial, so more than one `running` row means an "
+                 "earlier claim outlived its worker: "
+                 + ", ".join(f"{r.review_id} ({since}s)" for r, since in frozen))
     finally:
         s.close()
 
     bs = jobs.batch_status()
     line(INFO, f"bulk batch: {bs['done']}/{bs['total']} done, "
                f"{bs['failed']} failed, running={bs['running']}",
-         f"batch {bs['batch']}" if bs.get("batch") else "no bulk batch has run")
+         (f"batch {bs['batch']} — {bs['current_state']}"
+          + (f" on {bs['current']}" if bs.get("current") else "")
+          + (f", {bs['stalled']} stalled" if bs.get("stalled") else ""))
+         if bs.get("batch") else "no bulk batch has run")
 
     if args.rerun and review_id:
         jid = jobs.enqueue(review_id, "check-timeline", True)

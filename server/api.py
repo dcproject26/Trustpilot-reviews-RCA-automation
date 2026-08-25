@@ -35,7 +35,7 @@ from server.db import get_session, Review, RcaDraft, ReviewMetric
 from server import jobs
 from server.taxonomy import L1_CATEGORIES, L2_OPTIONS, DIAGNOSTIC_CHECKS, ACTION_TABS, SUB_THEME_REGISTRY
 from server.checklist import SCENARIO_CHECKS
-from server.prompts import TAKEDOWN_REASONS
+from server.prompts import TAKEDOWN_REASONS, REVIEWERS
 from server.config import status_summary, is_live, MOCK_MODE
 from server.services.slack import format_rca_slack, post_to_thread
 from server.services.claude import flag_to_biz_message
@@ -1704,6 +1704,13 @@ def get_taxonomy():
         # rather than hardcoded in the client so the list stays a content
         # change.
         "takedown_reasons": TAKEDOWN_REASONS,
+        # The "Picked up by" roster, from content/orm_macros.yaml. Served
+        # rather than hardcoded in the client for the same reason as the
+        # line above: people join and leave, and that is a content edit.
+        # It can legitimately be EMPTY (the key was deleted, the file did
+        # not parse). The client says so instead of drawing a dropdown
+        # with nothing in it, which reads as "nobody can be assigned".
+        "reviewers": REVIEWERS,
     }
 
 

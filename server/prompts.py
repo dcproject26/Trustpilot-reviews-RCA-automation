@@ -814,6 +814,10 @@ _FALLBACK = {
         "CONVERSATIONAL, clear and concise. American English. Address the "
         "guest with \"Hey <first name>,\". No invented facts, no hyperbole."),
     "sign_off": "Best,\n[Your Name], Headout",
+    # Empty on purpose, and it is NOT the same as the key being absent. An
+    # empty roster makes the dropdown say the list could not be loaded; a
+    # made-up fallback roster would offer names nobody chose and look correct.
+    "reviewers": [],
     "takedown": {
         "lines": {
             "a": {"text": "Glad we could make things right. If you have a moment, "
@@ -900,6 +904,29 @@ TAKEDOWN_REASONS = [str(r) for r in (MACROS["takedown"].get("reasons") or []) if
 
 UNTRACEABLE_REPLY = (str(MACROS["untraceable_reply"]).rstrip() + "\n\n"
                      + str(MACROS["sign_off"]).rstrip())
+
+# The "Picked up by" roster, served to the dashboard via /api/taxonomy so the
+# dropdown is a content change rather than a code change — the same route
+# takedown_reasons takes. NOT enforced on the write endpoint: a name removed
+# from this list must keep rendering on the cards that already carry it, and a
+# server that rejected it would make those cards unsaveable.
+def _reviewers(macros) -> list:
+    """The roster, cleaned. A FUNCTION so the empty case can be driven.
+
+    It was an inline comprehension over MACROS, computed once at import — so a
+    mutation swapping the `or []` for `or ["Someone"]` survived: with a
+    populated copy file the fallback branch never runs, and there was no way to
+    reach it without reimporting the module. An untested fallback and a wrong
+    one look identical until the day the file is empty.
+    """
+    # `if r` BEFORE str(). A blank YAML entry ("  - " on its own line) parses
+    # as None, and str(None) is "None" — truthy, 4 characters, and it would
+    # have shipped as a person you could assign a review to.
+    return [str(r).strip() for r in (macros.get("reviewers") or [])
+            if r is not None and str(r).strip()]
+
+
+REVIEWERS = _reviewers(MACROS)
 
 # Also used by booking matching, not only by the greeting: a Trustpilot display
 # name of "Frau Nicole" must not be searched for as a guest name. One list, in
@@ -1706,8 +1733,22 @@ that turned out fine is silence — never a line in the output.
        not a repeated explanation of what the absence prevents.
      * `claim_accuracy_note` IS THE INFERENCE, `evidence` IS THE FACTS. The
        note says how the facts reach the verdict; it does not list them again.
-     * `fix.because` restates THE GAP, not the whole diagnosis. One line, drawn
-       from one evidence entry.
+     * `fix.because` NAMES THE HARM, IT DOES NOT PARAPHRASE `sop_gap`. This
+       rule used to read "restates THE GAP", and the model did exactly that:
+         sop_gap  "No process required Headout to contact the guest
+                   proactively when the SP cancelled on the visit date."
+         because  "No proactive outreach to the guest occurred despite the SP
+                   cancelling on the visit date."
+       One sentence, twice, under two labels — and the card renders them four
+       lines apart, so the reader parses both before finding out they are the
+       same. `sop_gap` is WHAT WAS MISSING; `because` is WHAT IT COST THIS
+       GUEST, which is the half that says why the fix is worth doing.
+         RIGHT  sop_gap  "Nobody was required to warn the guest when the SP
+                          cancelled on the day."
+                because  "They travelled to Rome and found out at the venue."
+       IF `because` WOULD BE `sop_gap` REWORDED, WRITE THE COST INSTEAD. If
+       there is no cost the evidence shows, `because` is null — a fix whose
+       justification is a restatement of the gap is not justified.
      * ONCE A FACT IS IN `evidence`, REFER TO IT — DO NOT RESTATE IT. The
        analysis fields exist for what the evidence does not say. If a figure
        or a rule appears in evidence, later fields say "the free tier" rather
@@ -1717,6 +1758,62 @@ that turned out fine is silence — never a line in the output.
        something above.
      * A ONE-LINE REVIEW PRODUCES A ONE-LINE RCA. Length comes from the case
        having more in it, never from saying the same thing more ways.
+
+2h. WRITE IT THE WAY YOU WOULD SAY IT. Every field in this block is read by a
+   CX associate at speed, mid-RCA, deciding what to do. The house voice applies
+   here as much as it does to a guest reply — not the warmth, the CLARITY:
+   straightforward, no unnecessary complexity, cut fluff, precise and
+   impactful. Plain English sentences a person says out loud.
+
+   NEVER PUT A SYSTEM'S VOCABULARY IN A HUMAN'S SENTENCE. A field name, a
+   column, a raw id or a code is how OUR storage spells a fact. It is not the
+   fact, and a reader who has to decode it is doing our job for us.
+     WRONG  "ticket_mail_seen is false, which is consistent with the guest not
+            having opened the cancellation communication."
+     RIGHT  "The cancellation email was never opened."
+     WRONG  "67 vendor-cancelled bookings on vid 6057 in the same window."
+     RIGHT  "67 of this variant's bookings were cancelled by the SP in 90
+            days." — name the variant if you know it; an id alone tells the
+            reader nothing they can act on.
+   Banned in every prose field here (`claim`, `root_cause`,
+   `operational_failure`, `sop_gap`, `pattern`, `fix.*`, `claim_accuracy_note`,
+   `evidence[].text`): snake_case or camelCase field names, table or column
+   names, `vid`/`pid`/`eid` followed by a number with no name, boolean field
+   talk ("X is false", "flag not set"), and JSON/SQL punctuation. Say what the
+   value MEANS. A count, a date, a reference the associate can search — those
+   are facts and they stay.
+
+   NO HEDGING SCAFFOLD EITHER. "which is consistent with", "appears to
+   indicate", "it can be inferred that" are three words spent on nothing. If
+   the evidence supports it, say it. If it does not, that is what
+   `claim_accuracy` = Unknown is for.
+
+2i. ONE SENTENCE OF THE REVIEW BELONGS TO ONE ISSUE. `claim` is the guest's
+   OWN WORDS FOR THIS PROBLEM — the shortest span that states it — not the
+   paragraph it sits in.
+
+   THE FAILURE THIS FIXES. Two blocks on one review came out as:
+     issue 1  claim: "Within 30 min they cancelled the tickets from the app."
+     issue 2  claim: "once outside the monument, the guide didn't show up.
+                      Again reached out to the help desk, and they asked us to
+                      return after one hour because we were earlier. Within 30
+                      min they cancelled the tickets from the app."
+   The second swallowed the first. The reader cannot tell which words are the
+   evidence for which finding, and the same sentence argues two cases.
+
+   SO: before you write any block, decide what the guest's PROBLEM is — the
+   thing that went wrong for them, in one line — and then let every field
+   answer THAT. The claim is the words that state it. A sentence used in one
+   block is spent; it does not appear in another. A sentence that states no
+   problem (scene-setting, what they did next, how they felt) belongs in NO
+   claim — narrative is not a complaint, and padding a claim with it is how a
+   two-line grievance becomes a wall of quoted text.
+     Guest's problem   The guide never came, and the booking was cancelled
+                       instead of delivered.
+     claim             "the guide didn't show up ... within 30 min they
+                       cancelled the tickets from the app"
+   Consequences of the SAME problem stay in that one claim (rule 2). A
+   DIFFERENT problem gets its own block and its own words.
 
 2e. `backs_claim` — DOES THIS ENTRY SHOW THE GUEST WAS RIGHT?
      Yes   the guest is right about this

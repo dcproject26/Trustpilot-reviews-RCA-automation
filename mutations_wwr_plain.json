@@ -1,0 +1,134 @@
+[
+  {
+    "file": "server/jobs.py",
+    "name": "current picks an arbitrary running row again (the abandoned claim on the bar)",
+    "find": "        _cur = max(_moving, key=lambda r: (r.updated_at or r.created_at or _now),\n                   default=None)",
+    "replace": "        _cur = running[0] if running else None"
+  },
+  {
+    "file": "server/jobs.py",
+    "name": "a frozen claim counts as moving, so a dead worker reads as alive",
+    "find": "        _moving = [r for r in running if worker_liveness(r, _now)[0] == \"running\"]",
+    "replace": "        _moving = list(running)"
+  },
+  {
+    "file": "server/jobs.py",
+    "name": "the stall threshold is widened past any real stall",
+    "find": "    return (\"stalled\" if since >= STALL_AFTER_S else \"running\"), since",
+    "replace": "    return (\"stalled\" if since >= STALL_AFTER_S * 1000 else \"running\"), since"
+  },
+  {
+    "file": "server/jobs.py",
+    "name": "a row with no timestamps reads as having moved just now",
+    "find": "    last = row.updated_at or row.created_at or now",
+    "replace": "    last = row.updated_at or now"
+  },
+  {
+    "file": "server/jobs.py",
+    "name": "stalled and waiting collapse into one word again",
+    "find": "            \"current_state\": (\"running\" if _cur is not None\n                              else \"stalled\" if _frozen\n                              else \"waiting\" if live else \"\"),",
+    "replace": "            \"current_state\": (\"running\" if _cur is not None else \"waiting\" if live else \"\"),"
+  },
+  {
+    "file": "server/jobs.py",
+    "name": "the empty-batch payload loses the keys a live one has",
+    "find": "                    \"remaining\": 0, \"current\": \"\", \"current_state\": \"\",\n                    \"stalled\": 0, \"scope\": \"\", \"batch\": \"\",",
+    "replace": "                    \"remaining\": 0, \"current\": \"\", \"scope\": \"\", \"batch\": \"\","
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the jargon check is written but wired into nothing (CLAUDE.md rule 1)",
+    "find": "    _jargon = jargon_note(issues)\n    if _jargon:\n        notes.append(_jargon)",
+    "replace": "    _jargon = jargon_note(issues)"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "field names in prose stop being flagged",
+    "find": "    (re.compile(r\"\\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\\b\"), \"a field name\"),",
+    "replace": "    (re.compile(r\"\\bzzzzz_never\\b\"), \"a field name\"),"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "an unnamed internal id stops being flagged",
+    "find": "    (re.compile(r\"\\b(?:vid|pid|eid|tgid|sku)\\b[\\s:#_-]*\\d+\", re.I), \"an unnamed internal id\"),",
+    "replace": "    (re.compile(r\"\\bzzzzz_never\\b\"), \"an unnamed internal id\"),"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "the note drops the field name, so a reader cannot find the line",
+    "find": "    shown = \"; \".join(f\"{w}: {t!r} ({y})\" for w, t, y in hits[:3])",
+    "replace": "    shown = \"; \".join(f\"{t!r}\" for _w, t, _y in hits[:3])"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "hits beyond the first three vanish silently",
+    "find": "    more = f\" and {len(hits) - 3} more\" if len(hits) > 3 else \"\"",
+    "replace": "    more = \"\""
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "fix.source is scanned too, so a correct line is flagged as noise",
+    "find": "            fields += [(\"fix.action\", fx.get(\"action\")),\n                       (\"fix.because\", fx.get(\"because\"))]",
+    "replace": "            fields += [(k, v) for k, v in fx.items()]"
+  },
+  {
+    "file": "server/services/rca_v4_validate.py",
+    "name": "a malformed issue list takes the whole run down",
+    "find": "        if not isinstance(issue, dict):\n            continue",
+    "replace": "        pass"
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "the roster falls back to an invented list rather than an honest empty",
+    "find": "    return [str(r).strip() for r in (macros.get(\"reviewers\") or [])\n            if r is not None and str(r).strip()]",
+    "replace": "    return [str(r).strip() for r in (macros.get(\"reviewers\") or [\"Someone\"])\n            if r is not None and str(r).strip()]"
+  },
+  {
+    "file": "tools/check_timeline.py",
+    "name": "the epoch is printed raw again instead of as a date",
+    "find": "        line(OK, f\"booked on: {Z._to_iso(_when)[:19]}  (stored as {booked_on!r})\")",
+    "replace": "        line(OK, f\"booked on: {booked_on}\")"
+  },
+  {
+    "file": "tools/check_timeline.py",
+    "name": "an unparseable date is reported as if the filter ran",
+    "find": "        line(WARN, f\"booked on: {booked_on or '(unknown)'}\",\n             (_why or \"no booking date\") + \" \u2014 the prior-trip filter CANNOT \"",
+    "replace": "        line(WARN, f\"booked on: {booked_on or '(unknown)'}\",\n             (\"\" or \"no booking date\") + \" \u2014 the prior-trip filter CANNOT \""
+  },
+  {
+    "file": "client/index.html",
+    "name": "the dropdown drops a stored name it has no option for (the card forgets who owns it)",
+    "find": "  if (cur && !known) {\n    opts.push(`<option value=\"${esc(cur)}\" selected>${esc(cur)} (not on the roster)</option>`);\n  }",
+    "replace": "  if (false) {}"
+  },
+  {
+    "file": "client/index.html",
+    "name": "an empty roster renders a select with only 'unassigned' in it",
+    "find": "  if (!REVIEWERS.length) {",
+    "replace": "  if (false) {"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the two empty-roster reasons collapse into one sentence",
+    "find": "    const why = REVIEWERS_LOADED\n      ? 'No roster is configured (reviewers: in content/orm_macros.yaml) \u2014 type a name.'\n      : 'The roster has not loaded yet \u2014 type a name, or reload to pick from the list.';",
+    "replace": "    const why = 'Type a name.';"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the select never saves, because it still waits for a blur",
+    "find": "  if (inp.tagName === 'SELECT') {\n    inp.addEventListener('change', () => saveOwner(r.id, inp.value));\n  } else {",
+    "replace": "  if (false) {\n  } else {"
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "a blank YAML entry becomes a person called 'None' you can assign a review to",
+    "find": "            if r is not None and str(r).strip()]",
+    "replace": "            if str(r).strip()]"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the bar trusts `current` over `current_state`, so a stale name outlives the worker",
+    "find": "  const where = st.current_state === 'running' && st.current\n    ? st.current.slice(0, 22)",
+    "replace": "  const where = st.current\n    ? st.current.slice(0, 22)"
+  }
+]

@@ -36,9 +36,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--preview", action="store_true",
                     help="print a sample untraceable reply and takedown block")
+    # Check a DRAFT before overwriting the live file. Without this the only
+    # thing anyone could validate was the copy already in use, which means the
+    # only way to find out an edit is broken was to ship it.
+    ap.add_argument("--file", default=PATH,
+                    help="check this file instead of the installed one")
     args = ap.parse_args()
+    path = args.file
+    other = os.path.abspath(path) != os.path.abspath(PATH)
 
-    print(f"reading {PATH}\n")
+    print(f"reading {path}\n")
 
     # 1. does it parse at all?
     try:
@@ -47,7 +54,7 @@ def main():
         print("PyYAML is not installed here: pip install pyyaml")
         return 2
     try:
-        with open(PATH, encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             raw = yaml.safe_load(f)
     except FileNotFoundError:
         print(f"FAIL  the file does not exist at {PATH}")
@@ -108,9 +115,49 @@ def main():
         if not tags.get(ch):
             note(f"macro_tags.{ch} is empty")
 
+    # The "Picked up by" roster. A MISSPELLED KEY IS THE REAL RISK: `reviewer:`
+    # or `reviewers :` parses as perfectly valid YAML, this file validates
+    # clean, and the dashboard quietly falls back to the free-text box it
+    # replaced. Nobody finds out until someone types a name again. So the count
+    # is printed either way, and a near-miss key is called out by name.
+    revs = raw.get("reviewers")
+    if revs is None:
+        near = [k for k in raw
+                if k != "reviewers" and k.strip().lower().rstrip("s") == "reviewer"]
+        if near:
+            bad(f"there is no `reviewers:` key, but there IS {near[0]!r} — the "
+                f"dropdown reads `reviewers` and will fall back to a text box")
+        else:
+            note("no `reviewers:` key - the \"Picked up by\" dropdown falls back "
+                 "to a free-text box, which is how one person becomes three")
+    elif not revs:
+        note("`reviewers:` is empty - same effect as leaving it out")
+    else:
+        blanks = [i for i, r in enumerate(revs, 1)
+                  if r is None or not str(r).strip()]
+        if blanks:
+            bad(f"reviewers entr{'y' if len(blanks) == 1 else 'ies'} "
+                f"{', '.join(map(str, blanks))} "
+                f"{'is' if len(blanks) == 1 else 'are'} blank - a bare '- ' "
+                f"line. Delete the line; it cannot become a name.")
+        dupes = sorted({str(r).strip() for r in revs
+                        if revs.count(r) > 1 and r is not None})
+        if dupes:
+            note(f"listed twice: {', '.join(dupes)} - the dropdown will show "
+                 f"the name twice")
+
     # 3. what the app will actually load
     print("[ ok ] required fields present" if not _problems
           else f"[FAIL] {len(_problems)} problem(s) below")
+    # THE BLOCK BELOW DESCRIBES THE INSTALLED FILE, because it reads what the
+    # app loaded at import. Under --file that is a DIFFERENT file from the one
+    # just checked, and a report that silently mixes two files is worse than
+    # one that omits the section. So it is labelled, and the roster — the one
+    # line an editor is here to confirm — is re-derived from the file actually
+    # checked.
+    if other:
+        print("\n  (the counts below are the INSTALLED file, "
+              f"{os.path.basename(PATH)}, not the one checked above)")
     try:
         from server.prompts import (BRAND_VOICE, TAKEDOWN_LINES,
                                     UNTRACEABLE_REPLY, macro_tags)
@@ -120,6 +167,16 @@ def main():
         print(f"  macro tags       trustpilot {len(macro_tags('trustpilot'))}, "
               f"social {len(macro_tags('social'))}, "
               f"twitter {len(macro_tags('twitter'))}")
+        # FROM THE FILE JUST CHECKED, not from the import. The editor came
+        # here to confirm the name they added actually arrived, and reading
+        # that off the installed copy would answer a question they did not ask.
+        # Printed even when it is 0, and the names are listed rather than only
+        # counted: a count of 7 does not tell you which seven.
+        from server.prompts import _reviewers
+        revs_now = _reviewers(raw)
+        print(f"  reviewers        {len(revs_now)}"
+              + (f" - {', '.join(revs_now)}" if revs_now
+                 else " - the \"Picked up by\" dropdown falls back to a text box"))
     except Exception as e:
         bad(f"the app could not load the file: {type(e).__name__}: {e}")
 

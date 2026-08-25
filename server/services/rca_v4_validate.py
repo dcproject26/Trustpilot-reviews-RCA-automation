@@ -835,6 +835,93 @@ def _booking_logs(raw, booking_confirmed, notes):
     return rows
 
 
+# ── system vocabulary in a human's sentence ─────────────────────────────────
+# WHY THIS IS A CHECK AND NOT A PROMPT RULE ALONE. The prompt now forbids it
+# (prompts.py rule 2h), and a prompt rule is unverifiable: nothing in the tree
+# can prove the model obeyed one. These reached a real card:
+#
+#   "ticket_mail_seen is false, which is consistent with the guest not having
+#    received or opened the cancellation communication before calling."
+#   "67 vendor-cancelled bookings on vid 6057 in the same window."
+#
+# Both are our storage's spelling of a fact, printed at an associate who then
+# has to decode a column name and an unnamed id mid-RCA. This does NOT rewrite
+# the sentence — a regex editing model prose would mangle it, and a silent
+# rewrite is worse than the jargon. It NAMES the field and the token on the
+# confidence trail, where "we are not happy with this line" already belongs.
+#
+# The patterns are deliberately narrow. Over-flagging trains a reader to
+# ignore the trail, which costs more than the jargon does.
+_JARGON = [
+    # snake_case identifiers: two or more lower/digit words joined by _
+    (re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b"), "a field name"),
+    # an internal id with no name on it: vid 6057, pid_12, eid-9
+    (re.compile(r"\b(?:vid|pid|eid|tgid|sku)\b[\s:#_-]*\d+", re.I), "an unnamed internal id"),
+    # boolean-field talk
+    (re.compile(r"\b(?:is|was|are|were)\s+(?:true|false)\b", re.I), "boolean field talk"),
+    (re.compile(r"\bflag(?:\s+is)?\s+not\s+set\b", re.I), "boolean field talk"),
+]
+
+# Prose fields a human reads on the card. `fix.source` is NOT here: it records
+# where a gap was read and never renders, so a field name in it is correct.
+_PROSE_FIELDS = ("issue", "claim", "claim_accuracy_note", "root_cause",
+                 "operational_failure", "sop_gap", "pattern")
+
+
+def jargon_hits(issues) -> list:
+    """[(where, token, why)] for every system token in prose a reader sees.
+
+    Empty means it ran and found none — which is why the caller reports the
+    count either way rather than only on a hit. A check that speaks only when
+    it fires is indistinguishable from one that never ran.
+    """
+    out = []
+    for n, issue in enumerate(issues or [], 1):
+        if not isinstance(issue, dict):
+            continue
+        fields = [(f, issue.get(f)) for f in _PROSE_FIELDS]
+        fx = issue.get("fix")
+        if isinstance(fx, dict):
+            fields += [("fix.action", fx.get("action")),
+                       ("fix.because", fx.get("because"))]
+        for ev in (issue.get("evidence") or []):
+            if isinstance(ev, dict):
+                fields.append(("evidence", ev.get("text")))
+        for name, val in fields:
+            text = _clean(val)
+            if not text:
+                continue
+            for pat, why in _JARGON:
+                for hit in pat.findall(text):
+                    out.append((f"issue {n} {name}", str(hit), why))
+    return out
+
+
+def jargon_note(issues) -> str:
+    """One sentence for the confidence trail, or "" when there is nothing.
+
+    Says the COUNT and names examples rather than "some fields have jargon":
+    a reader has to be able to go to the field.
+
+    HOW "CLEAN" IS TOLD FROM "NEVER RAN", since this returns "" for the first.
+    It cannot fail on its own — it is a scan over data already in hand, with no
+    lookup and no I/O — so the only way it does not run is validate() raising,
+    and pipeline.py already puts THAT on the trail in as many words: "RCA
+    validation did not run ... this is raw model output, not a clean bill of
+    health." Under a validation that completed, silence here means checked and
+    clean. That is the whole argument; it is written down because an empty
+    string is otherwise exactly the shape of a check nobody wired up.
+    """
+    hits = jargon_hits(issues)
+    if not hits:
+        return ""
+    shown = "; ".join(f"{w}: {t!r} ({y})" for w, t, y in hits[:3])
+    more = f" and {len(hits) - 3} more" if len(hits) > 3 else ""
+    return (f"{len(hits)} system token(s) left in prose a reader sees — "
+            f"{shown}{more}. Say what the value MEANS; these are not edited "
+            f"automatically, so the line still reads as written.")
+
+
 def validate(rca: dict, scenarios_routed=None, keep_actions=None,
              booking_confirmed: bool = True, events=None,
              booking=None, review_at=None,
@@ -849,6 +936,9 @@ def validate(rca: dict, scenarios_routed=None, keep_actions=None,
     issues = [_issue(i, notes) for i in (_gi if isinstance(_gi, list) else [])
               if isinstance(i, dict)]
     _gate_amount_claims(issues, booking, events, notes)
+    _jargon = jargon_note(issues)
+    if _jargon:
+        notes.append(_jargon)
     _dss_followed, _dss_note = dss_check.gate_dss_followed(
         _obj(rca.get("dss")).get("followed"), events, review_at)
     if _dss_note:

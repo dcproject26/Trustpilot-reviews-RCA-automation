@@ -1,11 +1,18 @@
-"""The case header — who is on the review, and the working "Picked up by" input.
+"""The case header — who is on the review, and the working "Picked up by" control.
 
 The workbench gives the case page a header: ← Inbox (the queue is a separate
-surface), the guest name, the stage chip, and a free-text owner input. There is
-no signed-in user, so the associate types their name; it saves on blur to the
-endpoint stage 1 added, repaints the queue column from the same record, and —
-invariant 9 — reverts if the save fails, so a control that looks saved always
-did save.
+surface), the guest name, the stage chip, and the owner control. There is no
+signed-in user, so the associate picks their name from the roster in
+content/orm_macros.yaml; it saves on change to the endpoint stage 1 added,
+repaints the queue column from the same record, and — invariant 9 — reverts if
+the save fails, so a control that looks saved always did save.
+
+IT WAS A TEXT BOX, which is how one person arrived as "Avi", "avi" and "Avi " —
+three owners as far as any grouping is concerned. The three cases that make
+this more than `REVIEWERS.map()` are driven below: a name on the roster, a name
+NOT on it (typed before the dropdown existed, or since taken off the roster —
+it must still render, because a card that quietly forgets who owns it is worse
+than one naming someone who left), and no roster at all.
 """
 import pytest
 
@@ -78,25 +85,23 @@ def test_the_header_chip_is_derived_not_a_constant(page, rtype, want):
 
 # ── the owner input saves ───────────────────────────────────────────────────
 
-def test_typing_a_name_and_blurring_saves_it(page):
+def test_picking_a_name_saves_it(page):
     rid = _open_first_case(page)
-    page.fill("#case-owner-input", "Rhea")
-    page.locator("#case-owner-input").blur()
+    page.select_option("#case-owner-input", "Devshree")
     page.wait_for_timeout(500)
     # the record carries it, and so does the server
-    assert page.evaluate("(id) => REVIEWS.find(r => r.id === id).owner", rid) == "Rhea"
+    assert page.evaluate("(id) => REVIEWS.find(r => r.id === id).owner", rid) == "Devshree"
     got = page.evaluate("""async (id) => {
       const r = await fetch(`/api/reviews/${id}`); const j = await r.json();
       return j.review.picked_up_by; }""", rid)
-    assert got == "Rhea"
+    assert got == "Devshree"
 
 
 def test_the_saved_owner_shows_in_the_queue_column(page):
     """The queue column and the header read the same record — saving in one
     shows in the other with no second fetch."""
     rid = _open_first_case(page)
-    page.fill("#case-owner-input", "Devshree")
-    page.locator("#case-owner-input").blur()
+    page.select_option("#case-owner-input", "Devshree")
     page.wait_for_timeout(500)
     page.click("#case-header .back-to-inbox")
     page.wait_for_selector("#inbox-list .inbox-row", timeout=15000)
@@ -106,15 +111,14 @@ def test_the_saved_owner_shows_in_the_queue_column(page):
     assert cell == "Devshree"
 
 
-def test_clearing_the_name_saves_empty_not_unassigned_text(page):
-    """Typed-then-cleared is a value; the input goes empty and the queue column
-    falls back to the dim 'unassigned' rendering, but the stored value is ""."""
+def test_unassigning_saves_empty_not_unassigned_text(page):
+    """Assigned-then-unassigned is a value; the control returns to the
+    "unassigned" option and the queue column falls back to its dim rendering,
+    but the STORED value is "" — never the literal word on the option."""
     rid = _open_first_case(page)
-    page.fill("#case-owner-input", "Temp")
-    page.locator("#case-owner-input").blur()
+    page.select_option("#case-owner-input", "Paul")
     page.wait_for_timeout(400)
-    page.fill("#case-owner-input", "")
-    page.locator("#case-owner-input").blur()
+    page.select_option("#case-owner-input", "")
     page.wait_for_timeout(500)
     stored = page.evaluate("""async (id) => {
       const r = await fetch(`/api/reviews/${id}`); const j = await r.json();
@@ -134,11 +138,13 @@ def test_a_failed_save_reverts_so_it_does_not_look_saved(page):
         ? Promise.resolve(new Response('nope', {status: 500}))
         : window.__origFetch(u, o); }""")
     try:
-        page.fill("#case-owner-input", "WillFail")
-        page.locator("#case-owner-input").blur()
+        page.select_option("#case-owner-input", "Shruti")
         page.wait_for_timeout(500)
         after = page.evaluate("(id) => REVIEWS.find(r => r.id === id).owner ?? null", rid)
         assert after == before, f"a failed save stuck: {before!r} -> {after!r}"
+        shown = page.evaluate("() => document.querySelector('#case-owner-input').value")
+        assert shown != "Shruti", \
+            "the dropdown still shows a name the server never stored"
     finally:
         page.evaluate("() => { if (window.__origFetch) window.fetch = window.__origFetch; }")
 
@@ -177,3 +183,70 @@ def test_a_failed_save_reverts_even_if_the_list_was_rebuilt_midflight(page):
             f"(the revert reached the orphaned record, not the visible one)")
     finally:
         page.evaluate("() => { if (window.__origFetch) window.fetch = window.__origFetch; }")
+
+
+# ── the roster, and the two ways a dropdown can lie about ownership ─────────
+
+def _set_roster(page, names):
+    """Re-render the header against a given roster."""
+    page.evaluate("""(n) => { REVIEWERS = n; REVIEWERS_LOADED = true;
+                              renderCaseHeader(); }""", names)
+
+
+def test_the_options_are_the_roster_from_the_content_file(page):
+    _open_first_case(page)
+    from server.prompts import REVIEWERS
+    opts = page.evaluate("""() => [...document.querySelectorAll(
+        '#case-owner-input option')].map(o => o.value)""")
+    assert opts[0] == "", "there is no way back to unassigned"
+    assert opts[1:] == REVIEWERS, f"{opts[1:]} != {REVIEWERS}"
+
+
+def test_a_stored_name_off_the_roster_still_shows_and_is_marked(page):
+    """THE ONE THAT MATTERS. A select silently drops a value it has no option
+    for, so the card would read "unassigned" over a review that IS assigned —
+    and the next save would write that lie to the database. Happens to every
+    name typed before this dropdown existed, and to anyone taken off the
+    roster while still owning open cards."""
+    rid = _open_first_case(page)
+    page.evaluate("""(id) => { REVIEWS.find(r => r.id === id).owner = 'Someone Who Left';
+                               renderCaseHeader(); }""", rid)
+    assert page.evaluate(
+        "() => document.querySelector('#case-owner-input').value") == "Someone Who Left"
+    label = page.evaluate("""() => [...document.querySelectorAll('#case-owner-input option')]
+        .find(o => o.value === 'Someone Who Left').textContent""")
+    assert "not on the roster" in label, label
+
+
+def test_an_off_roster_owner_can_still_be_handed_over(page):
+    """Showing it is half. The point of the control is reassignment, so the
+    roster options must still be reachable from that state."""
+    rid = _open_first_case(page)
+    page.evaluate("""(id) => { REVIEWS.find(r => r.id === id).owner = 'Someone Who Left';
+                               renderCaseHeader(); }""", rid)
+    page.select_option("#case-owner-input", "Avi")
+    page.wait_for_timeout(500)
+    assert page.evaluate("(id) => REVIEWS.find(r => r.id === id).owner", rid) == "Avi"
+
+
+def test_no_roster_falls_back_to_typing_rather_than_blocking_the_work(page):
+    """An empty dropdown says "nobody can be assigned", which is a claim about
+    the team rather than about a failed lookup. Work is never blocked on
+    /api/taxonomy coming back."""
+    _open_first_case(page)
+    _set_roster(page, [])
+    assert page.evaluate(
+        "() => document.querySelector('#case-owner-input').tagName") == "INPUT"
+
+
+def test_a_roster_that_has_not_loaded_says_so_differently_from_an_empty_one(page):
+    """Two empties, two fixes: one is edited in content/orm_macros.yaml, the
+    other waits for the server. Same blank control, different sentence."""
+    _open_first_case(page)
+    page.evaluate("() => { REVIEWERS = []; REVIEWERS_LOADED = false; renderCaseHeader(); }")
+    not_loaded = page.evaluate("() => document.querySelector('#case-owner-input').title")
+    _set_roster(page, [])
+    empty = page.evaluate("() => document.querySelector('#case-owner-input').title")
+    assert not_loaded and empty and not_loaded != empty, (not_loaded, empty)
+    assert "not loaded" in not_loaded, not_loaded
+    assert "orm_macros.yaml" in empty, empty
