@@ -147,7 +147,22 @@ working branch or dead weight. Checked 2026-08-26; every branch below carried
 | `claude/<session>` | one per Claude session. Disposable the moment its work is in `main`. |
 | `archive/main-v4-line-2026-08-01` | fully merged, 411 behind |
 | `feature/checklist-slack-edit` | fully merged, 629 behind |
-| `wip-snapshot-1`, `wip-snapshot-latest` | 3-week-old agent snapshots. Each shows 1 "unique" commit, which is **superseded, not lost** — `venue_resolver.py`, `bid_indicator_check.py` and their tests are all on `main` in longer, finished form. |
+| `wip-snapshot-1`, `wip-snapshot-latest` | 3-week-old agent snapshots, each with 1 "unique" commit. **Verified superseded, not lost** — see below. |
+
+**The snapshots, checked properly**, because "1 commit not in main" is exactly
+the finding that should stop a deletion, and a line count is not proof:
+
+- Every `def`/`class` the two snapshots added was grepped for on `main`. 29 of
+  30 are present.
+- The one absent symbol is `test_the_longest_token_comes_first`, which asserted
+  `venue_tokens("Louvre Museum Paris entry")[0] == "louvre"`. On `main` that
+  call returns `["louvre paris", "louvre"]` — adjacent pairs are emitted FIRST
+  now, because single-word tokens matched CITIES ("london" matched every London
+  product). **The test was deliberately replaced, and would fail on `main`
+  today.** Superseded, not lost.
+
+So all six non-`main` branches hold nothing `main` needs. Tag before deleting
+anyway (below): a tag costs nothing and makes the judgement above unnecessary.
 
 **Why the branches keep appearing, and why that is fine.** Each Claude session's
 harness issues it a branch and forbids pushing elsewhere without permission —
@@ -164,6 +179,15 @@ for b in $(git branch -r | grep -v HEAD | grep -v /main | sed 's|.*origin/||'); 
 done
 # 0 = safe to delete.   Anything else = STOP, merge it first.
 git push origin --delete <branch>
+```
+
+**Tag anything with a unique commit before deleting it.** Deleting a remote
+branch makes its unreachable commits collectable; a tag keeps them forever for
+no cost, and turns "I am confident this is superseded" into "it does not matter
+whether I was right".
+
+```bash
+git push origin refs/remotes/origin/wip-snapshot-1:refs/tags/archived-wip-snapshot-1
 ```
 
 **Do not delete a branch an active session is pushing to** — it will fail on its
