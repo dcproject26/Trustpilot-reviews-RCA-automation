@@ -598,6 +598,12 @@ DRIVEN = {
     "data-export-csv",
     # ↻ Refresh from Slack. this file, test_refresh_slack_sends_no_fixed_window
     "data-refresh-slack",
+    # Reporting. Topbar button that was inert on ship — no click handler at
+    # all, and a dead control reads as a broken feature. Driven in this file
+    # by test_reporting_button_opens_the_modal_with_server_numbers, which
+    # mocks /api/reporting and asserts the modal renders what came back and
+    # that the close button removes it.
+    "data-open-reporting",
     # §1 case findings and §3 fixes — add and delete for each, all four
     # driven in tests/test_wwr_three_cards.py by clicking them and counting
     # rows, and the fix delete is additionally checked to SURVIVE A RELOAD:
@@ -1375,6 +1381,176 @@ def test_the_csv_button_recovers_to_its_label(page):
     page.wait_for_function(
         "() => { const b = document.querySelector('[data-export-csv]');"
         "return b.textContent.includes('CSV') && !b.disabled; }", timeout=8000)
+
+
+# ── Reporting, driven ───────────────────────────────────────────────────────
+#
+# Was a NAMED GAP: the button rendered and had no click handler at all,
+# so a user was watching a control the app treated as decoration. The
+# server endpoint (/api/reporting) has existed the whole time — the fix is
+# a handler that calls it and shows what came back. Every assertion below
+# reads text that came from the mocked response, so a broken renderer
+# (e.g. one that keeps "Loading…" up forever, or that fills tiles with
+# hardcoded zeros) fails these rather than passing on its own defaults.
+
+
+def _mock_reporting(page, body_json):
+    """Fulfil /api/reporting with the exact JSON the test wants to render."""
+    import json as _j
+    page.route("**/api/reporting", lambda route: route.fulfill(
+        status=200, content_type="application/json",
+        body=_j.dumps(body_json)))
+
+
+def _clear_reporting_modal(page):
+    """The `page` fixture is module-scoped, so a modal from an earlier test in
+    this file is still on screen at the start of the next one. That modal is
+    fullscreen and intercepts pointer events — so `page.click` on the
+    Reporting button fails with "element intercepts pointer events" 30s
+    later. Removing any lingering modal FIRST is the isolation these tests
+    need; a per-test page fixture would also work, but this file has ~70
+    other tests already relying on the shared one, and a scope change would
+    affect all of them."""
+    page.evaluate("""() => {
+      const m = document.getElementById('reporting-modal');
+      if (m) m.remove();
+    }""")
+
+
+def test_reporting_button_opens_the_modal_with_server_numbers(page):
+    """A click opens the modal and its contents come from the server, not
+    from client-side defaults. The response is mocked so the SPECIFIC
+    numbers below are only reachable if the fetch happened and its body
+    reached the renderer — a hardcoded "0" tile would fail every assertion."""
+    _clear_reporting_modal(page)
+    _mock_reporting(page, {
+        "total":               42,
+        "sent":                17,
+        "auto_matched":        30,
+        "dss_used":            12,
+        "biz_flagged":         3,
+        "avg_minutes_to_send": 12.4,
+        "l1_breakdown":        [["Booking / Match", 20], ["Product",  8]],
+        "l2_breakdown":        [["Missed the tour", 11], ["Late confirm", 7]],
+        "tier_breakdown":      {"Tier 1": 25, "No match": 4},
+        "by_rating":           {"1": 18, "2": 15, "3": 9},
+    })
+    try:
+        assert page.locator("#reporting-modal").count() == 0, \
+            "the modal was already open before the click — census stale"
+        page.click("[data-open-reporting]")
+        page.wait_for_selector("#reporting-modal [data-reporting-body] .rep-tiles",
+                               timeout=4000)
+
+        body_txt = page.locator("#reporting-modal").inner_text()
+    finally:
+        page.unroute("**/api/reporting")
+
+    # NUMBERS FROM THE RESPONSE. Assert several so a renderer that shows one
+    # right and the rest wrong fails here — a single spot-check would let
+    # that ship.
+    assert "42" in body_txt, "the total from the server did not reach the UI"
+    assert "17" in body_txt, "sent count missing"
+    assert "12.4" in body_txt, "avg mins to send missing"
+    # Labels the tiles depend on — these come from the client, but a tile with
+    # no label at all reads as "a number for nothing".
+    assert "Sent" in body_txt and "Auto-matched" in body_txt
+    # Breakdown ROWS reached the DOM — one from each of the four sections.
+    assert "Booking / Match" in body_txt   # top L1
+    assert "Missed the tour"  in body_txt   # top L2
+    assert "Tier 1"           in body_txt   # tier breakdown
+    # The scan-scope line says what the numbers cover — a percentage with
+    # no denominator on the page is what the last dashboard shipped with.
+    assert "42" in body_txt and ("Latest" in body_txt or "in window" in body_txt)
+
+
+def test_reporting_close_button_removes_the_modal(page):
+    """The X in the corner is the only intended way out with a keyboard.
+    A modal that opens and cannot be closed traps the user on it."""
+    _clear_reporting_modal(page)
+    _mock_reporting(page, {"total": 0, "sent": 0, "auto_matched": 0,
+                           "dss_used": 0, "biz_flagged": 0,
+                           "avg_minutes_to_send": None,
+                           "l1_breakdown": [], "l2_breakdown": [],
+                           "tier_breakdown": {}, "by_rating": {}})
+    try:
+        page.click("[data-open-reporting]")
+        page.wait_for_selector("#reporting-modal [data-reporting-body]",
+                               timeout=4000)
+        page.click("#reporting-modal [data-close-modal]")
+        page.wait_for_function(
+            "() => !document.getElementById('reporting-modal')", timeout=2000)
+    finally:
+        page.unroute("**/api/reporting")
+
+
+def test_reporting_reopen_replaces_the_previous_modal(page):
+    """The `existing.remove()` guard at the top of openReportingModal keeps
+    a second open from stacking a second card. Called via evaluate() rather
+    than a second click because the first modal covers the topbar (it is
+    fullscreen) — a real user must close before reopening, but a programmatic
+    caller (a `Reporting` link inside another surface, later) could open on
+    top of an already-open one and this test is the guard against that."""
+    _clear_reporting_modal(page)
+    _mock_reporting(page, {"total": 1, "sent": 0, "auto_matched": 1,
+                           "dss_used": 0, "biz_flagged": 0,
+                           "avg_minutes_to_send": None,
+                           "l1_breakdown": [], "l2_breakdown": [],
+                           "tier_breakdown": {"Tier 1": 1}, "by_rating": {"1": 1}})
+    try:
+        page.click("[data-open-reporting]")
+        page.wait_for_selector("#reporting-modal", timeout=4000)
+        page.evaluate("() => openReportingModal()")
+        page.wait_for_timeout(150)
+        count = page.locator("#reporting-modal").count()
+    finally:
+        page.unroute("**/api/reporting")
+    assert count == 1, (
+        f"reopening stacked {count} modals — the existing.remove() guard "
+        f"at the top of openReportingModal did not fire")
+
+
+def test_reporting_failure_says_so_and_offers_a_retry(page):
+    """A silent "Loading…" that never resolves is indistinguishable from a
+    working page waiting on a slow server. The failure path must say what
+    broke and give the user a way to try again — otherwise the button might
+    as well have no handler, which is the state this test file was opened
+    for."""
+    _clear_reporting_modal(page)
+    page.route("**/api/reporting", lambda route: route.fulfill(
+        status=500, content_type="text/plain", body="database went away"))
+    try:
+        page.click("[data-open-reporting]")
+        page.wait_for_selector("#reporting-modal [data-reporting-retry]",
+                               timeout=4000)
+        txt = page.locator("#reporting-modal").inner_text()
+        assert "could not load" in txt.lower(), (
+            f"the failure was not narrated on screen: {txt!r}")
+        assert "500" in txt, "the status code was not shown"
+    finally:
+        page.unroute("**/api/reporting")
+
+
+def test_reporting_empty_window_says_what_the_zeros_mean(page):
+    """A total of 0 with a wall of 0% below is what a broken server also
+    prints. Saying "no reviews in the window" is what tells those apart —
+    "everything is zero because there is nothing to count" is a different
+    fact from "the query failed"."""
+    _clear_reporting_modal(page)
+    _mock_reporting(page, {"total": 0, "sent": 0, "auto_matched": 0,
+                           "dss_used": 0, "biz_flagged": 0,
+                           "avg_minutes_to_send": None,
+                           "l1_breakdown": [], "l2_breakdown": [],
+                           "tier_breakdown": {}, "by_rating": {}})
+    try:
+        page.click("[data-open-reporting]")
+        page.wait_for_selector("#reporting-modal .rep-scan", timeout=4000)
+        scan = page.locator("#reporting-modal .rep-scan").inner_text()
+    finally:
+        page.unroute("**/api/reporting")
+    low = scan.lower()
+    assert "no reviews" in low or "nothing to count" in low, (
+        f"the empty state was not named: {scan!r}")
 
 
 # ── a save that could not reach the server ──────────────────────────────────

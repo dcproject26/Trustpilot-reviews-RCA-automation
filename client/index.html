@@ -1357,6 +1357,36 @@
   .flag-hint { font-size: 11px; color: var(--dim); }
   .flag-textarea { min-height: 140px; font-size: 12.5px; }
 
+  /* Reporting modal — same shell (.flag-modal) as Flag-to-Biz, so the
+     backdrop, card and close chrome are one implementation. What's specific
+     is the readout: a compact tile row for the totals and a stacked bar row
+     for each breakdown, both driven by the shape /api/reporting returns.
+     Values come from the server so a bare 0 means "measured, zero" and a
+     bare '—' means "not measured yet". Neither is invented client-side. */
+  .rep-scan   { font-size: 11px; color: var(--dim); margin: -4px 0 10px; }
+  .rep-tiles  { display: grid; grid-template-columns: repeat(3, 1fr);
+                gap: 6px; margin-bottom: 14px; }
+  .rep-tile   { background: var(--facts-bg); border: 1px solid var(--border);
+                border-radius: 6px; padding: 8px 10px; }
+  .rep-tile-n { font: 600 15px/1.2 var(--mono); color: var(--text); }
+  .rep-tile-l { font-size: 10.5px; color: var(--muted-2); margin-top: 2px; }
+  .rep-sec    { margin-bottom: 12px; }
+  .rep-sec-h  { font-size: 11px; font-weight: 650; color: var(--muted);
+                margin-bottom: 6px; text-transform: uppercase;
+                letter-spacing: .04em; }
+  .rep-row    { display: grid; grid-template-columns: minmax(0,1fr) 42px 26px;
+                align-items: center; gap: 6px; font-size: 11.5px;
+                padding: 2px 0; }
+  .rep-row-l  { color: var(--body); overflow: hidden; text-overflow: ellipsis;
+                white-space: nowrap; }
+  .rep-row-b  { height: 6px; background: var(--hover-fill); border-radius: 3px;
+                overflow: hidden; }
+  .rep-row-bf { height: 100%; background: var(--accent); }
+  .rep-row-n  { font: 500 11px/1 var(--mono); color: var(--muted-2);
+                text-align: right; }
+  .rep-empty  { font-size: 11px; color: var(--empty); font-style: italic; }
+  .rep-err    { font-size: 12px; color: var(--red); }
+
   /* misc */
   .pill-sm { font-size: 10px; padding: 1px 6px; border-radius: 5px; }
   .pill-grey { background: var(--hover-fill); color: var(--muted); }
@@ -1629,7 +1659,8 @@
               title="Re-run every review missing a match or an RCA">⟳ Fix incomplete</button>
       <button class="refresh-slack-btn" data-export-csv
               title="Download every review and its RCA as a CSV">↓ CSV</button>
-      <button class="reporting-link">Reporting</button>
+      <button class="reporting-link" data-open-reporting
+              title="Recent metrics — matches, sends, average time, breakdowns">Reporting</button>
     </div>
   </header>
 
@@ -9047,6 +9078,153 @@ document.addEventListener('click', async (ev) => {
   } catch (e) { btn.textContent = '↓ failed'; }
   setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 4000);
 });
+
+// Reporting. The button used to have no click handler at all — a dead
+// control on a shipped dashboard reads to a user as "this feature is broken",
+// which is worse than the feature being absent. /api/reporting exists and
+// returns the numbers already, so the fix is a click handler that opens a
+// modal and renders what the server sends. DELEGATED for the same reason as
+// the other topbar handlers (the row re-renders when a bulk job kicks a
+// re-layout; a handler bound to a stale button node is dead after that).
+document.addEventListener('click', async (ev) => {
+  const btn = ev.target.closest && ev.target.closest('[data-open-reporting]');
+  if (!btn || btn.disabled) return;
+  openReportingModal();
+});
+
+function openReportingModal() {
+  // Same one-instance guard as the flag modal — reopening while it is up
+  // must not stack a second card, and this is where that is enforced.
+  const existing = document.getElementById('reporting-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'reporting-modal';
+  modal.className = 'flag-modal';
+  modal.innerHTML = `
+    <div class="flag-modal-body">
+      <div class="flag-modal-head">
+        <div class="flag-modal-title">Reporting</div>
+        <button class="flag-modal-close" data-close-modal aria-label="close">×</button>
+      </div>
+      <div data-reporting-body>
+        <div class="rep-empty">Loading…</div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  modal.querySelectorAll('[data-close-modal]').forEach(b => {
+    b.addEventListener('click', () => modal.remove());
+  });
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) modal.remove();
+  });
+
+  loadReportingInto(modal.querySelector('[data-reporting-body]'));
+}
+
+// The fetch + render + failure handling for the modal body. ONE
+// implementation — the retry button below reuses it, so the initial open and
+// a retry cannot silently disagree about how to interpret a bad response.
+// A failed fetch used to leave "Loading…" on screen forever, which is the
+// same shape a slow response has and a user has no way to tell them apart.
+// The message says what happened and the button retries — one is not the
+// other.
+function loadReportingInto(body) {
+  fetch('/api/reporting')
+    .then(async (res) => {
+      if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0,120)}`);
+      return res.json();
+    })
+    .then((data) => renderReportingBody(body, data))
+    .catch((e) => {
+      body.innerHTML = `
+        <div class="rep-err">Reporting could not load: ${esc(String(e.message || e).slice(0,200))}</div>
+        <div class="flag-modal-actions">
+          <button class="btn" data-reporting-retry>Retry</button>
+        </div>`;
+      body.querySelector('[data-reporting-retry]').addEventListener(
+        'click', () => { body.innerHTML = '<div class="rep-empty">Loading…</div>';
+                         loadReportingInto(body); });
+    });
+}
+
+function renderReportingBody(body, data) {
+  const total = Number(data.total || 0);
+  // WHAT THE SCAN COVERED. /api/reporting reads the 500 most recent metric
+  // rows — a reader looking at "3 flagged" needs to know whether that is
+  // three of thirty or three of five hundred, or every rate on the page
+  // reads out of context. When there are no rows at all, the tiles say so
+  // rather than showing a wall of 0s that read as "everything failed".
+  const scan = total === 0
+    ? `No reviews in the window. Numbers below are all zero because there is nothing to count, not because everything failed.`
+    : `Latest ${total} review(s). Percentages are of that.`;
+  const pct = (n) => total ? Math.round((100 * (Number(n)||0)) / total) : 0;
+
+  const tiles = [
+    ['Sent',        data.sent,         `${pct(data.sent)}%`],
+    ['Auto-matched',data.auto_matched, `${pct(data.auto_matched)}%`],
+    ['DSS used',    data.dss_used,     `${pct(data.dss_used)}%`],
+    ['Flagged to Biz', data.biz_flagged, `${pct(data.biz_flagged)}%`],
+    ['Avg mins to send',
+     data.avg_minutes_to_send == null ? '—' : Number(data.avg_minutes_to_send).toFixed(1),
+     ''],
+    ['Total in window', total, ''],
+  ];
+  const tileHtml = tiles.map(([label, n, sub]) => `
+    <div class="rep-tile">
+      <div class="rep-tile-n">${esc(String(n ?? '—'))}${sub ? ` <span style="font-weight:400;font-size:10px;color:var(--muted-2)">${esc(sub)}</span>` : ''}</div>
+      <div class="rep-tile-l">${esc(label)}</div>
+    </div>`).join('');
+
+  const dictRows = (obj) => {
+    const entries = Object.entries(obj || {});
+    if (!entries.length) return '<div class="rep-empty">no rows in the window</div>';
+    entries.sort((a, b) => (b[1]||0) - (a[1]||0));
+    const max = Math.max(...entries.map(e => e[1] || 0), 1);
+    return entries.map(([k, v]) => {
+      const w = Math.round((100 * (v || 0)) / max);
+      return `
+        <div class="rep-row">
+          <div class="rep-row-l" title="${esc(k)}">${esc(k)}</div>
+          <div class="rep-row-b"><div class="rep-row-bf" style="width:${w}%"></div></div>
+          <div class="rep-row-n">${esc(String(v))}</div>
+        </div>`;
+    }).join('');
+  };
+  const listRows = (arr, cap) => {
+    const rows = Array.isArray(arr) ? arr.slice(0, cap || 8) : [];
+    if (!rows.length) return '<div class="rep-empty">no rows in the window</div>';
+    const max = Math.max(...rows.map(([, v]) => v || 0), 1);
+    return rows.map(([k, v]) => {
+      const w = Math.round((100 * (v || 0)) / max);
+      return `
+        <div class="rep-row">
+          <div class="rep-row-l" title="${esc(k)}">${esc(k)}</div>
+          <div class="rep-row-b"><div class="rep-row-bf" style="width:${w}%"></div></div>
+          <div class="rep-row-n">${esc(String(v))}</div>
+        </div>`;
+    }).join('');
+  };
+
+  body.innerHTML = `
+    <div class="rep-scan">${esc(scan)}</div>
+    <div class="rep-tiles">${tileHtml}</div>
+    <div class="rep-sec">
+      <div class="rep-sec-h">By tier</div>${dictRows(data.tier_breakdown)}
+    </div>
+    <div class="rep-sec">
+      <div class="rep-sec-h">By rating</div>${dictRows(data.by_rating)}
+    </div>
+    <div class="rep-sec">
+      <div class="rep-sec-h">Top L1</div>${listRows(data.l1_breakdown, 8)}
+    </div>
+    <div class="rep-sec">
+      <div class="rep-sec-h">Top L2</div>${listRows(data.l2_breakdown, 8)}
+    </div>
+  `;
+}
 
 // Mark sent, from beside the Post-to-thread button. DELEGATED, because the
 // Slack block is re-rendered on every edit to the post and a handler bound

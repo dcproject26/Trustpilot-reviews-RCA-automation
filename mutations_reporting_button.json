@@ -1,0 +1,32 @@
+[
+  {
+    "file": "client/index.html",
+    "name": "the reopen guard is removed (a second open would stack a modal)",
+    "find": "  const existing = document.getElementById('reporting-modal');\n  if (existing) existing.remove();",
+    "replace": "  // guard removed"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the fetch is dropped (Loading… would sit forever, no numbers reach the screen)",
+    "find": "  fetch('/api/reporting')\n    .then(async (res) => {\n      if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0,120)}`);\n      return res.json();\n    })\n    .then((data) => renderReportingBody(body, data))",
+    "replace": "  Promise.resolve()\n    .then((data) => renderReportingBody(body, data))"
+  },
+  {
+    "file": "client/index.html",
+    "name": "a bad response is silently ignored (no error narration, no retry)",
+    "find": "      if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0,120)}`);",
+    "replace": ""
+  },
+  {
+    "file": "client/index.html",
+    "name": "the empty-window scan message reduces to the non-empty one (0 reads as measured zero, indistinguishable from a query failure)",
+    "find": "  const scan = total === 0\n    ? `No reviews in the window. Numbers below are all zero because there is nothing to count, not because everything failed.`\n    : `Latest ${total} review(s). Percentages are of that.`;",
+    "replace": "  const scan = `Latest ${total} review(s). Percentages are of that.`;"
+  },
+  {
+    "file": "client/index.html",
+    "name": "the L1 breakdown reads the L2 array (top-L1 section would render L2 rows)",
+    "find": "      <div class=\"rep-sec-h\">Top L1</div>${listRows(data.l1_breakdown, 8)}",
+    "replace": "      <div class=\"rep-sec-h\">Top L1</div>${listRows(data.l2_breakdown, 8)}"
+  }
+]
