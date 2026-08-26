@@ -934,10 +934,12 @@ def _sheet_blocked_by() -> str:
     """Why the sheet export cannot write, in words. "" when it can.
 
     WHY THIS IS NOT is_live("sheet_export"). That is bool(sheet_id and
-    credential), and the sheet id has a hardcoded default — so it reduces to
-    "the credential variable is non-empty", which a placeholder pasted verbatim
-    satisfies. It reported the export as live on a box whose credential had
-    never parsed.
+    credential), and while the sheet id no longer has a hardcoded default
+    (config.py — removed because it silently pointed every environment at a
+    stranger's spreadsheet), the credential side still reduces to "the env
+    var is non-empty", which a placeholder pasted verbatim satisfies. So
+    is_live can still read True on a box whose credential never parsed;
+    naming the specific blocker here is what tells those apart.
 
     What it CANNOT say is whether the sheet is shared with the service account;
     that needs a request to Google, which a heartbeat must not make. So the

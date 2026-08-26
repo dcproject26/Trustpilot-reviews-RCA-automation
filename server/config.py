@@ -109,8 +109,17 @@ DSS_SHEET_TAB           = os.getenv("DSS_SHEET_TAB", "")          # legacy, unus
 # WRITING NEEDS THE SHEET SHARED WITH THE SERVICE ACCOUNT as an editor. The
 # same credential reads three other sheets already; none of those are writable,
 # so a read that works proves nothing about this.
-RCA_EXPORT_SHEET_ID     = os.getenv("RCA_EXPORT_SHEET_ID",
-                                    "19Im-BbgWq6idQqP6SgWoEs-cx8sBwIEmimAbwAq9aBU")
+#
+# NO HARDCODED DEFAULT. An earlier version filled in a sheet id nobody in this
+# project chose; since is_live("sheet_export") reduced to "a credential env
+# var is non-empty", every environment reported the sheet as live and every
+# environment silently wrote review rows to that stranger's spreadsheet
+# (or, since it was never shared with our credential, silently didn't and
+# logged the failure at WARNING). Absence is now the honest state: unset
+# means the export refuses, is_live("sheet_export") is False, and
+# _sheet_blocked_by() names RCA_EXPORT_SHEET_ID as the missing piece. If a
+# sheet id is later chosen, set the env var — never restore the default.
+RCA_EXPORT_SHEET_ID     = os.getenv("RCA_EXPORT_SHEET_ID", "")
 RCA_EXPORT_SHEET_TAB    = os.getenv("RCA_EXPORT_SHEET_TAB", "0")
 
 # Canned responses — OPTIONAL live refresh of server/data/canned_macros.json.

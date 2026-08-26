@@ -224,6 +224,30 @@ def test_an_unconfigured_export_says_so(monkeypatch):
     assert X.on_review_arrived(R()) == {"skipped": "not configured"}
 
 
+def test_the_sheet_id_has_no_hardcoded_default(monkeypatch):
+    """A prior version defaulted RCA_EXPORT_SHEET_ID to a specific spreadsheet
+    id that nobody in this project chose — so is_live("sheet_export") reduced
+    to "a credential env var is non-empty" and every environment silently
+    wrote review rows to a stranger's sheet (or failed to and logged the
+    write failure at WARNING). Unset must mean unset: the id-blocker fires
+    before the credential is even inspected.
+
+    Read through server.config so a re-import (or a reload from another test)
+    settles to the current getenv value."""
+    import os
+    monkeypatch.delenv("RCA_EXPORT_SHEET_ID", raising=False)
+    import importlib, server.config as cfg
+    importlib.reload(cfg)
+    try:
+        assert cfg.RCA_EXPORT_SHEET_ID == "", (
+            f"unset env var must produce empty string, got "
+            f"{cfg.RCA_EXPORT_SHEET_ID!r}")
+        assert cfg.is_live("sheet_export") is False, (
+            "no sheet id must not read as live")
+    finally:
+        importlib.reload(cfg)
+
+
 def test_a_write_that_raises_does_not_reach_the_caller(monkeypatch):
     """A sheet that is unshared, renamed or rate-limited must not fail a send:
     the review going out matters and the row does not."""
@@ -633,8 +657,15 @@ def test_the_heartbeat_names_which_of_the_three_causes_it_is(client,
 
 def test_the_heartbeat_never_echoes_the_key(client, monkeypatch):
     """It is a PUBLIC endpoint — no auth. Naming the cause must not become
-    printing the credential."""
+    printing the credential.
+
+    A configured sheet id is set here because the id-blocker short-circuits
+    _sheet_blocked_by() before the credential is inspected — without it the
+    heartbeat truthfully reports "RCA_EXPORT_SHEET_ID is unset" and never
+    reaches the credential path the key would be echoed from. The key-echo
+    risk lives on the credential path, so that is the path to drive."""
     import server.config as cfg
+    monkeypatch.setattr(cfg, "RCA_EXPORT_SHEET_ID", "sheet123")
     monkeypatch.setattr(cfg, "GCP_SERVICE_ACCOUNT_JSON",
                         '{"client_email":"a@b.iam","private_key":"SEKRIT",'
                         '"token_uri":"u"}')

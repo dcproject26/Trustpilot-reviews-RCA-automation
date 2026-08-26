@@ -1,0 +1,14 @@
+[
+  {
+    "file": "server/config.py",
+    "name": "restore the hardcoded fallback sheet id",
+    "find": "RCA_EXPORT_SHEET_ID     = os.getenv(\"RCA_EXPORT_SHEET_ID\", \"\")",
+    "replace": "RCA_EXPORT_SHEET_ID     = os.getenv(\"RCA_EXPORT_SHEET_ID\", \"19Im-BbgWq6idQqP6SgWoEs-cx8sBwIEmimAbwAq9aBU\")"
+  },
+  {
+    "file": "server/config.py",
+    "name": "any nonempty default (the shape of the bug, not the specific id)",
+    "find": "RCA_EXPORT_SHEET_ID     = os.getenv(\"RCA_EXPORT_SHEET_ID\", \"\")",
+    "replace": "RCA_EXPORT_SHEET_ID     = os.getenv(\"RCA_EXPORT_SHEET_ID\", \"placeholder\")"
+  }
+]
