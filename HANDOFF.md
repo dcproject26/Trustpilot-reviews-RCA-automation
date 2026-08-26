@@ -1,8 +1,19 @@
 # ORM RCA Workbench — session handoff
 
-Everything a fresh Claude session needs to continue this work. Written
-2026-08-25. Current head: **`0a11f21`** on branch
-**`claude/vectorshift-pipeline-review-coj74p`**.
+Everything a fresh Claude session needs to continue this work.
+
+**Branch: `main`. There is no other line.** If this document ever names a
+branch that is not `main`, it is out of date and so is whatever else it tells
+you — check `git log --oneline -5` against what you are reading here before
+trusting a word of it.
+
+A stale head SHA in this header is not a small problem: a second session read
+an earlier copy, took its branch name literally, and spent its first turns
+concluding that four finished pieces of work were still open. So this header
+does not carry a SHA any more — a SHA in a hand-written file is wrong the
+moment the next commit lands, and wrong-with-authority is worse than absent.
+`git log` is the source of truth for where the code is; this file is the source
+of truth for WHY, and for what is not verified.
 
 ---
 
@@ -31,34 +42,55 @@ Slack (#team-orm-trustpilot-social)
 
 ## 2. Connecting to it
 
-### The repository
+### The repository — ONE branch, and it is `main`
 
 ```bash
 git clone https://github.com/dcproject26/Trustpilot-reviews-RCA-automation.git
-git checkout claude/vectorshift-pipeline-review-coj74p
+# main is the line. Branch from it, merge back to it.
 ```
 
-### ⚠️ The remote gotcha — read this before pushing
+**Everything is on `main`.** It used to be split: 47 commits sat unmerged on
+`claude/vectorshift-pipeline-review-coj74p` while `main` lagged behind, and a
+second session opened a branch off `main`, checked the open items "against
+current code", and correctly found the Zendesk timeline fix, the durable
+Fix-incomplete jobs, the DSS/macro selection and the Slack poller all missing —
+because they were on the other branch. All of them were finished. Nobody could
+have known from `main`.
 
-The working copy has **two remotes**, and they are not interchangeable:
+That is why this section is short now. Two lines of work that are each other's
+blind spot cost more than any merge conflict, and the conflict here was zero:
+`main` was a strict ancestor, so it fast-forwarded.
 
-| Remote | URL | Works? |
-|---|---|---|
-| `trustpilot` | `dcproject26/Trustpilot-reviews-RCA-automation` | ✅ **push here** |
-| `origin` | `dcproject26/Claude` | ❌ returns **403** |
+**If you take a branch, merge it back to `main` when you are done.** Do not
+leave finished work parked on one.
 
-**Always** `git push -u origin <branch>` → fails. Use:
+### ⚠️ Remotes differ BY SANDBOX — check yours before believing any of this
+
+A previous version of this document stated flatly that `origin` returns 403 and
+that you must push to a remote called `trustpilot`. That is true in *some*
+containers and false in others, and a second session read it, found a single
+correct `origin`, and reasonably concluded the whole document was stale.
+
+Look, do not assume:
 
 ```bash
-git push -u trustpilot claude/vectorshift-pipeline-review-coj74p
+git remote -v
 ```
+
+- **One remote, `origin` → Trustpilot-reviews-RCA-automation.** Normal. Push to
+  `origin`. Nothing below applies.
+- **Two remotes, `origin` → `dcproject26/Claude`.** That one returns **403**
+  ("Claude doesn't have GitHub access to dcproject26/Claude for your
+  organization"). Push to the one pointing at
+  `Trustpilot-reviews-RCA-automation` instead.
 
 A stop-hook fires after most turns saying *"There are N unpushed commits"*. It
-measures against `origin`, which is inaccessible, so **it is almost always a
-false alarm**. Verify with the remote that matters:
+is hardcoded to `origin/$branch` and knows about no other remote, so in the
+second case it is a **permanent false alarm**. Verify against the remote that
+actually holds the code:
 
 ```bash
-git rev-list --count trustpilot/claude/vectorshift-pipeline-review-coj74p..HEAD
+git rev-list --count <that-remote>/main..HEAD
 # 0 = everything is pushed
 ```
 
@@ -272,6 +304,73 @@ client UI behaviour (Playwright).
 
 ---
 
+## 6b. What landed AFTER the sections above were written
+
+The sections above were accurate when written and were not rewritten as the
+work continued — this block is the delta. **Where §5 and this disagree, this
+wins.**
+
+| Commit | What |
+|---|---|
+| `351b664` | Zendesk 429s: back off and honour `Retry-After` instead of returning an empty timeline |
+| `1732f23` | `tools/check_timeline.py` — why each ticket is in or out of a timeline |
+| `0a11f21` | Warehouse epoch dates parsed; reply drafted in English (output rule 16) |
+| `958ea73` | CI fix: the timeline tool died on a database with no tables |
+| `d140de4` | Bulk-bar liveness; "Picked up by" roster; plain RCA prose + jargon check |
+| `45d25a5` | **Zendesk tickets found and not read were invisible**; RCA relevance rules |
+| `59d0112` | Two clicks to post to Slack; the classification is shown before you send it |
+| `819bef8` | `tools/check_runs.py` — five causes wear one "re-running 0/1" |
+| `96b62ca` | The bulk bar would not go away because the CLIENT would not take it down |
+
+### The ones worth knowing about
+
+**A ticket we FOUND and could not READ was invisible** (`45d25a5`). A failed
+comments fetch was `log.warning(); continue` — the ticket stayed in
+`ticket_ids` so the card counted it as found, and not one word of it reached
+the timeline. "We could not open this conversation" and "this conversation is
+empty" produced identical output, and the RCA is written FROM that timeline: a
+guest wrote *"I reached out to the help chat and they confirmed the tickets
+were available"*, the chat ticket's fetch failed, and the card reported the
+contact as not being on record. An absence asserted on a lookup that failed.
+There are now three absences with three different words — prior trip and
+another-booking are DECISIONS (`pass`), unreadable is a FAILURE (`fail`).
+
+**"Picked up by" is a roster**, in `content/orm_macros.yaml` under `reviewers:`.
+A name NOT on the roster still renders (marked) and stays reassignable — a
+select that silently drops a value it has no option for would show "unassigned"
+over a review that IS assigned and write that lie on the next save.
+`tools/check_macros.py` reports the roster on every run and catches a
+`reviewer:` typo, which is valid YAML that would otherwise revert the dropdown
+to a text box in silence.
+
+**The bulk bar had THREE separate causes** and I fixed the wrong one twice
+before `tools/check_runs.py` settled it:
+1. `batch_status` picked `running[0]` from an unordered list, so a claim
+   abandoned by a dead container was displayed instead of the live run.
+2. A row that is `running`, lease-lapsed and OUT of attempts matched neither
+   branch of `claim_next` — it could never be claimed, never fail, never
+   finish, and pinned `running: true` for ever. `reap_abandoned()` ends it as
+   **failed**, not done.
+3. The one that was actually biting: the CLIENT. `bulk-status` always answers
+   about the newest batch and keeps its `finished_at` for ever, so every page
+   load painted "finished 1/1" and left it. The 20-second auto-hide lived
+   inside `else if (_bulkTimer)` — it could not fire on a reload, which is
+   exactly what someone does when a bar will not go away.
+
+   Underneath all three: the server sends `utcnow().isoformat()` with **no
+   zone**, and `new Date(bare)` reads it as LOCAL. At IST+5:30 the age comes
+   out negative, every finished batch reads as fresh, and the bar never hides.
+   Fine in UTC. **The team works in Asia/Kolkata.** `_bulkFinishedAgeS`
+   appends a `Z` only when no zone is present.
+
+**Mutation testing caught a TEST, not the code, on that last one.** The first
+UTC test passed with the fix deleted, because the browser under test runs in
+UTC where local *is* UTC — a test that can only pass in the one timezone where
+the bug does not exist. It now opens a Playwright context in `Asia/Kolkata` and
+fails loudly if that context ever comes back as UTC.
+
+---
+
 ## 7. Open items
 
 ### Needs live verification (highest value first)
@@ -280,11 +379,21 @@ client UI behaviour (Playwright).
    copy" must hold English. This is the one open correctness bug.
 2. **DSS + macro AI selection** — do the picks make sense on real reviews?
    Everything tested here ran through the keyword fallback.
-3. **"Fix incomplete"** — never exercised live. Click it, then
-   `GET /api/reviews/bulk-status` should show a live count and `run_jobs`
-   should carry rows with `reason` starting `fix-incomplete:`.
-4. **Slack ingest** — the 3-min poller should keep the DB current with no
+3. **The RCA relevance rules** (`45d25a5`) — prompt rules 2h/2i/2j/2k tell the
+   model to keep every field on the guest's stated issue, to settle the verdict
+   from the Zendesk record, and to say Unknown rather than compensate. The two
+   mechanical halves (`jargon_hits`, `fix_scope_hits`) ARE tested; the model's
+   compliance is not and cannot be here. Re-run an issue-heavy review and check
+   that "SOP / process gap" and "Closes" no longer say the same thing twice.
+4. **The unreadable-ticket line** (`45d25a5`) — re-run a review whose Zendesk
+   history is rich. If a ticket cannot be read you should now get a RED line on
+   the confidence trail naming it. If no such line ever appears on any review,
+   check it is reachable rather than assuming every fetch succeeds.
+5. **Slack ingest** — the 3-min poller should keep the DB current with no
    clicking. (`slack-poll` rows are appearing in `run_jobs`, so it is running.)
+
+~~"Fix incomplete"~~ has now been exercised live: `run_jobs` carried
+`fix-incomplete:` rows and the batch drained to `done: 83, dead: 1`.
 
 ~~Zendesk timeline~~ and ~~the durable re-run~~ are **done** — verified live,
 see §6.
@@ -328,18 +437,23 @@ python3 tools/purge_reviews.py                      # counts only
 python3 tools/purge_reviews.py --before tp_123456   # bounded
 python3 tools/purge_reviews.py --apply              # actually delete
 
-# Which tickets reach a booking's timeline, and why
-python3 - <<'PY'
-from server.services.zendesk import (_get_client, collect_tickets,
-                                     _search_with_retry, booking_id_from_ticket)
-BID = "33543686"
-z = _get_client()
-tickets, tally = collect_tickets(BID, lambda q: _search_with_retry(z, q))
-print(f"{len(tickets)} ticket(s) — {tally}\n")
-for t in tickets:
-    print(f"ZD-{t.id:<12} field={booking_id_from_ticket(t) or '(EMPTY)':<12} "
-          f"{getattr(t,'subject','')[:55]!r}")
-PY
+# Which tickets reach a booking's timeline, and why — per-ticket verdict,
+# plus whether re-runs are actually running. Delegates to the REAL pipeline
+# functions; a diagnostic that reimplements what it checks can agree with
+# itself while the pipeline does something else.
+python3 tools/check_timeline.py 33543686              # by booking id
+python3 tools/check_timeline.py tp_1787370328_197709  # by review id
+python3 tools/check_timeline.py 33543686 --rerun      # ...and queue a re-run
+
+# WHY a run is stuck. Five causes wear one "re-running 0/1", and two of them
+# are opposites: "wait, it comes back" vs "nothing will ever claim it again".
+python3 tools/check_runs.py                 # verdict per unfinished row
+python3 tools/check_runs.py --reap          # end the ones nothing will claim
+python3 tools/check_runs.py --close         # ALSO end the queued ones
+
+# The "Picked up by" roster, and whether the copy file actually parsed
+python3 tools/check_macros.py
+python3 tools/check_macros.py --file /tmp/draft.yaml   # check a draft first
 
 # Force a full Slack backfill (self-sizing window; no ?hours needed)
 curl -sS -X POST "https://$REPLIT_DEV_DOMAIN/api/reviews/refresh-slack" | python3 -m json.tool
@@ -349,7 +463,10 @@ curl -sS -X POST "https://$REPLIT_DEV_DOMAIN/api/reviews/refresh-slack" | python
 
 ## 9. Things that will waste your time if you don't know them
 
-1. **`origin` is 403.** Push to `trustpilot`. The stop-hook is a false alarm.
+1. **Check `git remote -v` before believing anything about remotes.** In some
+   containers `origin` is `dcproject26/Claude` and returns 403; in others it is
+   the Trustpilot repo and works. The stop-hook only ever measures `origin`, so
+   in the first case it is a permanent false alarm — see §2.
 2. **Full suite OOMs.** Run it in two chunks (§4).
 3. **The pipeline detaches the Review row** before the model phase. Never
    `db.merge()` it back — re-read the live row. That was the close-revert bug.
