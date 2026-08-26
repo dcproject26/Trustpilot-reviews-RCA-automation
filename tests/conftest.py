@@ -151,6 +151,63 @@ def pytest_report_collectionfinish(config, items):
             f"asyncio.run() for everything collected after it"]
 
 
+# ── "43 skipped" IS 648 TESTS, AND IT DOES NOT LOOK LIKE IT ─────────────────
+# `pytest.importorskip("playwright.sync_api")` sits at MODULE level in 43 test
+# files. Without playwright, pytest skips each MODULE — so the summary reads
+# "43 skipped", and the 648 tests inside them are never collected at all.
+#
+# A second session ran this suite in a sandbox with no playwright, reported
+# "3605 passed / 43 skipped", and reasonably read that as a clean run. It was
+# missing 15% of the suite and ONE HUNDRED PERCENT of the UI coverage — every
+# test that drives client/index.html. It then considered taking on a
+# client-side task it had no way to verify.
+#
+# That is this project's first rule wearing a pytest hat: a number that makes
+# "I could not run 648 tests" look like "43 minor skips". The count is now
+# stated in the terminal summary, with the fix, every time it happens.
+def _browser_gated_files():
+    """The test files behind the playwright gate, and how many tests are in
+    them. Counted from the files themselves rather than hardcoded, so it
+    cannot drift as browser tests are added."""
+    import pathlib
+    here = pathlib.Path(__file__).parent
+    out = []
+    for f in sorted(here.glob("test_*.py")):
+        try:
+            if 'importorskip("playwright' in f.read_text(encoding="utf-8"):
+                out.append(f.name)
+        except OSError:
+            continue
+    return out
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    try:
+        import playwright.sync_api  # noqa: F401
+        return                      # it ran; nothing to warn about
+    except Exception:
+        pass
+    files = _browser_gated_files()
+    if not files:
+        return
+    tr = terminalreporter
+    tr.write_sep("=", "BROWSER TESTS DID NOT RUN", red=True, bold=True)
+    tr.write_line(
+        f"{len(files)} file(s) were skipped because playwright is not "
+        f"installed. Those files hold ALL of this project's UI coverage — "
+        f"every test that drives client/index.html.")
+    tr.write_line(
+        "The summary above counts them as a handful of skipped MODULES, not "
+        "as the hundreds of tests they contain. A green run here is NOT a "
+        "green run.")
+    tr.write_line("")
+    tr.write_line("  python3 -m pip install playwright && playwright install chromium")
+    tr.write_line("")
+    tr.write_line(
+        "Until then, do NOT treat a client/index.html change as verified — "
+        "and say so rather than reporting the suite as passing.")
+
+
 @pytest.fixture()
 def live_db(monkeypatch):
     """A throwaway SQLite database carrying the real schema."""

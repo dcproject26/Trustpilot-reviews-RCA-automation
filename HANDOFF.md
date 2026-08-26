@@ -80,11 +80,43 @@ now" when the queue was longer — it is a small, self-contained job and a dead
 control on a shipped dashboard is worse than a missing one. If you are short of
 time, **hide the button** rather than leave it inert.
 
+### 4b. CHECK YOUR SANDBOX CAN RUN THE TESTS — "43 skipped" is 648 tests
+
+```bash
+python3 -c "import playwright.sync_api" && echo OK || \
+  echo "MISSING — 648 tests (15% of the suite, ALL UI coverage) will not run"
+```
+
+`pytest.importorskip("playwright.sync_api")` sits at MODULE level in 43 test
+files. Without playwright, pytest skips each MODULE, so the summary says
+**"43 skipped"** — and the **648 tests inside them are never collected at all.**
+That number looks harmless and is not: it is every test that drives
+`client/index.html`.
+
+A session read `3605 passed / 43 skipped` as a clean run and went on to
+consider a client-side task. Install it:
+
+```bash
+python3 -m pip install playwright && playwright install chromium
+```
+
+The suite now prints a loud **BROWSER TESTS DID NOT RUN** block when it is
+missing. **If you see that block, you cannot verify a UI change** — say so
+plainly instead of reporting the suite as passing.
+
 ### 5. Before you push
 
 Whole suite in two chunks, then mutation-test the diff (§4). Both are
 non-negotiable and both have caught real defects — including, twice, a test
-that was passing for the wrong reason.
+that was passing for the wrong reason, and once a test that could only pass in
+the timezone where its bug did not exist.
+
+**Your session may carry a branch instruction from the harness** ("develop on
+`claude/<something>`, never push elsewhere without explicit permission"). That
+outranks this document — do not push to `main` against it. Instead: push to
+your branch, say so, and tell the user the fast-forward into `main` is one
+command. Leaving finished work parked on a branch nobody merges is how four
+completed fixes came to be re-investigated as open.
 
 ---
 
