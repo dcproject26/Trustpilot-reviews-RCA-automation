@@ -288,7 +288,20 @@ There is **no `origin`** there. `git remote -v` on the repl shows:
 
 So `git push origin …` on the repl fails with *"origin: does not appear to be a
 git repository"*, and `git status -sb` reports **ahead of the subrepl remote**,
-which is the number that matters there. Check before assuming the repl is in
+which is the number that matters there.
+
+**NEVER `git fetch --all` ON THE REPL.** It walks every remote including the
+ssh ones, which stops on an interactive SSH host-key prompt — and if you pasted
+a multi-line block, that prompt reads the NEXT LINE OF YOUR PASTE as its answer
+and the rest of your commands then run out of order. Name the remote:
+
+```bash
+git fetch subrepl-b48r782g --prune
+```
+
+Same reason: paste destructive git blocks one section at a time, never as one
+block. Nothing should ever be queued in stdin behind a command that might ask a
+question. Check before assuming the repl is in
 sync with GitHub:
 
 ```bash
