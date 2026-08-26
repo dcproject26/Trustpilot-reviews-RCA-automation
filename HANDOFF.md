@@ -17,6 +17,77 @@ of truth for WHY, and for what is not verified.
 
 ---
 
+## 0. START HERE — you do not need to ask the user anything
+
+This section exists so a fresh session can begin working immediately. Read it,
+run the four commands, pick the top item. **Nothing below requires the user to
+supply context first.**
+
+### 1. Orient (60 seconds, all read-only)
+
+```bash
+git remote -v                    # THREE layouts exist — see §2 before pushing
+git log --oneline -5             # where the code actually is
+python3 tools/check_runs.py      # is anything stuck, and why
+python3 tools/check_macros.py    # did the copy file parse; who is on the roster
+```
+
+### 2. Know what you CANNOT do here, before you waste a turn on it
+
+In a Claude sandbox **every external service is dead**:
+
+```python
+is_live("anthropic")  is_live("zendesk")  is_live("bigquery")
+is_live("slack")      is_live("sheet_export")        # ALL False
+```
+
+So every AI path runs through its **keyword fallback**. This is not a bug and
+you cannot fix it. It means:
+
+- **A prompt change cannot be verified here. Ever.** You can test that the text
+  changed and that the deterministic checks around it fire. You cannot test
+  whether the model complied. Say so plainly instead of implying it works.
+- Anything needing a booking, a ticket or a Slack message is mocked.
+- `MOCK_MODE` flips `_ai_down` — **pin it** in tests (§9).
+
+The user runs the live checks on Replit. §7 lists exactly which, with the exact
+steps, so you can hand back a short list rather than a conversation.
+
+### 3. What to work on, ranked — pick from the top
+
+| # | Item | Why it is here | Can you finish it alone? |
+|---|---|---|---|
+| 1 | **FR/EN reply swap** (§7) | The one open **correctness** bug. A guest can receive a reply in the wrong language. | No — prompt only. Code is done; needs one live re-run. |
+| 2 | **Google Sheet export** (below) | Silently writing to a sheet nobody chose. | Yes — see the decision below. |
+| 3 | **"Reporting" button** (below) | Dead control on a shipped dashboard. | Yes — backend already exists. |
+| 4 | **DSS keyword-fallback precision** (§7) | On a model outage most reviews land on `cancelation` at score 1. | Yes — needs a minimum-score rule. |
+| 5 | Dashboard work | See §3b for the map. | Yes. |
+
+### 4. Two decisions already made, so you do not have to ask
+
+**Google Sheet export → DISABLE IT unless the user gives you a sheet id.**
+`RCA_EXPORT_SHEET_ID` currently falls back to a hardcoded id
+(`19Im-BbgWq...`) that nobody in this project chose, `is_live("sheet_export")`
+is False, and a failed write is logged at WARNING and never surfaces. Writing to
+a stranger's spreadsheet is worse than not exporting. Make the absence of an
+explicitly-configured id **refuse to export and say so on the dashboard**,
+rather than fall back. If the user later supplies an id, the fallback stays
+deleted.
+
+**"Reporting" button → WIRE IT.** `/api/reporting` exists and returns full
+metrics; the button has no click handler at all. The user said "leave it for
+now" when the queue was longer — it is a small, self-contained job and a dead
+control on a shipped dashboard is worse than a missing one. If you are short of
+time, **hide the button** rather than leave it inert.
+
+### 5. Before you push
+
+Whole suite in two chunks, then mutation-test the diff (§4). Both are
+non-negotiable and both have caught real defects — including, twice, a test
+that was passing for the wrong reason.
+
+---
+
 ## 1. What this project is
 
 A dashboard for Headout's CX/ORM team. It ingests 1–3★ Trustpilot reviews from
@@ -321,7 +392,12 @@ python3 -m pytest -q -p no:cacheprovider tests/test_rca_ui_rendered.py $BROWSER 
 
 ---
 
-## 5. What this session changed (19 commits, all pushed)
+## 5. What the first session changed (19 commits)
+
+> **§6b below is the delta since this was written and wins where they
+> disagree.** This section is kept as the record of its own moment rather than
+> edited into a false present tense.
+
 
 Newest first. Every one is full-suite green + mutation-tested.
 
@@ -507,10 +583,35 @@ fails loudly if that context ever comes back as UTC.
 
 ## 7. Open items
 
-### Needs live verification (highest value first)
-1. **The FR/EN reply swap** — re-run a non-English review (Frédéric's, French).
-   The box that gets SENT must hold the guest's language; the "English working
-   copy" must hold English. This is the one open correctness bug.
+### Needs live verification — HAND THIS LIST OVER, do not discuss it
+
+You cannot do any of these in a sandbox (§0.2). Copy the block below to the
+user when you need a live answer, and get on with something else meanwhile. Each
+line names the ONE observation that settles it, so the reply is a yes or a no
+rather than a conversation.
+
+> **On the Replit app, after `git pull` + Stop/Run:**
+>
+> 1. Open a **non-English** review (a French one) and press Re-run. In the reply
+>    box that gets SENT — is the text **French**? And does "English working copy
+>    — not sent" hold **English**? (If they are swapped, that is the open bug.)
+> 2. Open a review with **several guest issues**. Under "Analysis — what
+>    actually happened?", do **"SOP / process gap"** and **"Closes"** say the
+>    same thing in different words? (They should not.)
+> 3. On any RCA card, does the analysis contain raw field names like
+>    `ticket_mail_seen` or bare codes like `vid 6057` / `TGID`? (They should not
+>    — and if they slip through, they should be listed on the confidence trail.)
+> 4. On a review with a **rich Zendesk history**: does the confidence trail
+>    carry a RED line saying a ticket could not be read? (Only if one genuinely
+>    failed — but if no review EVER shows one, tell me and I will check it is
+>    reachable.)
+> 5. Do the **DSS remedy** and the **macro** picked look right for the review,
+>    or generic? (Everything I tested ran through the keyword fallback.)
+
+1. **The FR/EN reply swap** — the one open **correctness** bug. Output rule 16
+   contradicted itself, so French landed in the field the translation step
+   treats as its English source. Code is fixed and the contradictory sentence is
+   pinned as absent; only a live re-run proves the model complies.
 2. **DSS + macro AI selection** — do the picks make sense on real reviews?
    Everything tested here ran through the keyword fallback.
 3. **The RCA relevance rules** (`45d25a5`) — prompt rules 2h/2i/2j/2k tell the
@@ -526,6 +627,9 @@ fails loudly if that context ever comes back as UTC.
 5. **Slack ingest** — the 3-min poller should keep the DB current with no
    clicking. (`slack-poll` rows are appearing in `run_jobs`, so it is running.)
 
+**Do not block on any of these.** They are observations someone else has to
+make; the work in §0.3 is yours and needs nobody.
+
 ~~"Fix incomplete"~~ has now been exercised live: `run_jobs` carried
 `fix-incomplete:` rows and the batch drained to `done: 83, dead: 1`.
 
@@ -535,12 +639,14 @@ see §6.
 ### Known-broken / not fixed
 - **Google Sheet export is not live.** `is_live("sheet_export") = False`, no GCP
   creds. `RCA_EXPORT_SHEET_ID` falls back to a **hardcoded sheet id
-  (`19Im-BbgWq...`) that nobody in this conversation chose**. A failed write is
-  caught and logged at WARNING and never surfaces on the dashboard. Decide:
-  wire it to a real sheet, or disable it.
+  (`19Im-BbgWq...`) that nobody in this project chose**. A failed write is
+  caught and logged at WARNING and never surfaces on the dashboard.
+  **DECIDED (§0.4): disable the fallback** — refuse to export without an
+  explicitly-configured id and say so on the card. Do not ask; do it.
 - **"Reporting" button is dead** — no click handler at all. The backend
-  `/api/reporting` exists and returns full metrics. User chose "leave it for
-  now".
+  `/api/reporting` exists and returns full metrics. **DECIDED (§0.4): wire it**,
+  or hide the button. A dead control on a shipped dashboard is worse than a
+  missing one.
 - **DSS keyword fallback is low precision** — when the model is down, most
   reviews land on `cancelation` at score 1. Open question whether it should
   require a minimum score.
