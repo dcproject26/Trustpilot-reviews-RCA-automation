@@ -80,6 +80,28 @@ _STOPWORDS = {"the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for
               "they", "them", "their", "which", "what", "when", "where", "who",
               "guest", "booking", "booked"}
 
+# Keyword-fallback confidence bar. When the AI selector cannot run, the
+# deterministic scorer used to accept any positive score as a match. Because
+# the cancelation tab is 63 of 117 rows in the export (54%, with A/B/C
+# column triplicates of most selectors), a single common-word intersection
+# ("issues", "cancel", "guide") landed the majority of outage reviews on a
+# cancelation row at raw score 1 - a coincidence steering the RCA prompt.
+#
+# The bar is a PROPORTION, not an absolute floor: overlap / selector-kw-count.
+# An absolute floor of 2 refused a correct terse-scenario match
+# ("the guide was not at the meeting point" hitting "Guide not present at
+# MP" - overlap {guide}, raw score 1, ratio 0.5). The proportion attacks
+# the base-rate problem at its source: long cancelation selectors need a
+# proportional share of their own words, so a lone-word coincidence scores
+# worst exactly where the noise lived.
+#
+# The cut was measured against the real 117-row export by
+# tools/measure_dss_ratio.py (18 coincidence-noise words, 6 real-match
+# reviews with natural targets in the export). Coincidence max ratio: 0.333.
+# Real-match min ratio: 0.500. Midpoint gap: 0.42. Re-run the script if the
+# export grows or the token vocabulary shifts.
+MIN_KEYWORD_RATIO = 0.42
+
 _cache_tabs: dict[str, list[dict]] = {}
 _cache_at: float = 0.0
 
@@ -407,21 +429,34 @@ async def get_recommendation(
         # The old deterministic selector, kept as the FALLBACK when the AI
         # selector cannot run (no model / model error). Keyword overlap of the
         # selector column against L2 + review text.
+        #
+        # Returns (best_pair, score_with_bonus, raw_overlap, sel_kw_len,
+        # l2_hit). The extra fields are what the acceptance check below reads
+        # for the ratio bar and the L2-substring override - the scorer itself
+        # keeps the same math (intersection + 3 if L2 is a substring). Ties
+        # break by first-seen, kept as today (a stable order the tabs above
+        # rely on for the escalations-lose and non-social-loses guarantees).
         review_kw = _keywords(f"{l2 or ''} {review_text or ''}")
         b, bs = None, 0
+        b_raw, b_selkw_len, b_l2_hit = 0, 0, False
         for tb, rw in rows:
-            sc = len(review_kw & _keywords(rw.get(_sel_col(tb), "")))
-            if l2 and l2.lower() in rw.get(_sel_col(tb), "").lower():
-                sc += 3
+            sel_text = rw.get(_sel_col(tb), "")
+            sel_kw = _keywords(sel_text)
+            raw = len(review_kw & sel_kw)
+            l2_hit = bool(l2 and l2.lower() in sel_text.lower())
+            sc = raw + (3 if l2_hit else 0)
             if sc > bs:
                 b, bs = (tb, rw), sc
-        return b, bs
+                b_raw, b_selkw_len, b_l2_hit = raw, len(sel_kw), l2_hit
+        return b, bs, b_raw, b_selkw_len, b_l2_hit
 
     # Selector: AI reads the review and picks the scenario that MEANS the same
     # thing, over all filtered rows (issue type is decided here, not from L2).
     # Keyword match is the fallback on a model outage so a transient failure
     # degrades to the old behaviour, never to a false "no DSS available".
     best, best_score, selector, sel_reason = None, 0, "ai", ""
+    kw_raw, kw_selkw_len, kw_l2_hit, kw_ratio = 0, 0, False, 0.0
+    kw_matched_selector = ""
     if filtered:
         # The selector picks by SCENARIO meaning; the full prescription can be a
         # long multi-step block and there can be >100 candidates (the unified
@@ -451,15 +486,55 @@ async def get_recommendation(
                         f"({type(e).__name__}: {e}); using keyword fallback "
                         f"(review_id={review_id})")
             selector = "keyword-fallback"
-            best, best_score = _keyword_best(filtered)
+            best, best_score, kw_raw, kw_selkw_len, kw_l2_hit = \
+                _keyword_best(filtered)
+            # Confidence bar for the keyword scorer: raw overlap over the
+            # winning selector's own keyword count. An absolute floor of 2
+            # would have refused the terse-scenario match that
+            # test_dss_unified.py pins; the ratio keeps it (overlap 1 / len 2
+            # = 0.5, above the 0.42 cut) while pushing the long-cancelation
+            # single-word coincidences (ratio 0.11-0.33) below the line.
+            # An L2-substring hit overrides the ratio - the classifier
+            # explicitly naming the L2 is a stronger signal than any overlap
+            # count. The cut was measured; see MIN_KEYWORD_RATIO above.
+            if best is not None:
+                kw_ratio = (kw_raw / kw_selkw_len) if kw_selkw_len else 0.0
+                tb, rw = best
+                kw_matched_selector = rw.get(_sel_col(tb), "")
+                accept = kw_raw >= 1 and (kw_l2_hit or kw_ratio >= MIN_KEYWORD_RATIO)
+                if not accept:
+                    # NAMED, NOT SILENT (rule 1). "The keyword scorer ran and
+                    # nothing scored above the confidence bar" is a different
+                    # fact from "the scorer never ran" and from "no row
+                    # scored above zero". The below-threshold marker is what
+                    # lets dss_entry and any future diagnostic tell them
+                    # apart. Keep the ratio and overlap in the response so
+                    # the trail line can name them.
+                    log.info(f"[dss] keyword-fallback below threshold: "
+                             f"overlap={kw_raw} sel_kw_len={kw_selkw_len} "
+                             f"ratio={kw_ratio:.3f} < {MIN_KEYWORD_RATIO} "
+                             f"(selector={kw_matched_selector!r}, "
+                             f"review_id={review_id})")
+                    best, best_score = None, 0
+                    selector = "keyword-below-threshold"
 
     if not best:
         log.info(f"[dss] no scenario matched (selector={selector}) "
                  f"l1={l1!r} l2={l2!r} (review_id={review_id})")
-        return {"match_score": 0, "dss_type": "", "type_reason": type_reason,
-                "filters": filters_applied, "selector": selector,
-                "selector_reason": sel_reason, "value_note": value_note,
-                "fallback": NO_DSS_MESSAGE}
+        out = {"match_score": 0, "dss_type": "", "type_reason": type_reason,
+               "filters": filters_applied, "selector": selector,
+               "selector_reason": sel_reason, "value_note": value_note,
+               "fallback": NO_DSS_MESSAGE}
+        if selector == "keyword-below-threshold":
+            # Rule 1 extras: the specific selector that almost-won, and the
+            # exact ratio it hit. dss_entry reads these to write a trail
+            # line that names what happened, and mutation_tests can pin
+            # both the marker and the numbers.
+            out["keyword_overlap"] = kw_raw
+            out["keyword_selector_len"] = kw_selkw_len
+            out["keyword_ratio"] = round(kw_ratio, 3)
+            out["matched_selector_below_threshold"] = kw_matched_selector
+        return out
 
     tab, row = best
     return {

@@ -234,6 +234,150 @@ def test_a_delay_review_still_reaches_delay_fulfilment():
     assert not r.get("out_of_scope")
 
 
+# ── keyword-fallback precision: the ratio confidence bar ────────────────────
+#
+# When the AI selector is down, the keyword scorer used to accept any
+# positive score as a match. On the real 117-row export, cancelation is
+# 63 rows (54%, with A/B/C triplicates), so a lone common word ("issues",
+# "cancel", "guide") won by base-rate at raw score 1 — a coincidence
+# steering the RCA prompt. The bar is a PROPORTION (overlap over the
+# winning selector's own kw count), because an absolute floor of 2 refuses
+# terse-scenario correct matches like "the guide was not at the meeting
+# point" hitting "Guide not present at MP" (ratio 1/2 = 0.5). The cut
+# lives in dss.MIN_KEYWORD_RATIO and was measured against the real
+# export by tools/measure_dss_ratio.py.
+
+
+def test_keyword_fallback_refuses_a_low_ratio_coincidence():
+    # A long selector (kw count 7) with a review that shares one common word
+    # only. Raw score 1, ratio 1/7 ≈ 0.14, well below the 0.42 cut. Must be
+    # refused with the distinct marker rather than won.
+    long_row = {"cancelation_reason":
+                "Guest cancelled due to health issues from a personal "
+                "medical situation",
+                "is_partenered": "No", "for_social_media": "Yes",
+                "is_value_greater": "No",
+                "dss": "long-selector coincidence policy - must never be chosen"}
+    # ONE match candidate: this row alone in cancelation, so it wins the raw
+    # score comparison and either the ratio refuses it or it's returned.
+    def _tabs(monkeypatch):
+        async def fake(): return {"cancelation": [long_row],
+                                  "meetingPointIssue": [], "supplyPartnerIssue": [],
+                                  "delay_fulfilment": []}
+        return fake
+    import pytest as _pt
+    mp = _pt.MonkeyPatch()
+    mp.setattr(dss, "_get_tabs", _tabs(mp))
+    try:
+        r = asyncio.run(dss.get_recommendation(
+            {"isPartnered": False}, "rev_x",
+            l1="Miscellaneous Issue", l2="Cancellation",
+            review_text="I had major issues"))  # lone "issues"
+    finally:
+        mp.undo()
+    assert r.get("action") is None, \
+        f"coincidence-level row was accepted: {r.get('action')!r}"
+    assert r["selector"] == "keyword-below-threshold", r["selector"]
+    assert r["match_score"] == 0
+    assert r["keyword_overlap"] == 1, r
+    assert r["keyword_ratio"] < dss.MIN_KEYWORD_RATIO, r
+    # And it must name the specific selector that almost-won — a diagnostic
+    # written without this points at nothing.
+    assert "health" in r["matched_selector_below_threshold"].lower(), r
+
+
+def test_keyword_fallback_accepts_a_terse_scenario_high_ratio_match():
+    # The exact review from test_dss_unified.py that an absolute-2 floor
+    # would refuse: overlap {guide} on "Guide not present at MP" (kw guide/
+    # present). Raw score 1, ratio 1/2 = 0.5, ABOVE the 0.42 cut. Must be
+    # accepted. This pins that the ratio design does not regress the case
+    # the absolute floor broke.
+    mp_rows = [{"scenarios": "Guide not present at MP",
+                "dss": "guide-not-present policy"}]
+    import pytest as _pt
+    mp = _pt.MonkeyPatch()
+    async def fake(): return {"meetingPointIssue": mp_rows,
+                              "cancelation": [], "supplyPartnerIssue": [],
+                              "delay_fulfilment": []}
+    mp.setattr(dss, "_get_tabs", fake)
+    try:
+        r = asyncio.run(dss.get_recommendation(
+            {}, "rev_x", l1="Operations Issue", l2="Meeting Point Issues",
+            review_text="the guide was not at the meeting point"))
+    finally:
+        mp.undo()
+    assert r["selector"] == "keyword-fallback", r["selector"]
+    assert r["action"] == "guide-not-present policy"
+    # match_score is the summed score (2 + no bonus) - the raw overlap
+    # keeps its old semantic; the ratio is checked separately.
+    assert r["match_score"] >= 1
+
+
+def test_below_threshold_is_distinct_from_zero_score():
+    # Rule 1 pin. Two refusals in a row: one is a coincidence-level match
+    # (best row shared one word out of many), the other has no overlap at
+    # all. Both refuse with no action, and both are keyword-fallback runs,
+    # but their `selector` values must differ so the trail line and any
+    # future diagnostic can tell "one word shared" from "no word shared".
+    long_row = {"cancelation_reason":
+                "Guest cancelled due to health issues from a personal "
+                "medical situation",
+                "is_partenered": "No", "for_social_media": "Yes",
+                "is_value_greater": "No", "dss": "the long one"}
+    import pytest as _pt
+    mp = _pt.MonkeyPatch()
+    async def fake(): return {"cancelation": [long_row],
+                              "meetingPointIssue": [], "supplyPartnerIssue": [],
+                              "delay_fulfilment": []}
+    mp.setattr(dss, "_get_tabs", fake)
+    try:
+        below = asyncio.run(dss.get_recommendation(
+            {"isPartnered": False}, "rev_a",
+            l1="Miscellaneous Issue", l2="Cancellation",
+            review_text="I had major issues"))
+        zero  = asyncio.run(dss.get_recommendation(
+            {"isPartnered": False}, "rev_b",
+            l1="Miscellaneous Issue", l2="Cancellation",
+            review_text="completely unrelated topic zzz"))
+    finally:
+        mp.undo()
+    assert below.get("action") is None and zero.get("action") is None
+    assert below["selector"] == "keyword-below-threshold"
+    assert zero["selector"]  == "keyword-fallback"
+    assert below["selector"] != zero["selector"], (
+        "a one-word coincidence and a zero-overlap run must be "
+        "distinguishable in the response — rule 1")
+
+
+def test_l2_substring_hit_overrides_the_ratio_bar():
+    # The classifier explicitly naming the L2 is a stronger signal than any
+    # overlap count. A review whose L2 IS a substring of a long selector
+    # (ratio would fail on its own) must still be accepted, because the
+    # override is what keeps a classifier-signaled match from being
+    # rejected on selector length.
+    long_row = {"scenarios":
+                "Guide not present at the MP - OGC contact available",
+                "dss": "guide-not-present-OGC policy"}
+    import pytest as _pt
+    mp = _pt.MonkeyPatch()
+    async def fake(): return {"meetingPointIssue": [long_row],
+                              "cancelation": [], "supplyPartnerIssue": [],
+                              "delay_fulfilment": []}
+    mp.setattr(dss, "_get_tabs", fake)
+    try:
+        # L2 "guide not present at the MP" IS a case-insensitive substring
+        # of the selector. Raw overlap of "review" is small enough that the
+        # ratio alone would fail; the L2 hit must override.
+        r = asyncio.run(dss.get_recommendation(
+            {}, "rev_x", l1="Operations Issue",
+            l2="Guide not present at the MP",
+            review_text="something"))
+    finally:
+        mp.undo()
+    assert r["selector"] == "keyword-fallback", r["selector"]
+    assert r["action"] == "guide-not-present-OGC policy"
+
+
 # ── AI-selector path ─────────────────────────────────────────────────────────
 # In the sandbox the real select_dss_scenario raises (no model key) and the
 # keyword fallback runs. These monkeypatch it to drive the AI path itself: a

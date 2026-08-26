@@ -104,6 +104,49 @@ def test_the_four_empties_do_not_share_a_sentence():
     assert len(set(texts)) == 4, "two of the four empty states read the same"
 
 
+BELOW_THRESHOLD = {
+    "match_score": 0, "dss_type": "",
+    "selector": "keyword-below-threshold",
+    "selector_reason": "", "type_reason": "",
+    "filters": {}, "value_note": "",
+    "fallback": "No DSS available.",
+    "keyword_overlap": 1, "keyword_selector_len": 7,
+    "keyword_ratio": 0.143,
+    "matched_selector_below_threshold":
+        "Guest cancelled due to health issues from a personal medical situation",
+}
+
+
+def test_a_keyword_below_threshold_run_is_its_own_sentence():
+    """The 6th empty state. A keyword scorer that ran and did not clear the
+    confidence bar is neither "no row fits" (which is what the AI-none and
+    zero-overlap cases produce) nor "the sheet was never opened". Naming it
+    is rule 1: without a distinct sentence the reader is told the playbook
+    was checked when it was in fact only kw-scored and coincidence-refused."""
+    e = dss_entry(BELOW_THRESHOLD, None, True, "Miscellaneous Issue",
+                  "Cancellation")
+    t = _text(e)
+    assert e["mark"] == "warn"
+    # Says the scorer ran, and that the AI was unavailable.
+    assert "keyword scorer ran" in t
+    assert "AI selector was unavailable" in t
+    # Says the concrete numbers — a bare "low confidence" would be
+    # unfalsifiable, and the near-miss selector is the row a reader wants
+    # to look at first.
+    assert "1 word" in t and "7" in t
+    assert "0.14" in t
+    assert "health" in t.lower()
+    # And it must not read like the four existing empties.
+    others = {
+        dss_entry({}, None, False, "A", "B")["text"],
+        dss_entry({}, RuntimeError("x"), True, "A", "B")["text"],
+        dss_entry({}, None, True, "A", "B")["text"],
+        dss_entry(NO_MATCH, None, True, "A", "B")["text"],
+    }
+    assert t not in others, "the below-threshold line shares a sentence with " \
+                             "an existing empty state"
+
+
 @pytest.mark.parametrize("rec,err,live", [
     ({}, None, False),
     ({}, RuntimeError("x"), True),

@@ -1,0 +1,26 @@
+[
+  {
+    "file": "server/services/dss.py",
+    "name": "disable the ratio bar (any positive score wins, as before)",
+    "find": "MIN_KEYWORD_RATIO = 0.42",
+    "replace": "MIN_KEYWORD_RATIO = 0.0"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "accept below-threshold as well (the L2 override becomes always-on)",
+    "find": "                accept = kw_raw >= 1 and (kw_l2_hit or kw_ratio >= MIN_KEYWORD_RATIO)",
+    "replace": "                accept = kw_raw >= 1 or (kw_l2_hit or kw_ratio >= MIN_KEYWORD_RATIO)"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "L2 override becomes AND instead of OR (terse-scenario acceptance breaks)",
+    "find": "                accept = kw_raw >= 1 and (kw_l2_hit or kw_ratio >= MIN_KEYWORD_RATIO)",
+    "replace": "                accept = kw_raw >= 1 and (kw_l2_hit and kw_ratio >= MIN_KEYWORD_RATIO)"
+  },
+  {
+    "file": "server/services/dss.py",
+    "name": "collapse the below-threshold marker back to keyword-fallback (rule 1 distinguishability breaks)",
+    "find": "                    selector = \"keyword-below-threshold\"",
+    "replace": "                    selector = \"keyword-fallback\""
+  }
+]

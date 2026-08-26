@@ -1408,6 +1408,23 @@ def dss_entry(dss_rec, err: Exception | None, live: bool,
                 "lookup ran and the playbook came back empty, which is a "
                 "problem with the sheet rather than with this review. Nothing "
                 "below has been checked against it."}
+    if rec.get("selector") == "keyword-below-threshold":
+        # Distinct from the catch-all below. "The keyword scorer ran and
+        # nothing scored above the confidence bar" is a different fact
+        # from "no row fits" — the AI selector was unavailable, so this is
+        # a scorer confidence statement (rule 1). Name the near-miss
+        # selector and the exact overlap so a reader can see why.
+        ov  = rec.get("keyword_overlap", 0)
+        ln  = rec.get("keyword_selector_len", 0)
+        rt  = rec.get("keyword_ratio", 0.0)
+        sel = rec.get("matched_selector_below_threshold") or "(unnamed)"
+        return {"mark": "warn", "text":
+                "<strong>DSS scenario undecided</strong> — the AI selector "
+                "was unavailable, so the keyword scorer ran and the best "
+                f"row (<em>{sel}</em>) shared only {ov} word(s) out of the "
+                f"scenario's {ln} — a confidence of {rt:.2f}, below the "
+                "bar. No row was picked and the resolution below has not "
+                "been checked against one."}
     if not rec.get("action"):
         return {"mark": "warn", "text":
                 "<strong>DSS searched, no row matched</strong> — the tabs were "
