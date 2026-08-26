@@ -94,6 +94,33 @@ git rev-list --count <that-remote>/main..HEAD
 # 0 = everything is pushed
 ```
 
+**Do not "fix" `origin` by repointing it.** The Claude container re-asserts
+`origin` to `dcproject26/Claude` on its own. I set it to the real repo and
+removed the working remote; the reset restored `origin` and did NOT restore what
+I had deleted, leaving no push path at all until I added it back. Add a second
+remote, leave `origin` alone, and let the hook be wrong.
+
+### The Replit workspace has DIFFERENT remotes again — a third layout
+
+There is **no `origin`** there. `git remote -v` on the repl shows:
+
+| Remote | Points at | Use |
+|---|---|---|
+| `subrepl-b48r782g` | `dcproject26/Trustpilot-reviews-RCA-automation` | ✅ **this is GitHub** |
+| `subrepl-*` (others) | `ssh://…/home/runner/workspace` | the workspace itself |
+| `gitsafe-backup` | `git://gitsafe:5418/backup.git` | Replit's own backup |
+
+So `git push origin …` on the repl fails with *"origin: does not appear to be a
+git repository"*, and `git status -sb` reports **ahead of the subrepl remote**,
+which is the number that matters there. Check before assuming the repl is in
+sync with GitHub:
+
+```bash
+git log --oneline subrepl-b48r782g/main..HEAD   # what the repl has and GitHub does not
+```
+
+Three layouts, one repo. **Always `git remote -v` first.**
+
 ### Where it runs
 
 Replit. Two separate things:
