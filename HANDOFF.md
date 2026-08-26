@@ -138,6 +138,113 @@ This matters enormously — see §4.
 
 ---
 
+## 3b. The dashboard — `client/index.html`
+
+One file, 9k lines, **no build step and no framework**. Edit it and reload.
+That is deliberate and it is not going to change; what follows is the map,
+because "9164 lines" is not one.
+
+### Three surfaces, not three columns
+
+`state.screen` is `'inbox'` or `'case'`; `state.rcaOpen` slides the RCA over the
+case.
+
+    inbox ──click a row──▶ case ──"RCA & response →"──▶ RCA slide-over
+      ◀── "← Inbox" ───────┘                    ◀── (case stays underneath)
+
+| Function | Renders |
+|---|---|
+| `renderInbox()` | the queue table, filtered by `state.filter` + `state.search` |
+| `renderCaseHeader()` | guest, stage chip, **"Picked up by"** (`ownerControl`) |
+| `renderReviewCol()` | the story column — review, translation, timeline, facts |
+| `renderRcaCol()` | the whole RCA slide-over, all six tabs |
+
+The RCA tabs are `_RCA_TABS` inside `renderRcaCol`: **diag, inter, actions, res,
+reply, slack**, with a count badge each. `state.rcaTab` selects one.
+
+### How data gets in
+
+| Call | Gives you |
+|---|---|
+| `fetchInbox()` → `/api/reviews` | the list, into the global `REVIEWS` |
+| `loadDraftOverlays()` → `/api/reviews/{id}` | the RCA draft onto `r.rca` |
+| `loadSubThemeOptions()` → `/api/taxonomy` | L1/L2, scenarios, takedown reasons, **`REVIEWERS`** |
+
+`REVIEWS` is rebuilt wholesale by `fetchInbox`. **Never hold a reference to a
+record across an `await`** — re-find it by id afterwards. A poll landing
+mid-request otherwise leaves your write on an orphaned object while the visible
+one keeps a value that never saved. `saveOwner` carries the worked example.
+
+### How an edit gets out
+
+Every inline field is an `edSpan(path, text)` or a `data-v3sel` select, where
+`path` is a **dotted path into the draft JSON** — e.g.
+`what_went_wrong.guest_issues.0.root_cause`. On blur/change it goes to
+`saveDraft(id, patch)` → `PATCH /api/reviews/{id}/draft-v2`.
+
+`saveDraft` retries twice (400ms, 1200ms — a Replit restart is back inside two
+seconds) and on failure **says so and does not look saved**. That is the rule
+below.
+
+### The UI invariant that keeps being broken
+
+> **A bound control and an unbound one must not look alike.**
+
+An edit that appears saved and was not is the worst failure this dashboard has,
+because nobody goes back to check. Concretely:
+- a failed save **reverts** the on-screen value (`saveOwner`, `saveDraft`);
+- a `<select>` must never silently drop a stored value it has no option for —
+  it renders it, marked (`ownerControl`, the "not on the roster" option);
+- an empty state says WHICH empty it is (never set / cleared / lookup failed).
+
+### Testing a UI change — there IS a harness
+
+Playwright drives the real page against a real server. **Use it**; a source
+assertion on this file passes just as happily against a build where the line it
+names is unreachable (CLAUDE.md rule 2).
+
+```python
+from tests.test_rca_ui_rendered import page, CHROME, _rca_tab   # noqa
+
+def test_thing(page):
+    _rca_tab(page, "slack")
+    assert page.locator(".spost-row").count() > 0
+```
+
+`tests/test_rca_ui_rendered.py` (65 tests) is the harness and the biggest
+example; `test_rca_ui_contracts.py`, `test_case_header.py`,
+`test_bulk_bar_text.py`, `test_slack_post_header_and_confirm.py` import its
+`page` fixture. The fixture is **module-scoped** and reseeds the DB, so one
+module's clicks do not reach the next — but a live 4-second UI timer DOES leak
+between tests in the same module (see `_reset` in
+`test_slack_post_header_and_confirm.py`).
+
+**It runs in UTC.** A timezone bug cannot be caught by a test in the timezone
+where the bug does not exist — open your own context
+(`ui_browser.new_context(timezone_id="Asia/Kolkata")`) and assert the context is
+not UTC. `test_a_bare_timestamp_is_utc_in_a_non_utc_browser` is the pattern, and
+it exists because a mutation caught my *test*, not my code.
+
+### The Slack post composer
+
+`_genSlackText()` builds the post; `SECTIONS` is the ordered list of
+`[key, label, body]` — **booking, wwr, support, sp, actions, aoi, resolution,
+takedown, insights**. The header block (BID line + `Issue:` classification) is
+`_genSlackText.header` and renders as its own read-only row.
+
+Several bodies (`wwr`, `booking`, `support`) are **composed server-side** and
+rendered verbatim. That is not an accident: two composers for one block is how
+`Fix: [object Object]` reached a real Slack post from the client half while the
+server's copy of the same section was correct. If you are tempted to build a
+section in JavaScript, build it in Python and send it.
+
+Editing a row recomposes the **whole** post from the rows
+(`_recomposeSlack`) into a hidden `[data-slack-edit]` mirror, which is what the
+Post button sends. Posting takes **two clicks** on every send.
+
+
+---
+
 ## 4. Non-negotiable working rules
 
 `CLAUDE.md` in the repo root is the source of truth. Read it first. The
