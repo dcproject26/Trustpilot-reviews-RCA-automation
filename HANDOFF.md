@@ -135,6 +135,40 @@ completed fixes came to be re-investigated as open.
 
 ---
 
+## 0b. Branches — there is one line, the rest are disposable
+
+`main` is the line. Everything else on the remote is either an ACTIVE session's
+working branch or dead weight. Checked 2026-08-26; every branch below carried
+**0 commits that `main` does not have**, so nothing was ever at risk:
+
+| Branch | State |
+|---|---|
+| `main` | **the line** |
+| `claude/<session>` | one per Claude session. Disposable the moment its work is in `main`. |
+| `archive/main-v4-line-2026-08-01` | fully merged, 411 behind |
+| `feature/checklist-slack-edit` | fully merged, 629 behind |
+| `wip-snapshot-1`, `wip-snapshot-latest` | 3-week-old agent snapshots. Each shows 1 "unique" commit, which is **superseded, not lost** — `venue_resolver.py`, `bid_indicator_check.py` and their tests are all on `main` in longer, finished form. |
+
+**Why the branches keep appearing, and why that is fine.** Each Claude session's
+harness issues it a branch and forbids pushing elsewhere without permission —
+`CLAUDE.md` §0 is that permission. So a session pushes to BOTH its branch and
+`main`. The branch is then a duplicate of work already landed, and deleting it
+costs nothing.
+
+**Before deleting any branch, prove it holds nothing:**
+
+```bash
+git fetch --all --prune
+for b in $(git branch -r | grep -v HEAD | grep -v /main | sed 's|.*origin/||'); do
+  echo "$b: $(git rev-list --count origin/main..origin/$b) commit(s) not in main"
+done
+# 0 = safe to delete.   Anything else = STOP, merge it first.
+git push origin --delete <branch>
+```
+
+**Do not delete a branch an active session is pushing to** — it will fail on its
+next push with no idea why. Delete it when that session is finished.
+
 ## 1. What this project is
 
 A dashboard for Headout's CX/ORM team. It ingests 1–3★ Trustpilot reviews from
