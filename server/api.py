@@ -35,7 +35,8 @@ from server.db import get_session, Review, RcaDraft, ReviewMetric
 from server import jobs
 from server.taxonomy import L1_CATEGORIES, L2_OPTIONS, DIAGNOSTIC_CHECKS, ACTION_TABS, SUB_THEME_REGISTRY
 from server.checklist import SCENARIO_CHECKS
-from server.prompts import TAKEDOWN_REASONS, REVIEWERS
+from server.prompts import (TAKEDOWN_REASONS, REVIEWERS,
+                            REVIEWER_SLACK_IDS, REVIEW_TEAM_SUBTEAM_ID)
 from server.config import status_summary, is_live, MOCK_MODE
 from server.services.slack import format_rca_slack, post_to_thread
 from server.services.claude import flag_to_biz_message
@@ -1713,6 +1714,13 @@ def get_taxonomy():
         # not parse). The client says so instead of drawing a dropdown
         # with nothing in it, which reads as "nobody can be assigned".
         "reviewers": REVIEWERS,
+        # Slack ids for REAL @mentions, so the dashboard preview builds the SAME
+        # mention markup the server posts — a preview that differs from the post
+        # is the drift this avoids. Name -> member id, plus the review-team
+        # group id. Both can be empty (none configured); the client then shows
+        # plain text, exactly as the post does.
+        "reviewer_slack_ids": REVIEWER_SLACK_IDS,
+        "review_team_subteam_id": REVIEW_TEAM_SUBTEAM_ID,
     }
 
 

@@ -928,6 +928,39 @@ def _reviewers(macros) -> list:
 
 REVIEWERS = _reviewers(MACROS)
 
+
+# The roster name -> Slack member id map, and the review-team user group id,
+# used to build REAL Slack mentions in the RCA thread post (see
+# slack.reviewer_mention / review_team_mention). Served to the dashboard via
+# /api/taxonomy too, so the preview builds the same markup that gets posted.
+def _reviewer_slack_ids(macros) -> dict:
+    """Roster name -> Slack member id, cleaned. FUNCTIONS so the empty/blank
+    cases can be driven. A pair maps only when BOTH the name and a non-empty id
+    are present — a blank YAML value parses as None, and a mention to "None"
+    would ping nobody while looking like it tagged someone (the first rule of
+    CLAUDE.md: a broken tag must not read like a real one)."""
+    raw = macros.get("reviewer_slack_ids") or {}
+    out = {}
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            if k is None or v is None:
+                continue
+            name, sid = str(k).strip(), str(v).strip()
+            if name and sid:
+                out[name] = sid
+    return out
+
+
+def _review_team_subteam_id(macros) -> str:
+    """The @reviewteam user-group id, or "" when unset — the caller falls back
+    to plain '@reviewteam' text rather than emitting an empty <!subteam^> tag."""
+    v = macros.get("review_team_subteam_id")
+    return str(v).strip() if v is not None else ""
+
+
+REVIEWER_SLACK_IDS = _reviewer_slack_ids(MACROS)
+REVIEW_TEAM_SUBTEAM_ID = _review_team_subteam_id(MACROS)
+
 # Also used by booking matching, not only by the greeting: a Trustpilot display
 # name of "Frau Nicole" must not be searched for as a guest name. One list, in
 # the copy file, so adding a title fixes both places at once.

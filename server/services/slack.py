@@ -871,6 +871,46 @@ async def post_to_thread(channel: str, thread_ts: str, text: str) -> str | None:
         return None
 
 
+def review_team_mention() -> str:
+    """The @reviewteam tag as REAL Slack markup — <!subteam^ID> — which pings
+    the group, when the id is configured. Falls back to the literal
+    '@reviewteam' (plain text, no ping) when unset, so the header still reads
+    sensibly instead of showing an empty tag. This literal is exactly the bug we
+    are fixing, so it survives only as the no-id fallback, never as the default.
+    """
+    from server.prompts import REVIEW_TEAM_SUBTEAM_ID
+    return f"<!subteam^{REVIEW_TEAM_SUBTEAM_ID}>" if REVIEW_TEAM_SUBTEAM_ID else "@reviewteam"
+
+
+def reviewer_mention(name) -> str:
+    """The picked-up-by person as a real <@ID> mention when we have their id;
+    the plain NAME when they are on no id map (shown, not dropped — a person we
+    cannot tag must not read like an unassigned review); "" when nobody is
+    assigned. Driven so the three outcomes can be told apart in a test."""
+    from server.prompts import REVIEWER_SLACK_IDS
+    n = (name or "").strip()
+    if not n:
+        return ""
+    sid = REVIEWER_SLACK_IDS.get(n)
+    return f"<@{sid}>" if sid else n
+
+
+def build_rca_header(review, booking, nl="\n") -> str:
+    """The post header: team tag, the BID/author/stars line, and — UNDER it —
+    a 'Picked up by <@ID>' line when the review has an owner. Kept a function so
+    the mention wiring is testable without running the whole formatter, and so
+    the Python post and the JS preview build the same header from the same map.
+    """
+    stars = "★" * int(getattr(review, "rating", 0) or 0)
+    head = (f"*RCA — {review_team_mention()}*{nl}"
+            f"BID {(booking or {}).get('id', '—')} · "
+            f"{getattr(review, 'author', '') or '—'} · {stars or '—'}")
+    owner = reviewer_mention(getattr(review, "picked_up_by", "") or "")
+    if owner:
+        head += f"{nl}Picked up by {owner}"
+    return head
+
+
 def format_rca_slack(review, draft) -> str:
     """
     Format the RCA draft into the #team-orm-online-reputation Slack post.
@@ -882,11 +922,8 @@ def format_rca_slack(review, draft) -> str:
     div = "_" * 61
     nl  = "\n"
 
-    # 1. Header
-    stars = "★" * int(getattr(review, "rating", 0) or 0)
-    header = (f"*RCA — @reviewteam*{nl}"
-              f"BID {b.get('id', '—')} · {getattr(review, 'author', '') or '—'}"
-              f" · {stars or '—'}")
+    # 1. Header — real @reviewteam tag plus, under it, the picked-up-by owner.
+    header = build_rca_header(review, b, nl)
 
     # An RCA in the v3 shape formats from that shape. This function is what
     # Send posts when the associate has not edited the preview, so if it kept

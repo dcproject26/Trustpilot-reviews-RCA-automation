@@ -364,3 +364,20 @@ reviewers:
     - "Shruti"
     - "Paul"
     - "Test"
+
+# Slack IDs for REAL @mentions in the RCA thread post — the difference between a
+# tag that pings and the plain text "@reviewteam" that pinged nobody. Maps the
+# roster names above to Slack member ids, plus the review-team user group.
+#
+# A roster name with NO id here still renders on the post — as plain text, no
+# ping — rather than being dropped: a person we cannot tag and a review nobody
+# picked up must not look the same. Edit alongside the roster when someone joins
+# or leaves; a name with no id simply is not tagged until one is added.
+reviewer_slack_ids:
+    Devshree: "U02B2KJF2T0"
+    Swagatom: "U070N49J2SG"
+    Avi: "U06T7NGGC2K"
+    Shruti: "U02B9KNGVCK"
+    Paul: "U03BA9B2HL1"
+# The @reviewteam Slack user group, tagged as <!subteam^ID> in the header.
+review_team_subteam_id: "S01CEB05D4H"
