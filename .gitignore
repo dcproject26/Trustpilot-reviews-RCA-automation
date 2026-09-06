@@ -22,6 +22,8 @@ local.db-*
 # Diagnostic output, regenerated on demand.
 diagnose_report.txt
 demo.db
+test_run.db
+test_run.db-*
 
 # Snapshot loop and mutation shard logs. Local scratch: the container has
 # rewound repeatedly and /tmp has been cleared mid-run, so these live in the
