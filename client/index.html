@@ -7075,7 +7075,7 @@ function renderRcaCol() {
         return `<div class="res-block">
           <div class="res-head">
             <span class="res-label">Outcome category</span>
-            <select class="chip-select" data-outcome-cat>
+            <select class="res-reason" data-outcome-cat>
               <option value="">Select an option</option>
               ${OUTCOME_CATS.map(o =>
                 `<option${o === ocVal ? ' selected' : ''}>${esc(o)}</option>`).join('')}
