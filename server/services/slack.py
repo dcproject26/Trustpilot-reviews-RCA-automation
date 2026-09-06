@@ -1492,6 +1492,10 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
         verdict = td.get("verdict") or ("Yes" if td.get("recommended") else "No")
         sections.append(("Review takedown", f"• {verdict}"))
 
+    oc = v3.get("outcome_category") or ""
+    if oc:
+        sections.append(("Outcome category", oc))
+
     # WAS THE PRESCRIBED PATH TAKEN. Only meaningful where the guest contacted
     # support BEFORE the review, which `dss_check` decides from the timeline —
     # so null here is "the check did not apply", NOT a pass and NOT a miss,

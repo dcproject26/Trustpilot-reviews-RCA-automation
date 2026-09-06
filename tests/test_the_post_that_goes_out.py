@@ -355,3 +355,27 @@ def test_the_page_renders_that_block_rather_than_rebuilding_it():
     i = src.index("['booking',   'Booking details'")
     assert "fulfilmentType" not in src[i:i + 400], \
         "the page is composing the booking block itself"
+
+
+# ── outcome category reaches the Slack post ──────────────────────────────────
+
+def test_outcome_category_appears_in_the_post(live_db):
+    """When outcome_category is set in rca_v3, the Slack post must include it."""
+    from server.services.slack import format_rca_slack
+    rid = "tp_oc_post"
+    s = live_db.SessionLocal()
+    s.add(live_db.Review(id=rid, rating=1, author="R", body_original="b",
+                         status="draft"))
+    s.add(live_db.RcaDraft(
+        id=f"d_{rid}", review_id=rid, booking={"id": "1"},
+        rca_v3={"what_went_wrong": {"guest_issues": [], "fixes": [], "gaps": []},
+                "flags": [],
+                "outcome_category": "CO Error-[CE/RO- comms/SOP related]"}))
+    s.commit()
+    r = s.query(live_db.Review).filter_by(id=rid).first()
+    d = s.query(live_db.RcaDraft).filter_by(review_id=rid).first()
+    txt = format_rca_slack(r, d)
+    s.close()
+    assert "Outcome category" in txt, "the Slack post is missing the Outcome category heading"
+    assert "CO Error-[CE/RO- comms/SOP related]" in txt, \
+        "the Slack post does not carry the selected outcome value"

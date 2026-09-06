@@ -673,6 +673,7 @@ DRIVEN = {
     "data-english-panel",      # …::test_an_english_review_draws_one_box_and_no_translation
     "data-english-stale",      # …::test_a_stale_english_copy_says_so_on_screen
     "data-english-status",     # …::test_the_boxes_say_they_disagree_while_a_translation…
+    "data-outcome-cat",        # test_outcome_category_select_renders_in_resolution_tab
 }
 
 # Not controls: status targets, stamps and identifiers the handlers read.
@@ -803,7 +804,7 @@ def test_the_driven_list_has_not_gone_stale(page):
     # internal events to hide, which this fixture's does not.
     always_on = {"data-log-add", "data-slack-drop",
                  "data-v3p", "data-dss-edit", "data-scenario-add",
-                 "data-takedown-rec"}
+                 "data-takedown-rec", "data-outcome-cat"}
     missing = sorted(always_on - found)
     assert not missing, (
         f"{missing} are listed as driven but no longer render on a normal "
@@ -1623,3 +1624,48 @@ def test_an_unreachable_server_says_the_edit_is_not_saved(page):
     assert "NOT been saved" in got, got
     assert "Failed to fetch" not in got, \
         "the browser's own phrase is still what the reader is given"
+
+
+# ── Outcome category ────────────────────────────────────────────────────────
+
+def test_outcome_category_select_renders_in_resolution_tab(page):
+    """The dropdown must be present in the Resolution tab with all 10 options
+    from the taxonomy. Client-side JS, tested by clicking."""
+    page.evaluate("() => { const m = document.getElementById('reporting-modal'); if (m) m.remove(); }")
+    _reveal(page, '[data-outcome-cat]')
+    opts = page.evaluate("""() => {
+      const sel = document.querySelector('[data-outcome-cat]');
+      if (!sel) return null;
+      return [...sel.options].map(o => o.value).filter(Boolean);
+    }""")
+    assert opts is not None, "no [data-outcome-cat] select found on the page"
+    from server.taxonomy import OUTCOME_CATEGORIES
+    assert opts == OUTCOME_CATEGORIES, (
+        f"the dropdown has {len(opts)} options, expected {len(OUTCOME_CATEGORIES)}")
+
+
+def test_outcome_category_saves_via_persist_v3(page):
+    """Selecting a value fires persistV3 and the server receives the string
+    in rca_v3.outcome_category."""
+    page.evaluate("() => { const m = document.getElementById('reporting-modal'); if (m) m.remove(); }")
+    _reveal(page, '[data-outcome-cat]')
+    got = page.evaluate("""async () => {
+      let captured = null;
+      const real = window.fetch;
+      window.fetch = async (u, o) => {
+        if (String(u).includes('/draft-v2') && o && o.method === 'PATCH') {
+          captured = JSON.parse(o.body);
+        }
+        return real(u, o);
+      };
+      const sel = document.querySelector('[data-outcome-cat]');
+      sel.value = sel.options[1].value;
+      sel.dispatchEvent(new Event('change', {bubbles: true}));
+      await new Promise(r => setTimeout(r, 600));
+      window.fetch = real;
+      return captured;
+    }""")
+    assert got is not None, "no PATCH was sent after selecting an outcome"
+    v3 = got.get("rca_v3", {})
+    assert isinstance(v3.get("outcome_category"), str), (
+        f"outcome_category was not a string in rca_v3: {v3}")

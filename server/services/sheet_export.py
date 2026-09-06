@@ -161,7 +161,7 @@ COLUMNS = [
     "actions_taken",
     "dss_prescribes", "dss_ref", "dss_followed",
     "insights",
-    "resolution", "takedown", "flags",
+    "resolution", "takedown", "outcome_category", "flags",
     "zendesk_tickets", "rca_posted_at", "sent_at",
     # WHICH KIND OF SENT. db.py records sent_route precisely because three
     # different pieces of work end at status="sent" — a reply that went out, an
@@ -497,6 +497,7 @@ def row_for(review, draft, now: datetime | None = None,
 
         "resolution":    getattr(d, "resolution", "") if d else "",
         "takedown":      takedown.get("verdict") or "",
+        "outcome_category": v3.get("outcome_category") or "",
         "flags":         [f.get("flag") for f in (v3.get("flags") or [])
                           if isinstance(f, dict)],
 

@@ -790,3 +790,17 @@ def support_tags_for(l1: str, l2: str):
     if l1 == "Supply Partner Issue":
         return SUPPORT_TAG_MAP.get(("Supply Partner Issue", "__all__"))
     return SUPPORT_TAG_MAP.get((l1, l2))
+
+
+OUTCOME_CATEGORIES = [
+    "NAR - General review/Untraceable",
+    "Guest error-[Booking error/Personal Reason/Reschedule/No Show/Late Arrival]",
+    "SP issues-[Tour/Guide/Cancellation/Quality/Comms]",
+    "CO Error-[CE/RO- comms/SOP related]",
+    "HO error- [Content/Catalog/Inventory]",
+    "Delay FF-[Automation Issue/Selenium Issue/IO Issue]",
+    "Pricing Issue-[Higher than venue/Exp not worth]",
+    "AG issue[Quality Issue/Pricing Issue]",
+    "Brand/Website Misrepresentation as Venue",
+    "Vendor service issue",
+]

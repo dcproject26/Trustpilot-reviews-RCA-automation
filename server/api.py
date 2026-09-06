@@ -33,7 +33,7 @@ _STARTED_AT = datetime.now(_tz.utc).isoformat()   # when THIS process booted
 
 from server.db import get_session, Review, RcaDraft, ReviewMetric
 from server import jobs
-from server.taxonomy import L1_CATEGORIES, L2_OPTIONS, DIAGNOSTIC_CHECKS, ACTION_TABS, SUB_THEME_REGISTRY
+from server.taxonomy import L1_CATEGORIES, L2_OPTIONS, DIAGNOSTIC_CHECKS, ACTION_TABS, SUB_THEME_REGISTRY, OUTCOME_CATEGORIES
 from server.checklist import SCENARIO_CHECKS
 from server.prompts import TAKEDOWN_REASONS, REVIEWERS
 from server.config import status_summary, is_live, MOCK_MODE
@@ -1713,6 +1713,7 @@ def get_taxonomy():
         # not parse). The client says so instead of drawing a dropdown
         # with nothing in it, which reads as "nobody can be assigned".
         "reviewers": REVIEWERS,
+        "outcome_categories": OUTCOME_CATEGORIES,
     }
 
 

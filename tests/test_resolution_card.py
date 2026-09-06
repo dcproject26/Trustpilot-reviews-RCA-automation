@@ -72,7 +72,7 @@ def test_the_three_parts_are_in_the_handoff_s_order(page):
             .find(s => /Resolution/.test(s.textContent));
           return [...sec.querySelectorAll('.dss-label,.res-label')]
             .map(e => e.textContent.trim()); }""")
-        assert order == ["DSS", "Resolution", "Takedown request"], order
+        assert order == ["DSS", "Resolution", "Takedown request", "Outcome category"], order
     finally:
         _restore(page)
 

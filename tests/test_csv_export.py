@@ -639,3 +639,35 @@ def test_the_header_survives_a_row_that_failed_to_build():
     assert parsed[0] == list(COLUMNS)
     assert len(parsed[1]) == len(COLUMNS), "the row is not header-width"
     assert parsed[1][COLUMNS.index("export_error")] == "ValueError: boom"
+
+
+# ── outcome category ────────────────────────────────────────────────────────
+
+def test_outcome_category_appears_in_columns_and_row():
+    """The column exists in COLUMNS and row_for() populates it from rca_v3."""
+    assert "outcome_category" in SX.COLUMNS, "outcome_category missing from COLUMNS"
+
+    class D:
+        id = "d_tp_oc"
+        review_id = "tp_oc"
+        resolution = ""
+        insights = None
+        booking = {"id": "1"}
+        support_interaction_frames = []
+        rca_v3 = {"outcome_category": "SP issues-[Tour/Guide/Cancellation/Quality/Comms]",
+                  "flags": []}
+        zendesk_ticket_ids = []
+        rca_posted_at = None
+        sent_at = None
+        final_response = ""
+        suggested_response = ""
+        l1 = ""
+        l2 = ""
+        takedown = None
+
+    row = SX.row_for(R(rid="tp_oc"), D())
+    assert row["outcome_category"] == "SP issues-[Tour/Guide/Cancellation/Quality/Comms]"
+
+    row_empty = SX.row_for(R(rid="tp_oc2"), None)
+    assert row_empty["outcome_category"] == "", \
+        "a review with no draft should export an empty outcome_category"

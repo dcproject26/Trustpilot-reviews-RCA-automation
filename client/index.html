@@ -1772,6 +1772,7 @@ let TAKEDOWN_REASONS = [];
 // to assign this to".
 let REVIEWERS = [];
 let REVIEWERS_LOADED = false;
+let OUTCOME_CATS = [];
 
 async function loadSubThemeOptions() {
   try {
@@ -1795,6 +1796,7 @@ async function loadSubThemeOptions() {
     // so "the roster is empty" and "the roster never arrived" stay two
     // different sentences on the card instead of one blank dropdown.
     REVIEWERS_LOADED = true;
+    OUTCOME_CATS = t.outcome_categories || [];
   } catch (e) { /* leave empty — row still shows the assigned sub_theme */ }
   // re-render so the sub-theme row appears once options are available
   if (typeof renderRcaCol === 'function' && state.selected) renderRcaCol();
@@ -5859,6 +5861,7 @@ function renderRcaCol() {
       ['aoi',       'Area of improvement',   aoiText],
       ['resolution','Resolution',            rca.resolution || '—'],
       ['takedown',  'Review takedown',       takedownText],
+      ['outcome',   'Outcome category',      v3d.outcome_category || '—'],
       ['insights',  'Experience insights',   insText],
     ];
     // The section list, so the chips above and the derive-from-text below
@@ -6684,6 +6687,7 @@ function renderRcaCol() {
       !!(v3d.dss || {}).prescribes,
       !!(_res5 && _res5 !== '—'),
       !!(_td5.verdict || _td5.recommended != null),
+      !!(v3d.outcome_category),
     ].filter(Boolean).length,
     reply: (rca.reply || '').trim() ? 1 : 0,
     slack: 0,
@@ -7040,6 +7044,20 @@ function renderRcaCol() {
               <option value=""${chosen ? '' : ' selected'}>Select an option</option>
               ${TAKEDOWN_REASONS.map(o =>
                 `<option${chosen === o ? ' selected' : ''}>${esc(o)}</option>`).join('')}
+            </select>
+          </div>
+        </div>`;
+      })()}
+
+      ${(() => {
+        const ocVal = v3d.outcome_category || '';
+        return `<div class="res-block">
+          <div class="res-head">
+            <span class="res-label">Outcome category</span>
+            <select class="chip-select" data-outcome-cat>
+              <option value="">Select an option</option>
+              ${OUTCOME_CATS.map(o =>
+                `<option${o === ocVal ? ' selected' : ''}>${esc(o)}</option>`).join('')}
             </select>
           </div>
         </div>`;
@@ -8067,6 +8085,12 @@ function renderRcaCol() {
     if (tdWhy.value) td.reason = tdWhy.value; else delete td.reason;
     rca.v3.takedown = td;
     await persistV3(tdWhy);
+  });
+
+  const ocSel = col.querySelector('[data-outcome-cat]');
+  if (ocSel) ocSel.addEventListener('change', async () => {
+    rca.v3.outcome_category = ocSel.value || null;
+    await persistV3(ocSel);
   });
 
   // ── the compensation pair ───────────────────────────────────────────────

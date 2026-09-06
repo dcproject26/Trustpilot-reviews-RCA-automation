@@ -1,0 +1,26 @@
+[
+  {
+    "name": "remove OUTCOME_CATEGORIES definition",
+    "file": "server/taxonomy.py",
+    "find": "OUTCOME_CATEGORIES = [",
+    "replace": "OUTCOME_CATEGORIES = []; _DEAD = ["
+  },
+  {
+    "name": "delete outcome_category from CSV row_for",
+    "file": "server/services/sheet_export.py",
+    "find": "\"outcome_category\": v3.get(\"outcome_category\") or \"\",",
+    "replace": ""
+  },
+  {
+    "name": "delete outcome_category from Slack post",
+    "file": "server/services/slack.py",
+    "find": "    oc = v3.get(\"outcome_category\") or \"\"\n    if oc:\n        sections.append((\"Outcome category\", oc))",
+    "replace": ""
+  },
+  {
+    "name": "break data-outcome-cat attribute in render",
+    "file": "client/index.html",
+    "find": "data-outcome-cat>",
+    "replace": "data-outcome-catx>"
+  }
+]
