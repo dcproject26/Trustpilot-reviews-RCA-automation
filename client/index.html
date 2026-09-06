@@ -1773,6 +1773,11 @@ let TAKEDOWN_REASONS = [];
 let REVIEWERS = [];
 let REVIEWERS_LOADED = false;
 let OUTCOME_CATS = [];
+// Slack ids for REAL @mentions in the Slack preview, from /api/taxonomy — the
+// same map the server posts with, so the preview builds identical markup and
+// what you see is what gets sent. Empty until taxonomy loads (then plain text).
+let REVIEWER_SLACK_IDS = {};      // roster name -> Slack member id
+let REVIEW_TEAM_SUBTEAM_ID = '';  // the @reviewteam user group id
 
 async function loadSubThemeOptions() {
   try {
@@ -1792,6 +1797,8 @@ async function loadSubThemeOptions() {
     L1_CATEGORIES = t.l1_categories || [];
     L2_OPTIONS = t.l2_options || {};
     REVIEWERS = t.reviewers || [];
+    REVIEWER_SLACK_IDS = t.reviewer_slack_ids || {};
+    REVIEW_TEAM_SUBTEAM_ID = t.review_team_subteam_id || '';
     // Set only on a call that came back. A fetch that threw leaves this false,
     // so "the roster is empty" and "the roster never arrived" stay two
     // different sentences on the card instead of one blank dropdown.
@@ -5701,7 +5708,21 @@ function renderRcaCol() {
     const nl = '\n';
     const div = '_'.repeat(61);
     const stars = '★'.repeat(parseInt(r.rating) || 0);
-    const header = 'RCA — @reviewteam' + nl + 'BID ' + (b.bid || '—') + ' · ' + (r.author || '—') + ' · ' + (stars || '—');
+    // Real Slack mention markup, mirrored from slack.py (review_team_mention /
+    // reviewer_mention) so this preview is exactly what gets posted. Client-side
+    // JS has no test harness here (CLAUDE.md rule 2) — the Python side is the
+    // tested copy; keep the two in step by hand.
+    // typeof-guarded: this function is extracted and run in isolation by the
+    // JS post-format harness, and in the app it can run before taxonomy loads —
+    // either way the globals may be undefined. Undefined -> plain text, same as
+    // the server's no-id fallback.
+    const stId = (typeof REVIEW_TEAM_SUBTEAM_ID !== 'undefined' && REVIEW_TEAM_SUBTEAM_ID) ? REVIEW_TEAM_SUBTEAM_ID : '';
+    const idMap = (typeof REVIEWER_SLACK_IDS !== 'undefined' && REVIEWER_SLACK_IDS) ? REVIEWER_SLACK_IDS : {};
+    const teamTag = stId ? '<!subteam^' + stId + '>' : '@reviewteam';
+    const ownerName = (r.owner || '').trim();
+    const ownerTag = !ownerName ? '' : (idMap[ownerName] ? '<@' + idMap[ownerName] + '>' : ownerName);
+    let header = 'RCA — ' + teamTag + nl + 'BID ' + (b.bid || '—') + ' · ' + (r.author || '—') + ' · ' + (stars || '—');
+    if (ownerTag) header += nl + 'Picked up by ' + ownerTag;
     const l1 = rca.issueL1 || '—', l2 = rca.issueL2 || '—';
     const sub = rca.subTheme || '';
     const scenAll = [rca.primaryScenario, ...(rca.overlayScenarios || [])].filter(Boolean);
