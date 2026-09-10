@@ -1387,6 +1387,28 @@
   .rep-empty  { font-size: 11px; color: var(--empty); font-style: italic; }
   .rep-err    { font-size: 12px; color: var(--red); }
 
+  /* Daily digest panel — preview + edit + send, at the top of Reporting.
+     The textarea holds the EXACT Slack text; editing it changes only what
+     THIS manual send posts, never the 8pm scheduled one (that rebuilds
+     fresh in-container). Monospace so the aligned columns read as they
+     will in Slack. */
+  .rep-daily      { border: 1px solid var(--border); border-radius: 8px;
+                    padding: 10px 12px; margin-bottom: 16px;
+                    background: var(--facts-bg); }
+  .rep-daily-h    { display: flex; align-items: center; justify-content: space-between;
+                    margin-bottom: 8px; }
+  .rep-daily-t    { font-size: 12px; font-weight: 650; color: var(--text); }
+  .rep-daily-sub  { font-size: 10.5px; color: var(--muted-2); }
+  .rep-daily-ta   { width: 100%; box-sizing: border-box; min-height: 180px;
+                    font: 12px/1.5 var(--mono); color: var(--text);
+                    background: var(--bg); border: 1px solid var(--border);
+                    border-radius: 6px; padding: 8px 10px; resize: vertical;
+                    white-space: pre; overflow-x: auto; }
+  .rep-daily-act  { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .rep-daily-msg  { font-size: 11px; }
+  .rep-daily-msg.ok  { color: var(--green, #2F7A4D); }
+  .rep-daily-msg.err { color: var(--red); }
+
   /* misc */
   .pill-sm { font-size: 10px; padding: 1px 6px; border-radius: 5px; }
   .pill-grey { background: var(--hover-fill); color: var(--muted); }
@@ -9266,6 +9288,7 @@ function renderReportingBody(body, data) {
   };
 
   body.innerHTML = `
+    <div data-daily-panel></div>
     <div class="rep-scan">${esc(scan)}</div>
     <div class="rep-tiles">${tileHtml}</div>
     <div class="rep-sec">
@@ -9281,6 +9304,90 @@ function renderReportingBody(body, data) {
       <div class="rep-sec-h">Top L2</div>${listRows(data.l2_breakdown, 8)}
     </div>
   `;
+  // The daily-digest panel sits above the metrics. Loaded after the body is in
+  // the DOM so its own fetch/failure is independent of the metrics render — one
+  // can fail without blanking the other.
+  const dailyHost = body.querySelector('[data-daily-panel]');
+  if (dailyHost) loadDailyPanel(dailyHost);
+}
+
+// Daily digest: preview (editable) + send to the reports channel, on demand.
+// The scheduled 8pm-IST post is separate and rebuilds fresh in-container; this
+// panel is for previewing/editing and sending manually. Client JS has no test
+// harness here (CLAUDE.md rule 2) — the digest text itself is built and tested
+// server-side (server/services/daily_report.py); this only shows and posts it.
+function loadDailyPanel(host) {
+  host.innerHTML = `
+    <div class="rep-daily">
+      <div class="rep-daily-h">
+        <div class="rep-daily-t">Daily digest</div>
+        <div class="rep-daily-sub" data-daily-sub>loading preview…</div>
+      </div>
+      <textarea class="rep-daily-ta" data-daily-text
+                spellcheck="false" disabled>Loading…</textarea>
+      <div class="rep-daily-act">
+        <button class="btn" data-daily-send disabled>Send to channel</button>
+        <button class="btn" data-daily-refresh disabled title="Rebuild the preview from current data">Refresh</button>
+        <span class="rep-daily-msg" data-daily-msg></span>
+      </div>
+    </div>`;
+  const ta   = host.querySelector('[data-daily-text]');
+  const sub  = host.querySelector('[data-daily-sub]');
+  const send = host.querySelector('[data-daily-send]');
+  const refr = host.querySelector('[data-daily-refresh]');
+  const msg  = host.querySelector('[data-daily-msg]');
+  const setMsg = (t, kind) => { msg.textContent = t || '';
+    msg.className = 'rep-daily-msg' + (kind ? ' ' + kind : ''); };
+
+  const loadPreview = () => {
+    ta.disabled = true; send.disabled = true; refr.disabled = true;
+    setMsg('');
+    fetch('/api/reports/daily/preview')
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0,120)}`);
+        return res.json();
+      })
+      .then((data) => {
+        ta.value = data.text || '';
+        ta.disabled = false; send.disabled = false; refr.disabled = false;
+        sub.textContent = data.channel
+          ? 'posts to ' + data.channel
+          : 'SLACK_CHANNEL_DAILY not set — set it to enable sending';
+        // No channel configured means Send cannot work; say so rather than
+        // letting the button post into nothing.
+        if (!data.channel) { send.disabled = true; }
+      })
+      .catch((e) => {
+        ta.value = ''; ta.disabled = true; refr.disabled = false;
+        sub.textContent = 'preview failed';
+        setMsg(String(e.message || e).slice(0, 160), 'err');
+      });
+  };
+
+  refr.addEventListener('click', loadPreview);
+
+  send.addEventListener('click', () => {
+    const text = ta.value;
+    if (!String(text || '').trim()) { setMsg('Nothing to send.', 'err'); return; }
+    send.disabled = true; refr.disabled = true;
+    const was = send.textContent; send.textContent = '⟳ sending…';
+    setMsg('');
+    fetch('/api/reports/daily/send', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({text}),
+    })
+      .then(async (res) => {
+        const bodyJson = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(bodyJson.detail || `${res.status}`);
+        return bodyJson;
+      })
+      .then((data) => { setMsg('Posted ✓ (' + (data.channel || '') + ')', 'ok'); })
+      .catch((e) => { setMsg('Not sent: ' + String(e.message || e).slice(0, 160), 'err'); })
+      .finally(() => { send.disabled = false; refr.disabled = false;
+                       send.textContent = was; });
+  });
+
+  loadPreview();
 }
 
 // Mark sent, from beside the Post-to-thread button. DELEGATED, because the

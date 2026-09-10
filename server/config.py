@@ -41,6 +41,8 @@ SLACK_BOT_TOKEN       = os.getenv("SLACK_BOT_TOKEN", "").strip()
 SLACK_USER_TOKEN      = os.getenv("SLACK_USER_TOKEN", "").strip()
 SLACK_CHANNEL_ORM     = os.getenv("SLACK_CHANNEL_ORM", "").strip()    # #team-orm-trustpilot-social
 SLACK_CHANNEL_ALERT   = os.getenv("SLACK_CHANNEL_ALERT", "").strip()  # optional — unused for ingestion
+SLACK_CHANNEL_DAILY   = os.getenv("SLACK_CHANNEL_DAILY", "").strip()  # daily ORM digest target (e.g. C045KG5AJF5)
+DAILY_REPORT_TOKEN    = os.getenv("DAILY_REPORT_TOKEN", "").strip()   # guards the external-scheduler trigger endpoint
 # Optional — only set this if you want to filter by a specific bot/app user.
 # Without it, the app detects reviews by star rating symbols (★/☆) in the message.
 TRUSTPILOT_BOT_USER_ID = os.getenv("TRUSTPILOT_BOT_USER_ID", "").strip()

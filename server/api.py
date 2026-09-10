@@ -3558,6 +3558,86 @@ def reporting(db: Session = Depends(get_session)):
     }
 
 
+# ── Daily digest ─────────────────────────────────────────────────────────────
+# The 8pm-IST report to the ORM reports channel. The Replit Scheduled Deployment
+# runs tools/send_daily_report.py directly (no HTTP); these endpoints exist for
+# the dashboard's preview/edit/send panel, and one token-guarded trigger for an
+# EXTERNAL scheduler (cron-job.org etc.) if someone prefers that over Replit's.
+# All three read the SAME build_daily_digest() — read-only over Postgres, no
+# BigQuery and no model call.
+
+class DailySend(BaseModel):
+    # The edited text from the dashboard. Absent/blank -> rebuild fresh, so the
+    # "Send" button works even if the preview never loaded.
+    text: str | None = None
+
+
+def _daily_channel() -> str:
+    from server.config import SLACK_CHANNEL_DAILY
+    return SLACK_CHANNEL_DAILY
+
+
+@router.get("/api/reports/daily/preview")
+def daily_preview(db: Session = Depends(get_session)):
+    """The digest text that would go out now, for the dashboard to show/edit.
+    Read-only — builds nothing external, posts nothing."""
+    from server.services.daily_report import build_daily_digest
+    return {"text": build_daily_digest(db), "channel": _daily_channel()}
+
+
+@router.post("/api/reports/daily/send")
+def daily_send(body: DailySend, db: Session = Depends(get_session)):
+    """Post the digest to the reports channel, on demand from the dashboard.
+    Uses the edited text when supplied, otherwise rebuilds a fresh one."""
+    from server.services.daily_report import build_daily_digest
+    from server.services.slack import post_to_channel, last_post_failure
+    channel = _daily_channel()
+    if not channel:
+        raise HTTPException(400, "SLACK_CHANNEL_DAILY is not set — no channel to "
+                                 "post the daily report to.")
+    text = (body.text or "").strip() or build_daily_digest(db)
+    ts = post_to_channel(channel, text)
+    if not ts:
+        # Not an empty day — we tried to post and Slack did not accept it. Say
+        # why (post_to_channel recorded it), never a bare "failed".
+        why = last_post_failure.get("why") or "Slack returned no message ts."
+        raise HTTPException(502, f"Not posted: {why}")
+    return {"ok": True, "ts": ts, "channel": channel}
+
+
+@router.post("/api/reports/daily")
+def daily_trigger(x_report_token: str | None = Header(default=None),
+                  authorization: str | None = Header(default=None),
+                  db: Session = Depends(get_session)):
+    """Token-guarded build+post for an EXTERNAL scheduler. The token is taken
+    from the X-Report-Token header or an 'Authorization: Bearer <token>' header,
+    so a curl from cron-job.org / GitHub Actions can drive it. The Replit path
+    does NOT use this — it runs the script in-container instead."""
+    from server.config import DAILY_REPORT_TOKEN
+    from server.services.daily_report import build_daily_digest
+    from server.services.slack import post_to_channel, last_post_failure
+    if not DAILY_REPORT_TOKEN:
+        raise HTTPException(503, "DAILY_REPORT_TOKEN is not set, so this trigger "
+                                 "is disabled. Set it (and send it back) to use "
+                                 "an external scheduler.")
+    supplied = x_report_token or ""
+    if not supplied and authorization:
+        auth = authorization.strip()
+        if auth.lower().startswith("bearer "):
+            supplied = auth[7:].strip()
+    if supplied != DAILY_REPORT_TOKEN:
+        raise HTTPException(401, "bad or missing report token")
+    channel = _daily_channel()
+    if not channel:
+        raise HTTPException(400, "SLACK_CHANNEL_DAILY is not set.")
+    text = build_daily_digest(db)
+    ts = post_to_channel(channel, text)
+    if not ts:
+        why = last_post_failure.get("why") or "Slack returned no message ts."
+        raise HTTPException(502, f"Not posted: {why}")
+    return {"ok": True, "ts": ts, "channel": channel}
+
+
 # ── VectorShift bridge ───────────────────────────────────────────────────────
 # VS can call Zendesk directly, but BigQuery needs OAuth token signing a VS API
 # node can't do — so VS fetches both through these endpoints (this app already

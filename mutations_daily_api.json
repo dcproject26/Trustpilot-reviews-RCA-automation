@@ -1,0 +1,32 @@
+[
+  {
+    "file": "server/api.py",
+    "name": "daily trigger: the token check is bypassed (any token accepted)",
+    "find": "    if supplied != DAILY_REPORT_TOKEN:\n        raise HTTPException(401, \"bad or missing report token\")",
+    "replace": "    if False:\n        raise HTTPException(401, \"bad or missing report token\")"
+  },
+  {
+    "file": "server/api.py",
+    "name": "daily trigger: disabled-when-no-token guard removed",
+    "find": "    if not DAILY_REPORT_TOKEN:\n        raise HTTPException(503, \"DAILY_REPORT_TOKEN is not set, so this trigger \"",
+    "replace": "    if False:\n        raise HTTPException(503, \"DAILY_REPORT_TOKEN is not set, so this trigger \""
+  },
+  {
+    "file": "server/api.py",
+    "name": "daily trigger: the Bearer header is not parsed",
+    "find": "        if auth.lower().startswith(\"bearer \"):\n            supplied = auth[7:].strip()",
+    "replace": "        if False:\n            supplied = auth[7:].strip()"
+  },
+  {
+    "file": "server/api.py",
+    "name": "daily send: the edited text is ignored, a rebuilt digest is posted instead",
+    "find": "    text = (body.text or \"\").strip() or build_daily_digest(db)",
+    "replace": "    text = build_daily_digest(db)"
+  },
+  {
+    "file": "server/api.py",
+    "name": "daily send: the missing-channel guard is dropped",
+    "find": "    if not channel:\n        raise HTTPException(400, \"SLACK_CHANNEL_DAILY is not set — no channel to \"\n                                 \"post the daily report to.\")",
+    "replace": "    if False:\n        raise HTTPException(400, \"SLACK_CHANNEL_DAILY is not set — no channel to \"\n                                 \"post the daily report to.\")"
+  }
+]
