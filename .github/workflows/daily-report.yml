@@ -36,19 +36,21 @@ jobs:
             echo "::error::ORM_APP_URL and DAILY_REPORT_TOKEN repo secrets must be set."
             exit 1
           fi
-          # -f makes curl exit non-zero on an HTTP error so a failed post fails
-          # the run (and emails you) instead of passing quietly. The response
-          # body (the digest ts, or the reason it was refused) is printed.
-          # --data '' sends an empty body so a Content-Length: 0 header is set.
-          # Without it, Replit's edge proxy rejects the POST with 411 (Length
-          # Required) before it ever reaches the app.
-          http_code=$(curl -sS -f -w "%{http_code}" -o /tmp/resp.txt \
+          # NOT curl -f: with -f, curl writes no body on an HTTP error, so the
+          # log loses the very sentence that says WHY (e.g. "bad token", "bot
+          # not in channel", 404 = app not republished). Capture the status and
+          # the body ourselves, ALWAYS print the body, then fail on non-2xx.
+          # --data '' sends an empty body so a Content-Length: 0 header is set;
+          # without it Replit's edge proxy 411s the POST before it reaches the
+          # app.
+          http_code=$(curl -sS -w "%{http_code}" -o /tmp/resp.txt \
             -X POST "${ORM_APP_URL%/}/api/reports/daily" \
             --data '' \
-            -H "Authorization: Bearer ${DAILY_REPORT_TOKEN}") || {
-              echo "Endpoint returned an error. Response:";
-              cat /tmp/resp.txt || true;
-              exit 1;
-            }
-          echo "HTTP $http_code"
-          cat /tmp/resp.txt
+            -H "Authorization: Bearer ${DAILY_REPORT_TOKEN}") || true
+          echo "HTTP ${http_code:-000}"
+          echo "Response: $(cat /tmp/resp.txt 2>/dev/null)"
+          case "$http_code" in
+            2*) echo "Digest posted." ;;
+            404) echo "::error::404 — the app has not been republished with the /api/reports/daily route yet. Republish the Replit deployment, then re-run."; exit 1 ;;
+            *)   echo "::error::Digest was not posted (HTTP ${http_code:-000}). See the Response line above."; exit 1 ;;
+          esac
