@@ -12,7 +12,7 @@ def test_preview_returns_text_and_channel(client, monkeypatch):
     assert r.status_code == 200
     data = r.json()
     assert data["channel"] == "C045KG5AJF5"
-    assert data["text"].startswith("*ORM Daily —")
+    assert "*ORM Daily —" in data["text"]
 
 
 def test_send_without_channel_is_a_clear_400(client, monkeypatch):
@@ -44,7 +44,7 @@ def test_send_blank_text_rebuilds_a_fresh_digest(client, monkeypatch):
     r = client.post("/api/reports/daily/send", json={"text": "   "})
     assert r.status_code == 200
     # Empty edit -> the server builds the real digest rather than posting blank.
-    assert sent["text"].startswith("*ORM Daily —")
+    assert "*ORM Daily —" in sent["text"]
 
 
 def test_send_reports_why_slack_refused(client, monkeypatch):

@@ -1,44 +1,80 @@
 [
   {
     "file": "server/services/daily_report.py",
-    "name": "daily: a review that only lacks a tier is called untraceable (not the classify bucket)",
-    "find": "    if row.bucket == UNTRACEABLE:\n        return \"Untraceable\"",
+    "name": "daily: an untraceable review (no tier) is mislabelled as a tier",
+    "find": "    if row.tier == 2:\n        return \"Tier 2\"\n    return \"Untraceable\"",
+    "replace": "    if row.tier == 2:\n        return \"Tier 2\"\n    return \"Tier 2\""
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily: a Tier 1 review is not recognised",
+    "find": "    if row.tier == 1:\n        return \"Tier 1\"",
+    "replace": "    if False:\n        return \"Tier 1\""
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily: a declared-untraceable review is not forced to Untraceable",
+    "find": "    if row.declared_untraceable:\n        return \"Untraceable\"",
     "replace": "    if False:\n        return \"Untraceable\""
   },
   {
     "file": "server/services/daily_report.py",
-    "name": "daily: every review is counted as solved",
-    "find": "        if r.solved:\n            s.solved += 1",
-    "replace": "        s.solved += 1"
+    "name": "daily: the declared-untraceable close reason is never detected",
+    "find": "        declared = (cr.startswith(\"untraceable\")",
+    "replace": "        declared = (False and cr.startswith(\"untraceable\")"
   },
   {
     "file": "server/services/daily_report.py",
-    "name": "daily: a zero-count Pending row is printed as noise",
-    "find": "    tier_pairs = [(lbl, s.tier[lbl]) for lbl in _TIER_ORDER\n                  if s.tier.get(lbl)]                # Pending only when > 0",
-    "replace": "    tier_pairs = [(lbl, s.tier.get(lbl, 0)) for lbl in _TIER_ORDER]"
+    "name": "daily: people counted over ALL received, not just solved",
+    "find": "        if r.solved:\n            s.solved += 1\n            who = (r.picked_up_by or \"\").strip() or \"Unassigned\"",
+    "replace": "        if True:\n            s.solved += 1\n            who = (r.picked_up_by or \"\").strip() or \"Unassigned\""
   },
   {
     "file": "server/services/daily_report.py",
-    "name": "daily: top categories sorted the wrong way (smallest first)",
-    "find": "        cat_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:TOP_CATEGORIES]",
-    "replace": "        cat_counts.items(), key=lambda kv: (kv[1], kv[0]))[:TOP_CATEGORIES]"
+    "name": "daily: Untraceable dropped from the always-shown tier rows",
+    "find": "_TIER_FIXED = [\"Tier 1\", \"Tier 2\", \"Untraceable\"]",
+    "replace": "_TIER_FIXED = [\"Tier 1\", \"Tier 2\"]"
   },
   {
     "file": "server/services/daily_report.py",
-    "name": "daily: solve rate inverted (received over solved)",
+    "name": "daily: the section divider is removed (no breakers)",
+    "find": "_DIV = \"━\" * 22",
+    "replace": "_DIV = \"\""
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily window: the before-8pm case is not rolled back to yesterday",
+    "find": "    if now_ist < end_ist:            # before today's 8pm -> use yesterday's\n        end_ist -= timedelta(days=1)",
+    "replace": "    if False:\n        end_ist -= timedelta(days=1)"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily window: the 8pm end edge is made inclusive (double-counts across days)",
+    "find": "                 .filter(Review.received_at < end)",
+    "replace": "                 .filter(Review.received_at <= end)"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily window: the start edge is dropped (a review at exactly 8pm-24h)",
+    "find": "                 .filter(Review.received_at >= start)",
+    "replace": "                 .filter(Review.received_at > start)"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily: solve rate inverted",
     "find": "    rate = round(s.solved / s.received * 100) if s.received else 0",
     "replace": "    rate = round(s.received / s.solved * 100) if s.solved else 0"
   },
   {
     "file": "server/services/daily_report.py",
-    "name": "daily: Unassigned is allowed to sort ahead of a real owner",
-    "find": "        key=lambda kv: (kv[0] == \"Unassigned\", -kv[1], kv[0]))",
-    "replace": "        key=lambda kv: (False, -kv[1], kv[0]))"
+    "name": "daily: top categories sorted smallest-first",
+    "find": "        cat_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:TOP_CATEGORIES]",
+    "replace": "        cat_counts.items(), key=lambda kv: (kv[1], kv[0]))[:TOP_CATEGORIES]"
   },
   {
     "file": "server/services/daily_report.py",
-    "name": "daily: the window edge drops reviews received exactly 24h ago",
-    "find": "                 .filter(Review.received_at >= start)",
-    "replace": "                 .filter(Review.received_at > start)"
+    "name": "daily: Unassigned allowed to sort ahead of a real owner",
+    "find": "        key=lambda kv: (kv[0] == \"Unassigned\", -kv[1], kv[0]))",
+    "replace": "        key=lambda kv: (False, -kv[1], kv[0]))"
   }
 ]
