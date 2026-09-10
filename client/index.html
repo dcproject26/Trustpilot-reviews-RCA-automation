@@ -9339,10 +9339,16 @@ function loadDailyPanel(host) {
   const setMsg = (t, kind) => { msg.textContent = t || '';
     msg.className = 'rep-daily-msg' + (kind ? ' ' + kind : ''); };
 
-  const loadPreview = () => {
+  // announce=true shows a "Refreshed ✓ HH:MM:SS" line — the digest is
+  // deterministic for a given window, so a manual refresh usually reloads the
+  // SAME text and without this it looks like the button did nothing. cache:
+  // 'no-store' forces a real re-query: a plain GET can be served from the
+  // browser cache, which would return stale text and is the actual bug behind
+  // "refresh isn't working".
+  const loadPreview = (announce) => {
     ta.disabled = true; send.disabled = true; refr.disabled = true;
-    setMsg('');
-    fetch('/api/reports/daily/preview')
+    setMsg(announce ? 'refreshing…' : '');
+    fetch('/api/reports/daily/preview', {cache: 'no-store'})
       .then(async (res) => {
         if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0,120)}`);
         return res.json();
@@ -9356,6 +9362,10 @@ function loadDailyPanel(host) {
         // No channel configured means Send cannot work; say so rather than
         // letting the button post into nothing.
         if (!data.channel) { send.disabled = true; }
+        if (announce) {
+          const t = new Date().toLocaleTimeString();
+          setMsg('Refreshed ✓ ' + t, 'ok');
+        }
       })
       .catch((e) => {
         ta.value = ''; ta.disabled = true; refr.disabled = false;
@@ -9364,7 +9374,7 @@ function loadDailyPanel(host) {
       });
   };
 
-  refr.addEventListener('click', loadPreview);
+  refr.addEventListener('click', () => loadPreview(true));
 
   send.addEventListener('click', () => {
     const text = ta.value;
