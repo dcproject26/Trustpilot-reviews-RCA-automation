@@ -1,0 +1,50 @@
+name: Daily ORM digest
+
+# Posts the daily ORM digest to the reports Slack channel at 8pm IST by pinging
+# the app's token-guarded endpoint. This runs on GitHub's schedule (no extra
+# account, no Replit second deployment) — Replit allows only one published
+# deployment per Repl, so the dashboard's Autoscale deployment cannot also host
+# a scheduled one. The app does all the work; this is only the alarm clock.
+#
+# Requires two repository secrets (Settings -> Secrets and variables -> Actions):
+#   ORM_APP_URL         the live app origin, e.g. https://your-app.replit.app
+#                       (no trailing slash, no path)
+#   DAILY_REPORT_TOKEN  the same value set as DAILY_REPORT_TOKEN in the Replit
+#                       deployment, so the endpoint accepts the call
+#
+# The Replit app must also have SLACK_CHANNEL_DAILY + SLACK_BOT_TOKEN set, and
+# the bot must be invited to the channel.
+
+on:
+  schedule:
+    # 14:30 UTC = 20:00 IST, daily. GitHub cron is UTC-only and may start a few
+    # minutes late under load — fine for a daily digest.
+    - cron: "30 14 * * *"
+  # Lets you run it by hand from the Actions tab to test, without waiting for 8pm.
+  workflow_dispatch:
+
+jobs:
+  post-digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping the daily-report endpoint
+        env:
+          ORM_APP_URL: ${{ secrets.ORM_APP_URL }}
+          DAILY_REPORT_TOKEN: ${{ secrets.DAILY_REPORT_TOKEN }}
+        run: |
+          if [ -z "$ORM_APP_URL" ] || [ -z "$DAILY_REPORT_TOKEN" ]; then
+            echo "::error::ORM_APP_URL and DAILY_REPORT_TOKEN repo secrets must be set."
+            exit 1
+          fi
+          # -f makes curl exit non-zero on an HTTP error so a failed post fails
+          # the run (and emails you) instead of passing quietly. The response
+          # body (the digest ts, or the reason it was refused) is printed.
+          http_code=$(curl -sS -f -w "%{http_code}" -o /tmp/resp.txt \
+            -X POST "${ORM_APP_URL%/}/api/reports/daily" \
+            -H "Authorization: Bearer ${DAILY_REPORT_TOKEN}") || {
+              echo "Endpoint returned an error. Response:";
+              cat /tmp/resp.txt || true;
+              exit 1;
+            }
+          echo "HTTP $http_code"
+          cat /tmp/resp.txt
