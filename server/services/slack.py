@@ -871,6 +871,38 @@ async def post_to_thread(channel: str, thread_ts: str, text: str) -> str | None:
         return None
 
 
+def post_to_channel(channel: str, text: str) -> str | None:
+    """Post a top-level message to a channel AS THE APP (no thread). Used by the
+    daily digest. Same identity and same guards as post_to_thread — MOCK_MODE
+    sends nothing, a missing SLACK_BOT_TOKEN is a stated fault (not a silent
+    no-op that reads like a dry run), and the failure reason is recorded so a
+    caller can say WHY nothing was posted. Returns the message ts, or None."""
+    last_post_failure.update({"code": "", "why": "", "verdict": "", "next": ""})
+    if MOCK_MODE:
+        log.info(f"[MOCK] not posting to {channel}: {text[:120]}…")
+        return None
+    if not _bot:
+        last_post_failure.update({
+            "code": "no_bot_token",
+            "why": "SLACK_BOT_TOKEN is not set, so there is no app identity to "
+                   "post as. Nothing was sent.",
+            "verdict": "not posted",
+            "next": "Set SLACK_BOT_TOKEN (an xoxb- token) and make sure the app "
+                    "is invited to the channel.",
+        })
+        log.error(f"[slack] NOT posting to {channel}: SLACK_BOT_TOKEN is not set")
+        return None
+    try:
+        res = _bot.chat_postMessage(
+            channel=channel, text=text, unfurl_links=False, unfurl_media=False)
+        return res.get("ts")
+    except Exception as e:
+        code = _api_error_code(e)
+        last_post_failure.update(post_failure_sentence(code))
+        log.exception(f"Slack channel post failed ({code}): {e}")
+        return None
+
+
 def review_team_mention() -> str:
     """The @reviewteam tag as REAL Slack markup — <!subteam^ID> — which pings
     the group, when the id is configured. Falls back to the literal

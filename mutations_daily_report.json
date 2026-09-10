@@ -1,0 +1,44 @@
+[
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily: a review that only lacks a tier is called untraceable (not the classify bucket)",
+    "find": "    if row.bucket == UNTRACEABLE:\n        return \"Untraceable\"",
+    "replace": "    if False:\n        return \"Untraceable\""
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily: every review is counted as solved",
+    "find": "        if r.solved:\n            s.solved += 1",
+    "replace": "        s.solved += 1"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily: a zero-count Pending row is printed as noise",
+    "find": "    tier_pairs = [(lbl, s.tier[lbl]) for lbl in _TIER_ORDER\n                  if s.tier.get(lbl)]                # Pending only when > 0",
+    "replace": "    tier_pairs = [(lbl, s.tier.get(lbl, 0)) for lbl in _TIER_ORDER]"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily: top categories sorted the wrong way (smallest first)",
+    "find": "        cat_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:TOP_CATEGORIES]",
+    "replace": "        cat_counts.items(), key=lambda kv: (kv[1], kv[0]))[:TOP_CATEGORIES]"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily: solve rate inverted (received over solved)",
+    "find": "    rate = round(s.solved / s.received * 100) if s.received else 0",
+    "replace": "    rate = round(s.received / s.solved * 100) if s.solved else 0"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily: Unassigned is allowed to sort ahead of a real owner",
+    "find": "        key=lambda kv: (kv[0] == \"Unassigned\", -kv[1], kv[0]))",
+    "replace": "        key=lambda kv: (False, -kv[1], kv[0]))"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily: the window edge drops reviews received exactly 24h ago",
+    "find": "                 .filter(Review.received_at >= start)",
+    "replace": "                 .filter(Review.received_at > start)"
+  }
+]
