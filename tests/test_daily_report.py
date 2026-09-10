@@ -122,9 +122,17 @@ def test_untraceable_labelled_not_t3():
 
 # ── the 24h window, against the real schema ─────────────────────────────────
 
+def _n(dt):
+    """Store as NAIVE UTC, exactly as production does (utcnow() /
+    utcfromtimestamp(...).replace(tzinfo=None)). The window comparison is naive
+    UTC too, so the tests exercise the real Postgres path rather than a
+    tz-aware shape sqlite happens to tolerate."""
+    return dt.replace(tzinfo=None) if dt is not None else None
+
+
 def _add_review(db, rid, received_at, status="new"):
     from server.db import Review
-    db.add(Review(id=rid, received_at=received_at, status=status, rating=1))
+    db.add(Review(id=rid, received_at=_n(received_at), status=status, rating=1))
 
 
 def test_solved_cohort_is_by_when_finished_not_when_received(live_db):
@@ -138,20 +146,20 @@ def test_solved_cohort_is_by_when_finished_not_when_received(live_db):
     s = live_db.SessionLocal()
     try:
         # arrived 3 days ago, but its reply was SENT inside the window
-        s.add(Review(id="old_but_solved", received_at=old_arrival, status="sent",
+        s.add(Review(id="old_but_solved", received_at=_n(old_arrival), status="sent",
                      rating=1, picked_up_by="Swagatom"))
         s.add(RcaDraft(id="old_but_solved-d", review_id="old_but_solved",
-                       match_tier=1, sent_at=in_win, booking={"id": "B1"}))
+                       match_tier=1, sent_at=_n(in_win), booking={"id": "B1"}))
         # arrived and solved inside the window
-        s.add(Review(id="same_day", received_at=in_win, status="sent",
+        s.add(Review(id="same_day", received_at=_n(in_win), status="sent",
                      rating=1, picked_up_by="Paul"))
         s.add(RcaDraft(id="same_day-d", review_id="same_day", match_tier=2,
-                       sent_at=in_win, booking={"id": "B2"}))
+                       sent_at=_n(in_win), booking={"id": "B2"}))
         # sent, but finished OUTSIDE the window -> excluded
-        s.add(Review(id="solved_yesterday", received_at=old_arrival, status="sent",
+        s.add(Review(id="solved_yesterday", received_at=_n(old_arrival), status="sent",
                      rating=1, picked_up_by="Avi"))
         s.add(RcaDraft(id="solved_yesterday-d", review_id="solved_yesterday",
-                       match_tier=1, sent_at=now - timedelta(hours=30),
+                       match_tier=1, sent_at=_n(now - timedelta(hours=30)),
                        booking={"id": "B3"}))
         s.commit()
         rows = collect_solved_rows(s, now)
@@ -169,19 +177,19 @@ def test_collect_solved_detects_declared_untraceable_over_a_tier(live_db):
     s = live_db.SessionLocal()
     try:
         # (a) closed untraceable (closed_at in window) but a stale Tier 2 draft
-        s.add(Review(id="closed_untr", received_at=at, status="sent", rating=1,
-                     closed_at=at,
+        s.add(Review(id="closed_untr", received_at=_n(at), status="sent", rating=1,
+                     closed_at=_n(at),
                      close_reason="Untraceable — asked the guest for a booking reference."))
         s.add(RcaDraft(id="closed_untr-d", review_id="closed_untr", match_tier=2,
                        booking={"id": "B1"}))
         # (b) marked untraceable off the shortlist; reply sent in window
-        s.add(Review(id="marked_untr", received_at=at, status="sent", rating=1))
+        s.add(Review(id="marked_untr", received_at=_n(at), status="sent", rating=1))
         s.add(RcaDraft(id="marked_untr-d", review_id="marked_untr", match_tier=None,
-                       sent_at=at, match_method="Marked untraceable by associate"))
+                       sent_at=_n(at), match_method="Marked untraceable by associate"))
         # (c) a normal Tier 1, sent in window
-        s.add(Review(id="real_t1", received_at=at, status="sent", rating=1))
+        s.add(Review(id="real_t1", received_at=_n(at), status="sent", rating=1))
         s.add(RcaDraft(id="real_t1-d", review_id="real_t1", match_tier=1,
-                       sent_at=at, booking={"id": "B2"}))
+                       sent_at=_n(at), booking={"id": "B2"}))
         s.commit()
         labels = sorted(_tier_label(r) for r in collect_solved_rows(s, now))
     finally:

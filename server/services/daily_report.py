@@ -175,6 +175,20 @@ def render_digest(summary: Summary, date_label: str) -> str:
 
 # ── DB-facing glue ──────────────────────────────────────────────────────────
 
+def _db_bounds(now: datetime) -> tuple[datetime, datetime]:
+    """The window as NAIVE UTC datetimes, for comparing against the DB's naive
+    columns. received_at / sent_at / closed_at are all stored naive (utcnow()
+    and utcfromtimestamp(...).replace(tzinfo=None)); window_bounds returns
+    tz-aware UTC. Comparing a naive `timestamp` column against a tz-aware
+    parameter makes Postgres reinterpret the column through the session
+    timezone, which shifts the window by the offset and silently drops reviews
+    solved near the 8pm edge — the exact "some people are missing from Solved
+    by" bug. Stripping tzinfo makes both sides plain UTC and the comparison
+    exact and timezone-independent."""
+    start, end = window_bounds(now)
+    return start.replace(tzinfo=None), end.replace(tzinfo=None)
+
+
 def _row_from(review, draft) -> Row:
     """One review+draft reduced to a Row. `solved` here means the review's
     status is 'sent'; the caller decides which window a row belongs to."""
@@ -200,7 +214,7 @@ def received_count(db, now: datetime) -> int:
     """How many reviews ARRIVED in the 8pm→8pm window — a context number only.
     Window is [start, end): start inclusive, end exclusive."""
     from server.db import Review
-    start, end = window_bounds(now)
+    start, end = _db_bounds(now)
     return (db.query(Review)
               .filter(Review.received_at.isnot(None))
               .filter(Review.received_at >= start)
@@ -220,7 +234,7 @@ def collect_solved_rows(db, now: datetime) -> list[Row]:
     by."""
     from server.db import Review, RcaDraft
     from sqlalchemy import or_, and_
-    start, end = window_bounds(now)
+    start, end = _db_bounds(now)
     pairs = (db.query(Review, RcaDraft)
                .outerjoin(RcaDraft, RcaDraft.review_id == Review.id)
                .filter(Review.status == SENT)
