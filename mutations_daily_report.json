@@ -20,14 +20,14 @@
   {
     "file": "server/services/daily_report.py",
     "name": "daily: the declared-untraceable close reason is never detected",
-    "find": "        declared = (cr.startswith(\"untraceable\")",
-    "replace": "        declared = (False and cr.startswith(\"untraceable\")"
+    "find": "    declared = (cr.startswith(\"untraceable\")",
+    "replace": "    declared = (False and cr.startswith(\"untraceable\")"
   },
   {
     "file": "server/services/daily_report.py",
-    "name": "daily: people counted over ALL received, not just solved",
-    "find": "        if r.solved:\n            s.solved += 1\n            who = (r.picked_up_by or \"\").strip() or \"Unassigned\"",
-    "replace": "        if True:\n            s.solved += 1\n            who = (r.picked_up_by or \"\").strip() or \"Unassigned\""
+    "name": "daily: solved cohort selects non-sent reviews",
+    "find": "               .filter(Review.status == SENT)",
+    "replace": "               .filter(Review.status != SENT)"
   },
   {
     "file": "server/services/daily_report.py",
@@ -49,21 +49,15 @@
   },
   {
     "file": "server/services/daily_report.py",
-    "name": "daily window: the 8pm end edge is made inclusive (double-counts across days)",
-    "find": "                 .filter(Review.received_at < end)",
-    "replace": "                 .filter(Review.received_at <= end)"
+    "name": "daily received window: end edge made inclusive",
+    "find": "              .filter(Review.received_at < end)",
+    "replace": "              .filter(Review.received_at <= end)"
   },
   {
     "file": "server/services/daily_report.py",
-    "name": "daily window: the start edge is dropped (a review at exactly 8pm-24h)",
-    "find": "                 .filter(Review.received_at >= start)",
-    "replace": "                 .filter(Review.received_at > start)"
-  },
-  {
-    "file": "server/services/daily_report.py",
-    "name": "daily: solve rate inverted",
-    "find": "    rate = round(s.solved / s.received * 100) if s.received else 0",
-    "replace": "    rate = round(s.received / s.solved * 100) if s.solved else 0"
+    "name": "daily received window: start edge dropped",
+    "find": "              .filter(Review.received_at >= start)",
+    "replace": "              .filter(Review.received_at > start)"
   },
   {
     "file": "server/services/daily_report.py",

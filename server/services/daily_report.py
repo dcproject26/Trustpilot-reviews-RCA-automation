@@ -95,23 +95,22 @@ def _tier_label(row: Row) -> str:
     return "Untraceable"
 
 
-def summarize(rows: list[Row]) -> Summary:
-    s = Summary(received=len(rows))
+def summarize(solved_rows: list[Row], received_count: int = 0) -> Summary:
+    """Every row in `solved_rows` is a review SOLVED in the window — that is the
+    cohort the tier mix, the owners and the categories all describe, so they are
+    consistent with each other and with the Solved count. `received_count` is a
+    SEPARATE number (reviews that arrived in the window) shown for context; a
+    review solved today may well have arrived yesterday, which is why "solved by"
+    cannot be read off the received cohort — the bug this replaces, where only an
+    owner whose review both arrived AND was solved in the same 24h showed up."""
+    s = Summary(received=received_count, solved=len(solved_rows))
     tier_counts: dict[str, int] = {}
     people_counts: dict[str, int] = {}
     cat_counts: dict[str, int] = {}
-    for r in rows:
+    for r in solved_rows:
         tier_counts[_tier_label(r)] = tier_counts.get(_tier_label(r), 0) + 1
-        # PEOPLE ARE COUNTED OVER SOLVED REVIEWS ONLY — this is "who cleared the
-        # work", so it sums to Solved and never lists "Unassigned" as if an
-        # untouched review had been picked up. Counting over every received
-        # review put "Unassigned N" under a heading that says the opposite, and
-        # made the owner totals exceed the solved count — the exact confusion
-        # flagged on the first version.
-        if r.solved:
-            s.solved += 1
-            who = (r.picked_up_by or "").strip() or "Unassigned"
-            people_counts[who] = people_counts.get(who, 0) + 1
+        who = (r.picked_up_by or "").strip() or "Unassigned"
+        people_counts[who] = people_counts.get(who, 0) + 1
         l1 = (r.l1 or "").strip()
         l2 = (r.l2 or "").strip()
         if l1 or l2:
@@ -150,6 +149,10 @@ def _section(title: str, rows: list[str]) -> list[str]:
 
 def render_digest(summary: Summary, date_label: str) -> str:
     s = summary
+    # The % is solved-vs-received for the day — a throughput read. Received and
+    # Solved are different cohorts (a review solved today may have arrived
+    # earlier), so on a catch-up day this can exceed 100%; that is meaningful
+    # (cleared more than came in), not a bug.
     rate = round(s.solved / s.received * 100) if s.received else 0
     out = [f"📊  *ORM Daily — {date_label}*",
            f"Reviews received: *{s.received}*   ·   Solved: *{s.solved}* ({rate}%)"]
@@ -172,39 +175,60 @@ def render_digest(summary: Summary, date_label: str) -> str:
 
 # ── DB-facing glue ──────────────────────────────────────────────────────────
 
-def collect_rows(db, now: datetime) -> list[Row]:
-    """Reviews received in the 8pm→8pm IST day containing `now`, reduced to Row.
+def _row_from(review, draft) -> Row:
+    """One review+draft reduced to a Row. `solved` here means the review's
+    status is 'sent'; the caller decides which window a row belongs to."""
+    # DECLARED untraceable: closed with the untraceable reason, or the associate
+    # marked it untraceable off the shortlist (which sets this match_method).
+    # Either is a person saying "no booking" — Untraceable even if a stale
+    # tentative match_tier lingers on the draft.
+    cr = (getattr(review, "close_reason", "") or "").strip().lower()
+    declared = (cr.startswith("untraceable")
+                or (draft is not None
+                    and (draft.match_method or "") == "Marked untraceable by associate"))
+    return Row(
+        solved=(review.status == SENT),
+        picked_up_by=review.picked_up_by or "",
+        tier=(draft.match_tier if draft else None),
+        declared_untraceable=declared,
+        l1=((draft.l1 if draft else "") or ""),
+        l2=((draft.l2 if draft else "") or ""),
+    )
 
-    The window is [start, end): start inclusive, end exclusive — a review at
-    exactly 8pm belongs to the NEXT day's report, never both, so consecutive
-    days never double-count it."""
+
+def received_count(db, now: datetime) -> int:
+    """How many reviews ARRIVED in the 8pm→8pm window — a context number only.
+    Window is [start, end): start inclusive, end exclusive."""
     from server.db import Review
     start, end = window_bounds(now)
-    reviews = (db.query(Review)
-                 .filter(Review.received_at.isnot(None))
-                 .filter(Review.received_at >= start)
-                 .filter(Review.received_at < end)
-                 .all())
-    rows = []
-    for r in reviews:
-        d = r.draft
-        # DECLARED untraceable: closed with the untraceable reason, or the
-        # associate marked it untraceable off the shortlist (which sets this
-        # match_method). Either is a person saying "no booking" — it counts as
-        # Untraceable even if a stale tentative match_tier lingers on the draft.
-        cr = (r.close_reason or "").strip().lower()
-        declared = (cr.startswith("untraceable")
-                    or (d is not None
-                        and (d.match_method or "") == "Marked untraceable by associate"))
-        rows.append(Row(
-            solved=(r.status == SENT),
-            picked_up_by=r.picked_up_by or "",
-            tier=(d.match_tier if d else None),
-            declared_untraceable=declared,
-            l1=((d.l1 if d else "") or ""),
-            l2=((d.l2 if d else "") or ""),
-        ))
-    return rows
+    return (db.query(Review)
+              .filter(Review.received_at.isnot(None))
+              .filter(Review.received_at >= start)
+              .filter(Review.received_at < end)
+              .count())
+
+
+def collect_solved_rows(db, now: datetime) -> list[Row]:
+    """Reviews SOLVED in the 8pm→8pm window — by when they were finished, not
+    when they arrived. A review is finished when its reply/RCA was sent
+    (draft.sent_at) or it was closed out (review.closed_at); either timestamp
+    falling in the window puts it in this cohort, regardless of received date.
+
+    This is the cohort the Solved count, Solved-by, tier mix and categories all
+    describe, so a person who cleared a review that arrived on an earlier day is
+    still credited — the bug where only same-day arrivals showed under Solved
+    by."""
+    from server.db import Review, RcaDraft
+    from sqlalchemy import or_, and_
+    start, end = window_bounds(now)
+    pairs = (db.query(Review, RcaDraft)
+               .outerjoin(RcaDraft, RcaDraft.review_id == Review.id)
+               .filter(Review.status == SENT)
+               .filter(or_(
+                   and_(RcaDraft.sent_at >= start, RcaDraft.sent_at < end),
+                   and_(Review.closed_at >= start, Review.closed_at < end)))
+               .all())
+    return [_row_from(r, d) for r, d in pairs]
 
 
 def build_daily_digest(db, now: datetime | None = None) -> str:
@@ -212,11 +236,11 @@ def build_daily_digest(db, now: datetime | None = None) -> str:
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
-    rows = collect_rows(db, now)
+    summary = summarize(collect_solved_rows(db, now), received_count(db, now))
     # Label with the window's END day (the 8pm cutoff date it covers up to), not
     # the raw clock — at the 8pm run these coincide, but a mid-day preview of the
     # last completed day must be dated that day, not today. %-d (no leading
     # zero) is not portable to Windows, so strip the zero by hand: "7 Sep 2026".
     _, end = window_bounds(now)
     date_label = end.astimezone(IST).strftime("%d %b %Y").lstrip("0")
-    return render_digest(summarize(rows), date_label)
+    return render_digest(summary, date_label)
