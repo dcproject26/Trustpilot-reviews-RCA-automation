@@ -911,6 +911,37 @@ def build_rca_header(review, booking, nl="\n") -> str:
     return head
 
 
+def _is_non_english(language) -> bool:
+    """A review is non-English when its recorded language is a real value that
+    is not English. Empty / null / 'unknown' is NOT non-English — those are
+    reviews whose language was never established (see api.py: `unknown` is not a
+    language), and we do not want to slap a translation heading on a review that
+    may well have been in English. Only a positively-recorded foreign language
+    qualifies."""
+    lang = (language or "").strip().lower()
+    return bool(lang) and lang not in ("en", "eng", "english", "unknown")
+
+
+def translated_review_block(language, body_english) -> str:
+    """The guest's review, in English, for the RCA post — but ONLY for reviews
+    the pipeline actually translated. The RCA post is otherwise guest-copy-free
+    by design; this is the one exception, so the reader sees what a non-English
+    guest wrote without leaving Slack.
+
+    Returns "" for English / unknown-language reviews, so the caller drops the
+    section entirely. For a non-English review whose translation is MISSING
+    (pipeline step 1 leaves body_english empty when translation failed or was
+    refused), returns a visible marker rather than "" — a foreign review with no
+    English is a gap the reader must see, not a section that silently vanishes
+    (CLAUDE.md rule 1)."""
+    if not _is_non_english(language):
+        return ""
+    txt = (body_english or "").strip()
+    if not txt:
+        return "— translation unavailable —"
+    return txt
+
+
 def format_rca_slack(review, draft) -> str:
     """
     Format the RCA draft into the #team-orm-online-reputation Slack post.
@@ -1447,6 +1478,16 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
     _bd = _booking_details_lines(draft, nl)
     if _bd:
         sections.append(("Booking details", _bd))
+
+    # THE GUEST'S REVIEW, TRANSLATED — non-English reviews only. The post is
+    # guest-copy-free everywhere else; this is the deliberate exception so a
+    # reader of a French/German/… case sees what was actually written. The
+    # translation is already produced inbound (pipeline step 1, body_english);
+    # this only surfaces it. English reviews add nothing here.
+    _rev = translated_review_block(
+        getattr(review, "language", ""), getattr(review, "body_english", ""))
+    if _rev:
+        sections.append(("Review (translated)", _rev))
 
     from server.services.wwr_post import compose as _compose_wwr
     _wwr = _compose_wwr(v3.get("what_went_wrong"))

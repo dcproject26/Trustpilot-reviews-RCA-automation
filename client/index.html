@@ -5867,6 +5867,18 @@ function renderRcaCol() {
       // text uses, so the preview and the thread cannot disagree about which
       // booking, experience or vendor the post is about.
       ['booking',   'Booking details',       rca.bookingDetailsText || ''],
+      // THE GUEST'S REVIEW, TRANSLATED — non-English reviews only, mirrored from
+      // slack.py::translated_review_block so the preview equals the posted text.
+      // Client JS has no test harness here (CLAUDE.md rule 2); the Python copy is
+      // the tested one — keep the two in step by hand. Empty language / 'unknown'
+      // is NOT non-English, so those add nothing; a non-English review whose
+      // translation is missing shows a visible marker, never a silent drop.
+      ['review',    'Review (translated)',   (() => {
+        const lang = String(r.lang || r.language || '').trim().toLowerCase();
+        const nonEnglish = lang && !['en','eng','english','unknown'].includes(lang);
+        if (!nonEnglish) return '';
+        return (r.englishText || '').trim() || '— translation unavailable —';
+      })()],
       ['wwr',       'What went wrong',       wwrText],
       // FLAGS IS NOT A SECTION OF THE POST. It duplicated what "What went
       // wrong" already states, in a shorter and less specific form, so the

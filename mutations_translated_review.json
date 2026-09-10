@@ -1,0 +1,32 @@
+[
+  {
+    "file": "server/services/slack.py",
+    "name": "translated review: 'unknown' language is treated as non-English and gets a translation heading",
+    "find": "    return bool(lang) and lang not in (\"en\", \"eng\", \"english\", \"unknown\")",
+    "replace": "    return bool(lang) and lang not in (\"en\", \"eng\", \"english\")"
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "translated review: a missing translation is silently dropped instead of marked",
+    "find": "        return \"— translation unavailable —\"",
+    "replace": "        return \"\""
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "translated review: English reviews also get the block",
+    "find": "    if not _is_non_english(language):\n        return \"\"",
+    "replace": "    if False:\n        return \"\""
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "translated review: the section is never appended to the post",
+    "find": "    if _rev:\n        sections.append((\"Review (translated)\", _rev))",
+    "replace": "    if False:\n        sections.append((\"Review (translated)\", _rev))"
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "translated review: the ORIGINAL foreign text is posted instead of the English",
+    "find": "        getattr(review, \"language\", \"\"), getattr(review, \"body_english\", \"\"))",
+    "replace": "        getattr(review, \"language\", \"\"), getattr(review, \"body_original\", \"\"))"
+  }
+]
