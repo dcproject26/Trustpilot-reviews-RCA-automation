@@ -84,7 +84,7 @@ def test_empty_cohort_renders_zeros_without_error():
     s = summarize([], received_count=0)
     assert s.received == 0 and s.solved == 0
     out = render_digest(s, "7 Sep 2026")
-    assert "Reviews received: *0*" in out and "Solved: *0* (0%)" in out
+    assert "Received today: *0*" in out and "Solved today: *0*" in out
 
 
 # ── render ──────────────────────────────────────────────────────────────────
@@ -92,8 +92,11 @@ def test_empty_cohort_renders_zeros_without_error():
 def test_render_headline_and_blocks():
     out = render_digest(summarize(_solved_cohort(), received_count=10), "10 Sep 2026")
     assert "*ORM Daily — 10 Sep 2026*" in out
-    assert "Reviews received: *10*" in out
-    assert "Solved: *3* (30%)" in out          # 3 solved of 10 received
+    # Two independent day-counts, NO cross-cohort ratio (Solved can exceed
+    # Received on a catch-up day — a "130%" would be nonsense).
+    assert "Received today: *10*" in out
+    assert "Solved today: *3*" in out
+    assert "%" not in out
     assert "*🏷️  Reviews by tier*" in out
     assert "🟢 Tier 1 — 1" in out and "🔴 Untraceable — 1" in out
     assert "*🧑‍💻  Solved by*" in out and "• Avi — 2" in out

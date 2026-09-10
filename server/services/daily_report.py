@@ -149,13 +149,13 @@ def _section(title: str, rows: list[str]) -> list[str]:
 
 def render_digest(summary: Summary, date_label: str) -> str:
     s = summary
-    # The % is solved-vs-received for the day — a throughput read. Received and
-    # Solved are different cohorts (a review solved today may have arrived
-    # earlier), so on a catch-up day this can exceed 100%; that is meaningful
-    # (cleared more than came in), not a bug.
-    rate = round(s.solved / s.received * 100) if s.received else 0
+    # Two independent counts, NO ratio between them. "Received" is reviews that
+    # ARRIVED in the window; "Solved" is reviews FINISHED in the window, which
+    # includes backlog that arrived earlier — so Solved can exceed Received on a
+    # catch-up day. Dividing one by the other produced a nonsense "130%"; the
+    # honest presentation is two labelled day-counts.
     out = [f"📊  *ORM Daily — {date_label}*",
-           f"Reviews received: *{s.received}*   ·   Solved: *{s.solved}* ({rate}%)"]
+           f"Received today: *{s.received}*   ·   Solved today: *{s.solved}*"]
 
     # Tier — always the three buckets, each with its colour dot.
     tier_rows = [f"{_TIER_DOT.get(lbl, '•')} {lbl} — {s.tier.get(lbl, 0)}"
