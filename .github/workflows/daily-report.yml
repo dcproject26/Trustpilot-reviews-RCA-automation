@@ -39,8 +39,12 @@ jobs:
           # -f makes curl exit non-zero on an HTTP error so a failed post fails
           # the run (and emails you) instead of passing quietly. The response
           # body (the digest ts, or the reason it was refused) is printed.
+          # --data '' sends an empty body so a Content-Length: 0 header is set.
+          # Without it, Replit's edge proxy rejects the POST with 411 (Length
+          # Required) before it ever reaches the app.
           http_code=$(curl -sS -f -w "%{http_code}" -o /tmp/resp.txt \
             -X POST "${ORM_APP_URL%/}/api/reports/daily" \
+            --data '' \
             -H "Authorization: Bearer ${DAILY_REPORT_TOKEN}") || {
               echo "Endpoint returned an error. Response:";
               cat /tmp/resp.txt || true;
