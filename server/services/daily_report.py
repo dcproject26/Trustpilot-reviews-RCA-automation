@@ -147,15 +147,21 @@ def _section(title: str, rows: list[str]) -> list[str]:
     return [_DIV, title, *rows]
 
 
-def render_digest(summary: Summary, date_label: str) -> str:
+def render_digest(summary: Summary, date_label: str, window_label: str = "") -> str:
     s = summary
     # Two independent counts, NO ratio between them. "Received" is reviews that
     # ARRIVED in the window; "Solved" is reviews FINISHED in the window, which
     # includes backlog that arrived earlier — so Solved can exceed Received on a
     # catch-up day. Dividing one by the other produced a nonsense "130%"; the
     # honest presentation is two labelled day-counts.
-    out = [f"📊  *ORM Daily — {date_label}*",
-           f"Received today: *{s.received}*   ·   Solved today: *{s.solved}*"]
+    #
+    # The window is stamped under the title so the team knows exactly what
+    # period the numbers cover — it is a fixed 8pm→8pm IST day regardless of
+    # what time the report is actually delivered.
+    out = [f"📊  *ORM Daily — {date_label}*"]
+    if window_label:
+        out.append(f"_{window_label}_")
+    out.append(f"Received: *{s.received}*   ·   Solved: *{s.solved}*")
 
     # Tier — always the three buckets, each with its colour dot.
     tier_rows = [f"{_TIER_DOT.get(lbl, '•')} {lbl} — {s.tier.get(lbl, 0)}"
@@ -255,6 +261,10 @@ def build_daily_digest(db, now: datetime | None = None) -> str:
     # the raw clock — at the 8pm run these coincide, but a mid-day preview of the
     # last completed day must be dated that day, not today. %-d (no leading
     # zero) is not portable to Windows, so strip the zero by hand: "7 Sep 2026".
-    _, end = window_bounds(now)
-    date_label = end.astimezone(IST).strftime("%d %b %Y").lstrip("0")
-    return render_digest(summary, date_label)
+    start, end = window_bounds(now)
+    start_ist, end_ist = start.astimezone(IST), end.astimezone(IST)
+    date_label = end_ist.strftime("%d %b %Y").lstrip("0")
+    # e.g. "8pm 11 Sep → 8pm 12 Sep IST" — the exact period the numbers cover.
+    _d = lambda t: t.strftime("%d %b").lstrip("0")
+    window_label = f"8pm {_d(start_ist)} → 8pm {_d(end_ist)} IST"
+    return render_digest(summary, date_label, window_label)

@@ -84,18 +84,21 @@ def test_empty_cohort_renders_zeros_without_error():
     s = summarize([], received_count=0)
     assert s.received == 0 and s.solved == 0
     out = render_digest(s, "7 Sep 2026")
-    assert "Received today: *0*" in out and "Solved today: *0*" in out
+    assert "Received: *0*" in out and "Solved: *0*" in out
 
 
 # ── render ──────────────────────────────────────────────────────────────────
 
 def test_render_headline_and_blocks():
-    out = render_digest(summarize(_solved_cohort(), received_count=10), "10 Sep 2026")
+    out = render_digest(summarize(_solved_cohort(), received_count=10),
+                        "10 Sep 2026", "8pm 9 Sep → 8pm 10 Sep IST")
     assert "*ORM Daily — 10 Sep 2026*" in out
+    # The 8pm→8pm window is stamped so the team knows the period.
+    assert "8pm 9 Sep → 8pm 10 Sep IST" in out
     # Two independent day-counts, NO cross-cohort ratio (Solved can exceed
     # Received on a catch-up day — a "130%" would be nonsense).
-    assert "Received today: *10*" in out
-    assert "Solved today: *3*" in out
+    assert "Received: *10*" in out
+    assert "Solved: *3*" in out
     assert "%" not in out
     assert "*🏷️  Reviews by tier*" in out
     assert "🟢 Tier 1 — 1" in out and "🔴 Untraceable — 1" in out
@@ -261,3 +264,6 @@ def test_build_daily_digest_dates_in_ist(live_db):
         s.close()
     assert now.astimezone(IST).strftime("%d %b %Y").lstrip("0") in text
     assert "9 Sep 2026" in text
+    # The 8pm->8pm window is stamped: this run (23:30 IST 9 Sep) covers
+    # 8pm 8 Sep -> 8pm 9 Sep IST.
+    assert "8pm 8 Sep → 8pm 9 Sep IST" in text
