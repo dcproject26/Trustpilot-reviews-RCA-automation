@@ -95,27 +95,36 @@ def _tier_label(row: Row) -> str:
     return "Untraceable"
 
 
-def summarize(solved_rows: list[Row], received_count: int = 0) -> Summary:
-    """Every row in `solved_rows` is a review SOLVED in the window — that is the
-    cohort the tier mix, the owners and the categories all describe, so they are
-    consistent with each other and with the Solved count. `received_count` is a
-    SEPARATE number (reviews that arrived in the window) shown for context; a
-    review solved today may well have arrived yesterday, which is why "solved by"
-    cannot be read off the received cohort — the bug this replaces, where only an
-    owner whose review both arrived AND was solved in the same 24h showed up."""
+def summarize(solved_rows: list[Row], received_count: int = 0,
+              solved_by_rows: list[Row] | None = None) -> Summary:
+    """Two cohorts, deliberately different and separately labelled in the ping:
+
+    * `solved_rows` — reviews SOLVED inside the fixed 8pm→8pm window. This drives
+      the headline Solved count, the tier mix and the categories, so those three
+      stay consistent with each other and with Solved. `received_count` (reviews
+      that ARRIVED in the same window) is shown beside it for context.
+
+    * `solved_by_rows` — reviews each person FINISHED during the report's IST
+      calendar day, INCLUDING older reviews that arrived days ago. This is the
+      cohort the per-person "Solved by" credit describes: an associate is
+      credited for everything they cleared today, not only what fell inside the
+      8pm→8pm window. When None (older callers/tests) the window rows are reused,
+      so "Solved by" collapses back to the window cohort."""
+    people_rows = solved_rows if solved_by_rows is None else solved_by_rows
     s = Summary(received=received_count, solved=len(solved_rows))
     tier_counts: dict[str, int] = {}
     people_counts: dict[str, int] = {}
     cat_counts: dict[str, int] = {}
     for r in solved_rows:
         tier_counts[_tier_label(r)] = tier_counts.get(_tier_label(r), 0) + 1
-        who = (r.picked_up_by or "").strip() or "Unassigned"
-        people_counts[who] = people_counts.get(who, 0) + 1
         l1 = (r.l1 or "").strip()
         l2 = (r.l2 or "").strip()
         if l1 or l2:
             key = " / ".join([p for p in (l1, l2) if p])
             cat_counts[key] = cat_counts.get(key, 0) + 1
+    for r in people_rows:
+        who = (r.picked_up_by or "").strip() or "Unassigned"
+        people_counts[who] = people_counts.get(who, 0) + 1
     s.tier = tier_counts
     # People: biggest first, Unassigned always last so a real owner never hides
     # under it. Ties broken by name so the order is stable across runs.
@@ -147,7 +156,8 @@ def _section(title: str, rows: list[str]) -> list[str]:
     return [_DIV, title, *rows]
 
 
-def render_digest(summary: Summary, date_label: str, window_label: str = "") -> str:
+def render_digest(summary: Summary, date_label: str, window_label: str = "",
+                  solved_by_label: str = "") -> str:
     s = summary
     # Two independent counts, NO ratio between them. "Received" is reviews that
     # ARRIVED in the window; "Solved" is reviews FINISHED in the window, which
@@ -155,13 +165,17 @@ def render_digest(summary: Summary, date_label: str, window_label: str = "") -> 
     # catch-up day. Dividing one by the other produced a nonsense "130%"; the
     # honest presentation is two labelled day-counts.
     #
-    # The window is stamped under the title so the team knows exactly what
-    # period the numbers cover — it is a fixed 8pm→8pm IST day regardless of
-    # what time the report is actually delivered.
+    # `window_label` is stamped directly under the Received/Solved numbers so the
+    # team reads it as the frame THOSE two numbers cover — a fixed 8pm→8pm IST
+    # day, whatever time the report is actually delivered. `solved_by_label`
+    # captions the Solved-by section, because that section counts a DIFFERENT
+    # (wider) frame — everything each person closed across the calendar day — so
+    # its total can legitimately differ from the headline Solved, and the caption
+    # is what stops that difference from reading as a bug.
     out = [f"📊  *ORM Daily — {date_label}*"]
+    out.append(f"Received: *{s.received}*   ·   Solved: *{s.solved}*")
     if window_label:
         out.append(f"_{window_label}_")
-    out.append(f"Received: *{s.received}*   ·   Solved: *{s.solved}*")
 
     # Tier — always the three buckets, each with its colour dot.
     tier_rows = [f"{_TIER_DOT.get(lbl, '•')} {lbl} — {s.tier.get(lbl, 0)}"
@@ -169,8 +183,10 @@ def render_digest(summary: Summary, date_label: str, window_label: str = "") -> 
     out += _section("*🏷️  Reviews by tier*", tier_rows)
 
     if s.people:
-        out += _section("*🧑‍💻  Solved by*",
-                        [f"• {k} — {v}" for k, v in s.people])
+        title = "*🧑‍💻  Solved by*"
+        if solved_by_label:
+            title += f"  _{solved_by_label}_"
+        out += _section(title, [f"• {k} — {v}" for k, v in s.people])
 
     if s.categories:
         out += _section("*📂  Top issue categories (L1 / L2)*",
@@ -193,6 +209,28 @@ def _db_bounds(now: datetime) -> tuple[datetime, datetime]:
     exact and timezone-independent."""
     start, end = window_bounds(now)
     return start.replace(tzinfo=None), end.replace(tzinfo=None)
+
+
+def _today_bounds(now: datetime) -> tuple[datetime, datetime]:
+    """The report's IST CALENDAR DAY, as naive UTC — the frame for the per-person
+    "Solved by" credit. Where `_db_bounds` is the fixed 8pm→8pm window, this is
+    midnight-to-midnight of the day the report is FOR (the date the 8pm cutoff
+    falls on), so each associate is credited for everything they closed across
+    their whole working day, not only the slice inside the 8pm→8pm window.
+
+    The end is capped at `now`, so a live 8pm run (or a delayed 11pm one) counts
+    only up to the moment it fires — never into the future — while a mid-day
+    preview of a completed past day still spans that whole day. Naive UTC to
+    match the DB columns, for the same reason `_db_bounds` strips tzinfo."""
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    _, end = window_bounds(now)                     # tz-aware UTC 8pm cutoff
+    end_ist = end.astimezone(IST)
+    day_start_ist = end_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end_ist = day_start_ist + timedelta(days=1)
+    start_utc = day_start_ist.astimezone(timezone.utc)
+    end_utc = min(day_end_ist.astimezone(timezone.utc), now.astimezone(timezone.utc))
+    return start_utc.replace(tzinfo=None), end_utc.replace(tzinfo=None)
 
 
 def _row_from(review, draft) -> Row:
@@ -228,19 +266,14 @@ def received_count(db, now: datetime) -> int:
               .count())
 
 
-def collect_solved_rows(db, now: datetime) -> list[Row]:
-    """Reviews SOLVED in the 8pm→8pm window — by when they were finished, not
-    when they arrived. A review is finished when its reply/RCA was sent
-    (draft.sent_at) or it was closed out (review.closed_at); either timestamp
-    falling in the window puts it in this cohort, regardless of received date.
-
-    This is the cohort the Solved count, Solved-by, tier mix and categories all
-    describe, so a person who cleared a review that arrived on an earlier day is
-    still credited — the bug where only same-day arrivals showed under Solved
-    by."""
+def _collect_solved_between(db, start: datetime, end: datetime) -> list[Row]:
+    """Reviews FINISHED in [start, end) — by when they were finished, not when
+    they arrived. A review is finished when its reply/RCA was sent (draft.sent_at)
+    or it was closed out (review.closed_at); either timestamp in the window puts
+    it in the cohort, regardless of received date. Shared by both frames so the
+    "solved" definition is identical — only the [start, end) differs."""
     from server.db import Review, RcaDraft
     from sqlalchemy import or_, and_
-    start, end = _db_bounds(now)
     pairs = (db.query(Review, RcaDraft)
                .outerjoin(RcaDraft, RcaDraft.review_id == Review.id)
                .filter(Review.status == SENT)
@@ -251,12 +284,31 @@ def collect_solved_rows(db, now: datetime) -> list[Row]:
     return [_row_from(r, d) for r, d in pairs]
 
 
+def collect_solved_rows(db, now: datetime) -> list[Row]:
+    """The 8pm→8pm SOLVED cohort — drives the headline Solved count, the tier mix
+    and the categories."""
+    start, end = _db_bounds(now)
+    return _collect_solved_between(db, start, end)
+
+
+def collect_solved_today_rows(db, now: datetime) -> list[Row]:
+    """The CALENDAR-DAY solved cohort — everything finished across the report's
+    IST day, drives the per-person "Solved by" credit. Wider than the 8pm→8pm
+    window on purpose: an associate is credited for every review they cleared
+    today, including older ones that arrived on an earlier day."""
+    start, end = _today_bounds(now)
+    return _collect_solved_between(db, start, end)
+
+
 def build_daily_digest(db, now: datetime | None = None) -> str:
     """The full digest text for a run at `now` (defaults to real now)."""
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
-    summary = summarize(collect_solved_rows(db, now), received_count(db, now))
+    summary = summarize(
+        collect_solved_rows(db, now),
+        received_count(db, now),
+        solved_by_rows=collect_solved_today_rows(db, now))
     # Label with the window's END day (the 8pm cutoff date it covers up to), not
     # the raw clock — at the 8pm run these coincide, but a mid-day preview of the
     # last completed day must be dated that day, not today. %-d (no leading
@@ -264,7 +316,12 @@ def build_daily_digest(db, now: datetime | None = None) -> str:
     start, end = window_bounds(now)
     start_ist, end_ist = start.astimezone(IST), end.astimezone(IST)
     date_label = end_ist.strftime("%d %b %Y").lstrip("0")
-    # e.g. "8pm 11 Sep → 8pm 12 Sep IST" — the exact period the numbers cover.
+    day_label = end_ist.strftime("%d %b").lstrip("0")     # e.g. "13 Sep"
+    # Received + Solved cover the fixed 8pm→8pm window; the caption says so.
     _d = lambda t: t.strftime("%d %b").lstrip("0")
-    window_label = f"8pm {_d(start_ist)} → 8pm {_d(end_ist)} IST"
-    return render_digest(summary, date_label, window_label)
+    window_label = f"Received & solved · 8pm {_d(start_ist)} → 8pm {_d(end_ist)} IST"
+    # Solved by covers the whole IST day (older reviews included) — a different,
+    # wider frame, so its total can differ from Solved above. The caption is what
+    # makes that difference legible instead of looking like a miscount.
+    solved_by_label = f"closed on {day_label}, incl. older reviews"
+    return render_digest(summary, date_label, window_label, solved_by_label)

@@ -11,7 +11,8 @@ import pytest
 
 from server.services.daily_report import (
     Row, Summary, summarize, render_digest, _tier_label, collect_solved_rows,
-    received_count, build_daily_digest, window_bounds, IST)
+    collect_solved_today_rows, received_count, build_daily_digest,
+    window_bounds, _today_bounds, IST)
 # ── tier label: Tier 1 / Tier 2 / Untraceable (the only three tracked) ──────
 
 def test_tier_label_is_three_buckets_only():
@@ -80,6 +81,34 @@ def test_categories_counted_and_sorted():
     assert ("Experience / Guide", 1) in s.categories
 
 
+# ── two cohorts: headline (8pm→8pm) vs Solved-by (whole calendar day) ────────
+
+def test_solved_by_uses_its_own_wider_cohort():
+    # Headline Solved, tiers and categories come from the 8pm→8pm `solved_rows`;
+    # the per-person Solved-by comes from the wider `solved_by_rows` (everything
+    # closed across the day, older reviews included). The two totals legitimately
+    # differ — that is the whole point of the separate cohort.
+    window = [Row(solved=True, picked_up_by="Avi", tier=1,
+                  l1="Operations", l2="Ticket Issues")]
+    today = [Row(solved=True, picked_up_by="Avi"),
+             Row(solved=True, picked_up_by="Shruti"),
+             Row(solved=True, picked_up_by="Shruti")]
+    s = summarize(window, received_count=5, solved_by_rows=today)
+    assert s.solved == 1                          # headline = window cohort
+    assert sum(s.tier.values()) == 1              # tiers follow the window cohort
+    assert s.categories == [("Operations / Ticket Issues", 1)]  # window cohort
+    # People follow the wider today cohort, biggest-first, and its total (3) is
+    # deliberately not equal to the headline Solved (1).
+    assert s.people == [("Shruti", 2), ("Avi", 1)]
+    assert sum(n for _, n in s.people) == 3
+
+
+def test_solved_by_defaults_to_window_cohort_when_not_given():
+    # Older callers/tests pass no solved_by_rows -> Solved-by == the window rows.
+    s = summarize(_solved_cohort())
+    assert s.people == [("Avi", 2), ("Swagatom", 1)]
+
+
 def test_empty_cohort_renders_zeros_without_error():
     s = summarize([], received_count=0)
     assert s.received == 0 and s.solved == 0
@@ -106,6 +135,20 @@ def test_render_headline_and_blocks():
     assert "*📂  Top issue categories (L1 / L2)*" in out
     # Section breakers present between the blocks.
     assert "━" in out
+
+
+def test_solved_by_caption_rendered_and_totals_may_differ():
+    s = summarize([Row(solved=True, picked_up_by="Avi", tier=1)], received_count=3,
+                  solved_by_rows=[Row(solved=True, picked_up_by="Avi"),
+                                  Row(solved=True, picked_up_by="Shruti")])
+    out = render_digest(s, "13 Sep 2026",
+                        "Received & solved · 8pm 12 Sep → 8pm 13 Sep IST",
+                        "closed on 13 Sep, incl. older reviews")
+    # Both frames labelled so the reader knows why the two "solved" numbers differ.
+    assert "Received & solved · 8pm 12 Sep → 8pm 13 Sep IST" in out
+    assert "closed on 13 Sep, incl. older reviews" in out
+    assert "Solved: *1*" in out                       # headline = window cohort
+    assert "• Avi — 1" in out and "• Shruti — 1" in out   # Solved-by = day cohort
 
 
 def test_untraceable_always_shown_even_at_zero():
@@ -171,6 +214,56 @@ def test_solved_cohort_is_by_when_finished_not_when_received(live_db):
         s.close()
     # Swagatom (old arrival, solved today) AND Paul (same day) — NOT Avi.
     assert people == [("Paul", 1), ("Swagatom", 1)]
+
+
+def test_solved_today_spans_the_calendar_day_not_the_8pm_window(live_db):
+    # The Solved-by cohort is the report's IST CALENDAR DAY, capped at now. It
+    # differs from the 8pm→8pm window at BOTH ends:
+    #   * a review solved yesterday EVENING (inside the 8pm→8pm window, but before
+    #     today 00:00) is in the window cohort but NOT the calendar day; and
+    #   * a review solved AFTER today's 8pm cutoff but before the (delayed) run is
+    #     in the calendar day but NOT the 8pm→8pm window.
+    from server.db import Review, RcaDraft
+    now = datetime(2026, 9, 10, 15, 30, tzinfo=timezone.utc)     # 21:00 IST Sep10
+    morning_today = datetime(2026, 9, 10, 4, 30, tzinfo=timezone.utc)   # 10:00 IST
+    yesterday_eve = datetime(2026, 9, 9, 16, 30, tzinfo=timezone.utc)   # 22:00 IST Sep9
+    after_cutoff  = datetime(2026, 9, 10, 15, 0, tzinfo=timezone.utc)   # 20:30 IST Sep10
+    s = live_db.SessionLocal()
+    try:
+        s.add(Review(id="morning", received_at=_n(morning_today), status="sent",
+                     rating=1, picked_up_by="Shruti"))
+        s.add(RcaDraft(id="morning-d", review_id="morning", match_tier=1,
+                       sent_at=_n(morning_today), booking={"id": "B1"}))
+        s.add(Review(id="yest_eve", received_at=_n(yesterday_eve), status="sent",
+                     rating=1, picked_up_by="Avi"))
+        s.add(RcaDraft(id="yest_eve-d", review_id="yest_eve", match_tier=1,
+                       sent_at=_n(yesterday_eve), booking={"id": "B2"}))
+        s.add(Review(id="late", received_at=_n(morning_today), status="sent",
+                     rating=1, picked_up_by="Devshree"))
+        s.add(RcaDraft(id="late-d", review_id="late", match_tier=1,
+                       sent_at=_n(after_cutoff), booking={"id": "B3"}))
+        s.commit()
+        today_people = summarize(collect_solved_today_rows(s, now)).people
+        window_people = summarize(collect_solved_rows(s, now)).people
+        text = build_daily_digest(s, now)
+    finally:
+        s.close()
+    # Calendar day: morning + after-cutoff (Shruti, Devshree); NOT yesterday-eve.
+    assert today_people == [("Devshree", 1), ("Shruti", 1)]
+    # 8pm→8pm window: morning + yesterday-eve (Shruti, Avi); NOT the after-cutoff.
+    assert window_people == [("Avi", 1), ("Shruti", 1)]
+    # The digest's Solved-by must use the CALENDAR-DAY cohort, so Devshree (solved
+    # after the 8pm cutoff) is credited and Avi (solved yesterday evening) is not.
+    assert "• Devshree — 1" in text and "• Shruti — 1" in text
+    assert "• Avi" not in text
+
+
+def test_today_bounds_is_midnight_to_now_in_ist():
+    now = datetime(2026, 9, 10, 15, 30, tzinfo=timezone.utc)     # 21:00 IST Sep10
+    start, end = _today_bounds(now)                              # naive UTC
+    # start = 10 Sep 00:00 IST = 9 Sep 18:30 UTC; end capped at now (15:30 UTC).
+    assert start == datetime(2026, 9, 9, 18, 30)
+    assert end == datetime(2026, 9, 10, 15, 30)
 
 
 def test_collect_solved_detects_declared_untraceable_over_a_tier(live_db):
@@ -256,9 +349,18 @@ def test_received_count_is_an_8pm_to_8pm_window(live_db):
 
 def test_build_daily_digest_dates_in_ist(live_db):
     # 18:00 UTC on 9 Sep is 23:30 IST on 9 Sep — the label is the IST date.
+    from server.db import Review, RcaDraft
     now = datetime(2026, 9, 9, 18, 0, tzinfo=timezone.utc)
+    solved_today = datetime(2026, 9, 9, 6, 30, tzinfo=timezone.utc)   # 12:00 IST Sep9
     s = live_db.SessionLocal()
     try:
+        # One review solved during the calendar day so the Solved-by section (and
+        # its caption) actually renders.
+        s.add(Review(id="r", received_at=_n(solved_today), status="sent",
+                     rating=1, picked_up_by="Avi"))
+        s.add(RcaDraft(id="r-d", review_id="r", match_tier=1,
+                       sent_at=_n(solved_today), booking={"id": "B1"}))
+        s.commit()
         text = build_daily_digest(s, now)
     finally:
         s.close()
@@ -267,3 +369,7 @@ def test_build_daily_digest_dates_in_ist(live_db):
     # The 8pm->8pm window is stamped: this run (23:30 IST 9 Sep) covers
     # 8pm 8 Sep -> 8pm 9 Sep IST.
     assert "8pm 8 Sep → 8pm 9 Sep IST" in text
+    # Both frames are labelled: the 8pm→8pm one for Received & Solved, and the
+    # calendar-day one for the Solved-by credit.
+    assert "Received & solved · 8pm 8 Sep → 8pm 9 Sep IST" in text
+    assert "closed on 9 Sep, incl. older reviews" in text
