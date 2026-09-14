@@ -1,0 +1,62 @@
+[
+  {
+    "file": "server/services/report_composer.py",
+    "name": "composer: daily window is not a single day",
+    "find": "    if preset == \"daily\":\n        return end, end",
+    "replace": "    if preset == \"daily\":\n        return (datetime.strptime(end, \"%Y-%m-%d\") - timedelta(days=1)).strftime(\"%Y-%m-%d\"), end"
+  },
+  {
+    "file": "server/services/report_composer.py",
+    "name": "composer: weekly window is the wrong length",
+    "find": "        start = (datetime.strptime(end, \"%Y-%m-%d\") - timedelta(days=6)).strftime(\"%Y-%m-%d\")",
+    "replace": "        start = (datetime.strptime(end, \"%Y-%m-%d\") - timedelta(days=7)).strftime(\"%Y-%m-%d\")"
+  },
+  {
+    "file": "server/services/report_composer.py",
+    "name": "composer: date_to stops being inclusive",
+    "find": "    hi = datetime.strptime(end, \"%Y-%m-%d\") + timedelta(days=1)   # end is inclusive",
+    "replace": "    hi = datetime.strptime(end, \"%Y-%m-%d\")   # end is inclusive"
+  },
+  {
+    "file": "server/services/report_composer.py",
+    "name": "composer: an unmeasured value prints as zero instead of unknown",
+    "find": "    if value is None:\n        return \"—\"",
+    "replace": "    if value is None:\n        return \"0\""
+  },
+  {
+    "file": "server/services/report_composer.py",
+    "name": "composer: unrecorded values are no longer declared",
+    "find": "        if missing:\n            out.append(f\"_{missing} review(s) have no {label.lower()} — not counted above._\")",
+    "replace": "        if False:\n            out.append(f\"_{missing} review(s) have no {label.lower()} — not counted above._\")"
+  },
+  {
+    "file": "server/services/report_composer.py",
+    "name": "composer: truncation is no longer declared",
+    "find": "        if res[\"truncated\"]:\n            out.append(f\"_Top {top} of {res['row_count']}._\")",
+    "replace": "        if False:\n            out.append(f\"_Top {top} of {res['row_count']}._\")"
+  },
+  {
+    "file": "server/services/report_composer.py",
+    "name": "composer: an active filter is not stated on the report",
+    "find": "        if applied:",
+    "replace": "        if False:"
+  },
+  {
+    "file": "server/services/report_composer.py",
+    "name": "composer: an empty window sends a shell instead of saying so",
+    "find": "        out.append(\"No reviews arrived in this window.\")",
+    "replace": "        out.append(\"\")"
+  },
+  {
+    "file": "server/services/report_composer.py",
+    "name": "composer: sections always rank by count",
+    "find": "        res = run_query(records, [key], [rank_by], filters=filters,\n                        limit=top, sort=rank_by)",
+    "replace": "        res = run_query(records, [key], [\"count\"], filters=filters,\n                        limit=top, sort=\"count\")"
+  },
+  {
+    "file": "server/services/report_composer.py",
+    "name": "composer: the section row limit is ignored",
+    "find": "                        limit=top, sort=rank_by)",
+    "replace": "                        limit=999, sort=rank_by)"
+  }
+]

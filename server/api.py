@@ -3522,6 +3522,112 @@ def review_progress(review_id: str):
             "queue_size": e.get("queue_size")}
 
 
+# ── Reporting page: field registry + ad-hoc query ────────────────────────────
+# READ-ONLY analytics over reviews already in Postgres. No BigQuery, no model
+# call. The client renders its field picker from /fields so the two cannot drift,
+# and every result carries `unset` and `unnested` so a reader is never left
+# guessing whether a small number means "few" or "not recorded".
+
+class ReportingQuery(BaseModel):
+    date_from: str | None = None          # inclusive, YYYY-MM-DD
+    date_to: str | None = None            # inclusive, YYYY-MM-DD
+    dimensions: list[str] = []
+    measures: list[str] = ["count"]
+    filters: dict[str, str] = {}
+    limit: int = 500
+    sort: str | None = None
+    descending: bool = True
+
+
+class ReportDraft(BaseModel):
+    preset: str = "daily"                 # daily | weekly | custom
+    date_from: str | None = None
+    date_to: str | None = None
+    sections: list[str] | None = None
+    rank_by: str = "count"
+    top: int = 5
+    filters: dict[str, str] = {}
+    text: str | None = None               # the EDITED draft, when sending
+
+
+@router.post("/api/reporting/report/preview")
+def reporting_report_preview(body: ReportDraft, db: Session = Depends(get_session)):
+    """Build the Slack draft for this window. Read-only — posts nothing."""
+    from server.services.report_composer import build
+    try:
+        out = build(db, preset=body.preset, date_from=body.date_from,
+                    date_to=body.date_to, sections=body.sections,
+                    rank_by=body.rank_by, top=body.top, filters=body.filters)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    out["channel"] = _daily_channel()
+    return out
+
+
+@router.post("/api/reporting/report/send")
+def reporting_report_send(body: ReportDraft, db: Session = Depends(get_session)):
+    """Post the report. Sends the EDITED text verbatim when one is supplied, so
+    what the person read on screen is what lands in Slack; only a blank draft is
+    rebuilt. Reuses the daily digest's channel and posting path."""
+    from server.services.report_composer import build
+    from server.services.slack import post_to_channel, last_post_failure
+    channel = _daily_channel()
+    if not channel:
+        raise HTTPException(400, "SLACK_CHANNEL_DAILY is not set — no channel to "
+                                 "post the report to.")
+    text = (body.text or "").strip()
+    if not text:
+        try:
+            text = build(db, preset=body.preset, date_from=body.date_from,
+                         date_to=body.date_to, sections=body.sections,
+                         rank_by=body.rank_by, top=body.top,
+                         filters=body.filters)["text"]
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+    ts = post_to_channel(channel, text)
+    if not ts:
+        why = last_post_failure.get("why") or "Slack returned no message ts."
+        raise HTTPException(502, f"Not posted: {why}")
+    return {"ok": True, "ts": ts, "channel": channel}
+
+
+@router.get("/api/reporting/fields")
+def reporting_fields():
+    """Every groupable dimension and every measure, grouped by RCA view."""
+    from server.services.reporting_query import field_registry
+    return field_registry()
+
+
+@router.post("/api/reporting/query")
+def reporting_query(body: ReportingQuery, db: Session = Depends(get_session)):
+    """Group reviews by the chosen dimensions and aggregate the chosen measures."""
+    from datetime import timedelta
+    from server.services.reporting_query import records, run_query
+
+    def _day(v, end=False):
+        if not v:
+            return None
+        try:
+            d = datetime.strptime(v, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(422, f"date must be YYYY-MM-DD, got {v!r}")
+        # date_to is INCLUSIVE for the caller; the query window is half-open.
+        return d + timedelta(days=1) if end else d
+
+    start, end = _day(body.date_from), _day(body.date_to, end=True)
+    if start and end and end <= start:
+        raise HTTPException(422, "date_to must not be before date_from")
+    if body.limit < 1 or body.limit > 5000:
+        raise HTTPException(422, "limit must be between 1 and 5000")
+    try:
+        return run_query(records(db, start, end), body.dimensions, body.measures,
+                         filters=body.filters, limit=body.limit,
+                         sort=body.sort, descending=body.descending)
+    except ValueError as e:
+        # Name what went wrong rather than returning an empty result set.
+        raise HTTPException(422, str(e))
+
+
 @router.get("/api/reporting")
 def reporting(db: Session = Depends(get_session)):
     metrics = (db.query(ReviewMetric)

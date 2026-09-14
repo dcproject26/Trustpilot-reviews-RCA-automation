@@ -1,0 +1,98 @@
+[
+  {
+    "file": "server/services/reporting_query.py",
+    "name": "reporting: declared-untraceable no longer overrides a tier",
+    "find": "    if _declared_untraceable(close_reason, match_method):\n        return \"Untraceable\"",
+    "replace": "    if False:\n        return \"Untraceable\""
+  },
+  {
+    "file": "server/services/reporting_query.py",
+    "name": "reporting: Tier 1 is not recognised",
+    "find": "    if match_tier == 1:\n        return \"Tier 1\"",
+    "replace": "    if False:\n        return \"Tier 1\""
+  },
+  {
+    "file": "server/services/reporting_query.py",
+    "name": "reporting: test accounts are credited as real people",
+    "find": "    return UNASSIGNED if (not name or name.lower() in TEST_OWNERS) else name",
+    "replace": "    return name or UNASSIGNED"
+  },
+  {
+    "file": "server/services/reporting_query.py",
+    "name": "reporting: unset values are no longer counted",
+    "find": "    unset = {d: sum(1 for r in matched if not values_of(r, d)) for d in dimensions}",
+    "replace": "    unset = {d: 0 for d in dimensions}"
+  },
+  {
+    "file": "server/services/reporting_query.py",
+    "name": "reporting: reviews with no value are silently dropped instead of labelled",
+    "find": "                vals = values_of(rec, d) or [UNSET]",
+    "replace": "                vals = values_of(rec, d)"
+  },
+  {
+    "file": "server/services/reporting_query.py",
+    "name": "reporting: totals ignore the filters",
+    "find": "        \"totals\": {m: MEASURES[m][1](matched) for m in measures},",
+    "replace": "        \"totals\": {m: MEASURES[m][1](records) for m in measures},"
+  },
+  {
+    "file": "server/services/reporting_query.py",
+    "name": "reporting: median time-to-send becomes a mean",
+    "find": "    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2",
+    "replace": "    return sum(s) / len(s)"
+  },
+  {
+    "file": "server/services/reporting_query.py",
+    "name": "reporting: filter matching is inverted",
+    "find": "        if str(want) not in values_of(record, key):",
+    "replace": "        if str(want) in values_of(record, key):"
+  },
+  {
+    "file": "server/services/reporting_query.py",
+    "name": "reporting: a blank filter value no longer means any",
+    "find": "        if want in (None, \"\"):\n            continue",
+    "replace": "        if False:\n            continue"
+  },
+  {
+    "file": "server/services/reporting_query.py",
+    "name": "reporting: row limit is not applied",
+    "find": "        \"rows\": rows[:limit],",
+    "replace": "        \"rows\": rows,"
+  },
+  {
+    "file": "server/services/reporting_query.py",
+    "name": "reporting: truncation is never reported",
+    "find": "        \"truncated\": len(rows) > limit,",
+    "replace": "        \"truncated\": False,"
+  },
+  {
+    "file": "server/services/reporting_query.py",
+    "name": "reporting: traceability is always true",
+    "find": "        \"traceable\":         \"Traceable\" if row.get(\"booking_id\") else \"No booking found\",",
+    "replace": "        \"traceable\":         \"Traceable\","
+  },
+  {
+    "file": "server/services/reporting_query.py",
+    "name": "reporting: time to send is computed in the wrong unit",
+    "find": "    return round((end - start).total_seconds() / 3600, 2)",
+    "replace": "    return round((end - start).total_seconds() / 60, 2)"
+  },
+  {
+    "file": "server/services/reporting_query.py",
+    "name": "reporting: multi-value fields are no longer unnested",
+    "find": "    if isinstance(v, (list, tuple)):\n        return [str(x) for x in v if str(x).strip()]",
+    "replace": "    if isinstance(v, (list, tuple)):\n        return [str(v[0])] if v else []"
+  },
+  {
+    "file": "server/api.py",
+    "name": "reporting api: date_to is exclusive instead of inclusive",
+    "find": "        return d + timedelta(days=1) if end else d",
+    "replace": "        return d"
+  },
+  {
+    "file": "server/api.py",
+    "name": "reporting api: an unknown field returns empty instead of saying why",
+    "find": "        raise HTTPException(422, str(e))",
+    "replace": "        return {\"rows\": [], \"totals\": {}}"
+  }
+]
