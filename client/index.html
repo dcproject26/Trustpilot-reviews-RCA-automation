@@ -1409,6 +1409,172 @@
   .rep-daily-msg.ok  { color: var(--green, #2F7A4D); }
   .rep-daily-msg.err { color: var(--red); }
 
+
+  /* ── Reporting page ───────────────────────────────────────────────────
+     Three tabs over one scope. The scope (date range + filters) lives ONCE,
+     above the tabs, because per-tab controls were the bug: filters applied to
+     a tab that showed no chips, so a filtered 34 looked exactly like a real 34.
+     All values come from --tokens already defined above; no new colours. */
+  .rpg-shell { width: min(1300px, 96vw); height: 90vh; padding: 0;
+               display: flex; flex-direction: column; overflow: hidden; }
+  .rpg-top   { display: flex; align-items: center; gap: 14px; padding: 11px 18px;
+               border-bottom: 1px solid var(--border); flex: none; }
+  .rpg-tabs  { display: inline-flex; gap: 3px; }
+  .rpg-tabs button { border: 1px solid var(--input-bd); background: var(--card);
+               color: var(--muted); font-weight: 600; font-size: 12px;
+               padding: 5px 12px; border-radius: 7px; }
+  .rpg-tabs button[aria-pressed="true"] { border-color: var(--text);
+               background: var(--text); color: var(--card); }
+  .rpg-scope { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+               padding: 8px 18px; background: var(--facts-bg);
+               border-bottom: 1px solid var(--border); flex: none; }
+  .rpg-lab   { font-size: 10px; letter-spacing: .05em; text-transform: uppercase;
+               color: var(--muted-2); font-weight: 650; }
+  .rpg-seg   { display: inline-flex; background: var(--hover-fill);
+               border: 1px solid var(--border); border-radius: 7px; padding: 2px; gap: 2px; }
+  .rpg-seg button { border: 1px solid transparent; background: none; color: var(--muted);
+               font-weight: 600; font-size: 11.5px; padding: 4px 9px; border-radius: 5px; }
+  .rpg-seg button[aria-pressed="true"] { background: var(--card); color: var(--text);
+               border-color: var(--border); }
+  .rpg-dates { display: none; align-items: center; gap: 5px; }
+  .rpg-dates.show { display: inline-flex; }
+  .rpg-note  { font-size: 11.5px; color: var(--muted); }
+  .rpg-note b { color: var(--text); }
+  .rpg-note .on { color: var(--accent); font-weight: 600; }
+  .rpg-body  { flex: 1; overflow: auto; min-height: 0; }
+  .rpg-pad   { padding: 16px 18px 40px; }
+
+  /* filter chips: a typed value, because vendor has 124 values and a <select>
+     at that size is unusable. */
+  .rpg-chip  { display: inline-flex; align-items: center; gap: 5px; font-size: 12px;
+               background: var(--card); border: 1px solid var(--input-bd);
+               border-radius: 20px; padding: 2px 4px 2px 10px; color: var(--text); }
+  .rpg-chip input { border: 0; background: none; font: 600 12px inherit;
+               color: var(--text); min-width: 90px; max-width: 170px; padding: 2px; }
+  .rpg-chip input:focus { outline: 0; border-bottom: 1px solid var(--accent); }
+  .rpg-chip input.bad { color: var(--red); }
+  .rpg-chip button { border: 0; background: var(--hover-fill); color: var(--muted);
+               width: 16px; height: 16px; border-radius: 50%; font-size: 11px; line-height: 1; }
+  .rpg-addf  { border: 1px dashed var(--dashed, #D4D0C7); background: var(--card);
+               color: var(--accent); font-weight: 600; font-size: 11.5px;
+               padding: 4px 10px; border-radius: 20px; }
+  .rpg-pop   { position: absolute; z-index: 60; background: var(--card);
+               border: 1px solid var(--border); border-radius: 9px; padding: 8px;
+               box-shadow: 0 8px 24px rgba(29,28,26,.16); width: 520px;
+               max-height: 320px; overflow: auto;
+               display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 12px; }
+  .rpg-pop[hidden] { display: none; }
+  .rpg-pop input { grid-column: 1/-1; width: 100%; font: inherit; font-size: 12.5px;
+               padding: 5px 8px; border: 1px solid var(--input-bd); border-radius: 6px;
+               background: var(--facts-bg); color: var(--text); }
+  .rpg-pop h5 { margin: 0 0 3px; font-size: 10px; letter-spacing: .05em;
+               text-transform: uppercase; color: var(--muted-2); }
+  .rpg-pop button { display: block; width: 100%; text-align: left; border: 0;
+               background: none; color: var(--body, #4B4843); font-size: 12.5px;
+               padding: 4px 7px; border-radius: 5px; }
+  .rpg-pop button:hover { background: var(--accent-soft, #F5F1FC); color: var(--accent); }
+  .rpg-none { grid-column: 1/-1; color: var(--empty); font-size: 12px; padding: 4px 7px; }
+
+  /* KPI tiles + cards */
+  .rpg-kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 16px; }
+  .rpg-kpi  { background: var(--card); border: 1px solid var(--border); border-radius: 9px; padding: 11px 13px; }
+  .rpg-kpi .l { font-size: 11px; color: var(--muted); font-weight: 600; }
+  .rpg-kpi .v { font: 650 21px/1 var(--mono); margin: 5px 0 2px; }
+  .rpg-kpi .d { font-size: 10.5px; color: var(--dim); }
+  .rpg-sec  { margin-bottom: 18px; }
+  .rpg-sec > .rpg-lab { display: block; margin-bottom: 9px; padding-bottom: 6px;
+               border-bottom: 1px solid var(--border); }
+  .rpg-cards{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; }
+  .rpg-card { background: var(--card); border: 1px solid var(--border); border-radius: 9px;
+               padding: 13px 15px; min-width: 0; }
+  .rpg-card h4 { margin: 0; font-size: 12.5px; font-weight: 650; display: flex;
+               justify-content: space-between; align-items: baseline; gap: 8px; }
+  .rpg-card .fillc { font: 500 10px var(--mono); color: var(--dim); white-space: nowrap; }
+  .rpg-miss { color: var(--amber); font-size: 10.5px; margin-top: 6px; }
+  .rpg-drill{ border: 0; background: none; color: var(--accent); font: 600 11px inherit;
+               padding: 0; margin-top: 8px; }
+  .rpg-drill:hover { text-decoration: underline; }
+  /* the fill MUST be display:block — width:% is ignored on an inline span and
+     every bar renders at zero width. */
+  .rpg-bars { display: flex; flex-direction: column; gap: 7px; margin-top: 9px; }
+  .rpg-row  { display: grid; grid-template-columns: 1fr auto; gap: 7px; align-items: baseline; font-size: 12px; }
+  .rpg-row .lb { color: var(--body, #4B4843); display: -webkit-box; -webkit-line-clamp: 2;
+               -webkit-box-orient: vertical; overflow: hidden; }
+  .rpg-row .vl { font: 600 11.5px var(--mono); color: var(--muted); white-space: nowrap; }
+  .rpg-track{ grid-column: 1/-1; height: 5px; background: var(--hover-fill); border-radius: 3px; overflow: hidden; }
+  .rpg-fill { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+
+  /* explore */
+  .rpg-exp  { display: grid; grid-template-columns: 240px minmax(0,1fr); height: 100%; }
+  .rpg-rail { border-right: 1px solid var(--border); background: var(--facts-bg);
+               padding: 10px; overflow: auto; }
+  .rpg-rail input[type=search] { width: 100%; font: inherit; font-size: 12.5px;
+               padding: 5px 8px; border: 1px solid var(--input-bd); border-radius: 6px;
+               background: var(--card); color: var(--text); margin-bottom: 8px; }
+  .rpg-grp > summary { list-style: none; cursor: pointer; padding: 5px 7px; border-radius: 6px;
+               font: 650 10px inherit; letter-spacing: .05em; text-transform: uppercase;
+               color: var(--muted-2); }
+  .rpg-grp > summary::-webkit-details-marker { display: none; }
+  .rpg-grp > summary:hover { background: var(--card); }
+  .rpg-f    { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left;
+               border: 0; background: none; color: var(--body, #4B4843); font-size: 12.5px;
+               padding: 4px 8px 4px 16px; border-radius: 5px; }
+  .rpg-f:hover { background: var(--card); color: var(--text); }
+  .rpg-f[aria-pressed="true"] { background: var(--accent-soft, #F5F1FC); color: var(--accent); font-weight: 600; }
+  .rpg-f .ic { width: 11px; font-size: 9.5px; color: var(--dim); }
+  .rpg-slots{ display: flex; flex-direction: column; gap: 6px; padding: 9px 11px;
+               background: var(--facts-bg); border: 1px solid var(--border);
+               border-radius: 9px; margin-bottom: 11px; }
+  .rpg-slot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 24px; }
+  .rpg-slot .k { font: 650 10px inherit; letter-spacing: .05em; text-transform: uppercase;
+               color: var(--muted-2); width: 74px; flex: none; }
+  .rpg-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 12px;
+               background: var(--card); border: 1px solid var(--input-bd);
+               border-radius: 20px; padding: 2px 4px 2px 10px; }
+  .rpg-pill.m { border-color: var(--green); color: var(--green); }
+  .rpg-pill button { border: 0; background: var(--hover-fill); color: var(--muted);
+               width: 16px; height: 16px; border-radius: 50%; font-size: 11px; line-height: 1; }
+  .rpg-pill .pv { background: none; width: auto; padding: 0 3px; font-size: 10px; color: var(--dim); }
+  .rpg-pill .pv[aria-pressed="true"] { color: var(--accent); font-weight: 700; }
+  .rpg-empty2 { color: var(--empty); font-size: 12px; font-style: italic; }
+  .rpg-tblwrap { border: 1px solid var(--border); border-radius: 9px; overflow: auto;
+               max-height: 52vh; background: var(--card); }
+  .rpg-tbl  { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .rpg-tbl th, .rpg-tbl td { padding: 6px 11px; text-align: right; white-space: nowrap;
+               border-bottom: 1px solid var(--line-2, #F2F0EA); }
+  .rpg-tbl th:first-child, .rpg-tbl td:first-child { text-align: left; }
+  .rpg-tbl thead th { position: sticky; top: 0; z-index: 2; background: var(--facts-bg);
+               color: var(--muted); font: 600 11px inherit; cursor: pointer; }
+  .rpg-tbl td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .rpg-tbl tr.tot td { font-weight: 700; background: var(--facts-bg);
+               border-top: 1px solid var(--border); }
+  .rpg-hint { font-size: 11px; color: var(--muted); padding: 7px 2px 0; }
+  .rpg-hint .warn { color: var(--amber); }
+
+  /* reports */
+  .rpg-rep  { display: grid; grid-template-columns: 240px minmax(0,1fr); height: 100%; }
+  .rpg-fld  { margin: 0 4px 9px; }
+  .rpg-fld label { display: block; font: 650 10px inherit; letter-spacing: .04em;
+               text-transform: uppercase; color: var(--muted-2); margin-bottom: 4px; }
+  .rpg-fld select, .rpg-fld input { width: 100%; font: inherit; font-size: 12.5px;
+               padding: 5px 8px; border: 1px solid var(--input-bd); border-radius: 6px;
+               background: var(--card); color: var(--text); }
+  .rpg-secitem { display: flex; align-items: center; gap: 7px; padding: 4px 8px 4px 16px;
+               border-radius: 5px; cursor: pointer; font-size: 12.5px; color: var(--body, #4B4843); }
+  .rpg-secitem:hover { background: var(--card); }
+  .rpg-secitem input { accent-color: var(--accent); width: 14px; height: 14px; }
+  .rpg-draft { width: 100%; min-height: 46vh; border: 1px solid var(--border);
+               border-radius: 9px; padding: 12px 14px; font: 12px/1.6 var(--mono);
+               color: var(--text); background: var(--card); resize: vertical;
+               white-space: pre; overflow: auto; }
+  .rpg-draft:focus { outline: 0; border-color: var(--accent); }
+  .rpg-chan { display: flex; align-items: center; gap: 6px; padding: 5px 8px;
+               border: 1px solid var(--input-bd); border-radius: 6px;
+               background: var(--facts-bg); font: 12px var(--mono); color: var(--text); }
+  .rpg-chan i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+  .rpg-zero { padding: 34px 14px; text-align: center; color: var(--muted);
+               border: 1px dashed var(--dashed, #D4D0C7); border-radius: 9px; }
+
   /* misc */
   .pill-sm { font-size: 10px; padding: 1px 6px; border-radius: 5px; }
   .pill-grey { background: var(--hover-fill); color: var(--muted); }
@@ -9180,14 +9346,22 @@ function openReportingModal() {
   const modal = document.createElement('div');
   modal.id = 'reporting-modal';
   modal.className = 'flag-modal';
+  // A Looker-style explore does not fit a 560px card, so Reporting opens as a
+  // full-screen page inside the same backdrop the other modals use.
   modal.innerHTML = `
-    <div class="flag-modal-body">
-      <div class="flag-modal-head">
+    <div class="flag-modal-body rpg-shell">
+      <div class="rpg-top">
         <div class="flag-modal-title">Reporting</div>
+        <div class="rpg-tabs" data-rpg-tabs>
+          <button data-v="overview" aria-pressed="true">Overview</button>
+          <button data-v="explore">Explore</button>
+          <button data-v="reports">Reports</button>
+        </div>
+        <span style="flex:1"></span>
         <button class="flag-modal-close" data-close-modal aria-label="close">×</button>
       </div>
-      <div data-reporting-body>
-        <div class="rep-empty">Loading…</div>
+      <div data-reporting-body style="flex:1;display:flex;flex-direction:column;min-height:0">
+        <div class="rep-empty" style="padding:18px">Loading…</div>
       </div>
     </div>
   `;
@@ -9200,7 +9374,7 @@ function openReportingModal() {
     if (e.target === modal) modal.remove();
   });
 
-  loadReportingInto(modal.querySelector('[data-reporting-body]'));
+  rpgInit(modal.querySelector('[data-reporting-body]'), modal);
 }
 
 // The fetch + render + failure handling for the modal body. ONE
@@ -9505,6 +9679,604 @@ function loadWeeklyPanel(host) {
       sub.textContent = 'could not load weeks';
       setMsg(String(e.message || e).slice(0, 160), 'err');
     });
+}
+
+
+// ── Reporting page ──────────────────────────────────────────────────────────
+// Three tabs over ONE scope. Every number comes from /api/reporting/query, and
+// the Slack draft from /api/reporting/report/* — the same engine — so the cards,
+// the table and the message a manager receives cannot disagree.
+//
+// Client JS has no test harness in this repo (CLAUDE.md rule 2); the arithmetic
+// and the composed text are built and tested server-side in
+// server/services/reporting_query.py and report_composer.py. This file only
+// asks for them and draws the answer.
+const RPG = {
+  fields: null, views: [], dimByKey: {}, measByKey: {},
+  tab: 'overview', preset: '30d', from: '', to: '', filters: [],
+  dims: ['l1'], meas: ['count', 'solved_pct'], pivot: null,
+  limit: 25, sort: null, desc: true, expanded: {}, seq: 0,
+  host: null, modal: null, repSections: ['tier', 'owner'],
+  repPreset: 'daily', repRank: 'count', repTop: 5, repDirty: false,
+};
+
+// esc() upstream escapes < and > only; attribute values need quotes escaped as
+// well, because vendor and experience names are arbitrary supplier text.
+const rpgAttr = (s) => String(s == null ? '' : s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+const rpgFmt = (key, v) => {
+  if (v === null || v === undefined) return '—';          // unknown, not zero
+  if (key.endsWith('_pct')) return Math.round(v) + '%';
+  if (key === 'avg_rating' || key === 'avg_issues') return Number(v).toFixed(2);
+  if (key === 'median_tts') return Number(v).toFixed(1) + 'h';
+  return String(v);
+};
+const rpgISO = (d) => d.toISOString().slice(0, 10);
+const rpgDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return rpgISO(d); };
+
+function rpgScope() {
+  const f = {};
+  RPG.filters.forEach(x => { if (x.val) f[x.key] = x.val; });
+  return {date_from: RPG.from || null, date_to: RPG.to || null, filters: f};
+}
+
+// One fetch helper so every failure says what happened instead of leaving a
+// panel on "Loading…" forever — the shape a slow response also has.
+async function rpgPost(path, body) {
+  const res = await fetch(path, {method: 'POST', cache: 'no-store',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.detail || `${res.status}`);
+  return json;
+}
+const rpgQuery = (spec) => rpgPost('/api/reporting/query', Object.assign(rpgScope(), spec));
+
+function rpgInit(host, modal) {
+  RPG.host = host; RPG.modal = modal;
+  RPG.from = rpgDays(-29); RPG.to = rpgISO(new Date()); RPG.preset = '30d';
+  fetch('/api/reporting/fields', {cache: 'no-store'})
+    .then(async (r) => { if (!r.ok) throw new Error(`${r.status}`); return r.json(); })
+    .then((reg) => {
+      RPG.fields = reg; RPG.views = reg.views;
+      reg.dimensions.forEach(d => RPG.dimByKey[d.key] = d);
+      reg.measures.forEach(m => RPG.measByKey[m.key] = m);
+      host.innerHTML = `
+        <div class="rpg-scope">
+          <span class="rpg-lab" data-rpg-datelab>Dates</span>
+          <div class="rpg-seg" data-rpg-presets>
+            <button data-r="7d">7d</button><button data-r="30d" aria-pressed="true">30d</button>
+            <button data-r="mtd">MTD</button><button data-r="90d">90d</button>
+            <button data-r="custom">Custom</button>
+          </div>
+          <div class="rpg-dates" data-rpg-dates>
+            <input type="date" data-rpg-from><span style="color:var(--dim)">→</span><input type="date" data-rpg-to>
+          </div>
+          <span style="width:1px;height:18px;background:var(--border)" data-rpg-sep></span>
+          <span style="position:relative">
+            <button class="rpg-addf" data-rpg-addf>+ Filter</button>
+            <div class="rpg-pop" data-rpg-pop hidden></div>
+          </span>
+          <span data-rpg-chips style="display:flex;gap:6px;flex-wrap:wrap"></span>
+          <button class="btn" data-rpg-clear hidden style="padding:4px 9px">Clear</button>
+          <span style="flex:1"></span>
+          <span class="rpg-note" data-rpg-note></span>
+        </div>
+        <div class="rpg-body" data-rpg-view></div>`;
+      host.querySelector('[data-rpg-from]').value = RPG.from;
+      host.querySelector('[data-rpg-to]').value = RPG.to;
+      rpgWire();
+      rpgRender();
+    })
+    .catch((e) => {
+      host.innerHTML = `<div class="rep-err" style="padding:18px">Reporting could not load: ${esc(String(e.message || e).slice(0,200))}</div>
+        <div style="padding:0 18px"><button class="btn" data-rpg-retry>Retry</button></div>`;
+      host.querySelector('[data-rpg-retry]').addEventListener('click', () => rpgInit(host, modal));
+    });
+}
+
+function rpgWire() {
+  const h = RPG.host;
+  RPG.modal.querySelector('[data-rpg-tabs]').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    RPG.tab = b.dataset.v;
+    RPG.modal.querySelectorAll('[data-rpg-tabs] button')
+      .forEach(x => x.setAttribute('aria-pressed', x.dataset.v === RPG.tab));
+    // Reports carries its own window, so the global date control is hidden there;
+    // the FILTERS stay visible because they do apply to the report.
+    const rep = RPG.tab === 'reports';
+    ['[data-rpg-datelab]', '[data-rpg-presets]', '[data-rpg-sep]']
+      .forEach(sel => h.querySelector(sel).style.display = rep ? 'none' : '');
+    if (rep) h.querySelector('[data-rpg-dates]').classList.remove('show');
+    else if (RPG.preset === 'custom') h.querySelector('[data-rpg-dates]').classList.add('show');
+    rpgRender();
+  });
+  h.querySelector('[data-rpg-presets]').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    RPG.preset = b.dataset.r;
+    h.querySelectorAll('[data-rpg-presets] button')
+      .forEach(x => x.setAttribute('aria-pressed', x === b));
+    h.querySelector('[data-rpg-dates]').classList.toggle('show', RPG.preset === 'custom');
+    const today = rpgISO(new Date());
+    if (RPG.preset === '7d')   { RPG.from = rpgDays(-6);  RPG.to = today; }
+    if (RPG.preset === '30d')  { RPG.from = rpgDays(-29); RPG.to = today; }
+    if (RPG.preset === '90d')  { RPG.from = rpgDays(-89); RPG.to = today; }
+    if (RPG.preset === 'mtd')  { RPG.from = today.slice(0, 8) + '01'; RPG.to = today; }
+    if (RPG.preset === 'custom') { RPG.from = h.querySelector('[data-rpg-from]').value || RPG.from;
+                                   RPG.to = h.querySelector('[data-rpg-to]').value || RPG.to; }
+    h.querySelector('[data-rpg-from]').value = RPG.from;
+    h.querySelector('[data-rpg-to]').value = RPG.to;
+    rpgRender();
+  });
+  ['[data-rpg-from]', '[data-rpg-to]'].forEach(sel =>
+    h.querySelector(sel).addEventListener('change', () => {
+      RPG.preset = 'custom';
+      h.querySelectorAll('[data-rpg-presets] button')
+        .forEach(x => x.setAttribute('aria-pressed', x.dataset.r === 'custom'));
+      h.querySelector('[data-rpg-dates]').classList.add('show');
+      RPG.from = h.querySelector('[data-rpg-from]').value;
+      RPG.to = h.querySelector('[data-rpg-to]').value;
+      rpgRender();
+    }));
+  h.querySelector('[data-rpg-clear]').addEventListener('click', () => {
+    RPG.filters = []; rpgChips(); rpgRender();
+  });
+  h.querySelector('[data-rpg-addf]').addEventListener('click', (e) => {
+    e.stopPropagation(); rpgFieldMenu('');
+  });
+  h.querySelector('[data-rpg-pop]').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-k]'); if (!b) return;
+    RPG.filters.push({key: b.dataset.k, val: ''});
+    h.querySelector('[data-rpg-pop]').hidden = true;
+    rpgChips(); rpgRender();
+  });
+  document.addEventListener('click', (e) => {
+    const pop = h.querySelector('[data-rpg-pop]');
+    if (pop && !pop.hidden && !e.target.closest('[data-rpg-pop]') && !e.target.closest('[data-rpg-addf]'))
+      pop.hidden = true;
+  });
+}
+
+// A searchable field list: 26 fields is too many to scan, and Date is excluded
+// because the date range above already governs it.
+function rpgFieldMenu(term) {
+  const pop = RPG.host.querySelector('[data-rpg-pop]');
+  const used = new Set(RPG.filters.map(f => f.key));
+  const t = (term || '').trim().toLowerCase();
+  let html = `<input type="search" placeholder="Search fields…" value="${rpgAttr(term || '')}" data-rpg-fsearch>`;
+  let any = false;
+  RPG.views.forEach(v => {
+    const items = RPG.fields.dimensions.filter(d => d.view === v && !used.has(d.key)
+      && d.key !== 'date' && (!t || d.label.toLowerCase().includes(t)));
+    if (!items.length) return;
+    any = true;
+    html += `<div><h5>${esc(v)}</h5>` +
+      items.map(d => `<button data-k="${rpgAttr(d.key)}">${esc(d.label)}</button>`).join('') + `</div>`;
+  });
+  if (!any) html += `<div class="rpg-none">No field matches “${esc(term || '')}”.</div>`;
+  pop.innerHTML = html;
+  pop.hidden = false;
+  const inp = pop.querySelector('[data-rpg-fsearch]');
+  inp.addEventListener('input', () => { const v = inp.value; rpgFieldMenu(v);
+    const n = RPG.host.querySelector('[data-rpg-fsearch]');
+    if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } });
+  inp.focus();
+}
+
+// Chips carry a TYPED value with a datalist of the real values — a 124-option
+// <select> is unusable, and a typed value that matches nothing is marked rather
+// than silently returning zero rows.
+function rpgChips() {
+  const h = RPG.host;
+  h.querySelector('[data-rpg-clear]').hidden = !RPG.filters.length;
+  h.querySelector('[data-rpg-chips]').innerHTML = RPG.filters.map((f, i) => {
+    const d = RPG.dimByKey[f.key] || {label: f.key};
+    return `<span class="rpg-chip">${esc(d.label)}` +
+      `<input list="rpgdl${i}" data-fi="${i}" placeholder="any" value="${rpgAttr(f.val || '')}">` +
+      `<datalist id="rpgdl${i}"></datalist>` +
+      `<button data-rmf="${i}" aria-label="remove">×</button></span>`;
+  }).join('');
+  h.querySelectorAll('[data-rpg-chips] [data-rmf]').forEach(b =>
+    b.addEventListener('click', () => { RPG.filters.splice(+b.dataset.rmf, 1); rpgChips(); rpgRender(); }));
+  h.querySelectorAll('[data-rpg-chips] input[data-fi]').forEach(inp => {
+    const i = +inp.dataset.fi;
+    // Values come from the server for the CURRENT scope, so the suggestions are
+    // the values that actually exist in what you are looking at.
+    rpgQuery({dimensions: [RPG.filters[i].key], measures: ['count'], limit: 400,
+              filters: {}}).then(res => {
+      const dl = h.querySelector(`#rpgdl${i}`); if (!dl) return;
+      dl.innerHTML = res.rows.map(r => `<option value="${rpgAttr(r.key[0])}"></option>`).join('');
+    }).catch(() => {});
+    inp.addEventListener('change', () => {
+      RPG.filters[i].val = inp.value.trim();
+      rpgRender();
+    });
+  });
+}
+
+function rpgNote(res) {
+  const fl = RPG.filters.filter(f => f.val);
+  RPG.host.querySelector('[data-rpg-note]').innerHTML =
+    `<b>${res ? res.matched : '—'}</b> of ${res ? res.scanned : '—'} reviews` +
+    (fl.length ? ` · <span class="on">${fl.map(f =>
+      esc((RPG.dimByKey[f.key] || {label: f.key}).label) + ' = ' + esc(f.val)).join(' · ')}</span>`
+      : ' · no filters');
+}
+
+function rpgRender() {
+  const view = RPG.host.querySelector('[data-rpg-view]');
+  if (RPG.tab === 'overview') return rpgOverview(view);
+  if (RPG.tab === 'explore')  return rpgExplore(view);
+  return rpgReports(view);
+}
+
+// ── Overview ────────────────────────────────────────────────────────────────
+const RPG_KPIS = [
+  ['count', 'Reviews in'], ['solved', 'Solved'], ['solved_pct', 'Solved %'],
+  ['traced_pct', 'Booking traced'], ['median_tts', 'Median time to send'], ['posted', 'RCAs posted'],
+];
+const RPG_CARDS = [
+  ['Volume & matching', ['tier', 'traceable', 'match_method']],
+  ['People & handling', ['owner', 'sent_route', 'close_reason']],
+  ['What went wrong', ['l1', 'l2', 'scenarios', 'sub_themes', 'claim_accuracy']],
+  ['Booking details', ['vendor', 'experience', 'fulfilment_type', 'booking_status', 'tgid']],
+  ['Resolution & outcome', ['takedown', 'dss_followed', 'outcome_category', 'resolution_given']],
+  ['Review', ['rating', 'language', 'status']],
+];
+
+function rpgBars(rows, total, topKey) {
+  if (!rows.length) return `<div class="rpg-empty2" style="margin-top:8px">no values in this range</div>`;
+  const mx = Math.max(1, ...rows.map(r => Number(r.values[topKey]) || 0));
+  return `<div class="rpg-bars">` + rows.map(r => {
+    const v = Number(r.values[topKey]) || 0;
+    return `<div class="rpg-row"><span class="lb" title="${rpgAttr(r.key[0])}">${esc(r.key[0])}</span>` +
+      `<span class="vl">${esc(rpgFmt(topKey, r.values[topKey]))}${total ? ` · ${Math.round(v / total * 100)}%` : ''}</span>` +
+      `<span class="rpg-track"><span class="rpg-fill" style="width:${Math.max(2, Math.round(v / mx * 100))}%"></span></span></div>`;
+  }).join('') + `</div>`;
+}
+
+async function rpgOverview(view) {
+  const ticket = ++RPG.seq;            // only the newest render may paint
+  view.innerHTML = `<div class="rpg-pad"><div class="rep-empty">Loading…</div></div>`;
+  try {
+    const head = await rpgQuery({dimensions: [], measures: RPG_KPIS.map(k => k[0])});
+    if (ticket !== RPG.seq) return;
+    rpgNote(head);
+    if (!head.matched) {
+      view.innerHTML = `<div class="rpg-pad"><div class="rpg-zero"><b>No reviews match this scope.</b><br>
+        Widen the date range or clear a filter above.</div></div>`;
+      return;
+    }
+    let html = `<div class="rpg-pad"><div class="rpg-kpis">` + RPG_KPIS.map(([k, l]) => {
+      const sub = k === 'solved_pct' ? 'of reviews in'
+        : k === 'traced_pct' ? `${head.totals.count} reviews`
+        : k === 'median_tts' ? 'median, not mean' : '';
+      return `<div class="rpg-kpi"><div class="l">${esc(l)}</div>` +
+        `<div class="v">${esc(rpgFmt(k, head.totals[k]))}</div><div class="d">${esc(sub)}</div></div>`;
+    }).join('') + `</div><div data-rpg-cards></div></div>`;
+    view.innerHTML = html;
+
+    const host = view.querySelector('[data-rpg-cards]');
+    for (const [title, keys] of RPG_CARDS) {
+      const sec = document.createElement('div');
+      sec.className = 'rpg-sec';
+      sec.innerHTML = `<span class="rpg-lab">${esc(title)}</span><div class="rpg-cards"></div>`;
+      host.appendChild(sec);
+      const grid = sec.querySelector('.rpg-cards');
+      for (const key of keys) {
+        const d = RPG.dimByKey[key]; if (!d) continue;
+        const open = !!RPG.expanded[key];
+        const res = await rpgQuery({dimensions: [key], measures: ['count'],
+                                    limit: open ? 25 : 6, sort: 'count'});
+        if (ticket !== RPG.seq) return;   // the scope or tab changed mid-loop
+        const filled = res.matched - (res.unset[key] || 0);
+        const card = document.createElement('div');
+        card.className = 'rpg-card';
+        card.innerHTML = `<h4><span>${esc(d.label)}</span><span class="fillc">${filled}/${res.matched}</span></h4>` +
+          rpgBars(res.rows, filled, 'count') +
+          // Rule 1: a short bar because nobody recorded the field is not the
+          // same as a short bar because it did not happen.
+          (res.unset[key] ? `<div class="rpg-miss">${res.unset[key]} review(s) have no ${esc(d.label.toLowerCase())} — not counted.</div>` : '') +
+          (res.truncated || open ? `<button class="rpg-drill" data-more="${rpgAttr(key)}">${open ? 'Show top 6' : `Show all ${res.row_count} values`}</button> ` : '') +
+          `<button class="rpg-drill" data-explore="${rpgAttr(key)}">Explore this field →</button>`;
+        grid.appendChild(card);
+      }
+    }
+    host.querySelectorAll('[data-more]').forEach(b => b.addEventListener('click', () => {
+      RPG.expanded[b.dataset.more] = !RPG.expanded[b.dataset.more]; rpgOverview(view); }));
+    host.querySelectorAll('[data-explore]').forEach(b => b.addEventListener('click', () => {
+      RPG.dims = [b.dataset.explore]; RPG.meas = ['count', 'solved_pct']; RPG.pivot = null; RPG.sort = null;
+      RPG.modal.querySelector('[data-rpg-tabs] button[data-v="explore"]').click(); }));
+  } catch (e) {
+    view.innerHTML = `<div class="rpg-pad"><div class="rep-err">Could not load: ${esc(String(e.message || e).slice(0,200))}</div></div>`;
+  }
+}
+
+// ── Explore ─────────────────────────────────────────────────────────────────
+function rpgExplore(view) {
+  if (!view.querySelector('[data-rpg-rail]')) {
+    view.innerHTML = `<div class="rpg-exp">
+      <aside class="rpg-rail" data-rpg-rail></aside>
+      <main class="rpg-pad" style="min-width:0">
+        <div class="rpg-slots">
+          <div class="rpg-slot"><span class="k">Dimensions</span><span data-rpg-dimp></span></div>
+          <div class="rpg-slot"><span class="k">Measures</span><span data-rpg-measp></span></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">
+          <span style="flex:1"></span>
+          <label style="font-size:11.5px;color:var(--muted)">Rows
+            <select data-rpg-limit><option>10</option><option selected>25</option><option>50</option><option>100</option><option>500</option></select></label>
+        </div>
+        <div class="rpg-tblwrap"><table class="rpg-tbl" data-rpg-tbl></table></div>
+        <div class="rpg-hint" data-rpg-hint></div>
+      </main></div>`;
+    view.querySelector('[data-rpg-limit]').addEventListener('change', (e) => {
+      RPG.limit = +e.target.value; rpgExploreRun(view); });
+  }
+  rpgRail(view); rpgExploreRun(view);
+}
+
+function rpgRail(view) {
+  const rail = view.querySelector('[data-rpg-rail]');
+  const term = (rail.querySelector('[data-rpg-fs]') || {}).value || '';
+  const t = term.trim().toLowerCase();
+  let html = `<input type="search" placeholder="Search fields…" value="${rpgAttr(term)}" data-rpg-fs>`;
+  RPG.views.forEach(v => {
+    const items = RPG.fields.dimensions.filter(d => d.view === v && (!t || d.label.toLowerCase().includes(t)));
+    if (!items.length) return;
+    html += `<details class="rpg-grp" ${t ? 'open' : (v === 'What went wrong' ? 'open' : '')}><summary>${esc(v)}</summary>` +
+      items.map(d => `<button class="rpg-f" data-dim="${rpgAttr(d.key)}" aria-pressed="${RPG.dims.includes(d.key)}">` +
+        `<span class="ic">#</span>${esc(d.label)}</button>`).join('') + `</details>`;
+  });
+  const ms = RPG.fields.measures.filter(m => !t || m.label.toLowerCase().includes(t));
+  if (ms.length) html += `<details class="rpg-grp" open><summary>Measures</summary>` +
+    ms.map(m => `<button class="rpg-f" data-meas="${rpgAttr(m.key)}" aria-pressed="${RPG.meas.includes(m.key)}">` +
+      `<span class="ic" style="color:var(--green)">∑</span>${esc(m.label)}</button>`).join('') + `</details>`;
+  rail.innerHTML = html;
+  rail.querySelector('[data-rpg-fs]').addEventListener('input', () => rpgRail(view));
+  rail.querySelectorAll('[data-dim],[data-meas]').forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.dim) {
+      const k = b.dataset.dim;
+      RPG.dims = RPG.dims.includes(k) ? RPG.dims.filter(x => x !== k) : RPG.dims.concat([k]);
+      if (RPG.pivot && !RPG.dims.includes(RPG.pivot)) RPG.pivot = null;
+    } else {
+      const k = b.dataset.meas;
+      RPG.meas = RPG.meas.includes(k) ? RPG.meas.filter(x => x !== k) : RPG.meas.concat([k]);
+    }
+    RPG.sort = null; rpgRail(view); rpgExploreRun(view);
+  }));
+}
+
+function rpgSlots(view) {
+  const dp = view.querySelector('[data-rpg-dimp]'), mp = view.querySelector('[data-rpg-measp]');
+  dp.innerHTML = RPG.dims.length ? RPG.dims.map(k =>
+    `<span class="rpg-pill">${esc(RPG.dimByKey[k].label)}` +
+    `<button class="pv" data-piv="${rpgAttr(k)}" aria-pressed="${RPG.pivot === k}" title="Pivot into columns">⊞</button>` +
+    `<button data-rmd="${rpgAttr(k)}">×</button></span>`).join('')
+    : `<span class="rpg-empty2">pick a dimension from the list →</span>`;
+  mp.innerHTML = RPG.meas.length ? RPG.meas.map(k =>
+    `<span class="rpg-pill m">${esc(RPG.measByKey[k].label)}<button data-rmm="${rpgAttr(k)}">×</button></span>`).join('')
+    : `<span class="rpg-empty2">pick a measure →</span>`;
+  view.querySelectorAll('[data-rmd]').forEach(b => b.addEventListener('click', () => {
+    RPG.dims = RPG.dims.filter(x => x !== b.dataset.rmd);
+    if (RPG.pivot === b.dataset.rmd) RPG.pivot = null;
+    RPG.sort = null; rpgRail(view); rpgExploreRun(view); }));
+  view.querySelectorAll('[data-rmm]').forEach(b => b.addEventListener('click', () => {
+    RPG.meas = RPG.meas.filter(x => x !== b.dataset.rmm);
+    RPG.sort = null; rpgRail(view); rpgExploreRun(view); }));
+  view.querySelectorAll('[data-piv]').forEach(b => b.addEventListener('click', () => {
+    const k = b.dataset.piv;
+    if (RPG.pivot !== k && RPG.dims.length < 2) {
+      const hn = view.querySelector('[data-rpg-hint]');
+      if (hn) hn.innerHTML = '<span class="warn">Add a second dimension before pivoting one into columns.</span>';
+      return;
+    }
+    RPG.pivot = RPG.pivot === k ? null : k; rpgExploreRun(view); }));
+}
+
+async function rpgExploreRun(view) {
+  const ticket = ++RPG.seq;            // only the newest render may paint
+  rpgSlots(view);
+  const tbl = view.querySelector('[data-rpg-tbl]'), hint = view.querySelector('[data-rpg-hint]');
+  // Nothing selected is its own state, not an empty table claiming a row.
+  if (!RPG.dims.length && !RPG.meas.length) {
+    tbl.innerHTML = `<tbody><tr><td style="padding:20px;color:var(--empty)">Pick a <b>dimension</b> to group by, or a <b>measure</b> to aggregate, from the list on the left.</td></tr></tbody>`;
+    hint.textContent = 'Nothing is being computed yet.';
+    rpgNote(null);
+    return;
+  }
+  try {
+    const res = await rpgQuery({dimensions: RPG.dims, measures: RPG.meas,
+                                limit: RPG.limit, sort: RPG.sort, descending: RPG.desc});
+    if (ticket !== RPG.seq) return;    // a newer query has already answered
+    rpgNote(res);
+    const pivIdx = RPG.pivot ? RPG.dims.indexOf(RPG.pivot) : -1;
+    let head, body;
+    if (pivIdx >= 0 && RPG.meas.length && RPG.dims.length >= 2) {
+      // Pivot is a display transform over the same grouped rows.
+      const cols = [...new Set(res.rows.map(r => r.key[pivIdx]))].slice(0, 8);
+      const rowDims = RPG.dims.filter((_, i) => i !== pivIdx);
+      const groups = new Map();
+      res.rows.forEach(r => {
+        const rk = r.key.filter((_, i) => i !== pivIdx).join(' ∙ ');
+        if (!groups.has(rk)) groups.set(rk, {label: r.key.filter((_, i) => i !== pivIdx), cells: {}});
+        groups.get(rk).cells[r.key[pivIdx]] = r.values;
+      });
+      head = rowDims.map(k => `<th>${esc(RPG.dimByKey[k].label)}</th>`).join('') +
+        cols.map(c => RPG.meas.map(m => `<th>${esc(c)} · ${esc(RPG.measByKey[m].label)}</th>`).join('')).join('');
+      body = [...groups.values()].map(g =>
+        `<tr>${g.label.map(v => `<td>${esc(v)}</td>`).join('')}` +
+        cols.map(c => RPG.meas.map(m =>
+          `<td class="n">${esc(rpgFmt(m, (g.cells[c] || {})[m] ?? null))}</td>`).join('')).join('') + `</tr>`).join('');
+    } else {
+      head = RPG.dims.map((k, i) => `<th data-c="${i}">${esc(RPG.dimByKey[k].label)}</th>`).join('') +
+        RPG.meas.map((k, i) => `<th data-c="${RPG.dims.length + i}" data-m="${esc(k)}">${esc(RPG.measByKey[k].label)}` +
+          `${RPG.sort === k ? (RPG.desc ? ' ▼' : ' ▲') : ''}</th>`).join('');
+      body = res.rows.map(r =>
+        r.key.map(v => `<td>${esc(v)}</td>`).join('') +
+        RPG.meas.map(m => `<td class="n">${esc(rpgFmt(m, r.values[m]))}</td>`).join('')).map(x => `<tr>${x}</tr>`).join('');
+      if (RPG.dims.length && RPG.meas.length) {
+        body += `<tr class="tot"><td colspan="${RPG.dims.length}">Total (all ${res.matched} reviews)</td>` +
+          RPG.meas.map(m => `<td class="n">${esc(rpgFmt(m, res.totals[m]))}</td>`).join('') + `</tr>`;
+      }
+    }
+    tbl.innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body ||
+      `<tr><td style="padding:16px;color:var(--empty)">No rows — widen the date range or filters.</td></tr>`}</tbody>`;
+    tbl.querySelectorAll('th[data-m]').forEach(th => th.addEventListener('click', () => {
+      const m = th.dataset.m;
+      const current = RPG.sort || RPG.meas[0];        // what the table is ACTUALLY sorted by
+      RPG.desc = (current === m) ? !RPG.desc : true;
+      RPG.sort = m; rpgExploreRun(view); }));
+    const bits = [`${res.row_count} row(s)`];
+    if (res.truncated) bits.push(`showing ${RPG.limit}`);
+    bits.push(`totals are computed over all ${res.matched} matching reviews, not summed`);
+    hint.innerHTML = esc(bits.join(' · ')) +
+      (res.unnested.length ? ` <span class="warn">· ${esc(res.unnested.map(k => RPG.dimByKey[k].label).join(', '))} hold several values per review (unnested), so Count can exceed ${res.matched}.</span>` : '') +
+      (Object.entries(res.unset).filter(([, v]) => v).length
+        ? ` <span class="warn">· ${Object.entries(res.unset).filter(([, v]) => v)
+            .map(([k, v]) => `${v} with no ${RPG.dimByKey[k].label.toLowerCase()}`).join(', ')}.</span>` : '');
+  } catch (e) {
+    tbl.innerHTML = '';
+    hint.innerHTML = `<span style="color:var(--red)">${esc(String(e.message || e).slice(0,200))}</span>`;
+  }
+}
+
+// ── Reports ─────────────────────────────────────────────────────────────────
+// Daily deliberately reuses the EXISTING /api/reports/daily endpoints, so there
+// is exactly one definition of the daily digest — the 8pm→8pm one that also
+// auto-posts. Weekly and custom use the new composer.
+function rpgReports(view) {
+  if (!view.querySelector('[data-rpg-draft]')) {
+    view.innerHTML = `<div class="rpg-rep">
+      <aside class="rpg-rail">
+        <span class="rpg-lab" style="display:block;margin:2px 4px 7px">Report</span>
+        <div class="rpg-seg" data-rpg-rpreset style="width:100%;margin:0 4px 10px">
+          <button data-p="daily" aria-pressed="true" style="flex:1">Daily</button>
+          <button data-p="weekly" style="flex:1">Weekly</button>
+          <button data-p="custom" style="flex:1">Custom</button>
+        </div>
+        <div data-rpg-rcustom hidden>
+          <div class="rpg-fld"><label>From</label><input type="date" data-rpg-rfrom></div>
+          <div class="rpg-fld"><label>To</label><input type="date" data-rpg-rto></div>
+        </div>
+        <div data-rpg-rbuild>
+          <div class="rpg-fld"><label>Rank sections by</label><select data-rpg-rrank></select></div>
+          <div class="rpg-fld"><label>Rows per section</label><select data-rpg-rtop>
+            <option>3</option><option selected>5</option><option>8</option></select></div>
+          <span class="rpg-lab" style="display:block;margin:12px 4px 6px">Sections</span>
+          <div data-rpg-rsecs></div>
+        </div>
+        <div class="rpg-fld" style="margin-top:12px"><label>Channel</label>
+          <div class="rpg-chan"><i></i><span data-rpg-chan>—</span></div></div>
+      </aside>
+      <main class="rpg-pad" style="min-width:0">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:9px">
+          <button class="btn" data-rpg-refresh>↻ Refresh draft</button>
+          <button class="btn primary" data-rpg-send>Send</button>
+          <button class="btn" data-rpg-copy>Copy</button>
+          <span data-rpg-msg style="font-size:11.5px"></span>
+        </div>
+        <textarea class="rpg-draft" data-rpg-draft spellcheck="false"></textarea>
+        <p class="rpg-hint" data-rpg-rwindow></p>
+      </main></div>`;
+    const sel = view.querySelector('[data-rpg-rrank]');
+    sel.innerHTML = RPG.fields.measures.map(m =>
+      `<option value="${rpgAttr(m.key)}"${m.key === RPG.repRank ? ' selected' : ''}>${esc(m.label)}</option>`).join('');
+    view.querySelector('[data-rpg-rsecs]').innerHTML = RPG.views.map(v =>
+      `<details class="rpg-grp" ${v === 'Matching' ? 'open' : ''}><summary>${esc(v)}</summary>` +
+      RPG.fields.dimensions.filter(d => d.view === v && d.key !== 'date').map(d =>
+        `<label class="rpg-secitem"><input type="checkbox" data-sec="${rpgAttr(d.key)}"` +
+        `${RPG.repSections.includes(d.key) ? ' checked' : ''}>${esc(d.label)}</label>`).join('') + `</details>`).join('');
+    rpgReportsWire(view);
+    // Daily is the scheduled 8pm digest, whose sections are fixed by that report,
+    // so the builder controls start hidden rather than only after a click.
+    view.querySelector('[data-rpg-rbuild]').hidden = RPG.repPreset === 'daily';
+    view.querySelector('[data-rpg-rcustom]').hidden = RPG.repPreset !== 'custom';
+  }
+  rpgReportsRefresh(view, false);
+}
+
+function rpgReportsWire(view) {
+  const msg = view.querySelector('[data-rpg-msg]');
+  const stale = () => { RPG.repDirty = true;
+    msg.innerHTML = `<span style="color:var(--amber)">Selections changed — hit Refresh draft</span>`; };
+  view.querySelector('[data-rpg-rpreset]').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    RPG.repPreset = b.dataset.p;
+    view.querySelectorAll('[data-rpg-rpreset] button').forEach(x => x.setAttribute('aria-pressed', x === b));
+    view.querySelector('[data-rpg-rcustom]').hidden = RPG.repPreset !== 'custom';
+    // The daily digest is the scheduled 8pm→8pm one; its sections are fixed by
+    // that report, so the builder controls only apply to weekly/custom.
+    view.querySelector('[data-rpg-rbuild]').hidden = RPG.repPreset === 'daily';
+    rpgReportsRefresh(view, false);
+  });
+  ['[data-rpg-rfrom]', '[data-rpg-rto]'].forEach(s =>
+    view.querySelector(s).addEventListener('change', stale));
+  view.querySelector('[data-rpg-rrank]').addEventListener('change', (e) => { RPG.repRank = e.target.value; stale(); });
+  view.querySelector('[data-rpg-rtop]').addEventListener('change', (e) => { RPG.repTop = +e.target.value; stale(); });
+  view.querySelectorAll('[data-sec]').forEach(cb => cb.addEventListener('change', () => {
+    const k = cb.dataset.sec;
+    RPG.repSections = cb.checked ? RPG.repSections.concat([k]) : RPG.repSections.filter(x => x !== k);
+    stale(); }));
+  view.querySelector('[data-rpg-refresh]').addEventListener('click', () => rpgReportsRefresh(view, true));
+  view.querySelector('[data-rpg-draft]').addEventListener('input', () => {
+    msg.innerHTML = `<span style="color:var(--muted)">Edited — Send posts exactly this.</span>`; });
+  view.querySelector('[data-rpg-copy]').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(view.querySelector('[data-rpg-draft]').value);
+          msg.innerHTML = `<span style="color:var(--green)">Copied ✓</span>`; }
+    catch (e) { msg.innerHTML = `<span style="color:var(--amber)">Copy blocked by the browser</span>`; }
+  });
+  view.querySelector('[data-rpg-send]').addEventListener('click', () => rpgReportsSend(view));
+}
+
+function rpgReportBody(view) {
+  const f = {}; RPG.filters.forEach(x => { if (x.val) f[x.key] = x.val; });
+  return {preset: RPG.repPreset, filters: f,
+          date_from: view.querySelector('[data-rpg-rfrom]').value || null,
+          date_to: view.querySelector('[data-rpg-rto]').value || null,
+          sections: RPG.repSections, rank_by: RPG.repRank, top: RPG.repTop};
+}
+
+async function rpgReportsRefresh(view, announce) {
+  const msg = view.querySelector('[data-rpg-msg]'), ta = view.querySelector('[data-rpg-draft]');
+  const win = view.querySelector('[data-rpg-rwindow]');
+  msg.textContent = announce ? 'refreshing…' : '';
+  try {
+    let data;
+    if (RPG.repPreset === 'daily') {
+      // ONE daily definition: the same endpoint the 8pm auto-post rebuilds from.
+      const r = await fetch('/api/reports/daily/preview', {cache: 'no-store'});
+      if (!r.ok) throw new Error(`${r.status}`);
+      data = await r.json();
+      win.textContent = 'The 8pm→8pm IST day. This is the same report that auto-posts at 8pm.';
+    } else {
+      data = await rpgPost('/api/reporting/report/preview', rpgReportBody(view));
+      win.textContent = `${data.date_from} → ${data.date_to} · ${data.reviews} review(s) in this window.`;
+    }
+    ta.value = data.text || '';
+    view.querySelector('[data-rpg-chan]').textContent = data.channel || 'SLACK_CHANNEL_DAILY not set';
+    view.querySelector('[data-rpg-send]').disabled = !data.channel;
+    RPG.repDirty = false;
+    if (announce) msg.innerHTML = `<span style="color:var(--green)">Refreshed ✓ ${new Date().toLocaleTimeString()}</span>`;
+  } catch (e) {
+    msg.innerHTML = `<span style="color:var(--red)">${esc(String(e.message || e).slice(0,160))}</span>`;
+  }
+}
+
+async function rpgReportsSend(view) {
+  const msg = view.querySelector('[data-rpg-msg]'), ta = view.querySelector('[data-rpg-draft]');
+  const text = ta.value;
+  if (!String(text || '').trim()) { msg.innerHTML = `<span style="color:var(--red)">Nothing to send.</span>`; return; }
+  const btn = view.querySelector('[data-rpg-send]'); const was = btn.textContent;
+  btn.disabled = true; btn.textContent = '⟳ sending…';
+  try {
+    const out = RPG.repPreset === 'daily'
+      ? await rpgPost('/api/reports/daily/send', {text})
+      : await rpgPost('/api/reporting/report/send', Object.assign(rpgReportBody(view), {text}));
+    msg.innerHTML = `<span style="color:var(--green)">Posted ✓ (${esc(out.channel || '')})</span>`;
+  } catch (e) {
+    msg.innerHTML = `<span style="color:var(--red)">Not sent: ${esc(String(e.message || e).slice(0,160))}</span>`;
+  } finally { btn.disabled = false; btn.textContent = was; }
 }
 
 // Mark sent, from beside the Post-to-thread button. DELEGATED, because the

@@ -1403,6 +1403,37 @@ def _mock_reporting(page, body_json):
         body=_j.dumps(body_json)))
 
 
+def _mock_reporting_page(page, totals=None, rows=None, matched=2, scanned=2):
+    """Fulfil the Reporting page's two endpoints: the field registry and the
+    query. Numbers given here are only reachable if the fetch happened AND its
+    body reached the renderer — a hardcoded tile would fail the assertions."""
+    import json as _j
+    page.route("**/api/reporting/fields", lambda route: route.fulfill(
+        status=200, content_type="application/json", body=_j.dumps({
+            "views": ["Matching"],
+            "dimensions": [{"key": "tier", "view": "Matching",
+                            "label": "Match tier", "multi": False}],
+            "measures": [{"key": "count", "label": "Count of reviews"},
+                         {"key": "solved", "label": "Solved"},
+                         {"key": "solved_pct", "label": "Solved %"},
+                         {"key": "traced_pct", "label": "Booking traced %"},
+                         {"key": "median_tts", "label": "Median time to send (h)"},
+                         {"key": "posted", "label": "RCAs posted"}],
+        })))
+    page.route("**/api/reporting/query", lambda route: route.fulfill(
+        status=200, content_type="application/json", body=_j.dumps({
+            "columns": [], "rows": rows if rows is not None else [],
+            "row_count": len(rows or []), "truncated": False,
+            "matched": matched, "scanned": scanned,
+            "totals": totals or {}, "unset": {}, "unnested": [],
+        })))
+
+
+def _unroute_reporting_page(page):
+    page.unroute("**/api/reporting/fields")
+    page.unroute("**/api/reporting/query")
+
+
 def _clear_reporting_modal(page):
     """The `page` fixture is module-scoped, so a modal from an earlier test in
     this file is still on screen at the start of the next one. That modal is
@@ -1419,50 +1450,38 @@ def _clear_reporting_modal(page):
 
 
 def test_reporting_button_opens_the_modal_with_server_numbers(page):
-    """A click opens the modal and its contents come from the server, not
-    from client-side defaults. The response is mocked so the SPECIFIC
-    numbers below are only reachable if the fetch happened and its body
-    reached the renderer — a hardcoded "0" tile would fail every assertion."""
+    """A click opens the Reporting page and its KPI tiles come from the server,
+    not from client-side defaults. The response is mocked so the SPECIFIC numbers
+    below are only reachable if the fetch happened and its body reached the
+    renderer — a hardcoded "0" tile would fail every assertion."""
     _clear_reporting_modal(page)
-    _mock_reporting(page, {
-        "total":               42,
-        "sent":                17,
-        "auto_matched":        30,
-        "dss_used":            12,
-        "biz_flagged":         3,
-        "avg_minutes_to_send": 12.4,
-        "l1_breakdown":        [["Booking / Match", 20], ["Product",  8]],
-        "l2_breakdown":        [["Missed the tour", 11], ["Late confirm", 7]],
-        "tier_breakdown":      {"Tier 1": 25, "No match": 4},
-        "by_rating":           {"1": 18, "2": 15, "3": 9},
-    })
+    _mock_reporting_page(page, matched=42, scanned=99, totals={
+        "count": 42, "solved": 17, "solved_pct": 40.0,
+        "traced_pct": 71.0, "median_tts": 12.4, "posted": 9})
     try:
         assert page.locator("#reporting-modal").count() == 0, \
             "the modal was already open before the click — census stale"
         page.click("[data-open-reporting]")
-        page.wait_for_selector("#reporting-modal [data-reporting-body] .rep-tiles",
-                               timeout=4000)
-
+        page.wait_for_selector("#reporting-modal .rpg-kpi", timeout=6000)
         body_txt = page.locator("#reporting-modal").inner_text()
     finally:
-        page.unroute("**/api/reporting")
+        _unroute_reporting_page(page)
 
-    # NUMBERS FROM THE RESPONSE. Assert several so a renderer that shows one
-    # right and the rest wrong fails here — a single spot-check would let
-    # that ship.
+    # NUMBERS FROM THE RESPONSE. Several, so a renderer that gets one right and
+    # the rest wrong fails here — a single spot-check would let that ship.
     assert "42" in body_txt, "the total from the server did not reach the UI"
-    assert "17" in body_txt, "sent count missing"
-    assert "12.4" in body_txt, "avg mins to send missing"
-    # Labels the tiles depend on — these come from the client, but a tile with
-    # no label at all reads as "a number for nothing".
-    assert "Sent" in body_txt and "Auto-matched" in body_txt
-    # Breakdown ROWS reached the DOM — one from each of the four sections.
-    assert "Booking / Match" in body_txt   # top L1
-    assert "Missed the tour"  in body_txt   # top L2
-    assert "Tier 1"           in body_txt   # tier breakdown
-    # The scan-scope line says what the numbers cover — a percentage with
-    # no denominator on the page is what the last dashboard shipped with.
-    assert "42" in body_txt and ("Latest" in body_txt or "in window" in body_txt)
+    assert "17" in body_txt, "solved count missing"
+    assert "12.4" in body_txt, "median time to send missing"
+    assert "71%" in body_txt, "traceability missing"
+    # Labels the tiles depend on — a number with no label reads as a number for
+    # nothing.
+    assert "Reviews in" in body_txt and "Solved" in body_txt
+    # The scope line says what the numbers cover; a figure with no denominator
+    # on the page is what the previous dashboard shipped with.
+    assert "42" in body_txt and "99" in body_txt
+    # The three tabs are the page, not a single view.
+    for tab in ("Overview", "Explore", "Reports"):
+        assert tab in body_txt, f"the {tab} tab is missing"
 
 
 def test_reporting_close_button_removes_the_modal(page):
@@ -1513,45 +1532,43 @@ def test_reporting_reopen_replaces_the_previous_modal(page):
 
 def test_reporting_failure_says_so_and_offers_a_retry(page):
     """A silent "Loading…" that never resolves is indistinguishable from a
-    working page waiting on a slow server. The failure path must say what
-    broke and give the user a way to try again — otherwise the button might
-    as well have no handler, which is the state this test file was opened
-    for."""
+    working page waiting on a slow server. The failure path must say what broke
+    and give the user a way to try again — otherwise the button might as well
+    have no handler, which is the state this test file was opened for."""
     _clear_reporting_modal(page)
-    page.route("**/api/reporting", lambda route: route.fulfill(
+    page.route("**/api/reporting/fields", lambda route: route.fulfill(
         status=500, content_type="text/plain", body="database went away"))
     try:
         page.click("[data-open-reporting]")
-        page.wait_for_selector("#reporting-modal [data-reporting-retry]",
-                               timeout=4000)
+        page.wait_for_selector("#reporting-modal [data-rpg-retry]", timeout=6000)
         txt = page.locator("#reporting-modal").inner_text()
         assert "could not load" in txt.lower(), (
             f"the failure was not narrated on screen: {txt!r}")
         assert "500" in txt, "the status code was not shown"
     finally:
-        page.unroute("**/api/reporting")
+        page.unroute("**/api/reporting/fields")
 
 
 def test_reporting_empty_window_says_what_the_zeros_mean(page):
-    """A total of 0 with a wall of 0% below is what a broken server also
-    prints. Saying "no reviews in the window" is what tells those apart —
-    "everything is zero because there is nothing to count" is a different
-    fact from "the query failed"."""
+    """A total of 0 with a wall of empty cards below is what a broken server also
+    prints. Saying "no reviews match this scope" is what tells those apart —
+    "there is nothing to count" is a different fact from "the query failed"."""
     _clear_reporting_modal(page)
-    _mock_reporting(page, {"total": 0, "sent": 0, "auto_matched": 0,
-                           "dss_used": 0, "biz_flagged": 0,
-                           "avg_minutes_to_send": None,
-                           "l1_breakdown": [], "l2_breakdown": [],
-                           "tier_breakdown": {}, "by_rating": {}})
+    _mock_reporting_page(page, matched=0, scanned=0, totals={
+        "count": 0, "solved": 0, "solved_pct": None,
+        "traced_pct": None, "median_tts": None, "posted": 0})
     try:
         page.click("[data-open-reporting]")
-        page.wait_for_selector("#reporting-modal .rep-scan", timeout=4000)
-        scan = page.locator("#reporting-modal .rep-scan").inner_text()
+        page.wait_for_selector("#reporting-modal .rpg-zero", timeout=6000)
+        zero = page.locator("#reporting-modal .rpg-zero").inner_text()
     finally:
-        page.unroute("**/api/reporting")
-    low = scan.lower()
-    assert "no reviews" in low or "nothing to count" in low, (
-        f"the empty state was not named: {scan!r}")
+        _unroute_reporting_page(page)
+    low = zero.lower()
+    assert "no reviews match" in low or "nothing to count" in low, (
+        f"the empty state was not named: {zero!r}")
+    # and it says what to DO about it, not just that it is empty
+    assert "widen" in low or "clear a filter" in low, (
+        f"the empty state named no way forward: {zero!r}")
 
 
 # ── a save that could not reach the server ──────────────────────────────────
