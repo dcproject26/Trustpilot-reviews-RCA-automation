@@ -1,0 +1,44 @@
+[
+  {
+    "file": "server/services/weekly_report.py",
+    "name": "weekly: week not aligned to Monday",
+    "find": "    anchor -= timedelta(days=anchor.weekday())        # back to THIS week's Monday 8pm",
+    "replace": "    anchor -= timedelta(days=0)        # back to THIS week's Monday 8pm"
+  },
+  {
+    "file": "server/services/weekly_report.py",
+    "name": "weekly: current (unfinished) week not rolled back before Monday 8pm",
+    "find": "    if anchor > now_ist:                              # this Monday 8pm not reached yet\n        anchor -= WEEK",
+    "replace": "    if False:\n        anchor -= WEEK"
+  },
+  {
+    "file": "server/services/weekly_report.py",
+    "name": "weekly: weeks_ago selection ignored",
+    "find": "    return anchor - WEEK * weeks_ago",
+    "replace": "    return anchor"
+  },
+  {
+    "file": "server/services/weekly_report.py",
+    "name": "weekly trend: fewer than seven nested days",
+    "find": "    for i in range(7):",
+    "replace": "    for i in range(6):"
+  },
+  {
+    "file": "server/services/weekly_report.py",
+    "name": "weekly trend: day window start off by one",
+    "find": "        d_start = start + timedelta(days=i)",
+    "replace": "        d_start = start + timedelta(days=i + 1)"
+  },
+  {
+    "file": "server/services/weekly_report.py",
+    "name": "weekly: received count no longer the week's own window",
+    "find": "    summary = summarize(solved_rows, _received_between(db, start, end))",
+    "replace": "    summary = summarize(solved_rows, 0)"
+  },
+  {
+    "file": "server/services/weekly_report.py",
+    "name": "weekly options: not newest-first / wrong count of weeks",
+    "find": "    for w in range(count):",
+    "replace": "    for w in range(count - 1):"
+  }
+]

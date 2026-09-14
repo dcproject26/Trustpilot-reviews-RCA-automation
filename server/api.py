@@ -23,7 +23,7 @@ from datetime import datetime
 log = logging.getLogger(__name__)
 
 from fastapi import (APIRouter, HTTPException, Depends, BackgroundTasks,
-                     Header, Response)
+                     Header, Response, Query)
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -3631,6 +3631,52 @@ def daily_trigger(x_report_token: str | None = Header(default=None),
     if not channel:
         raise HTTPException(400, "SLACK_CHANNEL_DAILY is not set.")
     text = build_daily_digest(db)
+    ts = post_to_channel(channel, text)
+    if not ts:
+        why = last_post_failure.get("why") or "Slack returned no message ts."
+        raise HTTPException(502, f"Not posted: {why}")
+    return {"ok": True, "ts": ts, "channel": channel}
+
+
+# ── Weekly digest ────────────────────────────────────────────────────────────
+# The Mon-8pm→Mon-8pm report, driven from the dashboard's weekly panel: pick a
+# completed week, preview/edit, send. Same reports channel as the daily digest
+# and the same read-only, compute-on-the-fly build (no snapshot table) — just a
+# wider window, so any past week is rebuilt exactly from the durable rows.
+
+class WeeklySend(BaseModel):
+    text: str | None = None          # edited text; blank -> rebuild fresh
+    weeks_ago: int = 0               # which completed week the text is for
+
+
+@router.get("/api/reports/weekly/options")
+def weekly_options(db: Session = Depends(get_session)):
+    """The week-picker choices (last 8 completed weeks) and the target channel."""
+    from server.services.weekly_report import week_options
+    return {"weeks": week_options(count=8), "channel": _daily_channel()}
+
+
+@router.get("/api/reports/weekly/preview")
+def weekly_preview(weeks_ago: int = Query(0, ge=0, le=51),
+                   db: Session = Depends(get_session)):
+    """The weekly digest text for the selected completed week — read-only."""
+    from server.services.weekly_report import build_weekly_digest
+    return {"text": build_weekly_digest(db, weeks_ago=weeks_ago),
+            "channel": _daily_channel(), "weeks_ago": weeks_ago}
+
+
+@router.post("/api/reports/weekly/send")
+def weekly_send(body: WeeklySend, db: Session = Depends(get_session)):
+    """Post the weekly digest to the reports channel, on demand from the
+    dashboard. Uses the edited text when supplied, otherwise rebuilds the
+    selected week fresh — so Send works even if the preview never loaded."""
+    from server.services.weekly_report import build_weekly_digest
+    from server.services.slack import post_to_channel, last_post_failure
+    channel = _daily_channel()
+    if not channel:
+        raise HTTPException(400, "SLACK_CHANNEL_DAILY is not set — no channel to "
+                                 "post the weekly report to.")
+    text = (body.text or "").strip() or build_weekly_digest(db, weeks_ago=body.weeks_ago)
     ts = post_to_channel(channel, text)
     if not ts:
         why = last_post_failure.get("why") or "Slack returned no message ts."

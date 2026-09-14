@@ -254,16 +254,22 @@ def _row_from(review, draft) -> Row:
     )
 
 
-def received_count(db, now: datetime) -> int:
-    """How many reviews ARRIVED in the 8pm→8pm window — a context number only.
-    Window is [start, end): start inclusive, end exclusive."""
+def _received_between(db, start: datetime, end: datetime) -> int:
+    """How many reviews ARRIVED in [start, end): start inclusive, end exclusive.
+    Shared by the daily 8pm→8pm window and the weekly window so "received" means
+    the same thing at both scales — and so 7 daily windows sum to one week."""
     from server.db import Review
-    start, end = _db_bounds(now)
     return (db.query(Review)
               .filter(Review.received_at.isnot(None))
               .filter(Review.received_at >= start)
               .filter(Review.received_at < end)
               .count())
+
+
+def received_count(db, now: datetime) -> int:
+    """How many reviews ARRIVED in the 8pm→8pm window — a context number only."""
+    start, end = _db_bounds(now)
+    return _received_between(db, start, end)
 
 
 def _collect_solved_between(db, start: datetime, end: datetime) -> list[Row]:
