@@ -9695,7 +9695,7 @@ const RPG = {
   fields: null, views: [], dimByKey: {}, measByKey: {},
   tab: 'overview', preset: '30d', from: '', to: '', filters: [],
   dims: ['l1'], meas: ['count', 'solved_pct'], pivot: null,
-  limit: 25, sort: null, desc: true, expanded: {}, seq: 0,
+  limit: 25, sort: null, desc: true, expanded: {}, seq: 0, popClose: null,
   host: null, modal: null, repSections: ['tier', 'owner'],
   repPreset: 'daily', repRank: 'count', repTop: 5, repDirty: false,
 };
@@ -9830,11 +9830,17 @@ function rpgWire() {
     h.querySelector('[data-rpg-pop]').hidden = true;
     rpgChips(); rpgRender();
   });
-  document.addEventListener('click', (e) => {
-    const pop = h.querySelector('[data-rpg-pop]');
-    if (pop && !pop.hidden && !e.target.closest('[data-rpg-pop]') && !e.target.closest('[data-rpg-addf]'))
-      pop.hidden = true;
-  });
+  // Bound ONCE on the document, not per open: rpgWire runs every time the page
+  // is opened, and a listener added each time would pile up for the life of the
+  // tab. It reads RPG.host so it always acts on the current page.
+  if (!RPG.popClose) {
+    RPG.popClose = (e) => {
+      const pop = RPG.host && RPG.host.querySelector('[data-rpg-pop]');
+      if (pop && !pop.hidden && !e.target.closest('[data-rpg-pop]') && !e.target.closest('[data-rpg-addf]'))
+        pop.hidden = true;
+    };
+    document.addEventListener('click', RPG.popClose);
+  }
 }
 
 // A searchable field list: 26 fields is too many to scan, and Date is excluded
