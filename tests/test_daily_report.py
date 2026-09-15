@@ -161,7 +161,7 @@ def test_render_blocks_in_the_stakeholder_order():
     # 1. Pending headline first, captioned as all-time so it is never read as
     #    "pending that arrived today".
     assert "Total pending reviews: *10*" in out
-    assert "_(all time)_" in out
+    assert "(all time)" in out and "_(all time)_" not in out
     # 2/3. The 24h frame, stamped with the window those two numbers cover.
     assert "8pm 12 Sep → 8pm 13 Sep IST" in out
     assert "• Received today — *10*" in out
@@ -169,7 +169,7 @@ def test_render_blocks_in_the_stakeholder_order():
     # Block ORDER is the ask: pending, then the 24h frame, then solved-by,
     # then tier. No categories.
     order = [out.index("Total pending reviews"), out.index("Last 24 hours"),
-             out.index("Solved by"), out.index("Pending by tier")]
+             out.index("Solved by"), out.index("Tier — last 24 hours")]
     assert order == sorted(order)
     # Tier is the LAST block: no category breakdown on the daily.
     assert "categor" not in out.lower()
@@ -184,10 +184,10 @@ def test_render_percentages_are_within_cohort():
     assert "• Shruti — 2" in out and "• Shruti — 2 (" not in out
     # Solved carries a share of the OPEN PILE it came out of (pending + solved),
     # never of Received: 4 of 10+4 = 29%. That denominator cannot exceed 100%.
-    assert "• Solved today — *4* (29% of 14 open)" in out
+    assert "• Solved today — *4* (29% of 14 = 10 pending + 4 solved)" in out
     # Tier: each bucket as a share of the 10 PENDING, and the denominator is
     # printed so the reader can check it.
-    assert "_% of 10 pending_" in out
+    assert "(% of 10 handled in 24h)" in out
     assert "🟢 Tier 1 — 5 (50%)" in out
     assert "🟡 Tier 2 — 4 (40%)" in out
     assert "🔴 Untraceable — 1 (10%)" in out
@@ -222,7 +222,7 @@ def test_pending_line_absent_when_no_pending_cohort_and_block_renamed():
     # counting the solved rows and must not claim to be counting the backlog.
     out = render_digest(summarize(_solved_cohort()), "x")
     assert "Total pending reviews" not in out
-    assert "Pending by tier" not in out
+    assert "Tier — last 24 hours" not in out
     assert "*🏷️  Reviews by tier*" in out
     assert "pending_" not in out
 
@@ -581,11 +581,10 @@ def test_build_daily_digest_dates_in_ist(live_db):
     assert "8pm 8 Sep → 8pm 9 Sep IST" in text
     # The backlog is captioned as all-time so it is not read as a windowed count.
     assert "Total pending reviews: *1*" in text
-    assert "_(all time)_" in text
-    # Tier/categories describe the PENDING review (Tier 2 / Supply), NOT the
-    # solved Tier 1 one — the semantic change, end to end through the real DB.
-    assert "🟡 Tier 2 — 1 (100%)" in text
-    assert "🟢 Tier 1 — 0 (0%)" in text
+    assert "(all time)" in text
+    # Tier now describes the 24h COHORT — what was handled in the window,
+    # solved and still-open alike — not the all-time backlog.
+    assert "🟢 Tier 1 — 1 (50%)" in text and "🟡 Tier 2 — 1 (50%)" in text
     # Solved-by is the 24h cohort.
     assert "• Avi — 1" in text
 
@@ -621,7 +620,7 @@ def test_solved_share_is_of_the_open_pile_and_can_never_exceed_100():
                   received_count=7,
                   pending_rows=[Row(tier=1)] * 64)
     out = render_digest(s, "11 Sep 2026")
-    assert "• Solved today — *42* (40% of 106 open)" in out   # 42 / (64+42)
+    assert "• Solved today — *42* (40% of 106 = 64 pending + 42 solved)" in out   # 42 / (64+42)
     assert "(130%)" not in out
     # Received carries no share: there is no honest denominator for arrivals.
     assert "• Received today — *7*" in out
@@ -634,3 +633,72 @@ def test_no_solved_share_when_there_is_no_pending_cohort():
     out = render_digest(summarize([Row(solved=True)] * 3, received_count=9), "x")
     assert "• Solved today — *3*" in out
     assert "• Solved today — *3* (" not in out
+
+
+def test_the_tier_mix_is_the_24h_cohort_not_the_backlog(live_db):
+    """Tier describes WHAT WE HANDLED IN 24 HOURS — arrived in the window or
+    finished in it — solved and still-open alike. Not the all-time backlog,
+    which moves far too slowly to be a daily signal."""
+    from server.db import Review, RcaDraft
+    now = datetime(2026, 9, 10, 14, 30, tzinfo=timezone.utc)     # 8pm IST Sep10
+    inwin = datetime(2026, 9, 10, 6, 0)                          # inside the window
+    s = live_db.SessionLocal()
+    try:
+        # arrived in the window, still open -> in the cohort
+        s.add(Review(id="w_open", received_at=inwin, status="draft", rating=1))
+        s.add(RcaDraft(id="w_open-d", review_id="w_open", match_tier=2))
+        # arrived earlier but FINISHED in the window -> also in the cohort
+        s.add(Review(id="w_old", received_at=datetime(2026, 9, 1), status="sent",
+                     rating=1, picked_up_by="Avi"))
+        s.add(RcaDraft(id="w_old-d", review_id="w_old", match_tier=1, sent_at=inwin))
+        # open, but arrived long ago and untouched -> backlog only, NOT the cohort
+        s.add(Review(id="w_stale", received_at=datetime(2026, 8, 1), status="draft", rating=1))
+        s.add(RcaDraft(id="w_stale-d", review_id="w_stale", match_tier=2))
+        s.commit()
+        text = build_daily_digest(s, now)
+    finally:
+        s.close()
+    # the stale backlog review is counted in the HEADLINE...
+    assert "Total pending reviews: *2*" in text
+    # ...but the tier mix is the 2 handled in the window, not all 3
+    assert "(% of 2 handled in 24h)" in text
+    assert "🟢 Tier 1 — 1 (50%)" in text
+    assert "🟡 Tier 2 — 1 (50%)" in text
+
+
+def test_a_review_both_received_and_solved_today_is_counted_once():
+    """The 24h cohort is a UNION, so a review that arrived and was cleared in the
+    same window must not be double counted in the tier mix."""
+    from server.db import Review, RcaDraft
+    # driven through the pure layer: one row, one bucket
+    s = summarize([Row(solved=True, tier=1)], received_count=1,
+                  pending_count=5, mix_rows=[Row(tier=1)])
+    assert s.mix_base == 1
+    assert sum(s.tier.values()) == 1
+
+
+def test_the_digest_carries_no_slack_italics():
+    """Underscores were decoration, and the reader asked for them gone."""
+    out = render_digest(_full_summary(), "13 Sep 2026",
+                        "8pm 12 Sep → 8pm 13 Sep IST", "(all time)")
+    assert "_" not in out, f"an italic marker survived: {out!r}"
+
+
+def test_a_null_status_review_is_counted_as_pending(live_db):
+    """SQL `status != 'sent'` is NULL for a NULL row, so a plain comparison drops
+    such a review from BOTH Pending and Solved and leaves it in neither. The
+    ORM's default fires on None, so the NULL is forced through raw SQL —
+    otherwise this test would be vacuous, which mutation testing proved."""
+    from sqlalchemy import text
+    from server.services.daily_report import pending_count
+    s = live_db.SessionLocal()
+    try:
+        s.execute(text("INSERT INTO reviews (id, status, rating, received_at) "
+                       "VALUES ('nullst', NULL, 1, '2026-09-10 06:00:00')"))
+        s.commit()
+        really_null = s.execute(
+            text("SELECT status IS NULL FROM reviews WHERE id='nullst'")).scalar()
+        assert really_null, "the fixture did not actually store a NULL status"
+        assert pending_count(s) >= 1, "a NULL-status review vanished from pending"
+    finally:
+        s.close()

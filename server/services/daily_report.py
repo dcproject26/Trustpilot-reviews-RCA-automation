@@ -130,7 +130,9 @@ def _norm_owner(picked_up_by: str) -> str:
 
 
 def summarize(solved_rows: list[Row], received_count: int = 0,
-              pending_rows: list[Row] | None = None) -> Summary:
+              pending_rows: list[Row] | None = None,
+              pending_count: int | None = None,
+              mix_rows: list[Row] | None = None) -> Summary:
     """Counts, from at most two cohorts that are never mixed into one ratio:
 
     * `solved_rows` — reviews SOLVED inside the fixed 8pm→8pm window. Drives the
@@ -150,15 +152,28 @@ def summarize(solved_rows: list[Row], received_count: int = 0,
       about the backlog rather than about one day's finished work. When None the
       tier mix and categories fall back to `solved_rows`, which is what the
       weekly digest wants (its blocks describe the week it summarises)."""
-    mix_rows = solved_rows if pending_rows is None else pending_rows
+    # THREE cohorts, kept apart on purpose:
+    #   * solved_rows    — finished inside the 8pm→8pm window. Drives Solved and
+    #                      the per-person credit.
+    #   * pending_count  — the open backlog as a STOCK. A number only: it is the
+    #                      headline, and nothing is divided by it.
+    #   * mix_rows       — what the tier mix is counted over. For the daily this
+    #                      is the 24h cohort (everything received OR solved in the
+    #                      window), because "what did we handle today, and what
+    #                      shape was it" is a question about the day's work —
+    #                      solved and still-open alike. Falling back to solved_rows
+    #                      keeps the weekly digest, which passes neither, correct.
+    mix = (mix_rows if mix_rows is not None
+           else (pending_rows if pending_rows is not None else solved_rows))
+    pending_n = (pending_count if pending_count is not None
+                 else (None if pending_rows is None else len(pending_rows)))
     s = Summary(received=received_count, solved=len(solved_rows),
-                pending=(None if pending_rows is None else len(pending_rows)),
-                mix_base=len(mix_rows))
+                pending=pending_n, mix_base=len(mix))
     tier_counts: dict[str, int] = {}
     people_counts: dict[str, int] = {}
     cat_counts: dict[str, int] = {}
     uncategorised = 0
-    for r in mix_rows:
+    for r in mix:
         tier_counts[_tier_label(r)] = tier_counts.get(_tier_label(r), 0) + 1
         l1 = (r.l1 or "").strip()
         l2 = (r.l2 or "").strip()
@@ -248,7 +263,7 @@ def render_digest(summary: Summary, date_label: str, window_label: str = "",
     if s.pending is not None:
         out.append(f"🗂️  Total pending reviews: *{s.pending}*")
         if pending_label:
-            out.append(f"_{pending_label}_")
+            out.append(pending_label)
 
     # 2/3. The 24h frame.
     #
@@ -266,11 +281,15 @@ def render_digest(summary: Summary, date_label: str, window_label: str = "",
     if s.pending is not None:
         open_pile = s.pending + s.solved
         if open_pile > 0:
-            solved_row += f" ({round(s.solved / open_pile * 100)}% of {open_pile} open)"
+            # The denominator is SPELLED OUT. A bare "of 106" sends the reader
+            # hunting for where 106 came from; showing the addition means the
+            # figure can be checked against the two numbers already on screen.
+            solved_row += (f" ({round(s.solved / open_pile * 100)}% of {open_pile}"
+                           f" = {s.pending} pending + {s.solved} solved)")
     day_rows = [f"• Received today — *{s.received}*", solved_row]
     title = "*📬  Last 24 hours*"
     if window_label:
-        title += f"  _{window_label}_"
+        title += f"  ({window_label})"
     out += _section(title, day_rows)
 
     # 4. Solved by — the same 24h cohort as Solved, so these rows still sum back
@@ -290,9 +309,9 @@ def render_digest(summary: Summary, date_label: str, window_label: str = "",
     # divide by. On an empty backlog `_pct` prints no shares at all, so the
     # caption would be promising percentages that no row carries — and "% of 0"
     # is not a denominator.
-    base_note = (f"  _% of {s.mix_base} pending_"
+    base_note = (f"  (% of {s.mix_base} handled in 24h)"
                  if over_pending and s.mix_base > 0 else "")
-    tier_title = "Pending by tier" if over_pending else "Reviews by tier"
+    tier_title = "Tier — last 24 hours" if over_pending else "Reviews by tier"
     tier_rows = [f"{_TIER_DOT.get(lbl, '•')} {lbl} — {s.tier.get(lbl, 0)}"
                  f"{_pct(s.tier.get(lbl, 0), s.mix_base)}"
                  for lbl in _TIER_FIXED]
@@ -419,6 +438,45 @@ def collect_pending_rows(db) -> list[Row]:
     return [_row_from(r, d) for r, d in pairs]
 
 
+def pending_count(db) -> int:
+    """How many reviews are open RIGHT NOW. A stock, not a flow: no window.
+
+    Counted rather than materialised because the headline needs the number and
+    nothing is divided by it. NULL status counts as pending — SQL `!= 'sent'` is
+    NULL for a NULL row, which would drop such a review from both Pending and
+    Solved and leave it in neither."""
+    from server.db import Review
+    from sqlalchemy import or_
+    return (db.query(Review)
+              .filter(or_(Review.status.is_(None), Review.status != SENT))
+              .count())
+
+
+def collect_window_rows(db, now: datetime) -> list[Row]:
+    """Everything the team HANDLED in the 8pm→8pm window: reviews that arrived in
+    it, plus reviews finished in it that arrived earlier. Deduplicated, because a
+    review that both arrived and was solved today must be counted once.
+
+    This is the cohort the tier mix describes — the day's work, solved and still
+    open alike — rather than the all-time backlog, which answers a different
+    question and moves far more slowly than a daily report should."""
+    from server.db import Review, RcaDraft
+    from sqlalchemy import or_, and_
+    start, end = _db_bounds(now)
+    pairs = (db.query(Review, RcaDraft)
+               .outerjoin(RcaDraft, RcaDraft.review_id == Review.id)
+               .filter(or_(
+                   and_(Review.received_at >= start, Review.received_at < end),
+                   and_(RcaDraft.sent_at >= start, RcaDraft.sent_at < end),
+                   and_(Review.closed_at >= start, Review.closed_at < end)))
+               .all())
+    # No de-duplication: RcaDraft.review_id is UNIQUE, so a review joins to at
+    # most one draft and matching several arms of the OR still yields one row.
+    # A dedup pass here would be a guard nothing can reach — which reads as
+    # protection while proving nothing.
+    return [_row_from(r, d) for r, d in pairs]
+
+
 def build_daily_digest(db, now: datetime | None = None) -> str:
     """The full digest text for a run at `now` (defaults to real now)."""
     now = now or datetime.now(timezone.utc)
@@ -427,7 +485,8 @@ def build_daily_digest(db, now: datetime | None = None) -> str:
     summary = summarize(
         collect_solved_rows(db, now),
         received_count(db, now),
-        pending_rows=collect_pending_rows(db))
+        pending_count=pending_count(db),
+        mix_rows=collect_window_rows(db, now))
     # Label with the window's END day (the 8pm cutoff date it covers up to), not
     # the raw clock — at the 8pm run these coincide, but a mid-day preview of the
     # last completed day must be dated that day, not today. %-d (no leading

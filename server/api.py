@@ -3591,6 +3591,30 @@ def reporting_report_send(body: ReportDraft, db: Session = Depends(get_session))
     return {"ok": True, "ts": ts, "channel": channel}
 
 
+@router.get("/api/reporting/selfcheck")
+def reporting_selfcheck(date_from: str | None = None, date_to: str | None = None,
+                        db: Session = Depends(get_session)):
+    """Is the Reporting page's arithmetic sound, and is the data behind it there?
+
+    Two different failures look identical on screen: a measure that is genuinely
+    zero, and a measure whose source column is empty so it is STRUCTURALLY zero.
+    This separates them — invariant failures are bugs, empty measures are facts
+    about the database — so a number is never trusted just because it rendered."""
+    from datetime import timedelta
+    from server.services.reporting_selfcheck import run
+
+    def _day(v, end=False):
+        if not v:
+            return None
+        try:
+            d = datetime.strptime(v, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(422, f"date must be YYYY-MM-DD, got {v!r}")
+        return d + timedelta(days=1) if end else d
+
+    return run(db, _day(date_from), _day(date_to, end=True))
+
+
 @router.get("/api/reporting/fields")
 def reporting_fields():
     """Every groupable dimension and every measure, grouped by RCA view."""

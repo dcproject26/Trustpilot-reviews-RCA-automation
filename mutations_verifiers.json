@@ -1,0 +1,68 @@
+[
+  {
+    "file": "server/services/reporting_selfcheck.py",
+    "name": "selfcheck: an empty window reports every measure healthy (vacuous green)",
+    "find": "    if not total:\n        # With no rows, \"have == total\" is 0 == 0 and EVERY measure would report",
+    "replace": "    if False:\n        # With no rows, \"have == total\" is 0 == 0 and EVERY measure would report"
+  },
+  {
+    "file": "server/services/reporting_selfcheck.py",
+    "name": "selfcheck: an absent source field is reported as healthy",
+    "find": "        state = \"ok\" if have == total else (\"empty\" if have == 0 else \"partial\")",
+    "replace": "        state = \"ok\""
+  },
+  {
+    "file": "server/services/reporting_selfcheck.py",
+    "name": "selfcheck: the out-of-range percentage check never fires",
+    "find": "                if v is not None and not (0 <= v <= 100):",
+    "replace": "                if False:"
+  },
+  {
+    "file": "server/services/reporting_selfcheck.py",
+    "name": "selfcheck: buckets are no longer required to sum to the cohort",
+    "find": "        add(f\"{DIM_BY_KEY[key].label}: buckets sum to the cohort\",\n            summed == total,",
+    "replace": "        add(f\"{DIM_BY_KEY[key].label}: buckets sum to the cohort\",\n            True,"
+  },
+  {
+    "file": "server/services/reporting_selfcheck.py",
+    "name": "selfcheck: a solved review with no finish timestamp passes",
+    "find": "    add(\"Solved reviews carry a finish timestamp\",\n        len(solved) == len(timed),",
+    "replace": "    add(\"Solved reviews carry a finish timestamp\",\n        True,"
+  },
+  {
+    "file": "tools/bulk_solve.py",
+    "name": "bulk solve: an already-solved review is overwritten",
+    "find": "        (already if r.status == SENT else to_change).append(r)",
+    "replace": "        to_change.append(r)"
+  },
+  {
+    "file": "tools/bulk_solve.py",
+    "name": "bulk solve: ids that match nothing are silently dropped",
+    "find": "    missing = sorted(set(ids) - {r.id for r in found}) if ids else []",
+    "replace": "    missing = []"
+  },
+  {
+    "file": "tools/bulk_solve.py",
+    "name": "bulk solve: a dry run writes anyway",
+    "find": "        if a.apply and to_change:",
+    "replace": "        if to_change:"
+  },
+  {
+    "file": "tools/bulk_solve.py",
+    "name": "bulk solve: it runs with no selection at all",
+    "find": "    if not (a.ids or a.status or a.date_from or a.owner_is):",
+    "replace": "    if False:"
+  },
+  {
+    "file": "tools/bulk_solve.py",
+    "name": "bulk solve: doing nothing looks the same as doing everything",
+    "find": "    if not to_change:\n        lines.append(\"Nothing to do. (This is a real answer, not a failure: the \"",
+    "replace": "    if False:\n        lines.append(\"Nothing to do. (This is a real answer, not a failure: the \""
+  },
+  {
+    "file": "tools/bulk_solve.py",
+    "name": "bulk solve: the owner is not actually written",
+    "find": "        r.picked_up_by = owner",
+    "replace": "        pass"
+  }
+]
