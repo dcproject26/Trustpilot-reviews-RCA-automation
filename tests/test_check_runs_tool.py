@@ -116,8 +116,13 @@ def test_a_queued_row_says_what_its_silence_would_mean():
 def _run(args=()):
     import subprocess
     import sys
+    # encoding="utf-8" is REQUIRED, not tidiness: the tool emits utf-8 by
+    # contract (tools/_console.py), and text=True alone decodes with the
+    # Windows default (cp1252). That raises in subprocess's reader THREAD,
+    # which swallows the exception and hands back stdout=None — a decode
+    # crash wearing the costume of "the tool printed nothing".
     return subprocess.run([sys.executable, "tools/check_runs.py", *args],
-                          capture_output=True, text=True, timeout=180)
+                          capture_output=True, text=True, encoding="utf-8", timeout=180)
 
 
 def test_it_runs_against_a_real_database_without_a_traceback():

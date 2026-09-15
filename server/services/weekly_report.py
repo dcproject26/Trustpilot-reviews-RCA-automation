@@ -22,7 +22,8 @@ from datetime import datetime, timedelta, timezone
 
 from server.services.daily_report import (
     IST, REPORT_HOUR_IST, Summary, summarize, _section, _DIV,
-    _TIER_FIXED, _TIER_DOT, _collect_solved_between, _received_between)
+    _TIER_FIXED, _TIER_DOT, _collect_solved_between, _received_between,
+    _row_from, pending_count, _pct)
 
 WEEK = timedelta(days=7)
 
@@ -65,6 +66,25 @@ def _day_label(day_end_utc_naive: datetime) -> str:
     return f"{end_ist.strftime('%a')} {end_ist.strftime('%d %b').lstrip('0')}"
 
 
+def _collect_window_rows(db, start: datetime, end: datetime):
+    """Everything HANDLED in [start, end): reviews that arrived in it, plus
+    reviews finished in it that arrived earlier.
+
+    This is the cohort the tier mix describes — the week's work, solved and
+    still open alike — matching the daily. No de-duplication is needed:
+    RcaDraft.review_id is UNIQUE, so the OR-join yields one row per review."""
+    from server.db import Review, RcaDraft
+    from sqlalchemy import or_, and_
+    pairs = (db.query(Review, RcaDraft)
+               .outerjoin(RcaDraft, RcaDraft.review_id == Review.id)
+               .filter(or_(
+                   and_(Review.received_at >= start, Review.received_at < end),
+                   and_(RcaDraft.sent_at >= start, RcaDraft.sent_at < end),
+                   and_(Review.closed_at >= start, Review.closed_at < end)))
+               .all())
+    return [_row_from(r, d) for r, d in pairs]
+
+
 def build_weekly_digest(db, now: datetime | None = None, weeks_ago: int = 0) -> str:
     """The full weekly digest text for the selected completed week."""
     now = now or datetime.now(timezone.utc)
@@ -73,7 +93,14 @@ def build_weekly_digest(db, now: datetime | None = None, weeks_ago: int = 0) -> 
     start, end = _week_db_bounds(now, weeks_ago)
 
     solved_rows = _collect_solved_between(db, start, end)
-    summary = summarize(solved_rows, _received_between(db, start, end))
+    # The SAME three cohorts the daily uses, just a week wide: the backlog as a
+    # stock, the window's solved rows, and the cohort actually handled in the
+    # window (received OR finished in it) for the tier mix. Keeping the two
+    # reports on one set of definitions is the point — a manager reading both
+    # must not have to hold two meanings of "tier" in their head.
+    summary = summarize(solved_rows, _received_between(db, start, end),
+                        pending_count=pending_count(db),
+                        mix_rows=_collect_window_rows(db, start, end))
 
     # Per-day trend: the 7 nested 8pm→8pm windows, in order. Each is one exact
     # daily window, so these rows sum back to the weekly Received/Solved.
@@ -90,37 +117,75 @@ def build_weekly_digest(db, now: datetime | None = None, weeks_ago: int = 0) -> 
     _d = lambda t: t.strftime("%d %b").lstrip("0")
     title_label = f"{_d(a_ist)} – {b_ist.strftime('%d %b %Y').lstrip('0')}"
     window_label = f"Mon {_d(a_ist)} 8pm → Mon {_d(b_ist)} 8pm IST"
-    return render_weekly(summary, title_label, window_label, trend)
+    return render_weekly(summary, title_label, window_label, trend, "(all time)")
 
 
 def render_weekly(summary: Summary, title_label: str, window_label: str,
-                  trend: list[tuple[str, int, int]]) -> str:
-    """Pure: a Summary + the per-day trend -> the Slack text. Mirrors the daily
-    digest's blocks (tier / Solved by / categories) with a weekly headline and a
-    daily trend on top, and reuses the daily section/divider helpers so the two
-    reports look like one family."""
+                  trend: list[tuple[str, int, int]],
+                  pending_label: str = "") -> str:
+    """Pure: a Summary + the per-day trend -> the Slack text.
+
+    Deliberately the DAILY's conventions, one week wide, because the two reports
+    are read by the same people:
+      * the backlog leads, as a stock, captioned all-time;
+      * Received and Solved sit inside the window, and only Solved carries a
+        share — of the open pile it came out of, with the denominator spelled
+        out. Never Solved-over-Received: different cohorts, and that ratio once
+        shipped a "130%" here;
+      * Solved by is counts only;
+      * the tier mix describes what was HANDLED in the window, not the backlog;
+      * no category block, and no Slack italics anywhere.
+
+    The daily trend is the one thing the weekly adds: seven nested 8pm→8pm days,
+    so a spike inside the week is visible rather than averaged away."""
     s = summary
     out = [f"📅  *ORM Weekly — {title_label}*"]
-    out.append(f"Received: *{s.received}*   ·   Solved: *{s.solved}*")
-    out.append(f"_{window_label}_")
 
-    # Daily trend — received / solved per nested 8pm→8pm day, so a spike is
-    # visible and the rows sum back to the weekly totals.
-    trend_rows = [f"• {label} — {rec} / {solv}" for label, rec, solv in trend]
-    out += _section("*📈  Daily trend — received / solved*", trend_rows)
+    # 1. The backlog headline — a stock, no window, nothing divided by it.
+    if s.pending is not None:
+        out.append(f"🗂️  Total pending reviews: *{s.pending}*")
+        if pending_label:
+            out.append(pending_label)
 
-    tier_rows = [f"{_TIER_DOT.get(lbl, '•')} {lbl} — {s.tier.get(lbl, 0)}"
-                 for lbl in _TIER_FIXED]
-    out += _section("*🏷️  Reviews by tier*", tier_rows)
+    # 2/3. The week's flow. Solved's denominator is the open pile it came from,
+    # printed as its own addition so the reader can check it against the two
+    # numbers already on screen.
+    solved_row = f"• Solved — *{s.solved}*"
+    if s.pending is not None:
+        open_pile = s.pending + s.solved
+        if open_pile > 0:
+            solved_row += (f" ({round(s.solved / open_pile * 100)}% of {open_pile}"
+                           f" = {s.pending} pending + {s.solved} solved)")
+    title = "*📬  This week*"
+    if window_label:
+        title += f"  ({window_label})"
+    out += _section(title, [f"• Received — *{s.received}*", solved_row])
 
+    # 4. The trend: each row is one exact 8pm→8pm day, so they sum back to the
+    # weekly Received and Solved above.
+    if trend:
+        out += _section("*📈  By day — received / solved*",
+                        [f"• {label} — {rec} / {solv}" for label, rec, solv in trend])
+
+    # 5. Solved by — the same cohort as Solved, counts only.
     if s.people:
-        out += _section("*🧑‍💻  Solved by*",
-                        [f"• {k} — {v}" for k, v in s.people])
+        out += _section("*🧑‍💻  Solved by*", [f"• {k} — {v}" for k, v in s.people])
 
-    if s.categories:
-        out += _section("*📂  Top issue categories (L1 / L2)*",
-                        [f"• {k} — {v}" for k, v in s.categories])
+    # 6. Tier over what was handled in the week, each as a share of that cohort.
+    over_window = s.pending is not None
+    base_note = (f"  (% of {s.mix_base} handled this week)"
+                 if over_window and s.mix_base > 0 else "")
+    tier_title = "Tier — this week" if over_window else "Reviews by tier"
+    # The share is printed ONLY when the caption states what it is a share OF.
+    # A bare "(33%)" with no denominator on screen cannot be checked, and an
+    # unverifiable number is worse than no number.
+    tier_rows = [f"{_TIER_DOT.get(lbl, '•')} {lbl} — {s.tier.get(lbl, 0)}"
+                 f"{_pct(s.tier.get(lbl, 0), s.mix_base) if base_note else ''}"
+                 for lbl in _TIER_FIXED]
+    out += _section(f"*🏷️  {tier_title}*{base_note}", tier_rows)
 
+    # No category block, matching the daily: the breakdown lives in the
+    # Reporting page, where it can be sliced instead of truncated to six rows.
     return "\n".join(out)
 
 

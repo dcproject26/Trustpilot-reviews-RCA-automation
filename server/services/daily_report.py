@@ -312,8 +312,11 @@ def render_digest(summary: Summary, date_label: str, window_label: str = "",
     base_note = (f"  (% of {s.mix_base} handled in 24h)"
                  if over_pending and s.mix_base > 0 else "")
     tier_title = "Tier — last 24 hours" if over_pending else "Reviews by tier"
+    # The share is printed ONLY when the caption states what it is a share OF.
+    # A bare "(33%)" with no denominator on screen cannot be checked, and an
+    # unverifiable number is worse than no number.
     tier_rows = [f"{_TIER_DOT.get(lbl, '•')} {lbl} — {s.tier.get(lbl, 0)}"
-                 f"{_pct(s.tier.get(lbl, 0), s.mix_base)}"
+                 f"{_pct(s.tier.get(lbl, 0), s.mix_base) if base_note else ''}"
                  for lbl in _TIER_FIXED]
     out += _section(f"*🏷️  {tier_title}*{base_note}", tier_rows)
 

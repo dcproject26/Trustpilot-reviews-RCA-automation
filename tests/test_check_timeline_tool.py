@@ -33,8 +33,13 @@ def test_it_does_not_reimplement_the_filters():
 def _run_tool(env_extra=None, target="33543686"):
     env = dict(os.environ)
     env.update(env_extra or {})
+    # encoding="utf-8" is REQUIRED, not tidiness: the tool emits utf-8 by
+    # contract (tools/_console.py), and text=True alone decodes with the
+    # Windows default (cp1252). That raises in subprocess's reader THREAD,
+    # which swallows the exception and hands back stdout=None — a decode
+    # crash wearing the costume of "the tool printed nothing".
     return subprocess.run([sys.executable, "tools/check_timeline.py", target],
-                          capture_output=True, text=True, timeout=180, env=env)
+                          capture_output=True, text=True, encoding="utf-8", timeout=180, env=env)
 
 
 def test_it_refuses_rather_than_guessing_without_zendesk():

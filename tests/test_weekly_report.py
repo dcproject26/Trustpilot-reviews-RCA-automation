@@ -10,7 +10,7 @@ from server.services.daily_report import Row, summarize, IST, _received_between,
     _collect_solved_between
 from server.services.weekly_report import (
     week_bounds, _week_end_ist, _week_db_bounds, build_weekly_digest,
-    render_weekly, week_options)
+    render_weekly, week_options, _collect_window_rows)
 
 
 def _n(dt):
@@ -84,7 +84,7 @@ def test_seven_daily_windows_sum_to_the_week(live_db):
     assert week_recv == 7 and week_solv == 7           # the "before" one excluded
     assert day_recv == week_recv and day_solv == week_solv
     # The rendered digest's headline uses the week's own window, not 0/other.
-    assert "Received: *7*" in text and "Solved: *7*" in text
+    assert "• Received — *7*" in text and "• Solved — *7*" in text
     # Each nested day had exactly one received + one solved, so every trend row
     # reads "1 / 1" — pins the per-day window to the right day (an off-by-one
     # day offset would zero the rows).
@@ -108,16 +108,19 @@ def test_render_weekly_headline_trend_and_blocks():
     out = render_weekly(_sample_summary(), "7 – 14 Sep 2026",
                         "Mon 7 Sep 8pm → Mon 14 Sep 8pm IST", trend)
     assert "*ORM Weekly — 7 – 14 Sep 2026*" in out
-    assert "Received: *20*" in out and "Solved: *3*" in out
+    assert "• Received — *20*" in out and "• Solved — *3*" in out
     assert "Mon 7 Sep 8pm → Mon 14 Sep 8pm IST" in out
+    # No pending cohort here, so no denominator is stated — and therefore no
+    # share is printed. A percentage the reader cannot check is worse than none.
     assert "%" not in out
     # Daily trend rows, received / solved.
-    assert "*📈  Daily trend — received / solved*" in out
+    assert "*📈  By day — received / solved*" in out
     assert "• Tue 8 Sep — 3 / 2" in out and "• Wed 9 Sep — 5 / 4" in out
     # Same blocks as the daily report, so the two look like one family.
     assert "🟢 Tier 1 — 1" in out and "🔴 Untraceable — 1" in out
     assert "*🧑‍💻  Solved by*" in out and "• Avi — 2" in out
-    assert "*📂  Top issue categories (L1 / L2)*" in out
+    # No category block, matching the daily.
+    assert "categor" not in out.lower()
     assert "━" in out
 
 
@@ -145,3 +148,99 @@ def test_week_options_are_completed_weeks_newest_first():
     assert [o["weeks_ago"] for o in opts] == [0, 1, 2]
     assert opts[0]["label"] == "7 Sep – 14 Sep 2026"
     assert opts[1]["label"] == "31 Aug – 7 Sep 2026"
+
+
+# ── the daily's conventions, one week wide ──────────────────────────────────
+
+def _full_summary():
+    """A week WITH a backlog cohort — the shape build_weekly_digest produces."""
+    solved = [Row(solved=True, picked_up_by="Avi", tier=1),
+              Row(solved=True, picked_up_by="Shruti", tier=2)]
+    mix = solved + [Row(picked_up_by="Devshree", tier=1),
+                    Row(declared_untraceable=True)]      # still open, handled
+    return summarize(solved, received_count=9, pending_count=18, mix_rows=mix)
+
+
+def test_weekly_leads_with_the_backlog_as_a_stock():
+    out = render_weekly(_full_summary(), "7 – 14 Sep 2026", "", [], "(all time)")
+    # The backlog is all-time, so it is captioned all-time and NOTHING is
+    # divided by the week to produce it.
+    assert "🗂️  Total pending reviews: *18*" in out
+    assert "(all time)" in out
+
+
+def test_weekly_solved_share_spells_out_its_denominator():
+    out = render_weekly(_full_summary(), "W", "", [], "(all time)")
+    # 2 solved out of the pile they came from: 18 open + 2 solved = 20 -> 10%.
+    # The addition is printed so the reader can check it against the two numbers
+    # already on screen — "where is 106 coming from" must never recur.
+    assert "• Solved — *2* (10% of 20 = 18 pending + 2 solved)" in out
+    # Never Solved-over-Received (2/9 = 22%): different cohorts.
+    assert "22%" not in out
+
+
+def test_weekly_never_divides_solved_by_received():
+    # Solved EXCEEDS Received — backlog cleared from earlier weeks. The forbidden
+    # ratio would print 300% here; the open-pile one cannot exceed 100%.
+    s = summarize([Row(solved=True, picked_up_by="Avi", tier=1) for _ in range(6)],
+                  received_count=2, pending_count=4)
+    out = render_weekly(s, "W", "", [], "(all time)")
+    assert "300%" not in out
+    assert "• Solved — *6* (60% of 10 = 4 pending + 6 solved)" in out
+
+
+def test_weekly_tier_covers_what_was_handled_not_the_backlog():
+    out = render_weekly(_full_summary(), "W", "", [], "(all time)")
+    # 4 rows handled in the week (2 solved + 2 still open), NOT the 18 backlog
+    # and NOT just the 2 solved. The caption names the denominator, so every
+    # share below it can be checked.
+    assert "*🏷️  Tier — this week*  (% of 4 handled this week)" in out
+    assert "🟢 Tier 1 — 2 (50%)" in out
+    assert "🟡 Tier 2 — 1 (25%)" in out
+    assert "🔴 Untraceable — 1 (25%)" in out
+
+
+def test_weekly_solved_by_is_counts_only_and_has_no_italics():
+    out = render_weekly(_full_summary(), "W", "", [], "(all time)")
+    assert "• Avi — 1" in out and "• Shruti — 1" in out
+    # Counts only: no per-person share (the user cut those from the daily).
+    assert "• Avi — 1 (" not in out
+    # Slack renders _x_ as italics; the user asked for none anywhere.
+    assert "_" not in out
+
+
+def test_weekly_tier_mix_includes_backlog_carried_into_the_week(live_db):
+    """THE PROPERTY: the tier mix covers everything HANDLED in the week — which
+    includes a review that ARRIVED before the week and was finished inside it.
+
+    Counting only the week's own arrivals would quietly drop exactly the reviews
+    an ORM team cares most about: the old ones finally cleared. Two mutants
+    survived here before this test existed — one pointing the mix at the backlog
+    instead of the week, one dropping the finished-in-window arm of the join.
+    Both are DB-level wiring, invisible to the pure render tests."""
+    from server.db import Review, RcaDraft
+    now = datetime(2026, 9, 16, 6, 0, tzinfo=timezone.utc)
+    start, end = _week_db_bounds(now)
+    s_ = live_db.SessionLocal()
+    try:
+        # arrived a fortnight BEFORE this week, solved INSIDE it -> handled here
+        s_.add(Review(id="old", received_at=_n(start - timedelta(days=14)),
+                      status="sent", rating=1, picked_up_by="Devshree"))
+        s_.add(RcaDraft(id="old-d", review_id="old", match_tier=2,
+                        sent_at=_n(start + timedelta(days=2)), booking={"id": "B9"}))
+        # still OPEN, arrived inside the week -> handled here too
+        s_.add(Review(id="open1", received_at=_n(start + timedelta(days=1)),
+                      rating=1))
+        # arrived AND untouched entirely after the week -> NOT handled here
+        s_.add(Review(id="later", received_at=_n(end + timedelta(days=1)), rating=1))
+        s_.commit()
+        rows = _collect_window_rows(s_, start, end)
+        text = build_weekly_digest(s_, now)
+    finally:
+        s_.close()
+    ids = len(rows)
+    assert ids == 2, rows            # the carried-in solve AND the open arrival
+    # ...and the rendered caption counts that same cohort, not the backlog.
+    assert "(% of 2 handled this week)" in text
+    # The carried-in review is Tier 2; dropping it would leave Tier 2 at zero.
+    assert "🟡 Tier 2 — 1 (50%)" in text

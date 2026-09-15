@@ -28,6 +28,8 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from tools._console import utf8_stdio
+
 OK, BAD, WARN, INFO = "  OK  ", " FAIL ", " WARN ", " ..   "
 
 
@@ -90,6 +92,9 @@ def verdict(r, now, stall_after_s):
 
 
 def main() -> int:
+    # Windows gives this process a cp1252 stdout; the box rules below would
+    # kill it mid-report. See tools/_console.py.
+    utf8_stdio()
     ap = argparse.ArgumentParser()
     ap.add_argument("--reap", action="store_true",
                     help="mark STRANDED runs failed (what the drain loop does)")

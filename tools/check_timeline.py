@@ -26,6 +26,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from tools._console import utf8_stdio
+
 OK, BAD, WARN, INFO = "  OK  ", " FAIL ", " WARN ", " ..   "
 
 
@@ -97,6 +99,9 @@ def _resolve(s, target, Review, RcaDraft, _booking_date):
 
 
 def main() -> int:
+    # Windows gives this process a cp1252 stdout; the box rules below would
+    # kill it mid-report. See tools/_console.py.
+    utf8_stdio()
     ap = argparse.ArgumentParser()
     ap.add_argument("target", help="a booking id (33543686) or a review id (tp_...)")
     ap.add_argument("--rerun", action="store_true",
