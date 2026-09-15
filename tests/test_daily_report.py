@@ -182,12 +182,15 @@ def test_render_percentages_are_within_cohort():
     # Solved-by is counts only now — no per-person share.
     assert "• Avi — 2" in out and "• Avi — 2 (" not in out
     assert "• Shruti — 2" in out and "• Shruti — 2 (" not in out
-    # Solved carries a share of the OPEN PILE it came out of (pending + solved),
-    # never of Received: 4 of 10+4 = 29%. That denominator cannot exceed 100%.
-    assert "• Solved today — *4* (29% of 14 = 10 pending + 4 solved)" in out
+    # Solved is a PLAIN COUNT. It had a share of pending+solved; that mixed an
+    # all-time stock with one day's work, so it answered no real question and
+    # moved for two unrelated reasons at once.
+    assert "• Solved today — *4*" in out
+    assert "• Solved today — *4* (" not in out
     # Tier: each bucket as a share of the 10 PENDING, and the denominator is
     # printed so the reader can check it.
-    assert "(% of 10 handled in 24h)" in out
+    # No "% of N" caption — the rows sum to it (partition), so it added nothing.
+    assert "% of" not in out
     assert "🟢 Tier 1 — 5 (50%)" in out
     assert "🟡 Tier 2 — 4 (40%)" in out
     assert "🔴 Untraceable — 1 (10%)" in out
@@ -620,16 +623,19 @@ def test_solved_share_is_of_the_open_pile_and_can_never_exceed_100():
                   received_count=7,
                   pending_rows=[Row(tier=1)] * 64)
     out = render_digest(s, "11 Sep 2026")
-    assert "• Solved today — *42* (40% of 106 = 64 pending + 42 solved)" in out   # 42 / (64+42)
-    assert "(130%)" not in out
+    assert "• Solved today — *42*" in out
+    assert "• Solved today — *42* (" not in out
+    # The forbidden ratio would be 42/7 here. It appears in no form.
+    assert "(130%)" not in out and "600%" not in out
     # Received carries no share: there is no honest denominator for arrivals.
     assert "• Received today — *7*" in out
     assert "Received today — *7* (" not in out
 
 
-def test_no_solved_share_when_there_is_no_pending_cohort():
-    """Without a pending cohort the open pile is unknown, so no figure is
-    invented — the count stands alone rather than borrowing Received."""
+def test_solved_never_carries_a_share_in_any_cohort_shape():
+    """Solved is a count in every path — with a pending cohort or without. The
+    only denominators it ever had were dishonest: Received (a different cohort)
+    or pending+solved (a stock added to a flow)."""
     out = render_digest(summarize([Row(solved=True)] * 3, received_count=9), "x")
     assert "• Solved today — *3*" in out
     assert "• Solved today — *3* (" not in out
@@ -661,7 +667,8 @@ def test_the_tier_mix_is_the_24h_cohort_not_the_backlog(live_db):
     # the stale backlog review is counted in the HEADLINE...
     assert "Total pending reviews: *2*" in text
     # ...but the tier mix is the 2 handled in the window, not all 3
-    assert "(% of 2 handled in 24h)" in text
+    # No "% of N" caption — the rows sum to it (partition), so it added nothing.
+    assert "% of" not in text
     assert "🟢 Tier 1 — 1 (50%)" in text
     assert "🟡 Tier 2 — 1 (50%)" in text
 

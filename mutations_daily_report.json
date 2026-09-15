@@ -97,12 +97,6 @@
   },
   {
     "file": "server/services/daily_report.py",
-    "name": "daily: the Solved denominator stops being spelled out",
-    "find": "                           f\" = {s.pending} pending + {s.solved} solved)\")",
-    "replace": "                           f\")\")"
-  },
-  {
-    "file": "server/services/daily_report.py",
     "name": "daily: Slack italics creep back onto the backlog caption",
     "find": "            out.append(pending_label)",
     "replace": "            out.append(f\"_{pending_label}_\")"
@@ -112,5 +106,23 @@
     "name": "daily: a NULL status is dropped from the pending count",
     "find": "    return (db.query(Review)\n              .filter(or_(Review.status.is_(None), Review.status != SENT))\n              .count())",
     "replace": "    return (db.query(Review)\n              .filter(Review.status != SENT)\n              .count())"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily: Solved regains a share (the stock-plus-flow denominator)",
+    "find": "    solved_row = f\"• Solved today — *{s.solved}*\"",
+    "replace": "    solved_row = f\"• Solved today — *{s.solved}*\"\n    if s.pending is not None and s.pending + s.solved:\n        solved_row += f\" ({round(s.solved / (s.pending + s.solved) * 100)}%)\""
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily: tier shares silently vanish",
+    "find": "                 f\"{_pct(s.tier.get(lbl, 0), s.mix_base) if has_base else ''}\"",
+    "replace": "                 f\"\""
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily: tier share divides by the solved cohort, not what was handled",
+    "find": "                 f\"{_pct(s.tier.get(lbl, 0), s.mix_base) if has_base else ''}\"",
+    "replace": "                 f\"{_pct(s.tier.get(lbl, 0), s.solved) if has_base else ''}\""
   }
 ]

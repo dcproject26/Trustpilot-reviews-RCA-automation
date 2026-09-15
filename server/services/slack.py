@@ -1265,6 +1265,13 @@ _BOOKING_DETAIL_ROWS = (
     ("Vendor name",      ("vendorName", "vendor_name", "partner")),
     ("Fulfilment type",  ("fulfilmentType", "fulfilment_type",
                           "fulfillment_type")),
+    # Both dates come from BigQuery. The warehouse and the enrichment path
+    # spell each of them differently, so every alias in circulation is listed;
+    # reading one would blank the row on half the drafts.
+    ("Booking date",     ("bookedOn", "booked_on", "bookingDate", "booking_date",
+                          "creationDate", "created_at")),
+    ("Visit date",       ("visitDate", "visit_date", "date_of_visit",
+                          "experienceDate", "experience_date")),
 )
 
 

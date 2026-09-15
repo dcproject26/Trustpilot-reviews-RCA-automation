@@ -143,3 +143,66 @@ The rules this leaves:
 - **A silent fallback that "works" in dev and loses data in production is the
   first rule of this file wearing a deployment hat.** Ran-and-found-nothing vs
   did-not-run, applied to the database itself.
+
+## 4. Two report composers is the decision, not an oversight
+
+The daily and the weekly digest have SEPARATE composers
+(`services/daily_report.py`, `services/weekly_report.py`) and separate
+renderers. This looks like duplication waiting to be collapsed. It is not, and
+the next session should not collapse it.
+
+**What they already share is the part that can be wrong.** Both go through the
+same query engine and the same cohort helpers — `summarize`, `pending_count`,
+`_collect_solved_between`, `_received_between`, `_tier_label`, `_norm_owner`,
+`TEST_OWNERS`. A number cannot drift between the two reports, because neither
+report computes its own numbers. That is where a merge would have paid, and the
+merge is already done.
+
+**What differs is the format, and the formats are genuinely different.** The
+weekly carries a seven-row nested-day trend; the daily has nothing to trend. The
+captions differ ("last 24 hours" vs "this week"), and the daily's layout was
+specified line by line by the person who reads it. Merging the renderers means a
+parameterised template with a branch at every caption, trend, and title — more
+places to get it wrong than the two straight-line functions have now.
+
+The nesting property (`test_seven_daily_windows_sum_to_the_week`) is what keeps
+them honest: seven daily 8pm→8pm windows sum EXACTLY to one week, so the weekly
+cannot disagree with the seven dailies it spans. That test is the real coupling.
+Keep it.
+
+## 5. No percentage without its denominator on screen, and no denominator that
+   mixes a stock with a flow
+
+Three shares have been removed from these reports, each after shipping:
+
+- **Solved ÷ Received** — different cohorts. Solved includes backlog that
+  arrived days earlier, so on real 11 Sep data it reads 42/7 = 600%. It once
+  shipped a literal "130%".
+- **Solved ÷ (pending + solved)** — the replacement, and also wrong. `pending`
+  is an all-time STOCK, `solved` is one day's FLOW; their sum answers no
+  question anyone asks, and the figure moves for two unrelated reasons at once,
+  so it cannot be read as a trend either.
+- **A bare `(33%)`** under a caption that named no denominator. A share the
+  reader cannot check against numbers already on screen is worse than no share:
+  it looks like information.
+
+What is left: `Received` and `Solved` are plain counts, compared against
+yesterday by the reader. The tier buckets keep their shares, and carry NO
+caption, because they PARTITION the cohort — every review is exactly one of
+Tier 1 / Tier 2 / Untraceable, so the rows on screen sum to the denominator
+(22 + 22 + 2 = 46) and the reader recovers it by adding them. A `(% of 46
+handled in 24h)` caption above them only restated a number the rows already
+gave.
+
+That is the real distinction, and it is not "caption or no caption":
+
+  **The denominator must be RECOVERABLE from what is printed.** A partition
+  recovers it by addition. `pending + solved` never could — a stock added to a
+  flow, appearing nowhere else in the report, so no caption short of a sentence
+  of prose could have rescued it.
+
+Before adding any percentage, answer three things: what is the denominator, is
+it the same cohort over the same window as the numerator, and can a reader
+reconstruct it from the numbers already on the screen? If the answer to the
+last one is "only if I explain it in a caption", the share is the problem, not
+the caption.

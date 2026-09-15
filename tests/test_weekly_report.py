@@ -169,14 +169,14 @@ def test_weekly_leads_with_the_backlog_as_a_stock():
     assert "(all time)" in out
 
 
-def test_weekly_solved_share_spells_out_its_denominator():
+def test_weekly_flow_figures_are_plain_counts():
     out = render_weekly(_full_summary(), "W", "", [], "(all time)")
-    # 2 solved out of the pile they came from: 18 open + 2 solved = 20 -> 10%.
-    # The addition is printed so the reader can check it against the two numbers
-    # already on screen — "where is 106 coming from" must never recur.
-    assert "• Solved — *2* (10% of 20 = 18 pending + 2 solved)" in out
-    # Never Solved-over-Received (2/9 = 22%): different cohorts.
-    assert "22%" not in out
+    # Neither figure carries a share. pending+solved (20) mixes an all-time
+    # stock with a week of work; solved-over-received (2/9 = 22%) divides two
+    # different cohorts. Both are absent.
+    assert "• Solved — *2*" in out and "• Solved — *2* (" not in out
+    assert "• Received — *9*" in out and "• Received — *9* (" not in out
+    assert "10% of 20" not in out and "22%" not in out
 
 
 def test_weekly_never_divides_solved_by_received():
@@ -186,15 +186,16 @@ def test_weekly_never_divides_solved_by_received():
                   received_count=2, pending_count=4)
     out = render_weekly(s, "W", "", [], "(all time)")
     assert "300%" not in out
-    assert "• Solved — *6* (60% of 10 = 4 pending + 6 solved)" in out
+    assert "• Solved — *6*" in out and "• Solved — *6* (" not in out
 
 
 def test_weekly_tier_covers_what_was_handled_not_the_backlog():
     out = render_weekly(_full_summary(), "W", "", [], "(all time)")
     # 4 rows handled in the week (2 solved + 2 still open), NOT the 18 backlog
-    # and NOT just the 2 solved. The caption names the denominator, so every
-    # share below it can be checked.
-    assert "*🏷️  Tier — this week*  (% of 4 handled this week)" in out
+    # and NOT just the 2 solved. There is no caption naming that 4, so the
+    # cohort is pinned through the SHARES: 2/4, 1/4, 1/4 -> 50/25/25. Against
+    # the 18-strong backlog or the 2 solved, none of those numbers hold.
+    assert "*🏷️  Tier — this week*" in out and "% of" not in out
     assert "🟢 Tier 1 — 2 (50%)" in out
     assert "🟡 Tier 2 — 1 (25%)" in out
     assert "🔴 Untraceable — 1 (25%)" in out
@@ -241,6 +242,7 @@ def test_weekly_tier_mix_includes_backlog_carried_into_the_week(live_db):
     ids = len(rows)
     assert ids == 2, rows            # the carried-in solve AND the open arrival
     # ...and the rendered caption counts that same cohort, not the backlog.
-    assert "(% of 2 handled this week)" in text
+    # No "% of N" caption — the rows sum to it (partition), so it added nothing.
+    assert "% of" not in text
     # The carried-in review is Tier 2; dropping it would leave Tier 2 at zero.
     assert "🟡 Tier 2 — 1 (50%)" in text

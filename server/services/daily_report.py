@@ -269,23 +269,18 @@ def render_digest(summary: Summary, date_label: str, window_label: str = "",
     #
     # Solved carries a share, and the denominator is the OPEN WORKLOAD it came
     # out of: what is still pending plus what was cleared in the window. That is
-    # the pile as it stood before today's clearing, so the figure answers "how
-    # much of the backlog did we take down" and can never exceed 100%.
+    # Solved carries NO share. The denominator that was here — pending + solved,
+    # "the pile as it stood before today's clearing" — mixed a stock with a flow:
+    # the 64 pending is an all-time backlog, the 42 solved is one day's work, and
+    # a percentage over their sum answers a question nobody asks. It also moved
+    # for two unrelated reasons at once, so it could not be read as a trend.
     #
-    # It is deliberately NOT Solved-over-Received. Those are different cohorts —
+    # Solved-over-Received is worse and is likewise absent: different cohorts —
     # Solved includes backlog that arrived days earlier — and on 11 Sep the real
-    # export gives Received 7 against Solved 42, which is exactly how this report
-    # once shipped a "130%". Received therefore carries no share: there is no
-    # honest denominator for "what arrived".
+    # export gives Received 7 against Solved 42, which is how this report once
+    # shipped a "130%". Neither Received nor Solved has an honest denominator, so
+    # both are printed as plain counts and the reader compares them to yesterday.
     solved_row = f"• Solved today — *{s.solved}*"
-    if s.pending is not None:
-        open_pile = s.pending + s.solved
-        if open_pile > 0:
-            # The denominator is SPELLED OUT. A bare "of 106" sends the reader
-            # hunting for where 106 came from; showing the addition means the
-            # figure can be checked against the two numbers already on screen.
-            solved_row += (f" ({round(s.solved / open_pile * 100)}% of {open_pile}"
-                           f" = {s.pending} pending + {s.solved} solved)")
     day_rows = [f"• Received today — *{s.received}*", solved_row]
     title = "*📬  Last 24 hours*"
     if window_label:
@@ -309,16 +304,19 @@ def render_digest(summary: Summary, date_label: str, window_label: str = "",
     # divide by. On an empty backlog `_pct` prints no shares at all, so the
     # caption would be promising percentages that no row carries — and "% of 0"
     # is not a denominator.
-    base_note = (f"  (% of {s.mix_base} handled in 24h)"
-                 if over_pending and s.mix_base > 0 else "")
+    # No "% of N" caption: it restated a number the rows already carry.
+    has_base = over_pending and s.mix_base > 0
     tier_title = "Tier — last 24 hours" if over_pending else "Reviews by tier"
-    # The share is printed ONLY when the caption states what it is a share OF.
-    # A bare "(33%)" with no denominator on screen cannot be checked, and an
-    # unverifiable number is worse than no number.
+    # THE SHARES STAY, AND ARE SAFE WITHOUT A CAPTION, because the tier buckets
+    # PARTITION the cohort: every review is exactly one of Tier 1 / Tier 2 /
+    # Untraceable, so the rows on screen sum to the denominator and the reader
+    # can recover it by adding them (22 + 22 + 2 = 46). That is what the deleted
+    # "of 106 = 64 pending + 42 solved" could never do — its denominator was a
+    # stock added to a flow and appeared nowhere else in the report.
     tier_rows = [f"{_TIER_DOT.get(lbl, '•')} {lbl} — {s.tier.get(lbl, 0)}"
-                 f"{_pct(s.tier.get(lbl, 0), s.mix_base) if base_note else ''}"
+                 f"{_pct(s.tier.get(lbl, 0), s.mix_base) if has_base else ''}"
                  for lbl in _TIER_FIXED]
-    out += _section(f"*🏷️  {tier_title}*{base_note}", tier_rows)
+    out += _section(f"*🏷️  {tier_title}*", tier_rows)
 
     # NO category block. The digest is a glance at how deep the backlog is and
     # who is clearing it; the category breakdown lives in the Reporting page,

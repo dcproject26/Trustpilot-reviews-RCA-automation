@@ -43,18 +43,6 @@
   },
   {
     "file": "server/services/weekly_report.py",
-    "name": "weekly: Solved is divided by Received (the forbidden cross-cohort ratio)",
-    "find": "        open_pile = s.pending + s.solved",
-    "replace": "        open_pile = s.received"
-  },
-  {
-    "file": "server/services/weekly_report.py",
-    "name": "weekly: the Solved share loses the addition that explains its denominator",
-    "find": "            solved_row += (f\" ({round(s.solved / open_pile * 100)}% of {open_pile}\"\n                           f\" = {s.pending} pending + {s.solved} solved)\")",
-    "replace": "            solved_row += f\" ({round(s.solved / open_pile * 100)}%)\""
-  },
-  {
-    "file": "server/services/weekly_report.py",
     "name": "weekly: the tier mix describes the backlog instead of the week's work",
     "find": "                        mix_rows=_collect_window_rows(db, start, end))",
     "replace": "                        mix_rows=None)"
@@ -67,14 +55,26 @@
   },
   {
     "file": "server/services/weekly_report.py",
-    "name": "weekly: a tier share prints with no denominator stated anywhere",
-    "find": "                 f\"{_pct(s.tier.get(lbl, 0), s.mix_base) if base_note else ''}\"",
-    "replace": "                 f\"{_pct(s.tier.get(lbl, 0), s.mix_base)}\""
-  },
-  {
-    "file": "server/services/weekly_report.py",
     "name": "weekly: the backlog headline is silently dropped",
     "find": "        out.append(f\"🗂️  Total pending reviews: *{s.pending}*\")",
     "replace": "        pass"
+  },
+  {
+    "file": "server/services/weekly_report.py",
+    "name": "weekly: Solved regains a share (the stock-plus-flow denominator)",
+    "find": "    solved_row = f\"• Solved — *{s.solved}*\"",
+    "replace": "    solved_row = f\"• Solved — *{s.solved}*\"\n    if s.pending is not None and s.pending + s.solved:\n        solved_row += f\" ({round(s.solved / (s.pending + s.solved) * 100)}%)\""
+  },
+  {
+    "file": "server/services/weekly_report.py",
+    "name": "weekly: tier shares silently vanish",
+    "find": "                 f\"{_pct(s.tier.get(lbl, 0), s.mix_base) if has_base else ''}\"",
+    "replace": "                 f\"\""
+  },
+  {
+    "file": "server/services/weekly_report.py",
+    "name": "weekly: tier share divides by the solved cohort, not what was handled",
+    "find": "                 f\"{_pct(s.tier.get(lbl, 0), s.mix_base) if has_base else ''}\"",
+    "replace": "                 f\"{_pct(s.tier.get(lbl, 0), s.solved) if has_base else ''}\""
   }
 ]

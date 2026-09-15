@@ -126,12 +126,12 @@
   }
   .btn:disabled, .send-btn:disabled { opacity: .5; cursor: default; }
   /* Dashed = "add something that isn't there yet". */
-  .row-add, .add-manual-btn, .action-add-btn {
+  .row-add, .add-manual-btn, .action-add-btn, .ibx-filter-btn {
     font: inherit; font-size: 11.5px; padding: 4px 10px; border-radius: 6px;
     border: 1px dashed var(--dashed); background: none; color: var(--muted);
     cursor: pointer; align-self: flex-start;
   }
-  .row-add:hover, .add-manual-btn:hover, .action-add-btn:hover {
+  .row-add:hover, .add-manual-btn:hover, .action-add-btn:hover, .ibx-filter-btn:hover {
     color: var(--text); border-color: var(--empty);
   }
   .row-del, .action-delete-btn {
@@ -363,7 +363,73 @@
   .tag-lang { background: none; padding: 0; font-size: 10.5px; font-weight: 400; color: var(--dim); }
   /* + Add review lives in the search row now (handoff layout), not a footer.
      It keeps its dashed style; here it just holds its size beside the input. */
-  .inbox-search-row .add-manual-btn { flex: none; white-space: nowrap; align-self: center; }
+  .inbox-search-row .add-manual-btn,
+  .inbox-search-row .ibx-filter-btn { flex: none; white-space: nowrap; align-self: center; }
+  /* ── + Filter button, chip strip, and popover.
+     Same tokens as the rest of the shell (--surface, --border, --accent,
+     --muted-2) so it belongs to the inbox rather than looking bolted on. */
+  .ibx-filter-btn { position: relative; }
+  .ibx-filter-btn .ibx-filter-count {
+    display: inline-block; margin-left: 4px; min-width: 14px; padding: 0 4px;
+    border-radius: 8px; background: var(--accent); color: #fff;
+    font-size: 10px; line-height: 14px; text-align: center; font-weight: 600;
+  }
+  .ibx-chip-row {
+    display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px;
+  }
+  .ibx-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 8px; border: 1px solid var(--border);
+    border-radius: 999px; background: var(--surface); color: var(--text);
+    font-size: 11.5px; line-height: 16px;
+  }
+  .ibx-chip .ibx-chip-k { color: var(--muted-2); }
+  .ibx-chip .ibx-chip-x {
+    cursor: pointer; margin-left: 2px; color: var(--muted-2);
+    background: transparent; border: 0; padding: 0 2px; font-size: 12px;
+  }
+  .ibx-chip .ibx-chip-x:hover { color: var(--text); }
+  .ibx-chip-clear {
+    background: transparent; border: 0; color: var(--muted-2); cursor: pointer;
+    padding: 3px 8px; font-size: 11.5px; text-decoration: underline;
+  }
+  .ibx-pop {
+    position: absolute; z-index: 40; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.08); padding: 12px; width: 320px;
+    font-size: 12px;
+  }
+  .ibx-pop h4 {
+    margin: 0 0 4px; font-size: 11px; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--muted-2); font-weight: 600;
+  }
+  .ibx-pop .ibx-pop-row { display: grid; gap: 6px; margin-bottom: 10px; }
+  .ibx-pop label { display: block; }
+  .ibx-pop .ibx-presets { display: flex; gap: 6px; flex-wrap: wrap; }
+  .ibx-pop .ibx-preset {
+    padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px;
+    background: var(--surface); color: var(--text); cursor: pointer;
+    font-size: 11.5px;
+  }
+  .ibx-pop .ibx-preset.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .ibx-pop .ibx-date-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .ibx-pop input[type=date], .ibx-pop input[type=text] {
+    width: 100%; padding: 5px 8px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--surface); color: var(--text);
+    font: inherit;
+  }
+  .ibx-pop .ibx-pop-actions {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);
+  }
+  .ibx-pop .ibx-apply {
+    padding: 4px 12px; border: 0; border-radius: 6px;
+    background: var(--accent); color: #fff; cursor: pointer;
+  }
+  .ibx-pop .ibx-reset {
+    background: transparent; border: 0; color: var(--muted-2);
+    cursor: pointer; text-decoration: underline;
+  }
 
   /* bulk job progress */
   .bulk-bar { margin: 0 0 10px; }
@@ -1878,6 +1944,11 @@
                   title="Clear the search" hidden>×</button>
           <!-- + Add review sits beside the search, per the handoff, not in a
                footer strip. The manual-add flow is unchanged; only its place is. -->
+          <button class="ibx-filter-btn" id="ibx-filter-btn"
+                  title="Filter by date, owner, or state"
+                  aria-haspopup="dialog" aria-expanded="false">
+            ⚑ Filter <span class="ibx-filter-count" id="ibx-filter-count" hidden>0</span>
+          </button>
           <button class="add-manual-btn">+ Add review</button>
         </div>
         <div class="inbox-tabs">
@@ -1888,6 +1959,10 @@
           <button class="inbox-tab" data-tab="untraceable">Untraceable <span class="num" id="cnt-untraceable">0</span></button>
           <button class="inbox-tab" data-tab="sent">Sent <span class="num" id="cnt-sent">0</span></button>
         </div>
+        <!-- Active filter chips. Hidden when no filter is set — so the row
+             does not fake a filter that isn't there. Each chip has its own
+             × so it can be dropped without opening the popover again. -->
+        <div class="ibx-chip-row" id="ibx-chip-row" hidden></div>
       </div>
       <!-- The queue is a table now. One column header row, then one row per
            review — Guest, Review, Booking, State, Picked up by, Received. -->
@@ -3272,6 +3347,11 @@ const state = {
   // and listed one review. The two it hid were the ones that need a human:
   // the unconfirmed match and the untraceable one.
   filter: 'all',
+  // WHAT THE + FILTER BUTTON HAS SET, on top of the tab.
+  // Filters STACK with the tab. Presets rewrite the concrete fields when set
+  // — "today" fills a date range, "pending" implies status ≠ sent — because
+  // an active preset and a hand-typed range would fight otherwise.
+  filters: { receivedFrom: '', receivedTo: '', owner: '', preset: '' },
   // What is typed in the inbox search box. Empty means no search — which is
   // not the same as a search that matched nothing, and the empty state below
   // says which.
@@ -3395,10 +3475,222 @@ function matchesSearch(r, q) {
     hay.includes(term) || hay.includes(term.replace(/^zd-/, '')));
 }
 
+// ── + Filter: date, owner, preset ─────────────────────────────────────────
+//
+// STACKS with the tab and the search — every one is an AND. A filter that
+// OR-ed with the tab would leave "Sent" showing untraceable reviews too, and
+// the numbers on the tabs would not match the list underneath.
+//
+// PRESETS ARE A FORM OF THE FIELDS, deliberately. "Received today" sets a
+// date range; "Pending" is a status test. They only live in `state.filters`,
+// so the chip strip and the popover read one source and can never disagree.
+function _todayISO() {
+  // Local day, YYYY-MM-DD — matches the <input type=date> value the popover
+  // reads. Anchoring to UTC would show yesterday's reviews for anyone west of
+  // London for most of the working day.
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + dd;
+}
+
+function _receivedDayISO(r) {
+  const t = r.receivedAt || r.time || null;
+  if (!t) return '';
+  const d = new Date(t);
+  if (isNaN(+d)) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + dd;
+}
+
+// A pending review has NOT reached sent. Untraceable ones stay pending.
+function _isPending(r) { return r.status !== 'sent'; }
+
+function matchesFilters(r) {
+  const f = state.filters || {};
+  // Owner: substring match, case-insensitive. Empty owner is matched by the
+  // literal "unassigned" so a filter can find rows nobody has taken.
+  if (f.owner) {
+    const owner = (r.owner || '').toString().trim();
+    const hay = owner ? owner.toLowerCase() : 'unassigned';
+    if (!hay.includes(f.owner.toLowerCase())) return false;
+  }
+  if (f.preset === 'pending' && !_isPending(r)) return false;
+  if (f.receivedFrom || f.receivedTo) {
+    const day = _receivedDayISO(r);
+    if (!day) return false;
+    if (f.receivedFrom && day < f.receivedFrom) return false;
+    if (f.receivedTo   && day > f.receivedTo)   return false;
+  }
+  return true;
+}
+
+function _filterCount() {
+  const f = state.filters || {};
+  let n = 0;
+  if (f.owner) n++;
+  if (f.receivedFrom || f.receivedTo) n++;
+  if (f.preset) n++;
+  return n;
+}
+
+function _renderChips() {
+  const row = document.getElementById('ibx-chip-row');
+  const badge = document.getElementById('ibx-filter-count');
+  if (!row) return;
+  const f = state.filters || {};
+  const chips = [];
+  if (f.preset === 'today')   chips.push(['preset', 'Received today', 'preset']);
+  if (f.preset === 'pending') chips.push(['preset', 'Pending', 'preset']);
+  if (!f.preset && (f.receivedFrom || f.receivedTo)) {
+    const label = (f.receivedFrom || '…') + ' → ' + (f.receivedTo || '…');
+    chips.push(['range', label, 'date']);
+  }
+  if (f.owner) chips.push(['owner', f.owner, 'owner']);
+  const n = chips.length;
+  row.hidden = n === 0;
+  if (badge) { badge.hidden = n === 0; badge.textContent = n; }
+  row.innerHTML = chips.map(([kind, label, key]) =>
+    '<span class="ibx-chip"><span class="ibx-chip-k">' + _chipKey(kind)
+    + '</span>' + esc(label)
+    + '<button class="ibx-chip-x" data-drop="' + key
+    + '" aria-label="Remove">×</button></span>'
+  ).join('') + (n > 1
+    ? '<button class="ibx-chip-clear" data-drop="all">Clear all</button>'
+    : '');
+}
+function _chipKey(kind) {
+  if (kind === 'range') return 'Received: ';
+  if (kind === 'owner') return 'Owner: ';
+  return '';
+}
+
+function _dropFilter(which) {
+  const f = state.filters;
+  if (which === 'all') {
+    state.filters = { receivedFrom: '', receivedTo: '', owner: '', preset: '' };
+  } else if (which === 'preset') {
+    f.preset = ''; f.receivedFrom = ''; f.receivedTo = '';
+  } else if (which === 'date') {
+    f.receivedFrom = ''; f.receivedTo = '';
+  } else if (which === 'owner') {
+    f.owner = '';
+  }
+  _renderChips(); renderInbox();
+}
+
+function _openFilterPopover() {
+  const btn = document.getElementById('ibx-filter-btn');
+  if (!btn) return;
+  const open = document.querySelector('.ibx-pop');
+  if (open) { open.remove(); btn.setAttribute('aria-expanded', 'false'); return; }
+  const f = state.filters || {};
+  const owners = Array.from(new Set(
+    REVIEWS.map(r => (r.owner || '').toString().trim()).filter(Boolean)));
+  const pop = document.createElement('div');
+  pop.className = 'ibx-pop';
+  pop.setAttribute('role', 'dialog');
+  pop.setAttribute('aria-label', 'Filter reviews');
+  pop.innerHTML =
+    '<div class="ibx-pop-row"><h4>Quick</h4><div class="ibx-presets">'
+    + '<button class="ibx-preset ' + (f.preset === 'today' ? 'on' : '')
+    + '" data-preset="today">Received today</button>'
+    + '<button class="ibx-preset ' + (f.preset === 'pending' ? 'on' : '')
+    + '" data-preset="pending">Pending</button>'
+    + '</div></div>'
+    + '<div class="ibx-pop-row"><h4>Received</h4>'
+    + '<div class="ibx-date-pair">'
+    + '<input type="date" id="ibx-from" value="' + esc(f.receivedFrom)
+    + '" aria-label="From">'
+    + '<input type="date" id="ibx-to" value="' + esc(f.receivedTo)
+    + '" aria-label="To"></div></div>'
+    + '<div class="ibx-pop-row"><h4>Picked up by</h4>'
+    + '<input type="text" id="ibx-owner" list="ibx-owner-list" value="'
+    + esc(f.owner) + '" placeholder="Type a name, or leave blank">'
+    + '<datalist id="ibx-owner-list"><option value="unassigned"></option>'
+    + owners.map(o => '<option value="' + esc(o) + '"></option>').join('')
+    + '</datalist></div>'
+    + '<div class="ibx-pop-actions">'
+    + '<button class="ibx-reset">Reset</button>'
+    + '<button class="ibx-apply">Apply</button></div>';
+  document.body.appendChild(pop);
+  const r = btn.getBoundingClientRect();
+  pop.style.top  = (window.scrollY + r.bottom + 6) + 'px';
+  pop.style.left = Math.max(8, (window.scrollX + r.right - pop.offsetWidth)) + 'px';
+  btn.setAttribute('aria-expanded', 'true');
+
+  const readIntoState = () => {
+    const nf = Object.assign({}, state.filters);
+    nf.receivedFrom = pop.querySelector('#ibx-from').value || '';
+    nf.receivedTo   = pop.querySelector('#ibx-to').value || '';
+    nf.owner        = pop.querySelector('#ibx-owner').value.trim();
+    state.filters = nf;
+  };
+  pop.addEventListener('click', (e) => {
+    const preset = e.target.closest('.ibx-preset');
+    if (preset) {
+      const key = preset.dataset.preset;
+      const nf = Object.assign({}, state.filters);
+      if (nf.preset === key) {
+        nf.preset = '';
+        if (key === 'today') { nf.receivedFrom = ''; nf.receivedTo = ''; }
+      } else {
+        nf.preset = key;
+        if (key === 'today') {
+          nf.receivedFrom = _todayISO(); nf.receivedTo = _todayISO();
+        }
+      }
+      state.filters = nf;
+      pop.remove(); btn.setAttribute('aria-expanded', 'false');
+      _renderChips(); renderInbox();
+      return;
+    }
+    if (e.target.classList.contains('ibx-apply')) {
+      readIntoState();
+      // Typing a range by hand drops the "today" preset — otherwise a chip
+      // would say "Received today" while the range no longer says today.
+      if (state.filters.preset === 'today') state.filters.preset = '';
+      pop.remove(); btn.setAttribute('aria-expanded', 'false');
+      _renderChips(); renderInbox();
+    } else if (e.target.classList.contains('ibx-reset')) {
+      state.filters = { receivedFrom: '', receivedTo: '', owner: '', preset: '' };
+      pop.remove(); btn.setAttribute('aria-expanded', 'false');
+      _renderChips(); renderInbox();
+    }
+  });
+  setTimeout(() => {
+    const close = (e) => {
+      if (pop.contains(e.target) || btn.contains(e.target)) return;
+      pop.remove(); btn.setAttribute('aria-expanded', 'false');
+      document.removeEventListener('click', close);
+    };
+    document.addEventListener('click', close);
+  }, 0);
+}
+
+document.addEventListener('click', (e) => {
+  const chipX = e.target.closest('[data-drop]');
+  if (chipX && chipX.closest('#ibx-chip-row')) {
+    e.preventDefault();
+    _dropFilter(chipX.dataset.drop);
+    return;
+  }
+  const fbtn = e.target.closest('#ibx-filter-btn');
+  if (fbtn) { e.preventDefault(); _openFilterPopover(); }
+});
+
 function renderInbox() {
+  _renderChips();
   const list = document.getElementById('inbox-list');
   const q = state.search;
-  const hits = REVIEWS.filter(r => matchesSearch(r, q));
+  // Filter first, then search, then tab. Tab counts (below) then count
+  // only rows the filter admits, so a "Received today" filter narrows the
+  // tab pills too — otherwise "All 200 / Sent 194" would sit over a list of 3.
+  const admitted = REVIEWS.filter(r => matchesFilters(r));
+  const hits = admitted.filter(r => matchesSearch(r, q));
   const filtered = hits.filter(r => inTab(r, state.filter));
 
   // While searching, the tab numbers count MATCHES, not totals — otherwise

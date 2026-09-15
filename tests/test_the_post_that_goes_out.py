@@ -236,7 +236,8 @@ BOOKING = {"id": "32885089",
                              "Tickets & Transfer Options",
            "tid_name": "English Guided Tour", "tgid": "15406", "tid": "19354",
            "vid": "4045", "vendorName": "Krakville",
-           "fulfilmentType": "Vendor Api"}
+           "fulfilmentType": "Vendor Api",
+           "bookedOn": "2026-08-15", "visitDate": "2026-09-02"}
 
 
 def _post(db, rid="tp_bd", booking=BOOKING):
@@ -269,6 +270,13 @@ def _details(txt):
     ("Vendor ID", "4045"),
     ("Vendor name", "Krakville"),
     ("Fulfilment type", "Vendor Api"),
+    # Both dates come from BigQuery on the booking dict. They are on the row
+    # for the same reason the vendor fields are: a manager reading the post
+    # answers "when did they book" and "when was the visit" without opening
+    # anything, so if we have them, they belong in the section that
+    # introduces the booking.
+    ("Booking date", "2026-08-15"),
+    ("Visit date",   "2026-09-02"),
 ])
 def test_each_requested_field_is_in_the_post(live_db, label, value):
     body = _details(_post(live_db, rid=f"tp_bd_{label.replace(' ', '_').replace('/', '')}"))

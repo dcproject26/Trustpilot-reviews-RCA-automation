@@ -128,10 +128,8 @@ def render_weekly(summary: Summary, title_label: str, window_label: str,
     Deliberately the DAILY's conventions, one week wide, because the two reports
     are read by the same people:
       * the backlog leads, as a stock, captioned all-time;
-      * Received and Solved sit inside the window, and only Solved carries a
-        share — of the open pile it came out of, with the denominator spelled
-        out. Never Solved-over-Received: different cohorts, and that ratio once
-        shipped a "130%" here;
+      * Received and Solved sit inside the window as plain counts, with no
+        share: there is no honest denominator for either (see the daily);
       * Solved by is counts only;
       * the tier mix describes what was HANDLED in the window, not the backlog;
       * no category block, and no Slack italics anywhere.
@@ -147,15 +145,10 @@ def render_weekly(summary: Summary, title_label: str, window_label: str,
         if pending_label:
             out.append(pending_label)
 
-    # 2/3. The week's flow. Solved's denominator is the open pile it came from,
-    # printed as its own addition so the reader can check it against the two
-    # numbers already on screen.
+    # 2/3. The week's flow, as plain counts. Neither figure carries a share:
+    # pending+solved mixes an all-time stock with a week of work, and
+    # solved-over-received divides two different cohorts (see the daily).
     solved_row = f"• Solved — *{s.solved}*"
-    if s.pending is not None:
-        open_pile = s.pending + s.solved
-        if open_pile > 0:
-            solved_row += (f" ({round(s.solved / open_pile * 100)}% of {open_pile}"
-                           f" = {s.pending} pending + {s.solved} solved)")
     title = "*📬  This week*"
     if window_label:
         title += f"  ({window_label})"
@@ -173,16 +166,19 @@ def render_weekly(summary: Summary, title_label: str, window_label: str,
 
     # 6. Tier over what was handled in the week, each as a share of that cohort.
     over_window = s.pending is not None
-    base_note = (f"  (% of {s.mix_base} handled this week)"
-                 if over_window and s.mix_base > 0 else "")
+    # No "% of N" caption: it restated a number the rows already carry.
+    has_base = over_window and s.mix_base > 0
     tier_title = "Tier — this week" if over_window else "Reviews by tier"
-    # The share is printed ONLY when the caption states what it is a share OF.
-    # A bare "(33%)" with no denominator on screen cannot be checked, and an
-    # unverifiable number is worse than no number.
+    # THE SHARES STAY, AND ARE SAFE WITHOUT A CAPTION, because the tier buckets
+    # PARTITION the cohort: every review is exactly one of Tier 1 / Tier 2 /
+    # Untraceable, so the rows on screen sum to the denominator and the reader
+    # can recover it by adding them (22 + 22 + 2 = 46). That is what the deleted
+    # "of 106 = 64 pending + 42 solved" could never do — its denominator was a
+    # stock added to a flow and appeared nowhere else in the report.
     tier_rows = [f"{_TIER_DOT.get(lbl, '•')} {lbl} — {s.tier.get(lbl, 0)}"
-                 f"{_pct(s.tier.get(lbl, 0), s.mix_base) if base_note else ''}"
+                 f"{_pct(s.tier.get(lbl, 0), s.mix_base) if has_base else ''}"
                  for lbl in _TIER_FIXED]
-    out += _section(f"*🏷️  {tier_title}*{base_note}", tier_rows)
+    out += _section(f"*🏷️  {tier_title}*", tier_rows)
 
     # No category block, matching the daily: the breakdown lives in the
     # Reporting page, where it can be sliced instead of truncated to six rows.
