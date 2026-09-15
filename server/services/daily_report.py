@@ -251,17 +251,34 @@ def render_digest(summary: Summary, date_label: str, window_label: str = "",
             out.append(f"_{pending_label}_")
 
     # 2/3. The 24h frame.
-    day_rows = [f"• Received today — *{s.received}*",
-                f"• Solved today — *{s.solved}*"]
+    #
+    # Solved carries a share, and the denominator is the OPEN WORKLOAD it came
+    # out of: what is still pending plus what was cleared in the window. That is
+    # the pile as it stood before today's clearing, so the figure answers "how
+    # much of the backlog did we take down" and can never exceed 100%.
+    #
+    # It is deliberately NOT Solved-over-Received. Those are different cohorts —
+    # Solved includes backlog that arrived days earlier — and on 11 Sep the real
+    # export gives Received 7 against Solved 42, which is exactly how this report
+    # once shipped a "130%". Received therefore carries no share: there is no
+    # honest denominator for "what arrived".
+    solved_row = f"• Solved today — *{s.solved}*"
+    if s.pending is not None:
+        open_pile = s.pending + s.solved
+        if open_pile > 0:
+            solved_row += f" ({round(s.solved / open_pile * 100)}% of {open_pile} open)"
+    day_rows = [f"• Received today — *{s.received}*", solved_row]
     title = "*📬  Last 24 hours*"
     if window_label:
         title += f"  _{window_label}_"
     out += _section(title, day_rows)
 
-    # 4. Solved by — same cohort as Solved, so each share is of s.solved.
+    # 4. Solved by — the same 24h cohort as Solved, so these rows still sum back
+    # to it exactly. Counts only: the per-person share was asked to be dropped,
+    # and the count is the thing a manager acts on.
     if s.people:
-        out += _section("*🧑‍💻  Solved by*  _share of the 24h solved_",
-                        [f"• {k} — {v}{_pct(v, s.solved)}" for k, v in s.people])
+        out += _section("*🧑‍💻  Solved by*",
+                        [f"• {k} — {v}" for k, v in s.people])
 
     # 5. Tier — always the three buckets, each with its colour dot, as a share of
     # the cohort they were counted over (the pending backlog for the daily).
@@ -276,22 +293,15 @@ def render_digest(summary: Summary, date_label: str, window_label: str = "",
     base_note = (f"  _% of {s.mix_base} pending_"
                  if over_pending and s.mix_base > 0 else "")
     tier_title = "Pending by tier" if over_pending else "Reviews by tier"
-    cat_title = ("Top pending categories (L1 / L2)" if over_pending
-                 else "Top issue categories (L1 / L2)")
     tier_rows = [f"{_TIER_DOT.get(lbl, '•')} {lbl} — {s.tier.get(lbl, 0)}"
                  f"{_pct(s.tier.get(lbl, 0), s.mix_base)}"
                  for lbl in _TIER_FIXED]
     out += _section(f"*🏷️  {tier_title}*{base_note}", tier_rows)
 
-    if s.categories:
-        cat_rows = [f"• {k} — {v}{_pct(v, s.mix_base)}" for k, v in s.categories]
-        if s.uncategorised:
-            # Said out loud rather than quietly missing from the block: these
-            # rows exist, they are in the tier mix and in the pending total, and
-            # they have no L1/L2 to file under yet.
-            what = "pending" if over_pending else "reviews"
-            cat_rows.append(f"• _{s.uncategorised} {what} with no category yet_")
-        out += _section(f"*📂  {cat_title}*{base_note}", cat_rows)
+    # NO category block. The digest is a glance at how deep the backlog is and
+    # who is clearing it; the category breakdown lives in the Reporting page,
+    # where it can be sliced instead of truncated to six rows. `summarize` still
+    # counts categories because the weekly digest renders them.
 
     return "\n".join(out)
 
@@ -431,5 +441,5 @@ def build_daily_digest(db, now: datetime | None = None) -> str:
     window_label = f"8pm {_d(start_ist)} → 8pm {_d(end_ist)} IST"
     # The backlog is a stock with no window — captioned so it is never read as
     # "pending that arrived today", which would be a much smaller number.
-    pending_label = "open backlog, all time — not the 24h window"
+    pending_label = "(all time)"
     return render_digest(summary, date_label, window_label, pending_label)

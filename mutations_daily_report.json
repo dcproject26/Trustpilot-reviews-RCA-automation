@@ -76,5 +76,29 @@
     "name": "daily: a test account is credited as a real associate",
     "find": "    return UNASSIGNED if (not name or name.lower() in TEST_OWNERS) else name",
     "replace": "    return name or UNASSIGNED"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily: Solved share uses Received (the 130% bug) instead of the open pile",
+    "find": "        open_pile = s.pending + s.solved",
+    "replace": "        open_pile = s.received"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily: the Solved share is dropped entirely",
+    "find": "            solved_row += f\" ({round(s.solved / open_pile * 100)}% of {open_pile} open)\"",
+    "replace": "            pass"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily: a per-person share creeps back onto Solved by",
+    "find": "                        [f\"• {k} — {v}\" for k, v in s.people])",
+    "replace": "                        [f\"• {k} — {v}{_pct(v, s.solved)}\" for k, v in s.people])"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily: the backlog caption stops being all-time",
+    "find": "    pending_label = \"(all time)\"",
+    "replace": "    pending_label = \"\""
   }
 ]

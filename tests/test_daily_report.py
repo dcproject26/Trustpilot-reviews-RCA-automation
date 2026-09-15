@@ -156,42 +156,44 @@ def _full_summary():
 
 def test_render_blocks_in_the_stakeholder_order():
     out = render_digest(_full_summary(), "13 Sep 2026", "8pm 12 Sep → 8pm 13 Sep IST",
-                        "open backlog, all time — not the 24h window")
+                        "(all time)")
     assert "*ORM Daily — 13 Sep 2026*" in out
     # 1. Pending headline first, captioned as all-time so it is never read as
     #    "pending that arrived today".
     assert "Total pending reviews: *10*" in out
-    assert "open backlog, all time — not the 24h window" in out
+    assert "_(all time)_" in out
     # 2/3. The 24h frame, stamped with the window those two numbers cover.
     assert "8pm 12 Sep → 8pm 13 Sep IST" in out
     assert "• Received today — *10*" in out
     assert "• Solved today — *4*" in out
-    # Block ORDER is the ask: pending, then 24h, then solved-by, then tier, then
-    # categories.
+    # Block ORDER is the ask: pending, then the 24h frame, then solved-by,
+    # then tier. No categories.
     order = [out.index("Total pending reviews"), out.index("Last 24 hours"),
-             out.index("Solved by"), out.index("Pending by tier"),
-             out.index("Top pending categories")]
+             out.index("Solved by"), out.index("Pending by tier")]
     assert order == sorted(order)
+    # Tier is the LAST block: no category breakdown on the daily.
+    assert "categor" not in out.lower()
     # Section breakers and the tier dots stay in the existing visual family.
     assert "━" in out
 
 
 def test_render_percentages_are_within_cohort():
     out = render_digest(_full_summary(), "13 Sep 2026")
-    # Solved-by: each person as a share of the 4 solved in the SAME window.
-    assert "• Avi — 2 (50%)" in out
-    assert "• Shruti — 2 (50%)" in out
+    # Solved-by is counts only now — no per-person share.
+    assert "• Avi — 2" in out and "• Avi — 2 (" not in out
+    assert "• Shruti — 2" in out and "• Shruti — 2 (" not in out
+    # Solved carries a share of the OPEN PILE it came out of (pending + solved),
+    # never of Received: 4 of 10+4 = 29%. That denominator cannot exceed 100%.
+    assert "• Solved today — *4* (29% of 14 open)" in out
     # Tier: each bucket as a share of the 10 PENDING, and the denominator is
     # printed so the reader can check it.
     assert "_% of 10 pending_" in out
     assert "🟢 Tier 1 — 5 (50%)" in out
     assert "🟡 Tier 2 — 4 (40%)" in out
     assert "🔴 Untraceable — 1 (10%)" in out
-    # Categories: also a share of the 10 pending.
-    assert "• Operations / Ticket Issues — 5 (50%)" in out
-    assert "• Supply / Guide No Show — 4 (40%)" in out
+    # No category block on the daily at all — it lives in the Reporting page.
+    assert "categories" not in out.lower()
     # The uncategorised backlog row is stated, not missing.
-    assert "1 pending with no category yet" in out
 
 
 def test_no_solved_over_received_ratio_is_ever_printed():
@@ -222,7 +224,6 @@ def test_pending_line_absent_when_no_pending_cohort_and_block_renamed():
     assert "Total pending reviews" not in out
     assert "Pending by tier" not in out
     assert "*🏷️  Reviews by tier*" in out
-    assert "Top issue categories (L1 / L2)" in out
     assert "pending_" not in out
 
 
@@ -323,7 +324,7 @@ def test_evening_solves_are_credited_to_the_next_report_not_to_nobody(live_db):
     # ...but credited on the 11th. Counted once, by somebody, never lost.
     assert day11.people == [("Devshree", 1)]
     assert day11.solved == 1
-    assert "• Devshree — 1 (100%)" in text11
+    assert "• Devshree — 1" in text11
 
 
 def test_solved_by_total_equals_headline_solved(live_db):
@@ -580,14 +581,13 @@ def test_build_daily_digest_dates_in_ist(live_db):
     assert "8pm 8 Sep → 8pm 9 Sep IST" in text
     # The backlog is captioned as all-time so it is not read as a windowed count.
     assert "Total pending reviews: *1*" in text
-    assert "open backlog, all time — not the 24h window" in text
+    assert "_(all time)_" in text
     # Tier/categories describe the PENDING review (Tier 2 / Supply), NOT the
     # solved Tier 1 one — the semantic change, end to end through the real DB.
     assert "🟡 Tier 2 — 1 (100%)" in text
     assert "🟢 Tier 1 — 0 (0%)" in text
-    assert "• Supply / Guide No Show — 1 (100%)" in text
     # Solved-by is the 24h cohort.
-    assert "• Avi — 1 (100%)" in text
+    assert "• Avi — 1" in text
 
 
 def test_a_test_account_is_not_credited_but_its_review_still_counts():
@@ -606,3 +606,31 @@ def test_a_test_account_is_not_credited_but_its_review_still_counts():
     # nothing dropped: the per-person rows still sum to the headline
     assert s.solved == 3
     assert sum(n for _, n in s.people) == s.solved
+
+
+def test_solved_share_is_of_the_open_pile_and_can_never_exceed_100():
+    """Solved carries a share, and its denominator is the OPEN WORKLOAD it came
+    out of: still-pending plus cleared-in-the-window.
+
+    NOT Solved-over-Received. Those are different cohorts — Solved includes
+    backlog that arrived days earlier — and the real export gives Received 7
+    against Solved 42 on 11 Sep, which is exactly how this report once shipped a
+    "130%". The open-pile denominator cannot be exceeded by its own numerator."""
+    # the 11 Sep shape: far more solved than arrived
+    s = summarize([Row(solved=True, picked_up_by="Devshree")] * 42,
+                  received_count=7,
+                  pending_rows=[Row(tier=1)] * 64)
+    out = render_digest(s, "11 Sep 2026")
+    assert "• Solved today — *42* (40% of 106 open)" in out   # 42 / (64+42)
+    assert "(130%)" not in out
+    # Received carries no share: there is no honest denominator for arrivals.
+    assert "• Received today — *7*" in out
+    assert "Received today — *7* (" not in out
+
+
+def test_no_solved_share_when_there_is_no_pending_cohort():
+    """Without a pending cohort the open pile is unknown, so no figure is
+    invented — the count stands alone rather than borrowing Received."""
+    out = render_digest(summarize([Row(solved=True)] * 3, received_count=9), "x")
+    assert "• Solved today — *3*" in out
+    assert "• Solved today — *3* (" not in out
