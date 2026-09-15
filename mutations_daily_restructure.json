@@ -1,0 +1,152 @@
+[
+  {
+    "file": "server/services/daily_report.py",
+    "name": "pending: the backlog query returns SENT reviews instead of open ones",
+    "find": "               .filter(or_(Review.status.is_(None), Review.status != SENT))",
+    "replace": "               .filter(Review.status == SENT)"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "pending: a NULL-status review is silently dropped from the backlog",
+    "find": "               .filter(or_(Review.status.is_(None), Review.status != SENT))",
+    "replace": "               .filter(Review.status != SENT)"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "pending: the backlog is bounded by the 24h window instead of all-time",
+    "find": "               .filter(or_(Review.status.is_(None), Review.status != SENT))\n               .all())",
+    "replace": "               .filter(or_(Review.status.is_(None), Review.status != SENT))\n               .limit(1).all())"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "mix: tier/categories counted over the SOLVED cohort, not the backlog",
+    "find": "    mix_rows = solved_rows if pending_rows is None else pending_rows",
+    "replace": "    mix_rows = solved_rows"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "mix: the pending fallback is inverted (weekly would count nothing)",
+    "find": "    mix_rows = solved_rows if pending_rows is None else pending_rows",
+    "replace": "    mix_rows = pending_rows if pending_rows is None else solved_rows"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "solved-by: credit taken from the backlog instead of the 24h solves",
+    "find": "    for r in solved_rows:\n        who = (r.picked_up_by or \"\").strip() or \"Unassigned\"",
+    "replace": "    for r in mix_rows:\n        who = (r.picked_up_by or \"\").strip() or \"Unassigned\""
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "pending count: reports the solved total as the backlog",
+    "find": "                pending=(None if pending_rows is None else len(pending_rows)),",
+    "replace": "                pending=(None if pending_rows is None else len(solved_rows)),"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "pending count: an absent cohort reported as a backlog of zero",
+    "find": "                pending=(None if pending_rows is None else len(pending_rows)),",
+    "replace": "                pending=len(pending_rows or []),"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "percent denominator: shares computed over the solved count, not the mix",
+    "find": "                mix_base=len(mix_rows))",
+    "replace": "                mix_base=len(solved_rows))"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "uncategorised backlog rows are silently dropped, not counted",
+    "find": "        else:\n            # Counted, not skipped: see Summary.uncategorised.\n            uncategorised += 1",
+    "replace": "        else:\n            pass"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "percent: an empty cohort fabricates a 0% instead of printing nothing",
+    "find": "    if base <= 0:\n        return \"\"",
+    "replace": "    if base < 0:\n        return \"\""
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "percent: rounded the wrong way (truncates every share)",
+    "find": "    return f\" ({round(100 * n / base)}%)\"",
+    "replace": "    return f\" ({int(100 * n / base)}%)\""
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "percent: numerator and denominator swapped",
+    "find": "    return f\" ({round(100 * n / base)}%)\"",
+    "replace": "    return f\" ({round(100 * base / n)}%)\""
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "render: the pending headline is omitted entirely",
+    "find": "        out.append(f\"🗂️  Total pending reviews: *{s.pending}*\")",
+    "replace": "        pass"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "render: pending headline shown even when no backlog cohort was asked for",
+    "find": "    if s.pending is not None:",
+    "replace": "    if True:"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "render: the 24h Received/Solved block is dropped",
+    "find": "    day_rows = [f\"• Received today — *{s.received}*\",\n                f\"• Solved today — *{s.solved}*\"]",
+    "replace": "    day_rows = []"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "render: Received and Solved values swapped",
+    "find": "    day_rows = [f\"• Received today — *{s.received}*\",\n                f\"• Solved today — *{s.solved}*\"]",
+    "replace": "    day_rows = [f\"• Received today — *{s.solved}*\",\n                f\"• Solved today — *{s.received}*\"]"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "render: per-person share taken against the backlog, a cross-cohort ratio",
+    "find": "                        [f\"• {k} — {v}{_pct(v, s.solved)}\" for k, v in s.people])",
+    "replace": "                        [f\"• {k} — {v}{_pct(v, s.mix_base)}\" for k, v in s.people])"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "render: the uncategorised-backlog note is never emitted",
+    "find": "        if s.uncategorised:",
+    "replace": "        if False:"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "render: tier block mislabelled as Pending when it counted solved rows",
+    "find": "    over_pending = s.pending is not None",
+    "replace": "    over_pending = True"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "render: the printed denominator does not match the one used",
+    "find": "    base_note = (f\"  _% of {s.mix_base} pending_\"\n                 if over_pending and s.mix_base > 0 else \"\")",
+    "replace": "    base_note = (f\"  _% of {s.solved} pending_\"\n                 if over_pending and s.mix_base > 0 else \"\")"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "render: a '% of 0 pending' caption printed over an empty backlog",
+    "find": "                 if over_pending and s.mix_base > 0 else \"\")",
+    "replace": "                 if over_pending else \"\")"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "digest: the backlog cohort is never passed, so pending vanishes",
+    "find": "        pending_rows=collect_pending_rows(db))",
+    "replace": "        pending_rows=None)"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "digest: pending cohort filled with the window's solved rows",
+    "find": "        pending_rows=collect_pending_rows(db))",
+    "replace": "        pending_rows=collect_solved_rows(db, now))"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "digest: the all-time backlog caption is dropped (reads as windowed)",
+    "find": "    pending_label = \"open backlog, all time — not the 24h window\"",
+    "replace": "    pending_label = \"\""
+  }
+]

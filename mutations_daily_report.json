@@ -70,29 +70,5 @@
     "name": "daily: Unassigned allowed to sort ahead of a real owner",
     "find": "        key=lambda kv: (kv[0] == \"Unassigned\", -kv[1], kv[0]))",
     "replace": "        key=lambda kv: (False, -kv[1], kv[0]))"
-  },
-  {
-    "file": "server/services/daily_report.py",
-    "name": "daily: Solved-by ignores its own calendar-day cohort",
-    "find": "    people_rows = solved_rows if solved_by_rows is None else solved_by_rows",
-    "replace": "    people_rows = solved_rows"
-  },
-  {
-    "file": "server/services/daily_report.py",
-    "name": "daily: digest credits Solved-by from the 8pm window, not the day",
-    "find": "        solved_by_rows=collect_solved_today_rows(db, now))",
-    "replace": "        solved_by_rows=collect_solved_rows(db, now))"
-  },
-  {
-    "file": "server/services/daily_report.py",
-    "name": "daily today-window: start is not midnight (uses the 8pm cutoff)",
-    "find": "    day_start_ist = end_ist.replace(hour=0, minute=0, second=0, microsecond=0)",
-    "replace": "    day_start_ist = end_ist.replace(minute=0, second=0, microsecond=0)"
-  },
-  {
-    "file": "server/services/daily_report.py",
-    "name": "daily today-window: end not capped at now (spills past the run)",
-    "find": "    end_utc = min(day_end_ist.astimezone(timezone.utc), now.astimezone(timezone.utc))",
-    "replace": "    end_utc = day_end_ist.astimezone(timezone.utc)"
   }
 ]

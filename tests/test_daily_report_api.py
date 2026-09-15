@@ -13,6 +13,17 @@ def test_preview_returns_text_and_channel(client, monkeypatch):
     data = r.json()
     assert data["channel"] == "C045KG5AJF5"
     assert "*ORM Daily —" in data["text"]
+    # The dashboard renders this text verbatim, so the restructured blocks must
+    # survive the endpoint — the shape ({text, channel}) is unchanged, the body
+    # is not. An empty DB still shows the backlog headline and the 24h frame.
+    text = data["text"]
+    assert "Total pending reviews: *0*" in text
+    assert "• Received today — *0*" in text
+    assert "• Solved today — *0*" in text
+    assert "Pending by tier" in text
+    # No cross-cohort ratio anywhere, and no percentage invented out of an empty
+    # cohort (0 of 0 is unanswerable, not 0%).
+    assert "%" not in text
 
 
 def test_send_without_channel_is_a_clear_400(client, monkeypatch):

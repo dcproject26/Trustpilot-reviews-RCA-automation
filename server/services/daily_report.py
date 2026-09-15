@@ -5,16 +5,29 @@ READ-ONLY, and cheap: a few group-by passes over rows already in Postgres
 those happen only inside a review's own pipeline run; this just reads what those
 runs already wrote.
 
-The window is the LAST 24 HOURS ending at the run time, not "today so far". An
-8pm "today" digest would silently miss every review that arrived between 8pm and
-midnight — the run happens before the day is over. A rolling 24h window counts
-every review exactly once across consecutive daily runs, with no gap and no
-overlap.
+TWO KINDS OF NUMBER, and the report keeps them apart on purpose:
+
+  * a STOCK — "total pending reviews", the open backlog as it stands right now,
+    all-time and unwindowed, plus the tier mix and the top categories WITHIN that
+    backlog. These answer "how much is outstanding, and what is it".
+  * a FLOW — "received today" and "solved today, by whom", inside a fixed
+    8pm→8pm IST day. These answer "what moved in the last 24 hours".
+
+The 24h frame is anchored to 20:00 IST rather than rolling from the run time, so
+a scheduler firing late does not shift it, and consecutive days abut exactly at
+8pm — no gap, no overlap, every review counted once. The per-person "Solved by"
+credit uses that SAME window; it used to use the IST calendar day capped at the
+run time, which dropped every solve between 8pm and midnight into a hole between
+today's cap and tomorrow's start — 57 of 185 solves on the real export.
+
+NO percentage crosses two cohorts. Solved-over-Received is the forbidden one:
+Solved includes backlog that arrived days earlier, and dividing the two once
+shipped a "130%" here. Each share printed divides a cohort by itself.
 
 Three layers, so the arithmetic is testable without a database:
   * `summarize(rows)`      — pure: counts -> a Summary.
   * `render_digest(...)`   — pure: a Summary -> the Slack text.
-  * `collect_rows(db, now)`/`build_daily_digest(db, now)` — the DB-facing glue.
+  * `collect_*(db, ...)`/`build_daily_digest(db, now)` — the DB-facing glue.
 """
 from __future__ import annotations
 
@@ -71,9 +84,19 @@ class Row:
 class Summary:
     received: int = 0
     solved: int = 0
+    pending: int | None = None      # open backlog, all-time; None = not asked for
     tier: dict = field(default_factory=dict)          # label -> count
     people: list = field(default_factory=list)        # (name, count) desc
     categories: list = field(default_factory=list)     # ("L1 / L2", count) desc
+    # The cohort the tier mix and the categories were counted over, and how many
+    # of its rows carried NO L1/L2 at all. `mix_base` is the ONLY honest
+    # denominator for the tier/category percentages: both are counted over the
+    # same rows, so each share is "x% of this cohort" and never a cross-cohort
+    # ratio. `uncategorised` exists because a category block that silently omits
+    # rows with no L1/L2 looks identical to one where every row had a category —
+    # the ran-and-found-nothing rule. It is reported, not dropped.
+    mix_base: int = 0
+    uncategorised: int = 0
 
 
 def _tier_label(row: Row) -> str:
@@ -96,36 +119,49 @@ def _tier_label(row: Row) -> str:
 
 
 def summarize(solved_rows: list[Row], received_count: int = 0,
-              solved_by_rows: list[Row] | None = None) -> Summary:
-    """Two cohorts, deliberately different and separately labelled in the ping:
+              pending_rows: list[Row] | None = None) -> Summary:
+    """Counts, from at most two cohorts that are never mixed into one ratio:
 
-    * `solved_rows` — reviews SOLVED inside the fixed 8pm→8pm window. This drives
-      the headline Solved count, the tier mix and the categories, so those three
-      stay consistent with each other and with Solved. `received_count` (reviews
-      that ARRIVED in the same window) is shown beside it for context.
+    * `solved_rows` — reviews SOLVED inside the fixed 8pm→8pm window. Drives the
+      headline Solved count AND the per-person "Solved by" credit. These are the
+      SAME cohort on purpose: consecutive 8pm→8pm windows tile with no gap and no
+      overlap, so every solve is credited to exactly one person on exactly one
+      day. The previous per-person frame was the IST calendar day capped at the
+      run time, which left work finished between 8pm and midnight after today's
+      cap and before tomorrow's start — credited to nobody. On the real export
+      that swallowed 57 of 185 solves (31%), 25 of them one associate's.
+      `received_count` (reviews that ARRIVED in the same window) sits beside
+      Solved as a second labelled count — never as a denominator for it.
 
-    * `solved_by_rows` — reviews each person FINISHED during the report's IST
-      calendar day, INCLUDING older reviews that arrived days ago. This is the
-      cohort the per-person "Solved by" credit describes: an associate is
-      credited for everything they cleared today, not only what fell inside the
-      8pm→8pm window. When None (older callers/tests) the window rows are reused,
-      so "Solved by" collapses back to the window cohort."""
-    people_rows = solved_rows if solved_by_rows is None else solved_by_rows
-    s = Summary(received=received_count, solved=len(solved_rows))
+    * `pending_rows` — the OPEN BACKLOG as it stands now (all-time, not
+      windowed). When given, the tier mix and the categories are counted over
+      THIS cohort, because "how much is outstanding, and of what" is a question
+      about the backlog rather than about one day's finished work. When None the
+      tier mix and categories fall back to `solved_rows`, which is what the
+      weekly digest wants (its blocks describe the week it summarises)."""
+    mix_rows = solved_rows if pending_rows is None else pending_rows
+    s = Summary(received=received_count, solved=len(solved_rows),
+                pending=(None if pending_rows is None else len(pending_rows)),
+                mix_base=len(mix_rows))
     tier_counts: dict[str, int] = {}
     people_counts: dict[str, int] = {}
     cat_counts: dict[str, int] = {}
-    for r in solved_rows:
+    uncategorised = 0
+    for r in mix_rows:
         tier_counts[_tier_label(r)] = tier_counts.get(_tier_label(r), 0) + 1
         l1 = (r.l1 or "").strip()
         l2 = (r.l2 or "").strip()
         if l1 or l2:
             key = " / ".join([p for p in (l1, l2) if p])
             cat_counts[key] = cat_counts.get(key, 0) + 1
-    for r in people_rows:
+        else:
+            # Counted, not skipped: see Summary.uncategorised.
+            uncategorised += 1
+    for r in solved_rows:
         who = (r.picked_up_by or "").strip() or "Unassigned"
         people_counts[who] = people_counts.get(who, 0) + 1
     s.tier = tier_counts
+    s.uncategorised = uncategorised
     # People: biggest first, Unassigned always last so a real owner never hides
     # under it. Ties broken by name so the order is stable across runs.
     s.people = sorted(
@@ -156,41 +192,91 @@ def _section(title: str, rows: list[str]) -> list[str]:
     return [_DIV, title, *rows]
 
 
+def _pct(n: int, base: int) -> str:
+    """" (39%)" — or "" when there is no denominator to divide by.
+
+    A percentage of nothing is not 0%, it is unanswerable, so an empty cohort
+    prints the count alone rather than a fabricated "0%". Rounded to whole
+    points; rounded shares need not sum to exactly 100 and nothing claims they
+    do."""
+    if base <= 0:
+        return ""
+    return f" ({round(100 * n / base)}%)"
+
+
 def render_digest(summary: Summary, date_label: str, window_label: str = "",
-                  solved_by_label: str = "") -> str:
+                  pending_label: str = "") -> str:
+    """The digest, in the order the numbers are actually read:
+
+      1. Total pending — the open backlog RIGHT NOW, all-time. The headline,
+         because it is the only number that says how deep the hole is.
+      2/3. Received and Solved — both inside the fixed 8pm→8pm IST day, stamped
+         with that window so nobody reads them as "since midnight".
+      4. Solved by — the same 24h cohort as Solved, so the per-person rows sum
+         back to Solved exactly and each row can carry its share of it.
+      5. Tier mix and top categories — counted over the PENDING backlog, not
+         over the day's solved work, because these answer "what is stuck".
+
+    PERCENTAGES, and the ones deliberately absent. Every percentage here divides
+    a cohort by ITSELF: a person's solves by the window's Solved total; a tier or
+    a category by the pending total those rows came from. There is NO
+    Solved-over-Received figure — they are different cohorts (Solved includes
+    backlog that arrived days earlier), which is exactly how this report once
+    shipped a "130%". Two labelled counts is the honest form, and `_pct` refuses
+    to divide by an empty cohort at all."""
     s = summary
-    # Two independent counts, NO ratio between them. "Received" is reviews that
-    # ARRIVED in the window; "Solved" is reviews FINISHED in the window, which
-    # includes backlog that arrived earlier — so Solved can exceed Received on a
-    # catch-up day. Dividing one by the other produced a nonsense "130%"; the
-    # honest presentation is two labelled day-counts.
-    #
-    # `window_label` is stamped directly under the Received/Solved numbers so the
-    # team reads it as the frame THOSE two numbers cover — a fixed 8pm→8pm IST
-    # day, whatever time the report is actually delivered. `solved_by_label`
-    # captions the Solved-by section, because that section counts a DIFFERENT
-    # (wider) frame — everything each person closed across the calendar day — so
-    # its total can legitimately differ from the headline Solved, and the caption
-    # is what stops that difference from reading as a bug.
     out = [f"📊  *ORM Daily — {date_label}*"]
-    out.append(f"Received: *{s.received}*   ·   Solved: *{s.solved}*")
+
+    # 1. The backlog headline. Rendered only when a pending cohort was actually
+    # supplied: `pending=None` means nobody asked for it, which is not the same
+    # as a backlog of zero, and printing "Pending: 0" for it would be a lie.
+    if s.pending is not None:
+        out.append(f"🗂️  Total pending reviews: *{s.pending}*")
+        if pending_label:
+            out.append(f"_{pending_label}_")
+
+    # 2/3. The 24h frame.
+    day_rows = [f"• Received today — *{s.received}*",
+                f"• Solved today — *{s.solved}*"]
+    title = "*📬  Last 24 hours*"
     if window_label:
-        out.append(f"_{window_label}_")
+        title += f"  _{window_label}_"
+    out += _section(title, day_rows)
 
-    # Tier — always the three buckets, each with its colour dot.
-    tier_rows = [f"{_TIER_DOT.get(lbl, '•')} {lbl} — {s.tier.get(lbl, 0)}"
-                 for lbl in _TIER_FIXED]
-    out += _section("*🏷️  Reviews by tier*", tier_rows)
-
+    # 4. Solved by — same cohort as Solved, so each share is of s.solved.
     if s.people:
-        title = "*🧑‍💻  Solved by*"
-        if solved_by_label:
-            title += f"  _{solved_by_label}_"
-        out += _section(title, [f"• {k} — {v}" for k, v in s.people])
+        out += _section("*🧑‍💻  Solved by*  _share of the 24h solved_",
+                        [f"• {k} — {v}{_pct(v, s.solved)}" for k, v in s.people])
+
+    # 5. Tier — always the three buckets, each with its colour dot, as a share of
+    # the cohort they were counted over (the pending backlog for the daily).
+    # The block is named after the cohort it actually counted. With no pending
+    # cohort supplied the mix falls back to the solved rows, and calling that
+    # "Pending by tier" would mislabel the number rather than just omit it.
+    over_pending = s.pending is not None
+    # The "% of N pending" caption is only printed when there is something to
+    # divide by. On an empty backlog `_pct` prints no shares at all, so the
+    # caption would be promising percentages that no row carries — and "% of 0"
+    # is not a denominator.
+    base_note = (f"  _% of {s.mix_base} pending_"
+                 if over_pending and s.mix_base > 0 else "")
+    tier_title = "Pending by tier" if over_pending else "Reviews by tier"
+    cat_title = ("Top pending categories (L1 / L2)" if over_pending
+                 else "Top issue categories (L1 / L2)")
+    tier_rows = [f"{_TIER_DOT.get(lbl, '•')} {lbl} — {s.tier.get(lbl, 0)}"
+                 f"{_pct(s.tier.get(lbl, 0), s.mix_base)}"
+                 for lbl in _TIER_FIXED]
+    out += _section(f"*🏷️  {tier_title}*{base_note}", tier_rows)
 
     if s.categories:
-        out += _section("*📂  Top issue categories (L1 / L2)*",
-                        [f"• {k} — {v}" for k, v in s.categories])
+        cat_rows = [f"• {k} — {v}{_pct(v, s.mix_base)}" for k, v in s.categories]
+        if s.uncategorised:
+            # Said out loud rather than quietly missing from the block: these
+            # rows exist, they are in the tier mix and in the pending total, and
+            # they have no L1/L2 to file under yet.
+            what = "pending" if over_pending else "reviews"
+            cat_rows.append(f"• _{s.uncategorised} {what} with no category yet_")
+        out += _section(f"*📂  {cat_title}*{base_note}", cat_rows)
 
     return "\n".join(out)
 
@@ -209,28 +295,6 @@ def _db_bounds(now: datetime) -> tuple[datetime, datetime]:
     exact and timezone-independent."""
     start, end = window_bounds(now)
     return start.replace(tzinfo=None), end.replace(tzinfo=None)
-
-
-def _today_bounds(now: datetime) -> tuple[datetime, datetime]:
-    """The report's IST CALENDAR DAY, as naive UTC — the frame for the per-person
-    "Solved by" credit. Where `_db_bounds` is the fixed 8pm→8pm window, this is
-    midnight-to-midnight of the day the report is FOR (the date the 8pm cutoff
-    falls on), so each associate is credited for everything they closed across
-    their whole working day, not only the slice inside the 8pm→8pm window.
-
-    The end is capped at `now`, so a live 8pm run (or a delayed 11pm one) counts
-    only up to the moment it fires — never into the future — while a mid-day
-    preview of a completed past day still spans that whole day. Naive UTC to
-    match the DB columns, for the same reason `_db_bounds` strips tzinfo."""
-    if now.tzinfo is None:
-        now = now.replace(tzinfo=timezone.utc)
-    _, end = window_bounds(now)                     # tz-aware UTC 8pm cutoff
-    end_ist = end.astimezone(IST)
-    day_start_ist = end_ist.replace(hour=0, minute=0, second=0, microsecond=0)
-    day_end_ist = day_start_ist + timedelta(days=1)
-    start_utc = day_start_ist.astimezone(timezone.utc)
-    end_utc = min(day_end_ist.astimezone(timezone.utc), now.astimezone(timezone.utc))
-    return start_utc.replace(tzinfo=None), end_utc.replace(tzinfo=None)
 
 
 def _row_from(review, draft) -> Row:
@@ -297,13 +361,37 @@ def collect_solved_rows(db, now: datetime) -> list[Row]:
     return _collect_solved_between(db, start, end)
 
 
-def collect_solved_today_rows(db, now: datetime) -> list[Row]:
-    """The CALENDAR-DAY solved cohort — everything finished across the report's
-    IST day, drives the per-person "Solved by" credit. Wider than the 8pm→8pm
-    window on purpose: an associate is credited for every review they cleared
-    today, including older ones that arrived on an earlier day."""
-    start, end = _today_bounds(now)
-    return _collect_solved_between(db, start, end)
+def collect_pending_rows(db) -> list[Row]:
+    """The OPEN BACKLOG: every review that has not reached 'sent', all-time.
+
+    NOT windowed, and that is the point — "total pending" is a stock, not a flow.
+    A review that arrived three weeks ago and is still open is still open today,
+    so bounding this by the 24h window would report a backlog of only the last
+    day's leftovers and make a growing queue look flat. `now` is not a parameter
+    because the answer does not depend on it.
+
+    `status != SENT` is the whole test, and it agrees with how the rest of the
+    codebase defines done: `tiers.classify()` puts a 'sent' review in the SENT
+    bucket ahead of every other rule, and a review finished WITHOUT a Slack post
+    (`sent_route == 'closed'`) is still written as status 'sent' — a person
+    resolved it, so it is solved, not pending. On the real export all 86
+    `sent_route == 'closed'` rows carry status 'sent', and no non-'sent' row
+    carries a sent_at or closed_at at all, so the status flag and the finish
+    timestamps never disagree about who is pending.
+
+    NULL status is counted as PENDING, explicitly. `status` is a nullable column,
+    and in SQL `status != 'sent'` is NULL — not true — for a NULL row, so the
+    plain comparison would drop such a review from the backlog silently: it would
+    appear in neither Pending nor Solved and the total would just be short, with
+    nothing to show it had happened. A review with no status has certainly not
+    been sent, so it belongs in the backlog."""
+    from server.db import Review, RcaDraft
+    from sqlalchemy import or_
+    pairs = (db.query(Review, RcaDraft)
+               .outerjoin(RcaDraft, RcaDraft.review_id == Review.id)
+               .filter(or_(Review.status.is_(None), Review.status != SENT))
+               .all())
+    return [_row_from(r, d) for r, d in pairs]
 
 
 def build_daily_digest(db, now: datetime | None = None) -> str:
@@ -314,7 +402,7 @@ def build_daily_digest(db, now: datetime | None = None) -> str:
     summary = summarize(
         collect_solved_rows(db, now),
         received_count(db, now),
-        solved_by_rows=collect_solved_today_rows(db, now))
+        pending_rows=collect_pending_rows(db))
     # Label with the window's END day (the 8pm cutoff date it covers up to), not
     # the raw clock — at the 8pm run these coincide, but a mid-day preview of the
     # last completed day must be dated that day, not today. %-d (no leading
@@ -322,12 +410,11 @@ def build_daily_digest(db, now: datetime | None = None) -> str:
     start, end = window_bounds(now)
     start_ist, end_ist = start.astimezone(IST), end.astimezone(IST)
     date_label = end_ist.strftime("%d %b %Y").lstrip("0")
-    day_label = end_ist.strftime("%d %b").lstrip("0")     # e.g. "13 Sep"
-    # Received + Solved cover the fixed 8pm→8pm window; the caption says so.
+    # Received, Solved and Solved-by all cover the fixed 8pm→8pm window; the
+    # caption says so once, over the block those numbers live in.
     _d = lambda t: t.strftime("%d %b").lstrip("0")
-    window_label = f"Received & solved · 8pm {_d(start_ist)} → 8pm {_d(end_ist)} IST"
-    # Solved by covers the whole IST day (older reviews included) — a different,
-    # wider frame, so its total can differ from Solved above. The caption is what
-    # makes that difference legible instead of looking like a miscount.
-    solved_by_label = f"closed on {day_label}, incl. older reviews"
-    return render_digest(summary, date_label, window_label, solved_by_label)
+    window_label = f"8pm {_d(start_ist)} → 8pm {_d(end_ist)} IST"
+    # The backlog is a stock with no window — captioned so it is never read as
+    # "pending that arrived today", which would be a much smaller number.
+    pending_label = "open backlog, all time — not the 24h window"
+    return render_digest(summary, date_label, window_label, pending_label)
