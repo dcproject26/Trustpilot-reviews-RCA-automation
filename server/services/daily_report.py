@@ -118,6 +118,17 @@ def _tier_label(row: Row) -> str:
     return "Untraceable"
 
 
+def _norm_owner(picked_up_by: str) -> str:
+    """The associate credited for a solve, or "Unassigned".
+
+    A blank owner and a test account are both "nobody real": crediting "Test"
+    in a report a manager reads is noise, and it once sat second in the
+    time-to-send ranking. One definition, shared with the Reporting page."""
+    from server.services.reporting_query import TEST_OWNERS, UNASSIGNED
+    name = (picked_up_by or "").strip()
+    return UNASSIGNED if (not name or name.lower() in TEST_OWNERS) else name
+
+
 def summarize(solved_rows: list[Row], received_count: int = 0,
               pending_rows: list[Row] | None = None) -> Summary:
     """Counts, from at most two cohorts that are never mixed into one ratio:
@@ -158,7 +169,11 @@ def summarize(solved_rows: list[Row], received_count: int = 0,
             # Counted, not skipped: see Summary.uncategorised.
             uncategorised += 1
     for r in solved_rows:
-        who = (r.picked_up_by or "").strip() or "Unassigned"
+        # Test accounts are not people whose workload belongs in a report. The
+        # REVIEW still counts everywhere else — only the attribution is dropped.
+        # TEST_OWNERS is imported rather than re-listed so the daily digest and
+        # the Reporting page cannot disagree about who is a real associate.
+        who = _norm_owner(r.picked_up_by)
         people_counts[who] = people_counts.get(who, 0) + 1
     s.tier = tier_counts
     s.uncategorised = uncategorised

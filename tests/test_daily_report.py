@@ -588,3 +588,21 @@ def test_build_daily_digest_dates_in_ist(live_db):
     assert "• Supply / Guide No Show — 1 (100%)" in text
     # Solved-by is the 24h cohort.
     assert "• Avi — 1 (100%)" in text
+
+
+def test_a_test_account_is_not_credited_but_its_review_still_counts():
+    """"Test" is not an associate. Crediting it puts a fake name in a report a
+    manager reads — it once ranked second on time-to-send. The REVIEW is real
+    though, so it still counts toward Solved; only the attribution moves to
+    Unassigned. One definition, shared with the Reporting page."""
+    solved = [Row(solved=True, picked_up_by="Test"),
+              Row(solved=True, picked_up_by="QA"),
+              Row(solved=True, picked_up_by="Devshree")]
+    s = summarize(solved, received_count=3)
+    names = {n for n, _ in s.people}
+    assert "Test" not in names and "QA" not in names
+    assert ("Devshree", 1) in s.people
+    assert ("Unassigned", 2) in s.people
+    # nothing dropped: the per-person rows still sum to the headline
+    assert s.solved == 3
+    assert sum(n for _, n in s.people) == s.solved

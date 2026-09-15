@@ -70,5 +70,11 @@
     "name": "daily: Unassigned allowed to sort ahead of a real owner",
     "find": "        key=lambda kv: (kv[0] == \"Unassigned\", -kv[1], kv[0]))",
     "replace": "        key=lambda kv: (False, -kv[1], kv[0]))"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "daily: a test account is credited as a real associate",
+    "find": "    return UNASSIGNED if (not name or name.lower() in TEST_OWNERS) else name",
+    "replace": "    return name or UNASSIGNED"
   }
 ]
