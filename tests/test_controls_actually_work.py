@@ -1686,3 +1686,280 @@ def test_outcome_category_saves_via_persist_v3(page):
     v3 = got.get("rca_v3", {})
     assert isinstance(v3.get("outcome_category"), str), (
         f"outcome_category was not a string in rca_v3: {v3}")
+
+
+# ── the Reporting page's Explore and Reports tabs ───────────────────────────
+# The three tests above cover the shell and the Overview. These cover the two
+# tabs that carry the guarantees a silent regression would destroy: that the
+# query actually reflects what was picked, that "no value recorded" is still
+# said out loud, that Daily keeps ONE definition, and that Send posts the text
+# the person actually read.
+
+_RPG_REGISTRY = {
+    "views": ["Matching", "What went wrong"],
+    "dimensions": [
+        {"key": "l1", "view": "What went wrong", "label": "L1 category", "multi": False},
+        {"key": "scenarios", "view": "What went wrong", "label": "Scenario", "multi": True},
+        {"key": "tier", "view": "Matching", "label": "Match tier", "multi": False},
+    ],
+    "measures": [
+        {"key": "count", "label": "Count of reviews"},
+        {"key": "solved_pct", "label": "Solved %"},
+        {"key": "median_tts", "label": "Median time to send (h)"},
+    ],
+}
+
+
+def _mock_reporting_capture(page, rows=None, totals=None, unset=None,
+                            unnested=None, matched=5, scanned=9):
+    """Serve the Reporting page's endpoints and RECORD every query body, so a
+    test can assert what the UI actually asked the server for — not merely what
+    it drew afterwards."""
+    import json as _j
+    sent = []
+    page.route("**/api/reporting/fields", lambda route: route.fulfill(
+        status=200, content_type="application/json", body=_j.dumps(_RPG_REGISTRY)))
+
+    def _query(route):
+        try:
+            sent.append(_j.loads(route.request.post_data or "{}"))
+        except Exception:
+            sent.append({})
+        route.fulfill(status=200, content_type="application/json", body=_j.dumps({
+            "columns": [], "rows": rows if rows is not None else [],
+            "row_count": len(rows or []), "truncated": False,
+            "matched": matched, "scanned": scanned,
+            "totals": totals or {"count": matched, "solved_pct": 50.0},
+            "unset": unset or {}, "unnested": unnested or [],
+        }))
+    page.route("**/api/reporting/query", _query)
+    return sent
+
+
+def _unroute_rpg(page):
+    for pat in ("**/api/reporting/fields", "**/api/reporting/query",
+                "**/api/reports/daily/preview", "**/api/reports/daily/send",
+                "**/api/reporting/report/preview", "**/api/reporting/report/send"):
+        try:
+            page.unroute(pat)
+        except Exception:
+            pass
+
+
+def _open_reporting(page):
+    """Open Reporting with a KNOWN selection.
+
+    RPG's picks are page-global and deliberately outlive the modal (reopening
+    keeps what you were looking at), so with a module-scoped `page` fixture one
+    test's selection leaks into the next — which is how these passed alone and
+    failed together."""
+    _clear_reporting_modal(page)
+    page.evaluate("""() => {
+        if (typeof RPG === 'undefined') return;
+        RPG.dims = ['l1']; RPG.meas = ['count', 'solved_pct'];
+        RPG.filters = []; RPG.pivot = null; RPG.sort = null; RPG.desc = true;
+        RPG.expanded = {}; RPG.tab = 'overview';
+        RPG.repPreset = 'daily'; RPG.repSections = ['tier', 'owner'];
+    }""")
+    page.click("[data-open-reporting]")
+    page.wait_for_selector("#reporting-modal .rpg-scope", timeout=6000)
+
+
+def _explore(page):
+    page.click('#reporting-modal [data-rpg-tabs] button[data-v="explore"]')
+    page.wait_for_selector("#reporting-modal [data-rpg-tbl]", timeout=6000)
+
+
+def test_explore_asks_the_server_for_the_fields_that_were_picked(page):
+    """The table must be the answer to the question on screen. Recording the
+    request body is the only way to tell a real query from a renderer that
+    happens to draw something plausible."""
+    sent = _mock_reporting_capture(page, rows=[
+        {"key": ["Operations Issue"], "values": {"count": 3, "solved_pct": 66.0}}])
+    try:
+        _open_reporting(page)
+        _explore(page)
+        # "Matching" is collapsed by default; open it the way a person would.
+        page.evaluate("""() => {
+            document.querySelectorAll('#reporting-modal [data-rpg-rail] details')
+              .forEach(d => d.open = true);
+        }""")
+        page.click('#reporting-modal [data-rpg-rail] [data-dim="tier"]')
+        page.wait_for_function(
+            """() => [...document.querySelectorAll('#reporting-modal [data-rpg-tbl] thead th')]
+                      .some(t => t.textContent.includes('Match tier'))""", timeout=6000)
+        body = page.locator("#reporting-modal [data-rpg-tbl]").inner_text()
+    finally:
+        _unroute_rpg(page)
+    last = sent[-1]
+    assert "tier" in last["dimensions"], f"the picked dimension never reached the query: {last}"
+    assert last["measures"], "no measure was requested"
+    assert "Operations Issue" in body, "the server's row did not reach the table"
+
+
+def test_explore_with_nothing_picked_does_not_claim_a_row(page):
+    """A 0-column table that still says "1 row" is what the page did before —
+    indistinguishable from a query that returned one empty result."""
+    _mock_reporting_capture(page)
+    try:
+        _open_reporting(page)
+        _explore(page)
+        page.evaluate("""() => {
+            document.querySelectorAll('#reporting-modal [data-rpg-measp] [data-rmm]')
+              .forEach(b => b.click());
+        }""")
+        page.wait_for_timeout(250)
+        page.evaluate("""() => {
+            document.querySelectorAll('#reporting-modal [data-rpg-dimp] [data-rmd]')
+              .forEach(b => b.click());
+        }""")
+        page.wait_for_function(
+            """() => /Pick a/.test(document.querySelector(
+                 '#reporting-modal [data-rpg-tbl]').textContent)""", timeout=6000)
+        txt = page.locator("#reporting-modal [data-rpg-tbl]").inner_text()
+        hint = page.locator("#reporting-modal [data-rpg-hint]").inner_text()
+    finally:
+        _unroute_rpg(page)
+    assert "dimension" in txt and "measure" in txt, f"the empty state named no way forward: {txt!r}"
+    assert "row" not in hint.lower() or "nothing" in hint.lower(), (
+        f"an empty selection still claimed rows: {hint!r}")
+
+
+def test_explore_sort_flips_the_column_it_is_already_sorted_by(page):
+    """The table arrives sorted by the first measure descending. Clicking that
+    column must flip it — comparing against a null sort state made the opening
+    click a no-op, which reads as a dead control."""
+    sent = _mock_reporting_capture(page, rows=[
+        {"key": ["A"], "values": {"count": 3, "solved_pct": 10.0}},
+        {"key": ["B"], "values": {"count": 1, "solved_pct": 90.0}}])
+    try:
+        _open_reporting(page)
+        _explore(page)
+        before = len(sent)
+        page.click("#reporting-modal [data-rpg-tbl] thead th[data-m]")
+        page.wait_for_function(f"() => true", timeout=1000)
+        page.wait_for_timeout(500)
+    finally:
+        _unroute_rpg(page)
+    after = sent[len(sent) - 1]
+    assert len(sent) > before, "clicking the header issued no query at all"
+    assert after.get("descending") is False, (
+        f"the first click did not flip the sort: {after}")
+
+
+def test_explore_says_when_a_field_is_unrecorded_or_unnested(page):
+    """Rule 1 on screen: a short list because nobody filled the field is not the
+    same as a short list because the work did not happen, and a count that can
+    exceed the review total must say why."""
+    _mock_reporting_capture(
+        page,
+        rows=[{"key": ["Refund issues"], "values": {"count": 7, "solved_pct": 50.0}}],
+        unset={"l1": 12}, unnested=["scenarios"], matched=20)
+    try:
+        _open_reporting(page)
+        _explore(page)
+        page.wait_for_selector("#reporting-modal [data-rpg-hint]", timeout=6000)
+        page.wait_for_function(
+            """() => /unnested|no /.test(document.querySelector(
+                 '#reporting-modal [data-rpg-hint]').textContent)""", timeout=6000)
+        hint = page.locator("#reporting-modal [data-rpg-hint]").inner_text()
+    finally:
+        _unroute_rpg(page)
+    assert "12" in hint, f"the unrecorded count was not surfaced: {hint!r}"
+    assert "unnested" in hint.lower(), f"the unnesting was not declared: {hint!r}"
+    assert "not summed" in hint.lower(), f"the totals rule was not stated: {hint!r}"
+
+
+def test_reports_daily_reads_the_scheduled_daily_endpoint(page):
+    """ONE definition of the daily digest. Daily must read the same endpoint the
+    8pm auto-post rebuilds from — if it ever quietly moved to the generic
+    composer, the preview and the message the team receives would drift apart
+    and nothing on screen would say so."""
+    import json as _j
+    _mock_reporting_capture(page)
+    hits = {"daily": 0, "generic": 0}
+
+    def _daily(route):
+        hits["daily"] += 1
+        route.fulfill(status=200, content_type="application/json",
+                      body=_j.dumps({"text": "DAILY FROM THE SCHEDULED ENDPOINT",
+                                     "channel": "C045KG5AJF5"}))
+
+    def _generic(route):
+        hits["generic"] += 1
+        route.fulfill(status=200, content_type="application/json",
+                      body=_j.dumps({"text": "GENERIC", "channel": "C045KG5AJF5",
+                                     "date_from": "x", "date_to": "y", "reviews": 0}))
+    page.route("**/api/reports/daily/preview", _daily)
+    page.route("**/api/reporting/report/preview", _generic)
+    try:
+        _open_reporting(page)
+        page.click('#reporting-modal [data-rpg-tabs] button[data-v="reports"]')
+        page.wait_for_function(
+            """() => (document.querySelector('#reporting-modal [data-rpg-draft]')||{}).value""",
+            timeout=6000)
+        draft = page.locator("#reporting-modal [data-rpg-draft]").input_value()
+        chan = page.locator("#reporting-modal [data-rpg-chan]").inner_text()
+    finally:
+        _unroute_rpg(page)
+    assert hits["daily"] == 1, f"Daily did not read the scheduled endpoint: {hits}"
+    assert hits["generic"] == 0, f"Daily went through the generic composer: {hits}"
+    assert "SCHEDULED ENDPOINT" in draft
+    assert chan.strip() == "C045KG5AJF5", f"the channel shown was {chan!r}"
+
+
+def test_reports_sends_the_text_the_person_actually_edited(page):
+    """Send must post what is on screen, verbatim. A send that silently rebuilds
+    would discard the edit while showing it — the worst version of this control."""
+    import json as _j
+    _mock_reporting_capture(page)
+    posted = {}
+    page.route("**/api/reports/daily/preview", lambda route: route.fulfill(
+        status=200, content_type="application/json",
+        body=_j.dumps({"text": "ORIGINAL", "channel": "C045KG5AJF5"})))
+
+    def _send(route):
+        posted.update(_j.loads(route.request.post_data or "{}"))
+        route.fulfill(status=200, content_type="application/json",
+                      body=_j.dumps({"ok": True, "ts": "1", "channel": "C045KG5AJF5"}))
+    page.route("**/api/reports/daily/send", _send)
+    try:
+        _open_reporting(page)
+        page.click('#reporting-modal [data-rpg-tabs] button[data-v="reports"]')
+        page.wait_for_function(
+            """() => (document.querySelector('#reporting-modal [data-rpg-draft]')||{}).value""",
+            timeout=6000)
+        page.fill("#reporting-modal [data-rpg-draft]", "I EDITED THIS BY HAND")
+        page.click("#reporting-modal [data-rpg-send]")
+        page.wait_for_function("() => true", timeout=500)
+        page.wait_for_timeout(600)
+    finally:
+        _unroute_rpg(page)
+    assert posted.get("text") == "I EDITED THIS BY HAND", (
+        f"Send did not post the edited text: {posted!r}")
+
+
+def test_changing_the_report_selection_warns_before_it_overwrites_an_edit(page):
+    """Refresh replaces whatever is in the box. Changing a section must SAY the
+    draft is stale, so an edit is never silently thrown away by a later click."""
+    import json as _j
+    _mock_reporting_capture(page)
+    page.route("**/api/reporting/report/preview", lambda route: route.fulfill(
+        status=200, content_type="application/json",
+        body=_j.dumps({"text": "WEEKLY", "channel": "C045KG5AJF5",
+                       "date_from": "a", "date_to": "b", "reviews": 3})))
+    try:
+        _open_reporting(page)
+        page.click('#reporting-modal [data-rpg-tabs] button[data-v="reports"]')
+        page.click('#reporting-modal [data-rpg-rpreset] button[data-p="weekly"]')
+        page.wait_for_function(
+            """() => (document.querySelector('#reporting-modal [data-rpg-draft]')||{}).value""",
+            timeout=6000)
+        page.click('#reporting-modal [data-sec="tier"]')
+        page.wait_for_function(
+            """() => /Refresh/.test(document.querySelector(
+                 '#reporting-modal [data-rpg-msg]').textContent)""", timeout=4000)
+        msg = page.locator("#reporting-modal [data-rpg-msg]").inner_text()
+    finally:
+        _unroute_rpg(page)
+    assert "refresh" in msg.lower(), f"a stale draft was not announced: {msg!r}"

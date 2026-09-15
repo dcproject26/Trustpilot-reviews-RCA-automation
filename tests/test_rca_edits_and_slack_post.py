@@ -23,6 +23,26 @@ pytest.importorskip("playwright.sync_api")
 from tests.test_rca_ui_rendered import page, CHROME, _rca_tab   # noqa: E402,F401
 
 
+def _wait_override(page, needle, timeout_ms=15000):
+    """Wait until the edit has actually REACHED THE SERVER, rather than guessing
+    with a fixed sleep.
+
+    A `wait_for_timeout(400)` is a bet that the save finishes in 400ms. It does,
+    on an idle machine. Under full-suite load the same test ran 7x slower (47s
+    vs 6s measured), and the bet loses — which is how this file produced a
+    failure that could not be reproduced on its own afterwards. Waiting on the
+    condition is both correct under load and faster when idle."""
+    page.wait_for_function(
+        """async (n) => {
+             try {
+               const r = await fetch('/api/reviews/tp_ui');
+               const d = (await r.json()).draft || {};
+               return (d.slack_thread_override || '').includes(n);
+             } catch (e) { return false; }   // a transient fetch is not a verdict
+           }""",
+        arg=needle, timeout=timeout_ms)
+
+
 def _draft(page):
     return page.evaluate(
         "async () => (await (await fetch('/api/reviews/tp_ui')).json()).draft")
@@ -451,9 +471,10 @@ def test_leaving_a_section_out_keeps_a_manual_edit(page):
         el.innerText = el.innerText + String.fromCharCode(10) + m;
         el.dispatchEvent(new FocusEvent('blur'));
     }""", MARK)
-    page.wait_for_timeout(400)
+    _wait_override(page, MARK)               # the edit is saved, not merely typed
 
     _drop(page, "wwr")                       # leave a DIFFERENT section out
+    _wait_override(page, MARK)               # and survives the recompose
 
     shown = _mirror(page)
     assert MARK in shown, "leaving a section out wiped the manual edit — #1 is not fixed"
