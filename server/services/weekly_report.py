@@ -75,12 +75,14 @@ def _collect_window_rows(db, start: datetime, end: datetime):
     RcaDraft.review_id is UNIQUE, so the OR-join yields one row per review."""
     from server.db import Review, RcaDraft
     from sqlalchemy import or_, and_
+    from server.services.reporting_query import not_test_row_clause
     pairs = (db.query(Review, RcaDraft)
                .outerjoin(RcaDraft, RcaDraft.review_id == Review.id)
                .filter(or_(
                    and_(Review.received_at >= start, Review.received_at < end),
                    and_(RcaDraft.sent_at >= start, RcaDraft.sent_at < end),
                    and_(Review.closed_at >= start, Review.closed_at < end)))
+               .filter(not_test_row_clause(Review))
                .all())
     return [_row_from(r, d) for r, d in pairs]
 

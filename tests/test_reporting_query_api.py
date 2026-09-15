@@ -49,22 +49,23 @@ def test_query_groups_and_totals(client):
     assert r.status_code == 200
     d = r.json()
     rows = {tuple(x["key"]): x["values"] for x in d["rows"]}
+    # 'b' was Tier 2 and picked_up_by="Test" — excluded as non-production data.
     assert rows[("Tier 1",)]["count"] == 1
-    assert rows[("Tier 2",)]["count"] == 1
+    assert ("Tier 2",) not in rows
     assert rows[("Untraceable",)]["count"] == 1        # the unmatched 'new' one
-    assert d["totals"]["count"] == 3
+    assert d["totals"]["count"] == 2                   # 'b' excluded
     # totals recomputed over all rows, not summed from the groups
-    assert d["totals"]["solved_pct"] == 2 / 3 * 100
+    assert d["totals"]["solved_pct"] == 1 / 2 * 100    # only 'a' remains solved
 
 
 def test_query_date_window_is_inclusive_of_date_to(client):
     _seed(client)
     only_first = client.post("/api/reporting/query", json={
         "date_from": "2027-03-01", "date_to": "2027-03-01", "measures": ["count"]}).json()
-    assert only_first["totals"]["count"] == 2
+    assert only_first["totals"]["count"] == 1          # 'b' excluded as test-owner
     both = client.post("/api/reporting/query", json={
         "date_from": "2027-03-01", "date_to": "2027-03-03", "measures": ["count"]}).json()
-    assert both["totals"]["count"] == 3
+    assert both["totals"]["count"] == 2
 
 
 def test_query_filters_and_unnests(client):
@@ -72,7 +73,8 @@ def test_query_filters_and_unnests(client):
     d = client.post("/api/reporting/query", json={
         **W, "dimensions": ["scenarios"], "measures": ["count"]}).json()
     counts = {tuple(x["key"])[0]: x["values"]["count"] for x in d["rows"]}
-    assert counts["Refund issues"] == 2 and counts["Content issues"] == 1
+    # 'b' (Refund issues, test-owner) is excluded — Refund issues drops to 1.
+    assert counts["Refund issues"] == 1 and counts["Content issues"] == 1
     assert d["unnested"] == ["scenarios"]              # told, not hidden
     only = client.post("/api/reporting/query", json={
         **W, "measures": ["count"], "filters": {"scenarios": "Content issues"}}).json()
@@ -88,14 +90,20 @@ def test_query_reports_unset_rather_than_a_silent_zero(client):
     assert sum(x["values"]["count"] for x in d["rows"]) == d["matched"]
 
 
-def test_test_owner_is_not_a_person_but_the_review_still_counts(client):
+def test_test_owner_reviews_are_excluded_from_reporting_entirely(client):
+    """Reporting only computes PRODUCTION data — a review worked from a test
+    account is dropped everywhere: from totals, from groups, from filters. The
+    dashboard is still allowed to show these rows for auditing, but a manager
+    reading numbers must never see 5 pending that is really 3 real + 2 test."""
     _seed(client)
     d = client.post("/api/reporting/query", json={
         **W, "dimensions": ["owner"], "measures": ["count"]}).json()
     owners = {tuple(x["key"])[0] for x in d["rows"]}
+    # The test-owner row is not surfaced under Test AND not folded into
+    # Unassigned — it is dropped from the analytics entirely.
     assert "Test" not in owners
-    assert "Unassigned" in owners and "Avi" in owners
-    assert d["totals"]["count"] == 3                   # nothing dropped
+    assert "Avi" in owners
+    assert d["totals"]["count"] == 2                   # 'b' (Test) excluded
 
 
 def test_query_rejects_bad_input_with_a_reason(client):
@@ -115,4 +123,5 @@ def test_limit_truncates_and_says_so(client):
     _seed(client)
     d = client.post("/api/reporting/query", json={
         **W, "dimensions": ["tier"], "measures": ["count"], "limit": 1}).json()
-    assert len(d["rows"]) == 1 and d["row_count"] == 3 and d["truncated"] is True
+    # Two tiers remain after excluding the test-owner review ('b' was Tier 2).
+    assert len(d["rows"]) == 1 and d["row_count"] == 2 and d["truncated"] is True

@@ -362,6 +362,25 @@ def slack_link(review) -> str:
     return f"https://slack.com/archives/{ch}/p{ts.replace('.', '')}"
 
 
+def _bkfield(bk, *keys):
+    """Read the first non-empty value across the aliases a booking might use.
+
+    Bookings reach here from three writers that spell the same field
+    differently:
+      * `bigquery.verify_bid`        -> experienceName / vendorName
+      * `bigquery._row_to_dict`      -> experience     / vendorName / partner
+      * `bigquery_patch` / manual     -> experience_name / vendor_name
+    Reading only one alias blanked the field on rows the other two produced.
+    Every reader in the tree already does this pattern (api.py, slack.py); the
+    export was the last that did not, and reporting inherited the miss."""
+    bk = bk or {}
+    for k in keys:
+        v = bk.get(k)
+        if v:
+            return v
+    return ""
+
+
 def row_for(review, draft, now: datetime | None = None,
             stage: str = "") -> dict:
     """One review's row, as {column: value}.
@@ -416,11 +435,11 @@ def row_for(review, draft, now: datetime | None = None,
                           or getattr(review, "body_original", "") or ""),
         "status":        getattr(review, "status", ""),
 
-        "booking_id":    bk.get("id") or bk.get("bid") or "",
-        "tid":           bk.get("tid") or "",
-        "vid":           bk.get("vid") or "",
-        "tgid":          bk.get("tgid") or "",
-        "experience":    bk.get("experienceName") or "",
+        "booking_id":    _bkfield(bk, "id", "bid", "booking_id"),
+        "tid":           _bkfield(bk, "tid", "tidId", "tour_id"),
+        "vid":           _bkfield(bk, "vid", "vendor_id", "vendorId"),
+        "tgid":          _bkfield(bk, "tgid", "TGID", "tourGroupId"),
+        "experience":    _bkfield(bk, "experienceName", "experience", "experience_name", "tourGroupName"),
         # BOTH KEYS, because the booking reaches here from two builders and
         # they disagree. `bigquery._row_to_dict` writes `partner`; only
         # `verify_bid` writes `vendorName`, and `complete_booking_row` merges
@@ -430,15 +449,16 @@ def row_for(review, draft, now: datetime | None = None,
         #
         # Every other reader in the tree already does exactly this
         # (api.py, pipeline.py, slack.py); the export was the one that did not.
-        "vendor":        bk.get("vendorName") or bk.get("partner") or "",
-        "visit_date":    bk.get("date_of_visit") or bk.get("visitDate") or "",
+        "vendor":        _bkfield(bk, "vendorName", "vendor_name", "partner"),
+        "visit_date":    _bkfield(bk, "date_of_visit", "visitDate", "visit_date", "experienceDate", "experience_date"),
         "reference_number": getattr(review, "reference_number", "") or "",
-        "vid_name":      bk.get("vidName") or "",
-        "booked_on":     bk.get("bookedOn") or bk.get("booked_on") or "",
-        "pax":           bk.get("pax") or _tf.get("pax") or "",
-        "fulfilment_type": bk.get("fulfilmentType") or bk.get("fulfilment_type") or "",
-        "booking_status": (_tf.get("booking_status") or bk.get("status")
-                           or bk.get("bookingStatus") or ""),
+        "vid_name":      _bkfield(bk, "vidName", "vid_name"),
+        "booked_on":     _bkfield(bk, "bookedOn", "booked_on", "bookingDate", "booking_date", "creationDate", "created_at"),
+        "pax":           _bkfield(bk, "pax", "paxCount", "pax_count") or _tf.get("pax") or "",
+        "fulfilment_type": _bkfield(bk, "fulfilmentType", "fulfilment_type", "fulfillment_type"),
+        "booking_status": (_tf.get("booking_status")
+                           or _bkfield(bk, "status", "bookingStatus", "booking_status")
+                           or ""),
         "guest_name":    _guest_name_cell(bk, _tf),
         "match_tier":    getattr(d, "match_tier", None) if d else None,
         "match_confidence": getattr(d, "match_confidence", None) if d else None,

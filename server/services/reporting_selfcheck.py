@@ -190,9 +190,32 @@ def dimension_fill(recs: list[dict]) -> list[dict]:
     return out
 
 
+def _excluded_test_rows(db, start, end) -> int:
+    """How many reviews in this window carry a test-owner name — i.e., how many
+    the reporting engine dropped as non-production. This is here rather than in
+    the query engine because reporting must not COUNT them; a manager who sees
+    "digest 5, dashboard 7" has to be able to see the two rows are the same
+    two rows they always are."""
+    from server.db import Review
+    from sqlalchemy import func
+    from server.services.reporting_query import TEST_OWNERS
+    q = (db.query(Review)
+           .filter(func.lower(func.trim(Review.picked_up_by)).in_(TEST_OWNERS)))
+    if start is not None:
+        q = q.filter(Review.received_at >= start)
+    if end is not None:
+        q = q.filter(Review.received_at < end)
+    return q.count()
+
+
 def run(db, date_from: datetime | None = None, date_to: datetime | None = None) -> dict:
-    """The whole self-check over one window. Read-only."""
+    """The whole self-check over one window. Read-only.
+
+    Also reports how many rows this window has that reporting EXCLUDES (test-
+    owner rows), so the exclusion is visible on screen rather than a silent
+    reason the dashboard's headline and the digest disagree."""
     recs = records(db, date_from, date_to)
+    excluded = _excluded_test_rows(db, date_from, date_to)
     inv = invariants(recs) if recs else []
     health = data_health(recs) if recs else []
     empties = [h for h in health if h["state"] == "empty"]
@@ -212,6 +235,7 @@ def run(db, date_from: datetime | None = None, date_to: datetime | None = None) 
 
     return {
         "reviews": len(recs),
+        "excluded_test_rows": excluded,
         "verdict": verdict,
         "invariants_failed": len(failed),
         "invariants": inv,

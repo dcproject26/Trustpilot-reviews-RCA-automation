@@ -19,13 +19,41 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-# Accounts that are not real associates. The REVIEW still counts everywhere — only
-# the person attribution is dropped, because "Test" is not someone whose workload
-# or speed belongs in a report. Dropping the row instead would understate inflow
-# and lose a genuine review: there is exactly one, a real 1-star complaint that
-# was closed from the RCA card during testing.
+# Accounts that are not real associates. A review picked up by one of these is
+# TEST DATA and is excluded from EVERY reporting measure — received, solved,
+# pending, tier, per-person, and the Reporting page's records. The dashboard
+# still shows these rows so an auditor can see them; the numbers a manager
+# reads must not include them, because a "5 pending" that is really 3 real +
+# 2 test misinforms the person who has to act on it.
+#
+# One earlier decision kept the row and dropped only the person attribution,
+# to avoid losing one historic 1-star complaint that had been closed from a
+# test account. That trade has been reversed: the loss of that one row is
+# named in the digest via `selfcheck`'s excluded-test-rows count, so the
+# exclusion is visible rather than silent.
 TEST_OWNERS = {"test", "qa", "testing", "demo"}
 UNASSIGNED = "Unassigned"
+
+
+def is_test_row(review) -> bool:
+    """True if this review was worked from a test account. The owner is the
+    only signal we trust — matching on author or body would be guesswork and
+    would drop real complaints that happen to say "test" in them."""
+    name = str(getattr(review, "picked_up_by", "") or "").strip().lower()
+    return bool(name) and name in TEST_OWNERS
+
+
+def not_test_row_clause(Review):
+    """The SQL form of `is_test_row(r) is False`, for adding to a query with
+    .filter(). NULL picked_up_by is production (the review is unassigned, not
+    test) and a non-test name is production. Written as NOT(picked_up_by IN
+    …) so a NULL name evaluates to NULL and the outer NOT/IS TRUE both drop
+    it into production — the plain form `IS NULL OR ... NOT IN` reads correct
+    but IS NOT the same at the query planner if any join changes nullability.
+    Using `func.lower` matches the Python predicate's case-insensitivity."""
+    from sqlalchemy import func, not_, or_
+    return or_(Review.picked_up_by.is_(None),
+               not_(func.lower(func.trim(Review.picked_up_by)).in_(TEST_OWNERS)))
 
 # What a grouped row is called when the review has no value for that field. It is
 # NOT the same as a zero count and is never silently dropped — `run_query` also
@@ -289,7 +317,11 @@ def records(db, start: datetime | None = None, end: datetime | None = None) -> l
     tz-aware parameter makes Postgres reinterpret it through the session timezone
     and silently shift the window (see daily_report._db_bounds)."""
     from server.db import Review, RcaDraft
-    q = db.query(Review, RcaDraft).outerjoin(RcaDraft, RcaDraft.review_id == Review.id)
+    q = (db.query(Review, RcaDraft)
+           .outerjoin(RcaDraft, RcaDraft.review_id == Review.id)
+           # Production data only. Test-owner reviews are excluded here so no
+           # downstream measure — grouped or ungrouped — can count them.
+           .filter(not_test_row_clause(Review)))
     if start is not None:
         q = q.filter(Review.received_at.isnot(None)).filter(Review.received_at >= start)
     if end is not None:

@@ -368,10 +368,12 @@ def _received_between(db, start: datetime, end: datetime) -> int:
     Shared by the daily 8pm→8pm window and the weekly window so "received" means
     the same thing at both scales — and so 7 daily windows sum to one week."""
     from server.db import Review
+    from server.services.reporting_query import not_test_row_clause
     return (db.query(Review)
               .filter(Review.received_at.isnot(None))
               .filter(Review.received_at >= start)
               .filter(Review.received_at < end)
+              .filter(not_test_row_clause(Review))
               .count())
 
 
@@ -389,12 +391,14 @@ def _collect_solved_between(db, start: datetime, end: datetime) -> list[Row]:
     "solved" definition is identical — only the [start, end) differs."""
     from server.db import Review, RcaDraft
     from sqlalchemy import or_, and_
+    from server.services.reporting_query import not_test_row_clause
     pairs = (db.query(Review, RcaDraft)
                .outerjoin(RcaDraft, RcaDraft.review_id == Review.id)
                .filter(Review.status == SENT)
                .filter(or_(
                    and_(RcaDraft.sent_at >= start, RcaDraft.sent_at < end),
                    and_(Review.closed_at >= start, Review.closed_at < end)))
+               .filter(not_test_row_clause(Review))
                .all())
     return [_row_from(r, d) for r, d in pairs]
 
@@ -432,9 +436,11 @@ def collect_pending_rows(db) -> list[Row]:
     been sent, so it belongs in the backlog."""
     from server.db import Review, RcaDraft
     from sqlalchemy import or_
+    from server.services.reporting_query import not_test_row_clause
     pairs = (db.query(Review, RcaDraft)
                .outerjoin(RcaDraft, RcaDraft.review_id == Review.id)
                .filter(or_(Review.status.is_(None), Review.status != SENT))
+               .filter(not_test_row_clause(Review))
                .all())
     return [_row_from(r, d) for r, d in pairs]
 
@@ -448,8 +454,10 @@ def pending_count(db) -> int:
     Solved and leave it in neither."""
     from server.db import Review
     from sqlalchemy import or_
+    from server.services.reporting_query import not_test_row_clause
     return (db.query(Review)
               .filter(or_(Review.status.is_(None), Review.status != SENT))
+              .filter(not_test_row_clause(Review))
               .count())
 
 
@@ -464,12 +472,14 @@ def collect_window_rows(db, now: datetime) -> list[Row]:
     from server.db import Review, RcaDraft
     from sqlalchemy import or_, and_
     start, end = _db_bounds(now)
+    from server.services.reporting_query import not_test_row_clause
     pairs = (db.query(Review, RcaDraft)
                .outerjoin(RcaDraft, RcaDraft.review_id == Review.id)
                .filter(or_(
                    and_(Review.received_at >= start, Review.received_at < end),
                    and_(RcaDraft.sent_at >= start, RcaDraft.sent_at < end),
                    and_(Review.closed_at >= start, Review.closed_at < end)))
+               .filter(not_test_row_clause(Review))
                .all())
     # No de-duplication: RcaDraft.review_id is UNIQUE, so a review joins to at
     # most one draft and matching several arms of the OR still yields one row.
