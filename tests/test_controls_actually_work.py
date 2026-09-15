@@ -1963,3 +1963,331 @@ def test_changing_the_report_selection_warns_before_it_overwrites_an_edit(page):
     finally:
         _unroute_rpg(page)
     assert "refresh" in msg.lower(), f"a stale draft was not announced: {msg!r}"
+
+
+# ── Explore: taking the finding out of the page ─────────────────────────────
+#
+# The stakeholder's words: "there is no CSV option or to copy it or to add a
+# particular data to a report. i want to be able to find and then make a report
+# from it." All the tests below drive the real controls; the ones that are about
+# WHAT WAS ASKED FOR read the recorded request body rather than the screen.
+
+
+def _explore_with_rows(page, rows, unset=None, matched=5):
+    sent = _mock_reporting_capture(page, rows=rows, unset=unset, matched=matched)
+    _open_reporting(page)
+    _explore(page)
+    page.wait_for_function(
+        """() => document.querySelectorAll(
+             '#reporting-modal [data-rpg-tbl] tbody tr').length > 0""", timeout=6000)
+    return sent
+
+
+def test_explore_csv_downloads_the_rows_that_are_on_screen(page):
+    """A real download, opened and read. The button used to be absent entirely,
+    and a button that only announces success is indistinguishable from one that
+    writes an empty file — so the bytes are checked, including the quoting of a
+    value that contains a comma, which is what silently shifts every column to
+    its right in a spreadsheet."""
+    try:
+        _explore_with_rows(page, rows=[
+            {"key": ['Refunds, "late"'], "values": {"count": 3, "solved_pct": 66.0}},
+            {"key": ["Access"], "values": {"count": 1, "solved_pct": 100.0}}])
+        with page.expect_download(timeout=8000) as dl:
+            page.click("#reporting-modal [data-rpg-csv]")
+        download = dl.value
+        path = download.path()
+        text = open(path, "r", encoding="utf-8-sig", newline="").read()
+        name = download.suggested_filename
+        msg = page.locator("#reporting-modal [data-rpg-expmsg]").inner_text()
+    finally:
+        _unroute_rpg(page)
+    lines = [ln for ln in text.split("\r\n") if ln]
+    assert lines[0] == "L1 category,Count of reviews,Solved %", (
+        "the header is not the columns on screen: %r" % (lines[0],))
+    assert lines[1] == '"Refunds, ""late""",3,66%', (
+        "a comma and a quote were not escaped: %r" % (lines[1],))
+    assert lines[2] == "Access,1,100%", "the second row is wrong: %r" % (lines[2],)
+    assert any(ln.startswith("Total (all 5 reviews)") for ln in lines), (
+        "the totals row did not travel with the file: %r" % (lines,))
+    assert name.startswith("orm-explore-l1-") and name.endswith(".csv"), (
+        "the file is not named for the query: %r" % (name,))
+    assert "-to-" in name, "the date range is not in the filename: %r" % (name,)
+    assert "2 row" in msg, "the button did not report what it wrote: %r" % (msg,)
+
+
+def test_explore_copy_hands_the_clipboard_the_same_rows_as_tsv(page):
+    """navigator.clipboard is stubbed and its ARGUMENT asserted: the guarantee
+    is that the current result, tab-separated, is what gets handed over — not
+    that a browser clipboard works, which is not this app's to promise."""
+    try:
+        _explore_with_rows(page, rows=[
+            {"key": ["Refunds"], "values": {"count": 3, "solved_pct": 66.0}}])
+        page.evaluate("""() => {
+            window.__clip = null;
+            navigator.clipboard.writeText = (t) => { window.__clip = t; return Promise.resolve(); };
+        }""")
+        page.click("#reporting-modal [data-rpg-tsv]")
+        page.wait_for_function("() => window.__clip !== null", timeout=4000)
+        clip = page.evaluate("() => window.__clip")
+        msg = page.locator("#reporting-modal [data-rpg-expmsg]").inner_text()
+    finally:
+        _unroute_rpg(page)
+    lines = clip.split("\r\n")
+    assert lines[0] == "L1 category\tCount of reviews\tSolved %", (
+        "the copied header is not the columns on screen: %r" % (lines[0],))
+    assert lines[1] == "Refunds\t3\t66%", "the copied row is wrong: %r" % (lines[1],)
+    assert "," not in lines[1], "TSV must not be comma separated"
+    assert "copied" in msg.lower(), "nothing on screen confirmed the copy: %r" % (msg,)
+
+
+def test_explore_copy_says_so_when_the_browser_refuses(page):
+    """A refused clipboard must say it was refused. Silence here is the rule-1
+    failure exactly: nothing happened and nothing said nothing happened."""
+    try:
+        _explore_with_rows(page, rows=[
+            {"key": ["Refunds"], "values": {"count": 3, "solved_pct": 66.0}}])
+        page.evaluate("""() => { navigator.clipboard.writeText =
+            () => Promise.reject(new Error('NotAllowedError')); }""")
+        page.click("#reporting-modal [data-rpg-tsv]")
+        page.wait_for_function(
+            """() => /refused/i.test(document.querySelector(
+                 '#reporting-modal [data-rpg-expmsg]').textContent)""", timeout=4000)
+        msg = page.locator("#reporting-modal [data-rpg-expmsg]").inner_text()
+    finally:
+        _unroute_rpg(page)
+    assert "refused" in msg.lower() and "csv" in msg.lower(), (
+        "the refusal named no way forward: %r" % (msg,))
+
+
+def test_exporting_before_anything_was_fetched_is_not_an_empty_file(page):
+    """Rule 1 at the export button: "no query has run" and "the query matched
+    nothing" are different sentences, and neither is a zero-byte download."""
+    try:
+        _mock_reporting_capture(page)
+        _open_reporting(page)
+        _explore(page)
+        # Clear the selection so nothing is being computed at all.
+        page.evaluate("""() => {
+            document.querySelectorAll('#reporting-modal [data-rpg-measp] [data-rmm]').forEach(b => b.click());
+        }""")
+        page.wait_for_timeout(250)
+        page.evaluate("""() => {
+            document.querySelectorAll('#reporting-modal [data-rpg-dimp] [data-rmd]').forEach(b => b.click());
+        }""")
+        page.wait_for_function(
+            """() => /Pick a/.test(document.querySelector(
+                 '#reporting-modal [data-rpg-tbl]').textContent)""", timeout=6000)
+        page.click("#reporting-modal [data-rpg-csv]")
+        page.wait_for_timeout(400)
+        msg = page.locator("#reporting-modal [data-rpg-expmsg]").inner_text()
+    finally:
+        _unroute_rpg(page)
+    assert "nothing has been fetched" in msg.lower(), (
+        "an unfetched export did not say why: %r" % (msg,))
+
+
+def test_add_to_report_puts_the_explored_field_into_the_report_request(page):
+    """"I want to find it and then make a report from it." The assertion is on
+    the REQUEST the Reports tab then sends — a checkbox that ticks on screen
+    while the composer is still asked for the old sections is the version of
+    this that looks like it worked."""
+    import json as _j
+    bodies = []
+
+    def _preview(route):
+        try:
+            bodies.append(_j.loads(route.request.post_data or "{}"))
+        except Exception:
+            bodies.append({})
+        route.fulfill(status=200, content_type="application/json",
+                      body=_j.dumps({"text": "WEEKLY DRAFT", "channel": "C045KG5AJF5",
+                                     "date_from": "a", "date_to": "b", "reviews": 4}))
+    try:
+        _mock_reporting_capture(page, rows=[
+            {"key": ["Refunds"], "values": {"count": 3, "solved_pct": 66.0}}])
+        page.route("**/api/reporting/report/preview", _preview)
+        _open_reporting(page)          # repSections starts ['tier', 'owner']
+        _explore(page)
+        # Drop Count so the measure carried over as the rank is unambiguously
+        # the one that was on screen, not the default the report already had.
+        page.click('#reporting-modal [data-rpg-rail] [data-meas="count"]')
+        page.wait_for_timeout(300)
+        page.click("#reporting-modal [data-rpg-toreport]")
+        page.wait_for_selector("#reporting-modal [data-rpg-added]", timeout=6000)
+        notice = page.locator("#reporting-modal [data-rpg-added]").inner_text()
+        draft = page.locator("#reporting-modal [data-rpg-draft]").input_value()
+        checked = page.evaluate(
+            """() => [...document.querySelectorAll('#reporting-modal [data-sec]')]
+                 .filter(c => c.checked).map(c => c.dataset.sec)""")
+        pressed = page.evaluate(
+            """() => [...document.querySelectorAll('#reporting-modal [data-rpg-rpreset] button')]
+                 .filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.dataset.p)""")
+    finally:
+        _unroute_rpg(page)
+    assert bodies, "adding to the report never asked the composer for a draft"
+    last = bodies[-1]
+    assert "l1" in last["sections"], (
+        "the explored dimension never reached the report request: %r" % (last,))
+    assert set(["tier", "owner"]).issubset(set(last["sections"])), (
+        "adding a section discarded the existing ones: %r" % (last,))
+    assert last["rank_by"] == "solved_pct", (
+        "the Explore measure was not carried over as the rank: %r" % (last,))
+    assert "l1" in checked, "the section list on screen disagrees: %r" % (checked,)
+    assert pressed == ["weekly"], (
+        "Daily has fixed sections, so it must move off Daily: %r" % (pressed,))
+    assert "L1 category" in notice and "Weekly" in notice, (
+        "the person was left to guess what happened: %r" % (notice,))
+    assert draft == "WEEKLY DRAFT", "the draft was not rebuilt with the new section"
+
+
+def test_rows_per_section_is_gone_and_top_still_travels(page):
+    """The control is deleted because nobody could say what it was. The VALUE
+    still has to reach the composer, or the request body quietly changes shape —
+    so this asserts both the absence of the control and the presence of `top`."""
+    import json as _j
+    bodies = []
+
+    def _preview(route):
+        bodies.append(_j.loads(route.request.post_data or "{}"))
+        route.fulfill(status=200, content_type="application/json",
+                      body=_j.dumps({"text": "W", "channel": "C1",
+                                     "date_from": "a", "date_to": "b", "reviews": 1}))
+    try:
+        _mock_reporting_capture(page)
+        page.route("**/api/reporting/report/preview", _preview)
+        _open_reporting(page)
+        page.click('#reporting-modal [data-rpg-tabs] button[data-v="reports"]')
+        page.click('#reporting-modal [data-rpg-rpreset] button[data-p="weekly"]')
+        page.wait_for_function(
+            """() => (document.querySelector('#reporting-modal [data-rpg-draft]')||{}).value""",
+            timeout=6000)
+        n_control = page.evaluate(
+            "() => document.querySelectorAll('#reporting-modal [data-rpg-rtop]').length")
+        labels = page.locator("#reporting-modal .rpg-rep aside").inner_text()
+    finally:
+        _unroute_rpg(page)
+    assert n_control == 0, "the Rows per section control is still on screen"
+    assert "rows per section" not in labels.lower(), (
+        "its label survived the control: %r" % (labels,))
+    assert bodies and bodies[-1].get("top") == 5, (
+        "`top` stopped reaching the composer: %r" % (bodies[-1] if bodies else None,))
+
+
+def test_an_overview_card_asks_the_same_question_explore_does(page):
+    """The observed complaint was a Match tier card and the Explore table
+    disagreeing by one review for the same scope. Both requests are recorded and
+    compared field by field: if the two ever ask different questions again, this
+    fails — which is the only part of that disagreement the client can own."""
+    try:
+        sent = _mock_reporting_capture(page, rows=[
+            {"key": ["Tier 1"], "values": {"count": 40, "solved_pct": 50.0}},
+            {"key": ["Untraceable"], "values": {"count": 8, "solved_pct": 0.0}}],
+            matched=48)
+        _open_reporting(page)
+        page.wait_for_function(
+            """() => [...document.querySelectorAll('#reporting-modal .rpg-card h4')]
+                 .some(h => h.textContent.includes('Match tier'))""", timeout=8000)
+        page.wait_for_function(
+            """() => !/loading…/.test(document.querySelector(
+                 '#reporting-modal [data-rpg-cards]').textContent)""", timeout=8000)
+        card = page.evaluate(
+            """() => [...document.querySelectorAll('#reporting-modal .rpg-card')]
+                 .find(c => c.querySelector('h4').textContent.includes('Match tier')).innerText""")
+        from_overview = [b for b in sent if b.get("dimensions") == ["tier"]]
+        sent.clear()
+        # Exactly what a person does next: the card's own drill-through.
+        page.click("#reporting-modal .rpg-card [data-explore='tier']")
+        page.wait_for_function(
+            """() => [...document.querySelectorAll('#reporting-modal [data-rpg-tbl] thead th')]
+                 .some(t => t.textContent.includes('Match tier'))""", timeout=6000)
+        table = page.locator("#reporting-modal [data-rpg-tbl]").inner_text()
+        from_explore = [b for b in sent if b.get("dimensions") == ["tier"]]
+    finally:
+        _unroute_rpg(page)
+    assert from_overview, "the Overview never queried Match tier"
+    assert from_explore, "Explore never queried Match tier"
+    o, e = from_overview[-1], from_explore[-1]
+    for field in ("date_from", "date_to", "filters", "dimensions"):
+        assert o.get(field) == e.get(field), (
+            "the card and the table asked different questions about %s: %r vs %r"
+            % (field, o.get(field), e.get(field)))
+    # And the same server answer must read the same in both places.
+    assert "40" in card and "8" in card, "the card lost the server's counts: %r" % (card,)
+    assert "40" in table and "8" in table, "the table lost the server's counts: %r" % (table,)
+
+
+def test_the_overview_covers_every_field_the_server_offers(page):
+    """It was a hand-written list of 20 of the 26 dimensions, and a field the
+    server added simply never appeared — an Overview that is missing something
+    looks exactly like one that is complete."""
+    try:
+        _mock_reporting_capture(page, rows=[{"key": ["x"], "values": {"count": 1}}])
+        _open_reporting(page)
+        page.wait_for_function(
+            """() => !/loading…/.test(document.querySelector(
+                 '#reporting-modal [data-rpg-cards]').textContent)""", timeout=8000)
+        titles = page.evaluate(
+            """() => [...document.querySelectorAll('#reporting-modal .rpg-card h4 span:first-child')]
+                 .map(s => s.textContent)""")
+        asof = page.locator("#reporting-modal [data-rpg-asof]").inner_text()
+    finally:
+        _unroute_rpg(page)
+    want = set(d["label"] for d in _RPG_REGISTRY["dimensions"] if d["key"] != "date")
+    assert want.issubset(set(titles)), (
+        "fields the server offers have no card: %r" % (sorted(want - set(titles)),))
+    assert "as of" in asof.lower(), (
+        "the snapshot is undated, so stale cannot be told from wrong: %r" % (asof,))
+
+
+def test_an_overview_card_for_a_multi_valued_field_says_its_shares_are_mentions(page):
+    """Scenario is multi-valued: its rows count mentions, which sum past the
+    review total. Dividing those by the review count printed shares over 100%
+    — the same fact Explore already warns about, silently wrong here."""
+    import re as _re
+    try:
+        _mock_reporting_capture(page, rows=[
+            {"key": ["Late tickets"], "values": {"count": 4}},
+            {"key": ["No entry"], "values": {"count": 3}}], matched=5)
+        _open_reporting(page)
+        page.wait_for_function(
+            """() => !/loading…/.test(document.querySelector(
+                 '#reporting-modal [data-rpg-cards]').textContent)""", timeout=8000)
+        card = page.evaluate(
+            """() => [...document.querySelectorAll('#reporting-modal .rpg-card')]
+                 .find(c => c.querySelector('h4').textContent.includes('Scenario')).innerText""")
+    finally:
+        _unroute_rpg(page)
+    assert "mention" in card.lower(), (
+        "a multi-valued field did not say its shares are of mentions: %r" % (card,))
+    pcts = [int(x) for x in _re.findall(r"(\d+)%", card)]
+    assert pcts and max(pcts) <= 100, (
+        "a share over 100%% reached the screen: %r" % (card,))
+
+
+def test_the_row_limit_select_shows_the_limit_that_is_being_queried(page):
+    """RPG.limit outlives the modal. The select was hardcoded to 25, so
+    reopening after picking 100 showed 25 and queried 100 — a control stating
+    something the request contradicts."""
+    try:
+        sent = _mock_reporting_capture(page, rows=[
+            {"key": ["A"], "values": {"count": 1, "solved_pct": 0.0}}])
+        _open_reporting(page)
+        _explore(page)
+        page.select_option("#reporting-modal [data-rpg-limit]", "100")
+        page.wait_for_timeout(400)
+        _clear_reporting_modal(page)
+        page.click("[data-open-reporting]")
+        page.wait_for_selector("#reporting-modal .rpg-scope", timeout=6000)
+        page.wait_for_selector("#reporting-modal [data-rpg-tbl]", timeout=6000)
+        shown = page.locator("#reporting-modal [data-rpg-limit]").input_value()
+    finally:
+        _unroute_rpg(page)
+        # This test deliberately reopens WITHOUT _open_reporting, to prove the
+        # limit persists — so it has to put the page-global back itself.
+        page.evaluate("() => { if (typeof RPG !== 'undefined') RPG.limit = 25; }")
+    asked = [b["limit"] for b in sent if b.get("dimensions") and b.get("limit")]
+    assert asked and asked[-1] == 100, (
+        "the query did not use the chosen limit: %r" % (asked,))
+    assert shown == "100", (
+        "the select said %r while the query asked for %r" % (shown, asked[-1]))

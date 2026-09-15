@@ -9697,7 +9697,20 @@ const RPG = {
   dims: ['l1'], meas: ['count', 'solved_pct'], pivot: null,
   limit: 25, sort: null, desc: true, expanded: {}, seq: 0, popClose: null,
   host: null, modal: null, repSections: ['tier', 'owner'],
-  repPreset: 'daily', repRank: 'count', repTop: 5, repDirty: false,
+  repPreset: 'daily', repRank: 'count', repDirty: false,
+  // The rows the Explore table was last drawn from, as an array of arrays
+  // (header row first) — what CSV/Copy serialise, so the file and the screen
+  // are the same thing. null means no query has answered yet, which is NOT the
+  // same as a query that answered with nothing (an empty grid has its header).
+  lastGrid: null, lastGridRows: 0,
+  // A one-shot line for the Reports tab to show after Add-to-report, so the
+  // person is told what happened instead of having to spot it.
+  repNotice: '',
+  // Rows per section. It used to be a dropdown; nobody could say what it meant
+  // and three values (3/5/8) is not a decision worth asking for. Five is the
+  // number the daily digest already uses, so the two reports look alike. It
+  // stays in state because /report/preview and /send require it.
+  repTop: 5,
 };
 
 // esc() upstream escapes < and > only; attribute values need quotes escaped as
@@ -9921,14 +9934,36 @@ const RPG_KPIS = [
   ['count', 'Reviews in'], ['solved', 'Solved'], ['solved_pct', 'Solved %'],
   ['traced_pct', 'Booking traced'], ['median_tts', 'Median time to send'], ['posted', 'RCAs posted'],
 ];
-const RPG_CARDS = [
-  ['Volume & matching', ['tier', 'traceable', 'match_method']],
-  ['People & handling', ['owner', 'sent_route', 'close_reason']],
-  ['What went wrong', ['l1', 'l2', 'scenarios', 'sub_themes', 'claim_accuracy']],
-  ['Booking details', ['vendor', 'experience', 'fulfilment_type', 'booking_status', 'tgid']],
-  ['Resolution & outcome', ['takedown', 'dss_followed', 'outcome_category', 'resolution_given']],
-  ['Review', ['rating', 'language', 'status']],
-];
+// The card sections come from the SERVER'S OWN field registry, not from a list
+// kept here. The hand-written list held 20 of the 26 dimensions and used section
+// names ("Volume & matching", "People & handling") that exist nowhere else, so a
+// field added server-side never appeared on the Overview and nobody could tell
+// it was missing — the Overview looked complete either way. Date is excluded
+// because the date range above already governs it.
+function rpgCardGroups() {
+  return RPG.views.map(v => [v, RPG.fields.dimensions
+    .filter(d => d.view === v && d.key !== 'date').map(d => d.key)])
+    .filter(([, keys]) => keys.length);
+}
+
+// A small concurrency pool. The Overview asks one query per card and used to do
+// it strictly one after another, so 25 cards meant 25 serial round trips and the
+// last card's numbers were fetched seconds after the first — long enough for a
+// review closed in between to appear in one card and not another. Running them
+// in a tight batch narrows that window to near zero AND is what makes the "as
+// of" stamp below honest.
+async function rpgPool(items, width, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  await Promise.all(new Array(Math.min(width, items.length)).fill(0).map(async () => {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i], i);
+    }
+  }));
+  return out;
+}
 
 function rpgBars(rows, total, topKey) {
   if (!rows.length) return `<div class="rpg-empty2" style="margin-top:8px">no values in this range</div>`;
@@ -9953,7 +9988,12 @@ async function rpgOverview(view) {
         Widen the date range or clear a filter above.</div></div>`;
       return;
     }
-    let html = `<div class="rpg-pad"><div class="rpg-kpis">` + RPG_KPIS.map(([k, l]) => {
+    let html = `<div class="rpg-pad">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px;flex-wrap:wrap">
+        <span class="rpg-hint" data-rpg-asof></span>
+        <button class="btn" data-rpg-oref style="padding:4px 9px">↻ Refresh</button>
+      </div>
+      <div class="rpg-kpis">` + RPG_KPIS.map(([k, l]) => {
       const sub = k === 'solved_pct' ? 'of reviews in'
         : k === 'traced_pct' ? `${head.totals.count} reviews`
         : k === 'median_tts' ? 'median, not mean' : '';
@@ -9963,7 +10003,11 @@ async function rpgOverview(view) {
     view.innerHTML = html;
 
     const host = view.querySelector('[data-rpg-cards]');
-    for (const [title, keys] of RPG_CARDS) {
+    // Every card's slot is created FIRST, so the cards land in registry order no
+    // matter which query answers first, and an unanswered card says "loading"
+    // rather than simply not existing.
+    const slots = [];
+    for (const [title, keys] of rpgCardGroups()) {
       const sec = document.createElement('div');
       sec.className = 'rpg-sec';
       sec.innerHTML = `<span class="rpg-lab">${esc(title)}</span><div class="rpg-cards"></div>`;
@@ -9971,23 +10015,56 @@ async function rpgOverview(view) {
       const grid = sec.querySelector('.rpg-cards');
       for (const key of keys) {
         const d = RPG.dimByKey[key]; if (!d) continue;
-        const open = !!RPG.expanded[key];
-        const res = await rpgQuery({dimensions: [key], measures: ['count'],
-                                    limit: open ? 25 : 6, sort: 'count'});
-        if (ticket !== RPG.seq) return;   // the scope or tab changed mid-loop
-        const filled = res.matched - (res.unset[key] || 0);
         const card = document.createElement('div');
         card.className = 'rpg-card';
-        card.innerHTML = `<h4><span>${esc(d.label)}</span><span class="fillc">${filled}/${res.matched}</span></h4>` +
-          rpgBars(res.rows, filled, 'count') +
-          // Rule 1: a short bar because nobody recorded the field is not the
-          // same as a short bar because it did not happen.
-          (res.unset[key] ? `<div class="rpg-miss">${res.unset[key]} review(s) have no ${esc(d.label.toLowerCase())} — not counted.</div>` : '') +
-          (res.truncated || open ? `<button class="rpg-drill" data-more="${rpgAttr(key)}">${open ? 'Show top 6' : `Show all ${res.row_count} values`}</button> ` : '') +
-          `<button class="rpg-drill" data-explore="${rpgAttr(key)}">Explore this field →</button>`;
+        card.innerHTML = `<h4><span>${esc(d.label)}</span></h4><div class="rpg-empty2">loading…</div>`;
         grid.appendChild(card);
+        slots.push({key: key, d: d, card: card});
       }
     }
+    await rpgPool(slots, 6, async (s) => {
+      const key = s.key, d = s.d, open = !!RPG.expanded[key];
+      // EXACTLY the Explore request for this field and scope — same dimension,
+      // same filters, same dates — so the card and the table cannot disagree.
+      // Only `limit` differs, and limit selects rows, never counts them.
+      let res;
+      try {
+        res = await rpgQuery({dimensions: [key], measures: ['count'],
+                              limit: open ? 25 : 6, sort: 'count'});
+      } catch (e) {
+        if (ticket !== RPG.seq) return;
+        // Rule 1: a card that could not be fetched must not look like a field
+        // with no values in this range.
+        s.card.innerHTML = `<h4><span>${esc(d.label)}</span></h4>` +
+          `<div class="rpg-miss">Could not load this field: ${esc(String(e.message || e).slice(0, 120))}</div>`;
+        return;
+      }
+      if (ticket !== RPG.seq) return;     // the scope or tab changed mid-flight
+      const filled = res.matched - (res.unset[key] || 0);
+      // A multi-valued field's rows count MENTIONS, not reviews: they sum past
+      // the review total, so a share taken over `filled` reads over 100% and the
+      // "filled/total" header reads as a proportion when it is not one. The
+      // denominator for those is the mentions, and the card says which it is —
+      // this is the same warning Explore already prints for unnested fields.
+      const total = d.multi ? res.rows.reduce((a, r) => a + (Number(r.values.count) || 0), 0) : filled;
+      s.card.innerHTML =
+        `<h4><span>${esc(d.label)}</span><span class="fillc">${filled}/${res.matched}</span></h4>` +
+        rpgBars(res.rows, total, 'count') +
+        (d.multi ? `<div class="rpg-miss">Several values per review — the ${res.rows.length ? 'shares' : 'counts'} are of ${total} mention(s), not of ${res.matched} reviews.</div>` : '') +
+        // Rule 1: a short bar because nobody recorded the field is not the
+        // same as a short bar because it did not happen.
+        (res.unset[key] ? `<div class="rpg-miss">${res.unset[key]} review(s) have no ${esc(d.label.toLowerCase())} — not counted.</div>` : '') +
+        (res.truncated || open ? `<button class="rpg-drill" data-more="${rpgAttr(key)}">${open ? 'Show top 6' : `Show all ${res.row_count} values`}</button> ` : '') +
+        `<button class="rpg-drill" data-explore="${rpgAttr(key)}">Explore this field →</button>`;
+    });
+    if (ticket !== RPG.seq) return;
+    // These numbers are a snapshot of a database that is still being written to.
+    // Stamping it is what lets a manager tell "the Overview is wrong" from "the
+    // Overview is ten minutes old" — the two looked identical before.
+    const asof = view.querySelector('[data-rpg-asof]');
+    if (asof) asof.textContent = `${slots.length} field(s) · as of ${new Date().toLocaleTimeString()} · reviews closed after this are not in these cards`;
+    const oref = view.querySelector('[data-rpg-oref]');
+    if (oref) oref.addEventListener('click', () => rpgOverview(view));
     host.querySelectorAll('[data-more]').forEach(b => b.addEventListener('click', () => {
       RPG.expanded[b.dataset.more] = !RPG.expanded[b.dataset.more]; rpgOverview(view); }));
     host.querySelectorAll('[data-explore]').forEach(b => b.addEventListener('click', () => {
@@ -10008,18 +10085,132 @@ function rpgExplore(view) {
           <div class="rpg-slot"><span class="k">Dimensions</span><span data-rpg-dimp></span></div>
           <div class="rpg-slot"><span class="k">Measures</span><span data-rpg-measp></span></div>
         </div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px;flex-wrap:wrap">
+          <button class="btn" data-rpg-csv title="Download the rows on screen as a CSV file">⭳ CSV</button>
+          <button class="btn" data-rpg-tsv title="Copy the rows on screen as TSV — paste straight into Sheets">⧉ Copy</button>
+          <button class="btn" data-rpg-toreport title="Put these dimensions into the Reports tab as sections">＋ Add to report</button>
+          <span data-rpg-expmsg style="font-size:11.5px"></span>
           <span style="flex:1"></span>
           <label style="font-size:11.5px;color:var(--muted)">Rows
-            <select data-rpg-limit><option>10</option><option selected>25</option><option>50</option><option>100</option><option>500</option></select></label>
+            <select data-rpg-limit><option>10</option><option>25</option><option>50</option><option>100</option><option>500</option></select></label>
         </div>
         <div class="rpg-tblwrap"><table class="rpg-tbl" data-rpg-tbl></table></div>
         <div class="rpg-hint" data-rpg-hint></div>
       </main></div>`;
-    view.querySelector('[data-rpg-limit]').addEventListener('change', (e) => {
+    // The row limit is page-global and outlives the modal, so the select is set
+    // FROM the state rather than assumed to be 25 — a select reading 25 while
+    // the query asks for 100 is a control lying about what it did.
+    const lim = view.querySelector('[data-rpg-limit]');
+    lim.value = String(RPG.limit);
+    if (lim.selectedIndex < 0) { RPG.limit = 25; lim.value = '25'; }
+    lim.addEventListener('change', (e) => {
       RPG.limit = +e.target.value; rpgExploreRun(view); });
+    view.querySelector('[data-rpg-csv]').addEventListener('click', () => rpgExport(view, 'csv'));
+    view.querySelector('[data-rpg-tsv]').addEventListener('click', () => rpgExport(view, 'tsv'));
+    view.querySelector('[data-rpg-toreport]').addEventListener('click', () => rpgToReport(view));
   }
   rpgRail(view); rpgExploreRun(view);
+}
+
+// ── Taking a finding out of Explore ─────────────────────────────────────────
+// Everything below serialises RPG.lastGrid — the very array of arrays the table
+// on screen was drawn from, built once in rpgExploreRun. Re-deriving the rows
+// here would be a second definition of "the result", and the file and the
+// screen would disagree the first time either was edited.
+
+// RFC 4180: a field holding a comma, a quote or a newline is wrapped in quotes
+// and its own quotes are doubled. Without this, one vendor name with a comma in
+// it shifts every column to its right and the file silently reads wrong.
+function rpgCsvCell(v) {
+  const s = v === null || v === undefined ? '' : String(v);
+  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+// TSV has no quoting convention that Sheets honours on paste, so the separators
+// are removed from the value instead of being smuggled through unescaped.
+const rpgTsvCell = (v) => (v === null || v === undefined ? '' : String(v))
+  .replace(/[\t\r\n]+/g, ' ');
+
+function rpgGridText(grid, kind) {
+  const cell = kind === 'csv' ? rpgCsvCell : rpgTsvCell;
+  const sep = kind === 'csv' ? ',' : '\t';
+  return grid.map(row => row.map(cell).join(sep)).join('\r\n');
+}
+
+function rpgExpMsg(view, text, colour) {
+  const el = view.querySelector('[data-rpg-expmsg]');
+  if (el) el.innerHTML = `<span style="color:var(--${colour || 'green'})">${esc(text)}</span>`;
+}
+
+function rpgExportName(ext) {
+  const dims = (RPG.dims.length ? RPG.dims : RPG.meas).join('-').replace(/[^a-z0-9-]+/gi, '') || 'all';
+  return `orm-explore-${dims}-${RPG.from || 'start'}-to-${RPG.to || 'now'}.${ext}`;
+}
+
+async function rpgExport(view, kind) {
+  const grid = RPG.lastGrid;
+  // Rule 1: nothing to export because the query returned no rows is a different
+  // sentence from nothing to export because the query never ran.
+  if (!grid) {
+    rpgExpMsg(view, 'Run a query first — nothing has been fetched yet.', 'amber'); return;
+  }
+  if (grid.length < 2) {
+    rpgExpMsg(view, 'The query ran and matched no rows — there is nothing to export.', 'amber'); return;
+  }
+  const text = rpgGridText(grid, kind);
+  const n = RPG.lastGridRows;
+  if (kind === 'tsv') {
+    try {
+      await navigator.clipboard.writeText(text);
+      rpgExpMsg(view, `Copied ${n} row(s) — paste into Sheets ✓`);
+    } catch (e) {
+      rpgExpMsg(view, 'The browser refused clipboard access — use ⭳ CSV instead.', 'amber');
+    }
+    return;
+  }
+  try {
+    const blob = new Blob(['﻿' + text], {type: 'text/csv;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = rpgExportName('csv');
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    rpgExpMsg(view, `${n} row(s) → ${a.download} ✓`);
+  } catch (e) {
+    rpgExpMsg(view, `Download failed: ${String(e.message || e).slice(0, 120)}`, 'red');
+  }
+}
+
+// "I found it in Explore, now put it in the report." Pushes the CURRENT
+// dimensions into the Reports section list, carries the Explore measure over as
+// the ranking measure, switches tab and rebuilds the draft — so the finding is
+// visible in the Slack text without anyone re-picking it by hand.
+function rpgToReport(view) {
+  if (!RPG.dims.length) {
+    rpgExpMsg(view, 'Pick at least one dimension — a report section is a dimension.', 'amber');
+    return;
+  }
+  const added = RPG.dims.filter(k => !RPG.repSections.includes(k));
+  RPG.repSections = RPG.repSections.concat(added);
+  // The first selected measure becomes the rank, when it is one the report can
+  // rank by. Percentages and medians are legitimate ranks server-side, so the
+  // only thing checked is that the key is a real measure.
+  const rank = RPG.meas.find(m => RPG.measByKey[m]);
+  if (rank) RPG.repRank = rank;
+  const names = RPG.dims.map(k => (RPG.dimByKey[k] || {label: k}).label).join(', ');
+  let note = `Added to the report: ${names}`;
+  if (rank) note += `, ranked by ${(RPG.measByKey[rank] || {label: rank}).label}`;
+  if (!added.length) note += ' (already there)';
+  // Daily's sections are fixed by the scheduled 8pm digest, so adding a section
+  // while Daily is selected would change nothing and look like it worked. Move
+  // to Weekly, which is the buildable report, and SAY that it moved.
+  if (RPG.repPreset === 'daily') {
+    RPG.repPreset = 'weekly';
+    note += ' — switched to Weekly, because the Daily digest has fixed sections.';
+  }
+  RPG.repNotice = note + '.';
+  RPG.repDirty = false;
+  rpgExpMsg(view, note);
+  RPG.modal.querySelector('[data-rpg-tabs] button[data-v="reports"]').click();
 }
 
 function rpgRail(view) {
@@ -10088,6 +10279,7 @@ async function rpgExploreRun(view) {
   if (!RPG.dims.length && !RPG.meas.length) {
     tbl.innerHTML = `<tbody><tr><td style="padding:20px;color:var(--empty)">Pick a <b>dimension</b> to group by, or a <b>measure</b> to aggregate, from the list on the left.</td></tr></tbody>`;
     hint.textContent = 'Nothing is being computed yet.';
+    RPG.lastGrid = null;               // nothing was asked for, so nothing to export
     rpgNote(null);
     return;
   }
@@ -10097,7 +10289,11 @@ async function rpgExploreRun(view) {
     if (ticket !== RPG.seq) return;    // a newer query has already answered
     rpgNote(res);
     const pivIdx = RPG.pivot ? RPG.dims.indexOf(RPG.pivot) : -1;
-    let head, body;
+    // ONE model for the table and the exports. `grid` is the header row followed
+    // by every data row exactly as they are displayed; the <td>s below are drawn
+    // from it, and so is the CSV. A separate export path is how a file and a
+    // screen start disagreeing about the same query.
+    let head, grid, nDim;
     if (pivIdx >= 0 && RPG.meas.length && RPG.dims.length >= 2) {
       // Pivot is a display transform over the same grouped rows.
       const cols = [...new Set(res.rows.map(r => r.key[pivIdx]))].slice(0, 8);
@@ -10108,24 +10304,40 @@ async function rpgExploreRun(view) {
         if (!groups.has(rk)) groups.set(rk, {label: r.key.filter((_, i) => i !== pivIdx), cells: {}});
         groups.get(rk).cells[r.key[pivIdx]] = r.values;
       });
+      nDim = rowDims.length;
       head = rowDims.map(k => `<th>${esc(RPG.dimByKey[k].label)}</th>`).join('') +
         cols.map(c => RPG.meas.map(m => `<th>${esc(c)} · ${esc(RPG.measByKey[m].label)}</th>`).join('')).join('');
-      body = [...groups.values()].map(g =>
-        `<tr>${g.label.map(v => `<td>${esc(v)}</td>`).join('')}` +
-        cols.map(c => RPG.meas.map(m =>
-          `<td class="n">${esc(rpgFmt(m, (g.cells[c] || {})[m] ?? null))}</td>`).join('')).join('') + `</tr>`).join('');
+      grid = [rowDims.map(k => RPG.dimByKey[k].label).concat(
+                ...cols.map(c => RPG.meas.map(m => `${c} · ${RPG.measByKey[m].label}`)))];
+      [...groups.values()].forEach(g => grid.push(
+        g.label.map(v => String(v)).concat(
+          ...cols.map(c => RPG.meas.map(m => rpgFmt(m, (g.cells[c] || {})[m] ?? null))))));
     } else {
+      nDim = RPG.dims.length;
       head = RPG.dims.map((k, i) => `<th data-c="${i}">${esc(RPG.dimByKey[k].label)}</th>`).join('') +
         RPG.meas.map((k, i) => `<th data-c="${RPG.dims.length + i}" data-m="${esc(k)}">${esc(RPG.measByKey[k].label)}` +
           `${RPG.sort === k ? (RPG.desc ? ' ▼' : ' ▲') : ''}</th>`).join('');
-      body = res.rows.map(r =>
-        r.key.map(v => `<td>${esc(v)}</td>`).join('') +
-        RPG.meas.map(m => `<td class="n">${esc(rpgFmt(m, r.values[m]))}</td>`).join('')).map(x => `<tr>${x}</tr>`).join('');
-      if (RPG.dims.length && RPG.meas.length) {
-        body += `<tr class="tot"><td colspan="${RPG.dims.length}">Total (all ${res.matched} reviews)</td>` +
-          RPG.meas.map(m => `<td class="n">${esc(rpgFmt(m, res.totals[m]))}</td>`).join('') + `</tr>`;
-      }
+      grid = [RPG.dims.map(k => RPG.dimByKey[k].label)
+                .concat(RPG.meas.map(k => RPG.measByKey[k].label))];
+      res.rows.forEach(r => grid.push(
+        r.key.map(v => String(v)).concat(RPG.meas.map(m => rpgFmt(m, r.values[m])))));
     }
+    // Counted BEFORE the totals row is appended: "3 rows" for two categories
+    // plus a total is a small lie that makes a reader recount.
+    RPG.lastGridRows = grid.length - 1;
+    let body = grid.slice(1).map(cells => `<tr>` + cells.map((c, i) =>
+      `<td${i >= nDim ? ' class="n"' : ''}>${esc(c)}</td>`).join('') + `</tr>`).join('');
+    if (pivIdx < 0 && RPG.dims.length && RPG.meas.length) {
+      const lab = `Total (all ${res.matched} reviews)`;
+      body += `<tr class="tot"><td colspan="${RPG.dims.length}">${esc(lab)}</td>` +
+        RPG.meas.map(m => `<td class="n">${esc(rpgFmt(m, res.totals[m]))}</td>`).join('') + `</tr>`;
+      // The totals row travels with the file. A percentage or a median cannot be
+      // re-derived by summing the column, so leaving it out of the export would
+      // invite exactly the wrong arithmetic in a spreadsheet.
+      grid.push([lab].concat(new Array(Math.max(0, RPG.dims.length - 1)).fill(''),
+                             RPG.meas.map(m => rpgFmt(m, res.totals[m]))));
+    }
+    RPG.lastGrid = grid;
     tbl.innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body ||
       `<tr><td style="padding:16px;color:var(--empty)">No rows — widen the date range or filters.</td></tr>`}</tbody>`;
     tbl.querySelectorAll('th[data-m]').forEach(th => th.addEventListener('click', () => {
@@ -10143,8 +10355,9 @@ async function rpgExploreRun(view) {
             .map(([k, v]) => `${v} with no ${RPG.dimByKey[k].label.toLowerCase()}`).join(', ')}.</span>` : '');
   } catch (e) {
     tbl.innerHTML = '';
+    RPG.lastGrid = null;               // a failed query must not leave the last
     hint.innerHTML = `<span style="color:var(--red)">${esc(String(e.message || e).slice(0,200))}</span>`;
-  }
+  }                                    // good result exportable as if it were current
 }
 
 // ── Reports ─────────────────────────────────────────────────────────────────
@@ -10157,9 +10370,9 @@ function rpgReports(view) {
       <aside class="rpg-rail">
         <span class="rpg-lab" style="display:block;margin:2px 4px 7px">Report</span>
         <div class="rpg-seg" data-rpg-rpreset style="width:100%;margin:0 4px 10px">
-          <button data-p="daily" aria-pressed="true" style="flex:1">Daily</button>
-          <button data-p="weekly" style="flex:1">Weekly</button>
-          <button data-p="custom" style="flex:1">Custom</button>
+          ${['daily', 'weekly', 'custom'].map(p =>
+            `<button data-p="${p}" aria-pressed="${RPG.repPreset === p}" style="flex:1">` +
+            `${p[0].toUpperCase() + p.slice(1)}</button>`).join('')}
         </div>
         <div data-rpg-rcustom hidden>
           <div class="rpg-fld"><label>From</label><input type="date" data-rpg-rfrom></div>
@@ -10167,8 +10380,6 @@ function rpgReports(view) {
         </div>
         <div data-rpg-rbuild>
           <div class="rpg-fld"><label>Rank sections by</label><select data-rpg-rrank></select></div>
-          <div class="rpg-fld"><label>Rows per section</label><select data-rpg-rtop>
-            <option>3</option><option selected>5</option><option>8</option></select></div>
           <span class="rpg-lab" style="display:block;margin:12px 4px 6px">Sections</span>
           <div data-rpg-rsecs></div>
         </div>
@@ -10219,7 +10430,6 @@ function rpgReportsWire(view) {
   ['[data-rpg-rfrom]', '[data-rpg-rto]'].forEach(s =>
     view.querySelector(s).addEventListener('change', stale));
   view.querySelector('[data-rpg-rrank]').addEventListener('change', (e) => { RPG.repRank = e.target.value; stale(); });
-  view.querySelector('[data-rpg-rtop]').addEventListener('change', (e) => { RPG.repTop = +e.target.value; stale(); });
   view.querySelectorAll('[data-sec]').forEach(cb => cb.addEventListener('change', () => {
     const k = cb.dataset.sec;
     RPG.repSections = cb.checked ? RPG.repSections.concat([k]) : RPG.repSections.filter(x => x !== k);
@@ -10263,7 +10473,13 @@ async function rpgReportsRefresh(view, announce) {
     view.querySelector('[data-rpg-chan]').textContent = data.channel || 'SLACK_CHANNEL_DAILY not set';
     view.querySelector('[data-rpg-send]').disabled = !data.channel;
     RPG.repDirty = false;
-    if (announce) msg.innerHTML = `<span style="color:var(--green)">Refreshed ✓ ${new Date().toLocaleTimeString()}</span>`;
+    // A finding pushed over from Explore says so HERE, where the draft is, not
+    // only on the tab the person just left.
+    if (RPG.repNotice) {
+      msg.innerHTML = `<span style="color:var(--green)" data-rpg-added>${esc(RPG.repNotice)}</span>`;
+      RPG.repNotice = '';
+    }
+    else if (announce) msg.innerHTML = `<span style="color:var(--green)">Refreshed ✓ ${new Date().toLocaleTimeString()}</span>`;
   } catch (e) {
     msg.innerHTML = `<span style="color:var(--red)">${esc(String(e.message || e).slice(0,160))}</span>`;
   }
