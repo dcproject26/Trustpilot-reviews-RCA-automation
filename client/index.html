@@ -292,7 +292,7 @@
   .inbox-thead, .inbox-row {
     display: grid;
     grid-template-columns:
-      minmax(0,168px) minmax(0,1fr) minmax(0,104px)
+      28px minmax(0,168px) minmax(0,1fr) minmax(0,104px)
       minmax(0,122px) minmax(0,112px) minmax(0,92px);
     column-gap: 14px;
   }
@@ -429,6 +429,24 @@
   .ibx-pop .ibx-reset {
     background: transparent; border: 0; color: var(--muted-2);
     cursor: pointer; text-decoration: underline;
+  }
+
+  /* ── bulk selection ───────────────────────────────────────────────── */
+  .inbox-cb { width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent); margin: 0; }
+  .bulk-action-bar {
+    position: sticky; bottom: 0; z-index: 20;
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 20px; background: var(--accent); color: #fff;
+    font-size: 13px; font-weight: 600; box-shadow: 0 -2px 8px rgba(0,0,0,.15);
+  }
+  .bulk-action-bar button {
+    font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+    padding: 5px 14px; border-radius: 6px; border: 1.5px solid #fff; background: transparent; color: #fff;
+  }
+  .bulk-action-bar button:hover { background: rgba(255,255,255,.18); }
+  .bulk-action-bar button:disabled { opacity: .5; cursor: default; }
+  .bulk-action-bar .bulk-deselect {
+    margin-left: auto; border: none; text-decoration: underline; font-weight: 400; font-size: 12px;
   }
 
   /* bulk job progress */
@@ -1967,6 +1985,7 @@
       <!-- The queue is a table now. One column header row, then one row per
            review — Guest, Review, Booking, State, Picked up by, Received. -->
       <div class="inbox-thead">
+        <div><input type="checkbox" class="inbox-cb" id="inbox-select-all" title="Select all visible"></div>
         <div>Guest</div>
         <div>Review</div>
         <div>Booking</div>
@@ -1975,6 +1994,11 @@
         <div class="r">Received</div>
       </div>
       <div class="inbox-list" id="inbox-list"></div>
+      <div class="bulk-action-bar" id="bulk-action-bar" hidden>
+        <span id="bulk-action-count">0 selected</span>
+        <button id="bulk-close-btn">Close selected</button>
+        <button class="bulk-deselect" id="bulk-deselect">Deselect all</button>
+      </div>
     </aside>
 
     <!-- The case page: a header carrying who is on it and the way back, then
@@ -3343,6 +3367,7 @@ const state = {
   // A leftover from the mock data; there is no review with this id, so it
   // simply means "nothing selected" until the inbox is clicked.
   selected: null,
+  selectedIds: new Set(),
   // Must agree with the tab marked `active` in the markup, which is All.
   // It said 'identified' while the All tab rendered as selected, so the
   // dashboard opened claiming to show everything, with the count saying 3,
@@ -3756,8 +3781,10 @@ function renderInbox() {
     const body = r.english || r.original || '';
     const snippet = esc(body.substring(0, 120)) + (body.length > 120 ? '…' : '');
     const bid = r.booking?.id || r.booking?.bid || '';
+    const checked = state.selectedIds.has(r.id) ? ' checked' : '';
     return `
     <div class="inbox-row ${r.id === state.selected ? 'active' : ''}" data-id="${r.id}">
+      <div class="ic-cb"><input type="checkbox" class="inbox-cb" data-sel-id="${r.id}"${checked}></div>
       <div class="ic-guest">
         <div class="ic-name">${esc(r.author)}</div>
         <div class="ic-stars">${r.stars}</div>
@@ -3775,12 +3802,12 @@ function renderInbox() {
       <div class="ic-received">${esc(r.time)}</div>
     </div>`;
   }).join('');
+  _syncBulkBar(filtered);
+  _syncSelectAll(filtered);
 
   list.querySelectorAll('.inbox-row').forEach(el => {
-    el.addEventListener('click', () => {
-      // Selecting a row is what moves from the queue to the case page. The
-      // review is the same object; only the surface changes. The RCA opens on
-      // demand, so a freshly opened case shows the facts first.
+    el.addEventListener('click', (e) => {
+      if (e.target.classList.contains('inbox-cb')) return;
       state.selected = el.dataset.id;
       state.screen = 'case';
       state.rcaOpen = false;
@@ -3788,8 +3815,79 @@ function renderInbox() {
       renderReviewCol();
       renderRcaCol();
     });
+    const cb = el.querySelector('.inbox-cb');
+    if (cb) cb.addEventListener('change', () => {
+      const rid = cb.dataset.selId;
+      if (cb.checked) state.selectedIds.add(rid); else state.selectedIds.delete(rid);
+      _syncBulkBar(filtered);
+      _syncSelectAll(filtered);
+    });
   });
 }
+
+function _syncBulkBar(filtered) {
+  const bar = document.getElementById('bulk-action-bar');
+  const cnt = document.getElementById('bulk-action-count');
+  if (!bar) return;
+  const n = state.selectedIds.size;
+  bar.hidden = n === 0;
+  if (cnt) cnt.textContent = n + ' selected';
+}
+
+function _syncSelectAll(filtered) {
+  const sa = document.getElementById('inbox-select-all');
+  if (!sa || !filtered || filtered.length === 0) return;
+  const allChecked = filtered.every(r => state.selectedIds.has(r.id));
+  const someChecked = filtered.some(r => state.selectedIds.has(r.id));
+  sa.checked = allChecked;
+  sa.indeterminate = someChecked && !allChecked;
+}
+
+(function _initBulkControls() {
+  const sa = document.getElementById('inbox-select-all');
+  if (sa) sa.addEventListener('change', () => {
+    const rows = document.querySelectorAll('#inbox-list .inbox-cb[data-sel-id]');
+    rows.forEach(cb => {
+      const rid = cb.dataset.selId;
+      if (sa.checked) { state.selectedIds.add(rid); cb.checked = true; }
+      else { state.selectedIds.delete(rid); cb.checked = false; }
+    });
+    _syncBulkBar();
+  });
+
+  const closeBtn = document.getElementById('bulk-close-btn');
+  if (closeBtn) closeBtn.addEventListener('click', async () => {
+    const ids = [...state.selectedIds];
+    if (ids.length === 0) return;
+    closeBtn.disabled = true;
+    closeBtn.textContent = `Closing ${ids.length}…`;
+    let ok = 0, fail = 0;
+    for (const id of ids) {
+      try {
+        const res = await fetch(`/api/reviews/${id}/close`, {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({reason: 'Bulk-closed from dashboard.'}),
+        });
+        if (!res.ok) throw new Error(res.status);
+        ok++;
+        const r = REVIEWS.find(rv => rv.id === id);
+        if (r) r.status = 'sent';
+      } catch (e) { fail++; console.warn('bulk close failed for', id, e); }
+      closeBtn.textContent = `Closing… ${ok + fail}/${ids.length}`;
+    }
+    state.selectedIds.clear();
+    closeBtn.disabled = false;
+    closeBtn.textContent = 'Close selected';
+    await reloadFromServer();
+    if (fail) alert(`${ok} closed, ${fail} failed — check the console.`);
+  });
+
+  const desel = document.getElementById('bulk-deselect');
+  if (desel) desel.addEventListener('click', () => {
+    state.selectedIds.clear();
+    renderInbox();
+  });
+})();
 
 // The stage chip, shared by the queue row and the case header so the two
 // never disagree about what a review is. "Closed out" is not "Sent": both

@@ -1,0 +1,26 @@
+[
+  {
+    "file": "client/index.html",
+    "name": "checkbox column removed from rows — no way to select",
+    "find": "      <div class=\"ic-cb\"><input type=\"checkbox\" class=\"inbox-cb\" data-sel-id=\"${r.id}\"${checked}></div>",
+    "replace": ""
+  },
+  {
+    "file": "client/index.html",
+    "name": "select-all checkbox removed from header",
+    "find": "<input type=\"checkbox\" class=\"inbox-cb\" id=\"inbox-select-all\" title=\"Select all visible\">",
+    "replace": ""
+  },
+  {
+    "file": "client/index.html",
+    "name": "bulk close handler wired to wrong selector — close button does nothing",
+    "find": "const closeBtn = document.getElementById('bulk-close-btn');",
+    "replace": "const closeBtn = document.getElementById('bulk-close-btnXX');"
+  },
+  {
+    "file": "client/index.html",
+    "name": "checkbox change handler does not update selectedIds",
+    "find": "if (cb.checked) state.selectedIds.add(rid); else state.selectedIds.delete(rid);",
+    "replace": "if (cb.checked) state.selectedIds.add(rid);"
+  }
+]

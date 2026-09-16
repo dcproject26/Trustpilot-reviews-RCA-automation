@@ -22,10 +22,10 @@ def _on_the_inbox(page):
 
 # ── the table ───────────────────────────────────────────────────────────────
 
-def test_the_header_names_all_six_columns(page):
+def test_the_header_names_all_columns(page):
     heads = page.evaluate(
         "() => [...document.querySelectorAll('.inbox-thead > div')]"
-        ".map(d => d.textContent.trim())")
+        ".map(d => d.textContent.trim()).filter(Boolean)")
     assert heads == ["Guest", "Review", "Booking", "State",
                      "Picked up by", "Received"]
 
