@@ -202,3 +202,15 @@ def test_dashboard_parity_reconciles_exactly(live_db):
     assert p["reporting_total"] == 5
     assert p["excluded_test_rows"] == 2
     assert p["unexplained_gap"] == 0
+
+
+def test_reconcile_flags_an_unexplained_gap():
+    """The pure arithmetic behind the parity check. A gap that is NOT the
+    test-owner rows must read not-ok — that is the whole point of the verifier."""
+    from server.services.reporting_selfcheck import _reconcile
+    ok = _reconcile(dashboard_total=7, reporting_total=5, excluded=2)
+    assert ok["ok"] is True and ok["unexplained_gap"] == 0
+    gap = _reconcile(dashboard_total=10, reporting_total=5, excluded=2)
+    assert gap["ok"] is False
+    assert gap["unexplained_gap"] == 3
+    assert "UNEXPLAINED" in gap["note"]

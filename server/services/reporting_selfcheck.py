@@ -226,6 +226,13 @@ def dashboard_parity(db) -> dict:
     dashboard_total = db.query(Review).count()
     reporting_total = len(records(db, None, None))     # all-time, test rows excluded
     excluded = _excluded_test_rows(db, None, None)
+    return _reconcile(dashboard_total, reporting_total, excluded)
+
+
+def _reconcile(dashboard_total: int, reporting_total: int, excluded: int) -> dict:
+    """The parity arithmetic, pure so it can be tested with a real gap. The
+    invariant: dashboard_total == reporting_total + excluded. Anything else is
+    an unexplained gap and is NOT ok."""
     reconciled = reporting_total + excluded
     ok = (reconciled == dashboard_total)
     return {
