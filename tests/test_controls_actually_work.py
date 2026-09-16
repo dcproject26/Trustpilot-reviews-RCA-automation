@@ -1427,11 +1427,19 @@ def _mock_reporting_page(page, totals=None, rows=None, matched=2, scanned=2):
             "matched": matched, "scanned": scanned,
             "totals": totals or {}, "unset": {}, "unnested": [],
         })))
+    page.route("**/api/reporting/overview", lambda route: route.fulfill(
+        status=200, content_type="application/json", body=_j.dumps({
+            "totals": totals or {}, "matched": matched, "scanned": scanned,
+            "cards": {"tier": {"rows": rows if rows is not None else [],
+                               "row_count": len(rows or []), "unset": 0,
+                               "truncated": False}},
+        })))
 
 
 def _unroute_reporting_page(page):
     page.unroute("**/api/reporting/fields")
     page.unroute("**/api/reporting/query")
+    page.unroute("**/api/reporting/overview")
 
 
 def _clear_reporting_modal(page):
@@ -1733,11 +1741,27 @@ def _mock_reporting_capture(page, rows=None, totals=None, unset=None,
             "unset": unset or {}, "unnested": unnested or [],
         }))
     page.route("**/api/reporting/query", _query)
+
+    def _overview(route):
+        try:
+            sent.append(_j.loads(route.request.post_data or "{}"))
+        except Exception:
+            sent.append({})
+        _rows = rows if rows is not None else []
+        cards = {d["key"]: {"rows": _rows, "row_count": len(_rows),
+                            "unset": (unset or {}).get(d["key"], 0),
+                            "truncated": False}
+                 for d in _RPG_REGISTRY["dimensions"]}
+        route.fulfill(status=200, content_type="application/json", body=_j.dumps({
+            "totals": totals or {"count": matched, "solved_pct": 50.0},
+            "matched": matched, "scanned": scanned, "cards": cards}))
+    page.route("**/api/reporting/overview", _overview)
     return sent
 
 
 def _unroute_rpg(page):
     for pat in ("**/api/reporting/fields", "**/api/reporting/query",
+                "**/api/reporting/overview",
                 "**/api/reports/daily/preview", "**/api/reports/daily/send",
                 "**/api/reporting/report/preview", "**/api/reporting/report/send"):
         try:
@@ -2199,7 +2223,10 @@ def test_an_overview_card_asks_the_same_question_explore_does(page):
         card = page.evaluate(
             """() => [...document.querySelectorAll('#reporting-modal .rpg-card')]
                  .find(c => c.querySelector('h4').textContent.includes('Match tier')).innerText""")
-        from_overview = [b for b in sent if b.get("dimensions") == ["tier"]]
+        # The Overview now asks ONE /overview request for the whole page (no
+        # `dimensions` key); Explore asks a /query for the one field. The
+        # "same question" they must share is the SCOPE — dates and filters.
+        from_overview = [b for b in sent if "dimensions" not in b]
         sent.clear()
         # Exactly what a person does next: the card's own drill-through.
         page.click("#reporting-modal .rpg-card [data-explore='tier']")
@@ -2210,10 +2237,11 @@ def test_an_overview_card_asks_the_same_question_explore_does(page):
         from_explore = [b for b in sent if b.get("dimensions") == ["tier"]]
     finally:
         _unroute_rpg(page)
-    assert from_overview, "the Overview never queried Match tier"
+    assert from_overview, "the Overview never asked the server for the page"
     assert from_explore, "Explore never queried Match tier"
     o, e = from_overview[-1], from_explore[-1]
-    for field in ("date_from", "date_to", "filters", "dimensions"):
+    # Same scope -> the card and the table cannot be answering different windows.
+    for field in ("date_from", "date_to", "filters"):
         assert o.get(field) == e.get(field), (
             "the card and the table asked different questions about %s: %r vs %r"
             % (field, o.get(field), e.get(field)))
