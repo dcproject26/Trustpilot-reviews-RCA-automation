@@ -10238,25 +10238,6 @@ function rpgCardGroups() {
     .filter(([, keys]) => keys.length);
 }
 
-// A small concurrency pool. The Overview asks one query per card and used to do
-// it strictly one after another, so 25 cards meant 25 serial round trips and the
-// last card's numbers were fetched seconds after the first — long enough for a
-// review closed in between to appear in one card and not another. Running them
-// in a tight batch narrows that window to near zero AND is what makes the "as
-// of" stamp below honest.
-async function rpgPool(items, width, fn) {
-  const out = new Array(items.length);
-  let next = 0;
-  await Promise.all(new Array(Math.min(width, items.length)).fill(0).map(async () => {
-    while (true) {
-      const i = next++;
-      if (i >= items.length) return;
-      out[i] = await fn(items[i], i);
-    }
-  }));
-  return out;
-}
-
 function rpgBars(rows, total, topKey) {
   if (!rows.length) return `<div class="rpg-empty2" style="margin-top:8px">no values in this range</div>`;
   const mx = Math.max(1, ...rows.map(r => Number(r.values[topKey]) || 0));
@@ -10272,10 +10253,15 @@ async function rpgOverview(view) {
   const ticket = ++RPG.seq;            // only the newest render may paint
   view.innerHTML = `<div class="rpg-pad"><div class="rep-empty">Loading…</div></div>`;
   try {
-    const head = await rpgQuery({dimensions: [], measures: RPG_KPIS.map(k => k[0])});
+    // ONE request, ONE scan. The Overview used to fire ~29 queries (a head plus
+    // one per card), each re-loading and re-projecting every review — which on a
+    // few hundred rows meant seconds of "loading…" and, under the concurrent
+    // storm, 500s from the server. /overview computes the KPIs and every card's
+    // top-25 in a single pass, so the whole page is one round trip.
+    const data = await rpgPost('/api/reporting/overview', rpgScope());
     if (ticket !== RPG.seq) return;
-    rpgNote(head);
-    if (!head.matched) {
+    rpgNote({matched: data.matched, scanned: data.scanned});
+    if (!data.matched) {
       view.innerHTML = `<div class="rpg-pad"><div class="rpg-zero"><b>No reviews match this scope.</b><br>
         Widen the date range or clear a filter above.</div></div>`;
       return;
@@ -10287,18 +10273,15 @@ async function rpgOverview(view) {
       </div>
       <div class="rpg-kpis">` + RPG_KPIS.map(([k, l]) => {
       const sub = k === 'solved_pct' ? 'of reviews in'
-        : k === 'traced_pct' ? `${head.totals.count} reviews`
+        : k === 'traced_pct' ? `${data.totals.count} reviews`
         : k === 'median_tts' ? 'median, not mean' : '';
       return `<div class="rpg-kpi"><div class="l">${esc(l)}</div>` +
-        `<div class="v">${esc(rpgFmt(k, head.totals[k]))}</div><div class="d">${esc(sub)}</div></div>`;
+        `<div class="v">${esc(rpgFmt(k, data.totals[k]))}</div><div class="d">${esc(sub)}</div></div>`;
     }).join('') + `</div><div data-rpg-cards></div></div>`;
     view.innerHTML = html;
 
     const host = view.querySelector('[data-rpg-cards]');
-    // Every card's slot is created FIRST, so the cards land in registry order no
-    // matter which query answers first, and an unanswered card says "loading"
-    // rather than simply not existing.
-    const slots = [];
+    let nCards = 0;
     for (const [title, keys] of rpgCardGroups()) {
       const sec = document.createElement('div');
       sec.className = 'rpg-sec';
@@ -10307,56 +10290,40 @@ async function rpgOverview(view) {
       const grid = sec.querySelector('.rpg-cards');
       for (const key of keys) {
         const d = RPG.dimByKey[key]; if (!d) continue;
+        const c = data.cards[key];
         const card = document.createElement('div');
         card.className = 'rpg-card';
-        card.innerHTML = `<h4><span>${esc(d.label)}</span></h4><div class="rpg-empty2">loading…</div>`;
-        grid.appendChild(card);
-        slots.push({key: key, d: d, card: card});
+        if (!c) {
+          card.innerHTML = `<h4><span>${esc(d.label)}</span></h4>` +
+            `<div class="rpg-miss">Not returned for this scope.</div>`;
+          grid.appendChild(card); nCards++; continue;
+        }
+        const open = !!RPG.expanded[key];
+        // The server returns the top 25; "show top 6" collapses client-side with
+        // no new request. `truncated` reflects the full value count, not the 25.
+        const shown = open ? c.rows : c.rows.slice(0, 6);
+        const filled = data.matched - (c.unset || 0);
+        // A multi-valued field's rows count MENTIONS, not reviews: they sum past
+        // the review total. The denominator for those is the mentions.
+        const total = d.multi ? c.rows.reduce((a, r) => a + (Number(r.values.count) || 0), 0) : filled;
+        const moreThan6 = c.row_count > 6;
+        card.innerHTML =
+          `<h4><span>${esc(d.label)}</span><span class="fillc">${filled}/${data.matched}</span></h4>` +
+          rpgBars(shown, total, 'count') +
+          (d.multi ? `<div class="rpg-miss">Several values per review — the ${shown.length ? 'shares' : 'counts'} are of ${total} mention(s), not of ${data.matched} reviews.</div>` : '') +
+          (c.unset ? `<div class="rpg-miss">${c.unset} review(s) have no ${esc(d.label.toLowerCase())} — not counted.</div>` : '') +
+          (moreThan6 ? `<button class="rpg-drill" data-more="${rpgAttr(key)}">${open ? 'Show top 6' : `Show all ${c.row_count} values`}</button> ` : '') +
+          `<button class="rpg-drill" data-explore="${rpgAttr(key)}">Explore this field →</button>`;
+        grid.appendChild(card); nCards++;
       }
     }
-    await rpgPool(slots, 6, async (s) => {
-      const key = s.key, d = s.d, open = !!RPG.expanded[key];
-      // EXACTLY the Explore request for this field and scope — same dimension,
-      // same filters, same dates — so the card and the table cannot disagree.
-      // Only `limit` differs, and limit selects rows, never counts them.
-      let res;
-      try {
-        res = await rpgQuery({dimensions: [key], measures: ['count'],
-                              limit: open ? 25 : 6, sort: 'count'});
-      } catch (e) {
-        if (ticket !== RPG.seq) return;
-        // Rule 1: a card that could not be fetched must not look like a field
-        // with no values in this range.
-        s.card.innerHTML = `<h4><span>${esc(d.label)}</span></h4>` +
-          `<div class="rpg-miss">Could not load this field: ${esc(String(e.message || e).slice(0, 120))}</div>`;
-        return;
-      }
-      if (ticket !== RPG.seq) return;     // the scope or tab changed mid-flight
-      const filled = res.matched - (res.unset[key] || 0);
-      // A multi-valued field's rows count MENTIONS, not reviews: they sum past
-      // the review total, so a share taken over `filled` reads over 100% and the
-      // "filled/total" header reads as a proportion when it is not one. The
-      // denominator for those is the mentions, and the card says which it is —
-      // this is the same warning Explore already prints for unnested fields.
-      const total = d.multi ? res.rows.reduce((a, r) => a + (Number(r.values.count) || 0), 0) : filled;
-      s.card.innerHTML =
-        `<h4><span>${esc(d.label)}</span><span class="fillc">${filled}/${res.matched}</span></h4>` +
-        rpgBars(res.rows, total, 'count') +
-        (d.multi ? `<div class="rpg-miss">Several values per review — the ${res.rows.length ? 'shares' : 'counts'} are of ${total} mention(s), not of ${res.matched} reviews.</div>` : '') +
-        // Rule 1: a short bar because nobody recorded the field is not the
-        // same as a short bar because it did not happen.
-        (res.unset[key] ? `<div class="rpg-miss">${res.unset[key]} review(s) have no ${esc(d.label.toLowerCase())} — not counted.</div>` : '') +
-        (res.truncated || open ? `<button class="rpg-drill" data-more="${rpgAttr(key)}">${open ? 'Show top 6' : `Show all ${res.row_count} values`}</button> ` : '') +
-        `<button class="rpg-drill" data-explore="${rpgAttr(key)}">Explore this field →</button>`;
-    });
     if (ticket !== RPG.seq) return;
-    // These numbers are a snapshot of a database that is still being written to.
-    // Stamping it is what lets a manager tell "the Overview is wrong" from "the
-    // Overview is ten minutes old" — the two looked identical before.
     const asof = view.querySelector('[data-rpg-asof]');
-    if (asof) asof.textContent = `${slots.length} field(s) · as of ${new Date().toLocaleTimeString()} · reviews closed after this are not in these cards`;
+    if (asof) asof.textContent = `${nCards} field(s) · as of ${new Date().toLocaleTimeString()} · one scan of ${data.matched} reviews`;
     const oref = view.querySelector('[data-rpg-oref]');
     if (oref) oref.addEventListener('click', () => rpgOverview(view));
+    // Expand/collapse is a client-side re-render off the SAME data — no re-fetch,
+    // because the server already sent the top 25.
     host.querySelectorAll('[data-more]').forEach(b => b.addEventListener('click', () => {
       RPG.expanded[b.dataset.more] = !RPG.expanded[b.dataset.more]; rpgOverview(view); }));
     host.querySelectorAll('[data-explore]').forEach(b => b.addEventListener('click', () => {

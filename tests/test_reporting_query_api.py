@@ -125,3 +125,34 @@ def test_limit_truncates_and_says_so(client):
         **W, "dimensions": ["tier"], "measures": ["count"], "limit": 1}).json()
     # Two tiers remain after excluding the test-owner review ('b' was Tier 2).
     assert len(d["rows"]) == 1 and d["row_count"] == 2 and d["truncated"] is True
+
+
+def test_overview_is_one_call_with_kpis_and_every_card(client):
+    """The Overview used to fire ~29 queries (a head + one per card), each
+    re-scanning every review — seconds of loading, and 500s under the concurrent
+    storm. /overview returns the KPI totals AND every dimension's top-N from a
+    SINGLE scan, so the whole page is one request. Its numbers must match what
+    the per-field /query returns for the same scope."""
+    _seed(client)
+    ov = client.post("/api/reporting/overview", json=W).json()
+    # KPI totals present and correct (test-owner 'b' excluded -> 2 production).
+    assert ov["matched"] == 2
+    assert ov["totals"]["count"] == 2
+    assert ov["totals"]["solved"] == 1                 # only 'a' is sent & real
+    # Every non-date dimension has a card.
+    from server.services.reporting_query import DIMENSIONS
+    expected = {d.key for d in DIMENSIONS if d.key != "date"}
+    assert set(ov["cards"].keys()) == expected
+    # A card's rows match the standalone /query for the same field and scope —
+    # the Overview and Explore cannot disagree.
+    q = client.post("/api/reporting/query", json={
+        **W, "dimensions": ["tier"], "measures": ["count"]}).json()
+    ov_tier = {tuple(r["key"])[0]: r["values"]["count"] for r in ov["cards"]["tier"]["rows"]}
+    q_tier = {tuple(r["key"])[0]: r["values"]["count"] for r in q["rows"]}
+    assert ov_tier == q_tier
+
+
+def test_overview_rejects_a_backwards_window(client):
+    r = client.post("/api/reporting/overview",
+                    json={"date_from": "2027-03-05", "date_to": "2027-03-01"})
+    assert r.status_code == 422

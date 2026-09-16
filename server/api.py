@@ -3658,6 +3658,51 @@ def reporting_query(body: ReportingQuery, db: Session = Depends(get_session)):
         raise HTTPException(422, str(e))
 
 
+@router.post("/api/reporting/overview")
+def reporting_overview(body: ReportingQuery, db: Session = Depends(get_session)):
+    """The whole Overview in ONE pass over the reviews.
+
+    The Overview used to fire one /query per card — ~29 requests, each of which
+    re-loaded and re-projected every review. On a few hundred rows that was
+    seconds of "loading…". This loads `records()` ONCE and computes the KPI
+    totals plus every dimension's top-25 from that single list, so the Overview
+    is one request and one scan. Each card's numbers are identical to what the
+    per-field /query would have returned for the same scope."""
+    from datetime import timedelta
+    from server.services.reporting_query import (
+        records, run_query, DIMENSIONS)
+
+    def _day(v, end=False):
+        if not v:
+            return None
+        try:
+            d = datetime.strptime(v, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(422, f"date must be YYYY-MM-DD, got {v!r}")
+        return d + timedelta(days=1) if end else d
+
+    start, end = _day(body.date_from), _day(body.date_to, end=True)
+    if start and end and end <= start:
+        raise HTTPException(422, "date_to must not be before date_from")
+
+    recs = records(db, start, end)          # ONE scan, reused for every card
+    kpis = ["count", "solved", "solved_pct", "traced_pct", "median_tts",
+            "posted", "untraceable", "avg_rating", "flags", "zendesk",
+            "avg_issues"]
+    head = run_query(recs, [], kpis, filters=body.filters)
+    cards = {}
+    for d in DIMENSIONS:
+        if d.key == "date":
+            continue
+        res = run_query(recs, [d.key], ["count"], filters=body.filters,
+                        limit=25, sort="count")
+        cards[d.key] = {"rows": res["rows"], "row_count": res["row_count"],
+                        "unset": res["unset"].get(d.key, 0),
+                        "truncated": res["truncated"]}
+    return {"totals": head["totals"], "matched": head["matched"],
+            "scanned": head["scanned"], "cards": cards}
+
+
 @router.get("/api/reporting")
 def reporting(db: Session = Depends(get_session)):
     metrics = (db.query(ReviewMetric)
