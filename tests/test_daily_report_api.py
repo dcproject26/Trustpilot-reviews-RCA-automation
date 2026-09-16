@@ -20,7 +20,7 @@ def test_preview_returns_text_and_channel(client, monkeypatch):
     assert "Total pending reviews: *0*" in text
     assert "• Received today — *0*" in text
     assert "• Solved today — *0*" in text
-    assert "Tier — last 24 hours" in text
+    assert "Solved by tier" in text
     # No cross-cohort ratio anywhere, and no percentage invented out of an empty
     # cohort (0 of 0 is unanswerable, not 0%).
     assert "%" not in text

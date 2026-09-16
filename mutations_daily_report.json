@@ -85,18 +85,6 @@
   },
   {
     "file": "server/services/daily_report.py",
-    "name": "daily: the tier mix falls back to the backlog instead of the 24h cohort",
-    "find": "        mix_rows=collect_window_rows(db, now))",
-    "replace": "        mix_rows=collect_pending_rows(db))"
-  },
-  {
-    "file": "server/services/daily_report.py",
-    "name": "daily: the 24h cohort misses reviews finished in the window",
-    "find": "                   and_(Review.received_at >= start, Review.received_at < end),\n                   and_(RcaDraft.sent_at >= start, RcaDraft.sent_at < end),",
-    "replace": "                   and_(Review.received_at >= start, Review.received_at < end),\n                   and_(RcaDraft.sent_at >= start, RcaDraft.sent_at < start),"
-  },
-  {
-    "file": "server/services/daily_report.py",
     "name": "daily: Slack italics creep back onto the backlog caption",
     "find": "            out.append(pending_label)",
     "replace": "            out.append(f\"_{pending_label}_\")"
@@ -104,8 +92,8 @@
   {
     "file": "server/services/daily_report.py",
     "name": "daily: a NULL status is dropped from the pending count",
-    "find": "    return (db.query(Review)\n              .filter(or_(Review.status.is_(None), Review.status != SENT))\n              .count())",
-    "replace": "    return (db.query(Review)\n              .filter(Review.status != SENT)\n              .count())"
+    "find": "              .filter(or_(Review.status.is_(None), Review.status != SENT))\n              .filter(not_test_row_clause(Review))\n              .count())",
+    "replace": "              .filter(Review.status != SENT)\n              .filter(not_test_row_clause(Review))\n              .count())"
   },
   {
     "file": "server/services/daily_report.py",

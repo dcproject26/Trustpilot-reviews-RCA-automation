@@ -10,7 +10,7 @@ from server.services.daily_report import Row, summarize, IST, _received_between,
     _collect_solved_between
 from server.services.weekly_report import (
     week_bounds, _week_end_ist, _week_db_bounds, build_weekly_digest,
-    render_weekly, week_options, _collect_window_rows)
+    render_weekly, week_options)
 
 
 def _n(dt):
@@ -110,9 +110,10 @@ def test_render_weekly_headline_trend_and_blocks():
     assert "*ORM Weekly — 7 – 14 Sep 2026*" in out
     assert "• Received — *20*" in out and "• Solved — *3*" in out
     assert "Mon 7 Sep 8pm → Mon 14 Sep 8pm IST" in out
-    # No pending cohort here, so no denominator is stated — and therefore no
-    # share is printed. A percentage the reader cannot check is worse than none.
-    assert "%" not in out
+    # Tier breaks down the 3 solved rows, so each share is of that total
+    # (they partition it) — 1 of 3 is 33%. The shares are recoverable from the
+    # rows on screen, so they print.
+    assert "🟢 Tier 1 — 1 (33%)" in out
     # Daily trend rows, received / solved.
     assert "*📈  By day — received / solved*" in out
     assert "• Tue 8 Sep — 3 / 2" in out and "• Wed 9 Sep — 5 / 4" in out
@@ -195,7 +196,7 @@ def test_weekly_tier_covers_what_was_handled_not_the_backlog():
     # and NOT just the 2 solved. There is no caption naming that 4, so the
     # cohort is pinned through the SHARES: 2/4, 1/4, 1/4 -> 50/25/25. Against
     # the 18-strong backlog or the 2 solved, none of those numbers hold.
-    assert "*🏷️  Tier — this week*" in out and "% of" not in out
+    assert "*🏷️  Solved by tier*" in out and "% of" not in out
     assert "🟢 Tier 1 — 2 (50%)" in out
     assert "🟡 Tier 2 — 1 (25%)" in out
     assert "🔴 Untraceable — 1 (25%)" in out
@@ -210,15 +211,11 @@ def test_weekly_solved_by_is_counts_only_and_has_no_italics():
     assert "_" not in out
 
 
-def test_weekly_tier_mix_includes_backlog_carried_into_the_week(live_db):
-    """THE PROPERTY: the tier mix covers everything HANDLED in the week — which
-    includes a review that ARRIVED before the week and was finished inside it.
-
-    Counting only the week's own arrivals would quietly drop exactly the reviews
-    an ORM team cares most about: the old ones finally cleared. Two mutants
-    survived here before this test existed — one pointing the mix at the backlog
-    instead of the week, one dropping the finished-in-window arm of the join.
-    Both are DB-level wiring, invisible to the pure render tests."""
+def test_weekly_tier_block_is_the_solved_cohort_including_carried_in(live_db):
+    """THE PROPERTY: the tier block breaks down the reviews SOLVED in the week —
+    which INCLUDES a review that arrived before the week and was finished inside
+    it (the old ones finally cleared, exactly what an ORM team cares about), and
+    EXCLUDES one that arrived in the week but is still open."""
     from server.db import Review, RcaDraft
     now = datetime(2026, 9, 16, 6, 0, tzinfo=timezone.utc)
     start, end = _week_db_bounds(now)
@@ -235,14 +232,12 @@ def test_weekly_tier_mix_includes_backlog_carried_into_the_week(live_db):
         # arrived AND untouched entirely after the week -> NOT handled here
         s_.add(Review(id="later", received_at=_n(end + timedelta(days=1)), rating=1))
         s_.commit()
-        rows = _collect_window_rows(s_, start, end)
         text = build_weekly_digest(s_, now)
     finally:
         s_.close()
-    ids = len(rows)
-    assert ids == 2, rows            # the carried-in solve AND the open arrival
-    # ...and the rendered caption counts that same cohort, not the backlog.
-    # No "% of N" caption — the rows sum to it (partition), so it added nothing.
+    # The tier block is the SOLVED cohort: only "old" (Tier 2) was
+    # finished in the week; "open1" is still a draft, so it is not here. Sums to
+    # the week's Solved (1). No "% of N" caption — the rows partition it.
     assert "% of" not in text
-    # The carried-in review is Tier 2; dropping it would leave Tier 2 at zero.
-    assert "🟡 Tier 2 — 1 (50%)" in text
+    assert "🟡 Tier 2 — 1 (100%)" in text
+    assert "🟢 Tier 1 — 0 (0%)" in text

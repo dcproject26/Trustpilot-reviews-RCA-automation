@@ -54,6 +54,14 @@ those rows — `selfcheck.excluded_test_rows` reports how many).
 
 ## Fixed drifts (this session)
 
+- **Daily/weekly digest tier block counted a confusing third cohort.** It broke
+  down the "handled" union (received OR finished in the window), which summed to
+  neither Received nor Solved — e.g. Received 10, Solved 10, Tier summing to 15,
+  reconciling with nothing on screen. It now breaks down the SOLVED cohort and
+  is titled "Solved by tier", so it sums to Solved and each share is of that
+  total. The dead `collect_window_rows` / `_collect_window_rows` helpers were
+  removed with it.
+
 - **Booking date blank on the Slack post / export** (`— not recorded` while the
   dashboard showed it): `row_for`/`_booking_details_lines` missed the
   `date_of_booking` alias the `verify_bid` path writes. Now first in the list,

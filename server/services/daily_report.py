@@ -294,29 +294,17 @@ def render_digest(summary: Summary, date_label: str, window_label: str = "",
         out += _section("*🧑‍💻  Solved by*",
                         [f"• {k} — {v}" for k, v in s.people])
 
-    # 5. Tier — always the three buckets, each with its colour dot, as a share of
-    # the cohort they were counted over (the pending backlog for the daily).
-    # The block is named after the cohort it actually counted. With no pending
-    # cohort supplied the mix falls back to the solved rows, and calling that
-    # "Pending by tier" would mislabel the number rather than just omit it.
-    over_pending = s.pending is not None
-    # The "% of N pending" caption is only printed when there is something to
-    # divide by. On an empty backlog `_pct` prints no shares at all, so the
-    # caption would be promising percentages that no row carries — and "% of 0"
-    # is not a denominator.
-    # No "% of N" caption: it restated a number the rows already carry.
-    has_base = over_pending and s.mix_base > 0
-    tier_title = "Tier — last 24 hours" if over_pending else "Reviews by tier"
-    # THE SHARES STAY, AND ARE SAFE WITHOUT A CAPTION, because the tier buckets
-    # PARTITION the cohort: every review is exactly one of Tier 1 / Tier 2 /
-    # Untraceable, so the rows on screen sum to the denominator and the reader
-    # can recover it by adding them (22 + 22 + 2 = 46). That is what the deleted
-    # "of 106 = 64 pending + 42 solved" could never do — its denominator was a
-    # stock added to a flow and appeared nowhere else in the report.
+    # 5. Solved by tier — the same SOLVED cohort as "Solved today" and "Solved
+    # by", broken down by match tier. It therefore SUMS to Solved today: the
+    # reader reconciles it against a number already on the report, and each
+    # share is of that same total (the buckets partition it, so adding the rows
+    # recovers the denominator). It used to count the "handled" union (received
+    # OR finished), which summed to neither Received nor Solved.
+    has_base = s.mix_base > 0
     tier_rows = [f"{_TIER_DOT.get(lbl, '•')} {lbl} — {s.tier.get(lbl, 0)}"
                  f"{_pct(s.tier.get(lbl, 0), s.mix_base) if has_base else ''}"
                  for lbl in _TIER_FIXED]
-    out += _section(f"*🏷️  {tier_title}*", tier_rows)
+    out += _section("*🏷️  Solved by tier*", tier_rows)
 
     # NO category block. The digest is a glance at how deep the backlog is and
     # who is clearing it; the category breakdown lives in the Reporting page,
@@ -461,43 +449,21 @@ def pending_count(db) -> int:
               .count())
 
 
-def collect_window_rows(db, now: datetime) -> list[Row]:
-    """Everything the team HANDLED in the 8pm→8pm window: reviews that arrived in
-    it, plus reviews finished in it that arrived earlier. Deduplicated, because a
-    review that both arrived and was solved today must be counted once.
-
-    This is the cohort the tier mix describes — the day's work, solved and still
-    open alike — rather than the all-time backlog, which answers a different
-    question and moves far more slowly than a daily report should."""
-    from server.db import Review, RcaDraft
-    from sqlalchemy import or_, and_
-    start, end = _db_bounds(now)
-    from server.services.reporting_query import not_test_row_clause
-    pairs = (db.query(Review, RcaDraft)
-               .outerjoin(RcaDraft, RcaDraft.review_id == Review.id)
-               .filter(or_(
-                   and_(Review.received_at >= start, Review.received_at < end),
-                   and_(RcaDraft.sent_at >= start, RcaDraft.sent_at < end),
-                   and_(Review.closed_at >= start, Review.closed_at < end)))
-               .filter(not_test_row_clause(Review))
-               .all())
-    # No de-duplication: RcaDraft.review_id is UNIQUE, so a review joins to at
-    # most one draft and matching several arms of the OR still yields one row.
-    # A dedup pass here would be a guard nothing can reach — which reads as
-    # protection while proving nothing.
-    return [_row_from(r, d) for r, d in pairs]
-
-
 def build_daily_digest(db, now: datetime | None = None) -> str:
     """The full digest text for a run at `now` (defaults to real now)."""
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
+    # The tier block breaks down the SOLVED cohort, so it sums to "Solved today"
+    # — a number already on the report. It used to count the "handled" union
+    # (received OR finished in the window), which produced a third total that
+    # matched neither Received nor Solved and reconciled with nothing on screen
+    # (Received 10, Solved 10, Tier summing to 15). mix_rows is omitted so the
+    # tier mix falls back to solved_rows.
     summary = summarize(
         collect_solved_rows(db, now),
         received_count(db, now),
-        pending_count=pending_count(db),
-        mix_rows=collect_window_rows(db, now))
+        pending_count=pending_count(db))
     # Label with the window's END day (the 8pm cutoff date it covers up to), not
     # the raw clock — at the 8pm run these coincide, but a mid-day preview of the
     # last completed day must be dated that day, not today. %-d (no leading

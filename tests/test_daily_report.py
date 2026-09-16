@@ -144,14 +144,13 @@ def test_empty_cohort_renders_zeros_without_error():
 # ── render ──────────────────────────────────────────────────────────────────
 
 def _full_summary():
+    # Tier breaks down the SOLVED cohort (production omits pending_rows/mix_rows),
+    # so it sums to Solved: Tier 1 = 2, Tier 2 = 2, Untraceable = 0.
     solved = [Row(solved=True, picked_up_by="Avi", tier=1),
               Row(solved=True, picked_up_by="Avi", tier=1),
               Row(solved=True, picked_up_by="Shruti", tier=2),
               Row(solved=True, picked_up_by="Shruti", tier=2)]
-    pending = ([Row(tier=1, l1="Operations", l2="Ticket Issues")] * 5
-               + [Row(tier=2, l1="Supply", l2="Guide No Show")] * 4
-               + [Row(tier=None)])              # untraceable, uncategorised
-    return summarize(solved, received_count=10, pending_rows=pending)
+    return summarize(solved, received_count=10, pending_count=10)
 
 
 def test_render_blocks_in_the_stakeholder_order():
@@ -169,7 +168,7 @@ def test_render_blocks_in_the_stakeholder_order():
     # Block ORDER is the ask: pending, then the 24h frame, then solved-by,
     # then tier. No categories.
     order = [out.index("Total pending reviews"), out.index("Last 24 hours"),
-             out.index("Solved by"), out.index("Tier — last 24 hours")]
+             out.index("Solved by"), out.index("Solved by tier")]
     assert order == sorted(order)
     # Tier is the LAST block: no category breakdown on the daily.
     assert "categor" not in out.lower()
@@ -187,13 +186,12 @@ def test_render_percentages_are_within_cohort():
     # moved for two unrelated reasons at once.
     assert "• Solved today — *4*" in out
     assert "• Solved today — *4* (" not in out
-    # Tier: each bucket as a share of the 10 PENDING, and the denominator is
-    # printed so the reader can check it.
-    # No "% of N" caption — the rows sum to it (partition), so it added nothing.
+    # Tier breaks down the SOLVED cohort (4 solved: 2 T1, 2 T2), so it sums to
+    # Solved and each share is of that total. No caption — the rows partition it.
     assert "% of" not in out
-    assert "🟢 Tier 1 — 5 (50%)" in out
-    assert "🟡 Tier 2 — 4 (40%)" in out
-    assert "🔴 Untraceable — 1 (10%)" in out
+    assert "🟢 Tier 1 — 2 (50%)" in out
+    assert "🟡 Tier 2 — 2 (50%)" in out
+    assert "🔴 Untraceable — 0 (0%)" in out
     # No category block on the daily at all — it lives in the Reporting page.
     assert "categories" not in out.lower()
     # The uncategorised backlog row is stated, not missing.
@@ -225,8 +223,8 @@ def test_pending_line_absent_when_no_pending_cohort_and_block_renamed():
     # counting the solved rows and must not claim to be counting the backlog.
     out = render_digest(summarize(_solved_cohort()), "x")
     assert "Total pending reviews" not in out
-    assert "Tier — last 24 hours" not in out
-    assert "*🏷️  Reviews by tier*" in out
+    # The tier block is always "Solved by tier" now — it counts the solved rows.
+    assert "*🏷️  Solved by tier*" in out
     assert "pending_" not in out
 
 
@@ -585,10 +583,11 @@ def test_build_daily_digest_dates_in_ist(live_db):
     # The backlog is captioned as all-time so it is not read as a windowed count.
     assert "Total pending reviews: *1*" in text
     assert "(all time)" in text
-    # Tier now describes the 24h COHORT — what was handled in the window,
-    # solved and still-open alike — not the all-time backlog.
-    assert "🟢 Tier 1 — 1 (50%)" in text and "🟡 Tier 2 — 1 (50%)" in text
-    # Solved-by is the 24h cohort.
+    # Tier breaks down the SOLVED cohort: only "r" (Tier 1) was solved in the
+    # window; "open" is still a draft, so it is NOT in the tier block (it is in
+    # the pending headline). Sums to Solved (1).
+    assert "🟢 Tier 1 — 1 (100%)" in text
+    assert "🟡 Tier 2 — 0 (0%)" in text
     assert "• Avi — 1" in text
 
 
@@ -641,10 +640,11 @@ def test_solved_never_carries_a_share_in_any_cohort_shape():
     assert "• Solved today — *3* (" not in out
 
 
-def test_the_tier_mix_is_the_24h_cohort_not_the_backlog(live_db):
-    """Tier describes WHAT WE HANDLED IN 24 HOURS — arrived in the window or
-    finished in it — solved and still-open alike. Not the all-time backlog,
-    which moves far too slowly to be a daily signal."""
+def test_the_tier_mix_is_the_solved_cohort(live_db):
+    """Tier describes the SOLVED cohort — the reviews finished in the window —
+    so it sums to Solved today, a number already on the report. Not the all-time
+    backlog, and not the received-or-handled union (which summed to neither
+    Received nor Solved)."""
     from server.db import Review, RcaDraft
     now = datetime(2026, 9, 10, 14, 30, tzinfo=timezone.utc)     # 8pm IST Sep10
     inwin = datetime(2026, 9, 10, 6, 0)                          # inside the window
@@ -664,13 +664,14 @@ def test_the_tier_mix_is_the_24h_cohort_not_the_backlog(live_db):
         text = build_daily_digest(s, now)
     finally:
         s.close()
-    # the stale backlog review is counted in the HEADLINE...
+    # the two open reviews are counted in the HEADLINE...
     assert "Total pending reviews: *2*" in text
-    # ...but the tier mix is the 2 handled in the window, not all 3
-    # No "% of N" caption — the rows sum to it (partition), so it added nothing.
+    # ...but the tier block is the SOLVED cohort: only w_old (Tier 1) was
+    # finished in the window. w_open (still a draft) is not solved, so it is not
+    # here. Sums to Solved (1). No caption — the rows partition it.
     assert "% of" not in text
-    assert "🟢 Tier 1 — 1 (50%)" in text
-    assert "🟡 Tier 2 — 1 (50%)" in text
+    assert "🟢 Tier 1 — 1 (100%)" in text
+    assert "🟡 Tier 2 — 0 (0%)" in text
 
 
 def test_a_review_both_received_and_solved_today_is_counted_once():

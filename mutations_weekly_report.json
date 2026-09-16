@@ -43,18 +43,6 @@
   },
   {
     "file": "server/services/weekly_report.py",
-    "name": "weekly: the tier mix describes the backlog instead of the week's work",
-    "find": "                        mix_rows=_collect_window_rows(db, start, end))",
-    "replace": "                        mix_rows=None)"
-  },
-  {
-    "file": "server/services/weekly_report.py",
-    "name": "weekly: the handled cohort drops reviews finished in the week but received earlier",
-    "find": "                   and_(RcaDraft.sent_at >= start, RcaDraft.sent_at < end),",
-    "replace": ""
-  },
-  {
-    "file": "server/services/weekly_report.py",
     "name": "weekly: the backlog headline is silently dropped",
     "find": "        out.append(f\"🗂️  Total pending reviews: *{s.pending}*\")",
     "replace": "        pass"

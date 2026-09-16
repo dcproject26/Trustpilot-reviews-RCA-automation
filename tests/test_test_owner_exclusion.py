@@ -18,7 +18,7 @@ import pytest
 
 from server.services.daily_report import (
     IST, _db_bounds, pending_count, _received_between,
-    _collect_solved_between, collect_window_rows,
+    _collect_solved_between,
     collect_pending_rows, build_daily_digest,
 )
 from server.services.reporting_query import records
@@ -94,15 +94,6 @@ def test_pending_count_drops_the_test_row(live_db):
     finally:
         s.close()
 
-
-def test_collect_window_rows_drops_the_test_row(live_db):
-    _plant(live_db, real=3, test=2)
-    with live_db.SessionLocal() as s:
-        rows = collect_window_rows(s, NOW)
-    # 3 real reviews handled in the window; test rows are gone from the
-    # tier-mix cohort too, so Tier 2 (their only marker) reads zero.
-    assert len(rows) == 3
-    assert not any(r.tier == 2 for r in rows)
 
 
 def test_collect_pending_rows_drops_the_test_row(live_db):

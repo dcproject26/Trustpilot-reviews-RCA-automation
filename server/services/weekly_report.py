@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from server.services.daily_report import (
     IST, REPORT_HOUR_IST, Summary, summarize, _section, _DIV,
     _TIER_FIXED, _TIER_DOT, _collect_solved_between, _received_between,
-    _row_from, pending_count, _pct)
+    pending_count, _pct)
 
 WEEK = timedelta(days=7)
 
@@ -66,27 +66,6 @@ def _day_label(day_end_utc_naive: datetime) -> str:
     return f"{end_ist.strftime('%a')} {end_ist.strftime('%d %b').lstrip('0')}"
 
 
-def _collect_window_rows(db, start: datetime, end: datetime):
-    """Everything HANDLED in [start, end): reviews that arrived in it, plus
-    reviews finished in it that arrived earlier.
-
-    This is the cohort the tier mix describes — the week's work, solved and
-    still open alike — matching the daily. No de-duplication is needed:
-    RcaDraft.review_id is UNIQUE, so the OR-join yields one row per review."""
-    from server.db import Review, RcaDraft
-    from sqlalchemy import or_, and_
-    from server.services.reporting_query import not_test_row_clause
-    pairs = (db.query(Review, RcaDraft)
-               .outerjoin(RcaDraft, RcaDraft.review_id == Review.id)
-               .filter(or_(
-                   and_(Review.received_at >= start, Review.received_at < end),
-                   and_(RcaDraft.sent_at >= start, RcaDraft.sent_at < end),
-                   and_(Review.closed_at >= start, Review.closed_at < end)))
-               .filter(not_test_row_clause(Review))
-               .all())
-    return [_row_from(r, d) for r, d in pairs]
-
-
 def build_weekly_digest(db, now: datetime | None = None, weeks_ago: int = 0) -> str:
     """The full weekly digest text for the selected completed week."""
     now = now or datetime.now(timezone.utc)
@@ -95,14 +74,13 @@ def build_weekly_digest(db, now: datetime | None = None, weeks_ago: int = 0) -> 
     start, end = _week_db_bounds(now, weeks_ago)
 
     solved_rows = _collect_solved_between(db, start, end)
-    # The SAME three cohorts the daily uses, just a week wide: the backlog as a
-    # stock, the window's solved rows, and the cohort actually handled in the
-    # window (received OR finished in it) for the tier mix. Keeping the two
-    # reports on one set of definitions is the point — a manager reading both
-    # must not have to hold two meanings of "tier" in their head.
+    # The tier block breaks down the SOLVED cohort, so it sums to the week's
+    # Solved count — a number already on the report — exactly as the daily does.
+    # mix_rows is omitted so the tier mix falls back to solved_rows. It used to
+    # count the "handled" union (received OR finished), which summed to neither
+    # Received nor Solved and reconciled with nothing on screen.
     summary = summarize(solved_rows, _received_between(db, start, end),
-                        pending_count=pending_count(db),
-                        mix_rows=_collect_window_rows(db, start, end))
+                        pending_count=pending_count(db))
 
     # Per-day trend: the 7 nested 8pm→8pm windows, in order. Each is one exact
     # daily window, so these rows sum back to the weekly Received/Solved.
@@ -133,7 +111,7 @@ def render_weekly(summary: Summary, title_label: str, window_label: str,
       * Received and Solved sit inside the window as plain counts, with no
         share: there is no honest denominator for either (see the daily);
       * Solved by is counts only;
-      * the tier mix describes what was HANDLED in the window, not the backlog;
+      * Solved by tier breaks down the SOLVED cohort, so it sums to Solved;
       * no category block, and no Slack italics anywhere.
 
     The daily trend is the one thing the weekly adds: seven nested 8pm→8pm days,
@@ -166,21 +144,15 @@ def render_weekly(summary: Summary, title_label: str, window_label: str,
     if s.people:
         out += _section("*🧑‍💻  Solved by*", [f"• {k} — {v}" for k, v in s.people])
 
-    # 6. Tier over what was handled in the week, each as a share of that cohort.
-    over_window = s.pending is not None
-    # No "% of N" caption: it restated a number the rows already carry.
-    has_base = over_window and s.mix_base > 0
-    tier_title = "Tier — this week" if over_window else "Reviews by tier"
-    # THE SHARES STAY, AND ARE SAFE WITHOUT A CAPTION, because the tier buckets
-    # PARTITION the cohort: every review is exactly one of Tier 1 / Tier 2 /
-    # Untraceable, so the rows on screen sum to the denominator and the reader
-    # can recover it by adding them (22 + 22 + 2 = 46). That is what the deleted
-    # "of 106 = 64 pending + 42 solved" could never do — its denominator was a
-    # stock added to a flow and appeared nowhere else in the report.
+    # 6. Solved by tier — the week's SOLVED cohort by match tier, summing to the
+    # week's Solved count above, exactly as the daily does. Each share is of that
+    # same total (the buckets partition it), so the reader reconciles it against
+    # a number already on the report.
+    has_base = s.mix_base > 0
     tier_rows = [f"{_TIER_DOT.get(lbl, '•')} {lbl} — {s.tier.get(lbl, 0)}"
                  f"{_pct(s.tier.get(lbl, 0), s.mix_base) if has_base else ''}"
                  for lbl in _TIER_FIXED]
-    out += _section(f"*🏷️  {tier_title}*", tier_rows)
+    out += _section("*🏷️  Solved by tier*", tier_rows)
 
     # No category block, matching the daily: the breakdown lives in the
     # Reporting page, where it can be sliced instead of truncated to six rows.
