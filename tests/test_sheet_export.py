@@ -399,3 +399,29 @@ def test_the_auth_header_refuses_before_it_reaches_the_network():
     finally:
         C.GCP_SERVICE_ACCOUNT_JSON = old
     assert "PLACEHOLDER" in str(e.value), str(e.value)
+
+
+def test_booking_date_reads_the_verify_bid_alias():
+    """The verify_bid path writes the booking date as `date_of_booking`; the
+    pipeline persists exactly that key. row_for must read it, or the export's
+    booked_on column (and every reader of it) blanks for those bookings — the
+    "Booking date — not recorded" mismatch the team reported."""
+    d = D()
+    d.booking = {"id": "1", "date_of_booking": "2026-07-15 02:15:00",
+                 "date_of_visit": "2026-07-23"}
+    row = SX.row_for(R(), d)
+    assert row["booked_on"] == "2026-07-15 02:15:00"
+    assert row["visit_date"] == "2026-07-23"
+
+
+def test_booking_fields_read_every_writer_alias():
+    """Three writers spell booking fields differently; row_for must read all.
+    Pins the _bkfield alias unification so a future single-alias read is caught."""
+    d = D()
+    # the bigquery_patch / manual spelling (snake_case)
+    d.booking = {"id": "1", "experience_name": "Snake tour",
+                 "vendor_name": "Foo Partner", "fulfilment_type": "Freesale"}
+    row = SX.row_for(R(), d)
+    assert row["experience"] == "Snake tour"
+    assert row["vendor"] == "Foo Partner"
+    assert row["fulfilment_type"] == "Freesale"

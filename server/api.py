@@ -1067,7 +1067,13 @@ def list_reviews(status: str | None = None, tab: str | None = None,
     q = db.query(Review).order_by(Review.received_at.desc())
     if status:
         q = q.filter(Review.status == status)
-    rows = q.limit(200).all()
+    # NO CAP. This used to be `.limit(200)`, which silently hid every review past
+    # the 200th newest — so the inbox showed 200 while Reporting counted them all,
+    # and the two disagreed with nothing on screen to say why. The dashboard is
+    # the source of truth for "what reviews exist"; it must show all of them.
+    # (At ~250 rows this is cheap; if the table grows into the thousands, add
+    # pagination — a cap that hides rows without saying so is the wrong answer.)
+    rows = q.all()
 
     from server.tiers import (classify, tier_label, is_unverified,
                               TAB_TO_BUCKET, processing_state as _pstate)

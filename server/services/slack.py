@@ -1268,9 +1268,14 @@ _BOOKING_DETAIL_ROWS = (
     # Both dates come from BigQuery. The warehouse and the enrichment path
     # spell each of them differently, so every alias in circulation is listed;
     # reading one would blank the row on half the drafts.
-    ("Booking date",     ("bookedOn", "booked_on", "bookingDate", "booking_date",
-                          "creationDate", "created_at")),
-    ("Visit date",       ("visitDate", "visit_date", "date_of_visit",
+    # date_of_booking FIRST: it is the alias the verify_bid path writes (a full
+    # timestamp), and it is the client's own first alias too (bookingCreatedAt
+    # in index.html). Omitting it printed "— not recorded" on the post for a
+    # booking whose date the dashboard showed a panel away — the exact mismatch
+    # the team reported.
+    ("Booking date",     ("date_of_booking", "bookedOn", "booked_on", "bookingDate",
+                          "booking_date", "creationDate", "created_at")),
+    ("Visit date",       ("date_of_visit", "visitDate", "visit_date",
                           "experienceDate", "experience_date")),
 )
 

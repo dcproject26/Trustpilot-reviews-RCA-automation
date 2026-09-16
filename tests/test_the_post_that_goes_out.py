@@ -322,6 +322,19 @@ def test_the_alternate_spellings_are_read(live_db):
     assert "• Experience: A tour" in body, body
 
 
+def test_verify_bid_date_of_booking_alias_is_read(live_db):
+    """The verify_bid path writes the booking date as `date_of_booking` (a full
+    timestamp), and the pipeline persists exactly that key (pipeline.py:156).
+    Reading only `bookedOn`/`booked_on` printed "— not recorded" on a post whose
+    date the dashboard showed a panel away — the mismatch the team reported."""
+    body = _details(_post(live_db, rid="tp_bd_dob",
+                          booking={"id": "1",
+                                   "date_of_booking": "2026-07-15 02:15:00",
+                                   "date_of_visit": "2026-07-23"}))
+    assert "• Booking date: 2026-07-15 02:15:00" in body, body
+    assert "• Visit date: 2026-07-23" in body, body
+
+
 def test_no_booking_means_no_section(live_db):
     """A wall of seven dashes would say "no booking matched" a second time,
     louder, in a post that already says it."""

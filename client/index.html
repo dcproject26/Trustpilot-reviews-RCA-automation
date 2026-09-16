@@ -10492,12 +10492,13 @@ function rpgToReport(view) {
   let note = `Added to the report: ${names}`;
   if (rank) note += `, ranked by ${(RPG.measByKey[rank] || {label: rank}).label}`;
   if (!added.length) note += ' (already there)';
-  // Daily's sections are fixed by the scheduled 8pm digest, so adding a section
-  // while Daily is selected would change nothing and look like it worked. Move
-  // to Weekly, which is the buildable report, and SAY that it moved.
-  if (RPG.repPreset === 'daily') {
-    RPG.repPreset = 'weekly';
-    note += ' — switched to Weekly, because the Daily digest has fixed sections.';
+  // Daily AND Weekly are fixed-format scheduled digests now — their sections
+  // are set by the report, not chosen here. Custom is the only buildable report
+  // that takes sections, so adding a field moves there and SAYS it moved.
+  // (Adding while on daily/weekly would silently change nothing otherwise.)
+  if (RPG.repPreset !== 'custom') {
+    RPG.repPreset = 'custom';
+    note += ' — switched to Custom, because the Daily and Weekly digests have fixed sections.';
   }
   RPG.repNotice = note + '.';
   RPG.repDirty = false;
@@ -10699,7 +10700,7 @@ function rpgReports(view) {
     rpgReportsWire(view);
     // Daily is the scheduled 8pm digest, whose sections are fixed by that report,
     // so the builder controls start hidden rather than only after a click.
-    view.querySelector('[data-rpg-rbuild]').hidden = RPG.repPreset === 'daily';
+    view.querySelector('[data-rpg-rbuild]').hidden = RPG.repPreset !== 'custom';
     view.querySelector('[data-rpg-rcustom]').hidden = RPG.repPreset !== 'custom';
   }
   rpgReportsRefresh(view, false);
@@ -10716,7 +10717,7 @@ function rpgReportsWire(view) {
     view.querySelector('[data-rpg-rcustom]').hidden = RPG.repPreset !== 'custom';
     // The daily digest is the scheduled 8pm→8pm one; its sections are fixed by
     // that report, so the builder controls only apply to weekly/custom.
-    view.querySelector('[data-rpg-rbuild]').hidden = RPG.repPreset === 'daily';
+    view.querySelector('[data-rpg-rbuild]').hidden = RPG.repPreset !== 'custom';
     rpgReportsRefresh(view, false);
   });
   ['[data-rpg-rfrom]', '[data-rpg-rto]'].forEach(s =>
@@ -10757,6 +10758,15 @@ async function rpgReportsRefresh(view, announce) {
       if (!r.ok) throw new Error(`${r.status}`);
       data = await r.json();
       win.textContent = 'The 8pm→8pm IST day. This is the same report that auto-posts at 8pm.';
+    } else if (RPG.repPreset === 'weekly') {
+      // ONE weekly definition too: the Mon-8pm→Mon-8pm digest the scheduler
+      // posts, most-recently-completed week. This used to route to the generic
+      // composer, which produced a DIFFERENT format ("Received: X · Solved: Y ·
+      // RCAs posted: Z", italics, ranked sections) — two weeklies that disagreed.
+      const r = await fetch('/api/reports/weekly/preview?weeks_ago=0', {cache: 'no-store'});
+      if (!r.ok) throw new Error(`${r.status}`);
+      data = await r.json();
+      win.textContent = 'The most recent completed Mon 8pm→Mon 8pm IST week. Same report that auto-posts weekly.';
     } else {
       data = await rpgPost('/api/reporting/report/preview', rpgReportBody(view));
       win.textContent = `${data.date_from} → ${data.date_to} · ${data.reviews} review(s) in this window.`;
@@ -10786,6 +10796,8 @@ async function rpgReportsSend(view) {
   try {
     const out = RPG.repPreset === 'daily'
       ? await rpgPost('/api/reports/daily/send', {text})
+      : RPG.repPreset === 'weekly'
+      ? await rpgPost('/api/reports/weekly/send', {text, weeks_ago: 0})
       : await rpgPost('/api/reporting/report/send', Object.assign(rpgReportBody(view), {text}));
     msg.innerHTML = `<span style="color:var(--green)">Posted ✓ (${esc(out.channel || '')})</span>`;
   } catch (e) {

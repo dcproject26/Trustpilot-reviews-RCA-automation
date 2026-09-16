@@ -178,3 +178,27 @@ def test_excluded_test_rows_only_matches_the_test_names(live_db):
                                       END.replace(tzinfo=None)) == 2
     finally:
         s.close()
+
+
+def test_dashboard_parity_reconciles_exactly(live_db):
+    """The verifier the team asked for: dashboard total = reporting total +
+    test-owner rows, all-time, exactly. An unexplained gap is a hard fail."""
+    from server.db import Review
+    from server.services.reporting_selfcheck import dashboard_parity
+    s = live_db.SessionLocal()
+    try:
+        for i in range(5):
+            s.add(Review(id=f"real_{i}", received_at=_n(START), status="new",
+                         rating=1, picked_up_by="Avi"))
+        for i in range(2):
+            s.add(Review(id=f"test_{i}", received_at=_n(START), status="new",
+                         rating=1, picked_up_by="Test"))
+        s.commit()
+        p = dashboard_parity(s)
+    finally:
+        s.close()
+    assert p["ok"] is True
+    assert p["dashboard_total"] == 7
+    assert p["reporting_total"] == 5
+    assert p["excluded_test_rows"] == 2
+    assert p["unexplained_gap"] == 0

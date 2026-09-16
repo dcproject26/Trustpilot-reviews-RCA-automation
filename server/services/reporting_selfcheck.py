@@ -208,14 +208,49 @@ def _excluded_test_rows(db, start, end) -> int:
     return q.count()
 
 
+def dashboard_parity(db) -> dict:
+    """Do the dashboard and Reporting agree on how many reviews exist?
+
+    THE INVARIANT: the inbox (`/api/reviews`, now uncapped) shows every Review
+    row. Reporting counts every Review row EXCEPT test-owner ones. So, all-time:
+
+        dashboard_total  ==  reporting_total  +  excluded_test_rows
+
+    This existed to catch the two ways they silently drifted: a `.limit(200)`
+    on the inbox that hid older rows, and the test-owner exclusion. Both are
+    legitimate reasons for two numbers — this states the equation so a reader
+    can see the difference is exactly those rows and nothing else. `ok` False
+    means an UNEXPLAINED gap: a row reporting drops for a reason nobody named,
+    which is the bug this whole file exists to make impossible to ship silent."""
+    from server.db import Review
+    dashboard_total = db.query(Review).count()
+    reporting_total = len(records(db, None, None))     # all-time, test rows excluded
+    excluded = _excluded_test_rows(db, None, None)
+    reconciled = reporting_total + excluded
+    ok = (reconciled == dashboard_total)
+    return {
+        "ok": ok,
+        "dashboard_total": dashboard_total,
+        "reporting_total": reporting_total,
+        "excluded_test_rows": excluded,
+        "unexplained_gap": dashboard_total - reconciled,
+        "note": ("dashboard = reporting + test-owner rows" if ok else
+                 f"UNEXPLAINED: {dashboard_total} on the dashboard, but "
+                 f"{reporting_total} in reporting + {excluded} test = {reconciled}. "
+                 f"{dashboard_total - reconciled} review(s) vanish for no stated reason."),
+    }
+
+
 def run(db, date_from: datetime | None = None, date_to: datetime | None = None) -> dict:
     """The whole self-check over one window. Read-only.
 
     Also reports how many rows this window has that reporting EXCLUDES (test-
     owner rows), so the exclusion is visible on screen rather than a silent
-    reason the dashboard's headline and the digest disagree."""
+    reason the dashboard's headline and the digest disagree, and a
+    dashboard-vs-reporting parity check so an unexplained count gap is loud."""
     recs = records(db, date_from, date_to)
     excluded = _excluded_test_rows(db, date_from, date_to)
+    parity = dashboard_parity(db)
     inv = invariants(recs) if recs else []
     health = data_health(recs) if recs else []
     empties = [h for h in health if h["state"] == "empty"]
@@ -233,9 +268,17 @@ def run(db, date_from: datetime | None = None, date_to: datetime | None = None) 
     else:
         verdict = "arithmetic is consistent and every measure has data behind it"
 
+    # An unexplained dashboard/reporting gap is a hard failure of its own — the
+    # numbers cannot be trusted while two views of "how many reviews" disagree
+    # for a reason nobody named.
+    if not parity["ok"]:
+        verdict = (f"DASHBOARD/REPORTING MISMATCH — {parity['note']} "
+                   + ("" if not failed else "Also: " + verdict))
+
     return {
         "reviews": len(recs),
         "excluded_test_rows": excluded,
+        "dashboard_parity": parity,
         "verdict": verdict,
         "invariants_failed": len(failed),
         "invariants": inv,

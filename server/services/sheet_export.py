@@ -453,7 +453,7 @@ def row_for(review, draft, now: datetime | None = None,
         "visit_date":    _bkfield(bk, "date_of_visit", "visitDate", "visit_date", "experienceDate", "experience_date"),
         "reference_number": getattr(review, "reference_number", "") or "",
         "vid_name":      _bkfield(bk, "vidName", "vid_name"),
-        "booked_on":     _bkfield(bk, "bookedOn", "booked_on", "bookingDate", "booking_date", "creationDate", "created_at"),
+        "booked_on":     _bkfield(bk, "date_of_booking", "bookedOn", "booked_on", "bookingDate", "booking_date", "creationDate", "created_at"),
         "pax":           _bkfield(bk, "pax", "paxCount", "pax_count") or _tf.get("pax") or "",
         "fulfilment_type": _bkfield(bk, "fulfilmentType", "fulfilment_type", "fulfillment_type"),
         "booking_status": (_tf.get("booking_status")

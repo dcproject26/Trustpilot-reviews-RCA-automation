@@ -1951,7 +1951,10 @@ def test_changing_the_report_selection_warns_before_it_overwrites_an_edit(page):
     try:
         _open_reporting(page)
         page.click('#reporting-modal [data-rpg-tabs] button[data-v="reports"]')
-        page.click('#reporting-modal [data-rpg-rpreset] button[data-p="weekly"]')
+        # Custom, not weekly: weekly is now a fixed-format scheduled digest with
+        # no section controls; Custom is the composer-backed report that takes
+        # sections, so it is the one where a section change can stale the draft.
+        page.click('#reporting-modal [data-rpg-rpreset] button[data-p="custom"]')
         page.wait_for_function(
             """() => (document.querySelector('#reporting-modal [data-rpg-draft]')||{}).value""",
             timeout=6000)
@@ -2134,9 +2137,10 @@ def test_add_to_report_puts_the_explored_field_into_the_report_request(page):
     assert last["rank_by"] == "solved_pct", (
         "the Explore measure was not carried over as the rank: %r" % (last,))
     assert "l1" in checked, "the section list on screen disagrees: %r" % (checked,)
-    assert pressed == ["weekly"], (
-        "Daily has fixed sections, so it must move off Daily: %r" % (pressed,))
-    assert "L1 category" in notice and "Weekly" in notice, (
+    assert pressed == ["custom"], (
+        "Daily and Weekly have fixed sections, so adding one must move to "
+        "Custom: %r" % (pressed,))
+    assert "L1 category" in notice and "Custom" in notice, (
         "the person was left to guess what happened: %r" % (notice,))
     assert draft == "WEEKLY DRAFT", "the draft was not rebuilt with the new section"
 
@@ -2158,7 +2162,8 @@ def test_rows_per_section_is_gone_and_top_still_travels(page):
         page.route("**/api/reporting/report/preview", _preview)
         _open_reporting(page)
         page.click('#reporting-modal [data-rpg-tabs] button[data-v="reports"]')
-        page.click('#reporting-modal [data-rpg-rpreset] button[data-p="weekly"]')
+        # Custom is the composer-backed report; weekly no longer calls the composer.
+        page.click('#reporting-modal [data-rpg-rpreset] button[data-p="custom"]')
         page.wait_for_function(
             """() => (document.querySelector('#reporting-modal [data-rpg-draft]')||{}).value""",
             timeout=6000)
