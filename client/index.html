@@ -2959,7 +2959,8 @@ async function loadDraftOverlays() {
       r.rca.subThemes = draft.sub_themes || (draft.sub_theme ? [draft.sub_theme] : []);
       r.rca.scenarios = draft.scenarios ||
         [draft.primary_scenario, ...(draft.overlay_scenarios || [])].filter(Boolean);
-      r.rca.v3        = draft.rca_v3    || {};
+      if (!_v3SavePending.has(r.id))
+        r.rca.v3      = draft.rca_v3    || {};
       r.insightsRaw   = draft.insights  || {};
       r.untraceableReason  = (draft.extracted_signals || {}).untraceable_reason || '';
       r.extractedSignals   = draft.extracted_signals || {};
@@ -3336,6 +3337,7 @@ async function reloadFromServer() {
 }
 
 let REVIEWS = [];   // populated live from /api/reviews — no demo/placeholder rows
+const _v3SavePending = new Set();
 
 const state = {
   // A leftover from the mock data; there is no review with this id, so it
@@ -8435,7 +8437,7 @@ function renderRcaCol() {
         body: JSON.stringify({scenarios: []}),
       });
       if (!resp.ok) throw new Error(await resp.text());
-      await fetchInbox(); renderRcaCol();
+      await reloadFromServer();
     } catch (e) {
       rcaOnly.textContent = 'failed — see server log';
       setTimeout(() => { rcaOnly.disabled = false; rcaOnly.textContent = orig; }, 3000);
@@ -8512,7 +8514,7 @@ function renderRcaCol() {
     tick.textContent = ok ? '✓ saved' : '✗ not saved';
     tick.style.color = ok ? '' : '#e5534b';
     tick.classList.add('on');
-    setTimeout(() => tick.classList.remove('on'), 1400);
+    setTimeout(() => tick.classList.remove('on'), ok ? 1400 : 6000);
   };
 
   // ── v3 object edits (flags, booking logs, takedown) ─────────────────────
@@ -8520,31 +8522,35 @@ function renderRcaCol() {
   // writes the whole object back. Re-render only on structural change
   // (add/delete); a text edit must NOT re-render or the caret is lost.
   const persistV3 = async (el) => {
-    try {
-      const resp = await fetch(`/api/reviews/${r.id}/draft-v2`, {
-        method: 'PATCH', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({rca_v3: rca.v3}),
-      });
-      // Take the recomposed what-went-wrong back off the save response. The
-      // server is the only thing that knows the five-heading format, so an
-      // edit to a root cause has to come back FROM it or the Slack preview
-      // would keep showing the text composed before the edit — stale in a way
-      // nothing on screen would admit to.
-      if (resp.ok) {
+    _v3SavePending.add(r.id);
+    const MAX = 3;
+    let lastErr = null, refused = false;
+    for (let attempt = 1; attempt <= MAX; attempt++) {
+      try {
+        const resp = await fetch(`/api/reviews/${r.id}/draft-v2`, {
+          method: 'PATCH', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({rca_v3: rca.v3}),
+        });
+        if (!resp.ok) { refused = true; throw new Error(`${resp.status}`); }
         const data = await resp.json().catch(() => null);
         if (data && data.draft && typeof data.draft.wwr_slack_text === 'string') {
           rca.wwrSlackText = data.draft.wwr_slack_text;
         }
-        // Same for the contacts section: a ce_miss / summary / detail is edited
-        // inline, and the section is composed server-side, so the edited text
-        // has to come back from the composer or the preview keeps the pre-edit
-        // wording with nothing on screen saying so.
         if (data && data.draft && typeof data.draft.contacts_slack_text === 'string') {
           rca.contactsSlackText = data.draft.contacts_slack_text;
         }
+        flashSaved(el, true);
+        _v3SavePending.delete(r.id);
+        return;
+      } catch (e) {
+        lastErr = e;
+        if (refused || attempt === MAX) break;
+        await new Promise(ok => setTimeout(ok, attempt * 400));
       }
-      flashSaved(el, resp.ok);
-    } catch (_) { flashSaved(el, false); }   // keep the local edit; next change retries
+    }
+    _v3SavePending.delete(r.id);
+    console.warn('persistV3 save failed', lastErr);
+    flashSaved(el, false);
   };
 
   col.querySelectorAll('[data-flag-idx]').forEach(el => {
@@ -8763,13 +8769,7 @@ function renderRcaCol() {
 
   const persistAoi = async (list, el) => {
     rca.areaOfImproving = list;
-    try {
-      const resp = await fetch(`/api/reviews/${r.id}/draft-v2`, {
-        method: 'PATCH', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({area_of_improving: list}),
-      });
-      flashSaved(el, resp.ok);
-    } catch (_) { flashSaved(el, false); }
+    await saveDraft(r.id, {area_of_improving: list}, el);
   };
   col.querySelectorAll('[data-aoi-del]').forEach(btn => {
     btn.addEventListener('click', async () => {
