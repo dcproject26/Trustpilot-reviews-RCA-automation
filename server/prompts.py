@@ -1062,7 +1062,21 @@ INSTRUCTIONS:
 7. Sign off on its own two lines, exactly:
    Best,
    [Your Name], Headout
-8. Return ONLY the reply text."""
+8. Return ONLY the reply text.
+9. Use PROSPECTIVE language ("is being processed", "I'm looking into this",
+   "we'll get this sorted") for any action the RESOLUTION field does not
+   confirm as already COMPLETE. Past-tense claims ("has been refunded", "was
+   processed") are only correct when the resolution explicitly says so.
+   When in doubt, draft forward-looking.
+10. Name at least ONE concrete detail from the review — the experience name,
+    the date, the venue, or what specifically went wrong — so the reply could
+    not be sent unchanged to a different guest.
+11. When the DSS field prescribes a specific remedy (refund, credits,
+    reschedule, upgrade), draft the response around THAT remedy path. Do not
+    repeat or validate any earlier support misstep visible in the review.
+12. When the review mentions a chargeback, bank dispute, or payment reversal,
+    acknowledge that constraint directly rather than treating the case as a
+    standard refund or credit flow."""
 
 
 # ─── 6b. Support event summarisation (Zendesk timeline → frames) ───────────

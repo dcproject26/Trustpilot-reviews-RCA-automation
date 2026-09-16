@@ -1,0 +1,26 @@
+[
+  {
+    "file": "server/prompts.py",
+    "name": "prospective language instruction removed — AI reverts to past-tense overpromising",
+    "find": "9. Use PROSPECTIVE language (\"is being processed\", \"I'm looking into this\",\n    \"we'll get this sorted\") for any action the RESOLUTION field does not\n    confirm as already COMPLETE. Past-tense claims (\"has been refunded\", \"was\n    processed\") are only correct when the resolution explicitly says so.\n    When in doubt, draft forward-looking.",
+    "replace": ""
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "case-specificity instruction removed — AI sends generic replies",
+    "find": "10. Name at least ONE concrete detail from the review — the experience name,\n    the date, the venue, or what specifically went wrong — so the reply could\n    not be sent unchanged to a different guest.",
+    "replace": ""
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "chargeback instruction removed — AI ignores dispute constraints",
+    "find": "12. When the review mentions a chargeback, bank dispute, or payment reversal,\n    acknowledge that constraint directly rather than treating the case as a\n    standard refund or credit flow.",
+    "replace": ""
+  },
+  {
+    "file": "content/orm_macros.yaml",
+    "name": "brand voice case-specificity hard rule removed — generic replies pass unchecked",
+    "find": "  - Every response must reference at least one specific detail from the\n    guest's case. A reply that could be sent unchanged to any guest is not\n    ready.",
+    "replace": ""
+  }
+]

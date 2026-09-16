@@ -44,6 +44,9 @@ brand_voice: |
     hyperbole.
   - Cut fluff. Precise, impactful, engaging.
   - Numbered points, never bullet points, if a list is unavoidable.
+  - Every response must reference at least one specific detail from the
+    guest's case. A reply that could be sent unchanged to any guest is not
+    ready.
 
 # Appended to every reply. Two lines, exactly as written.
 sign_off: |
