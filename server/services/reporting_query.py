@@ -87,6 +87,8 @@ DIMENSIONS: list[Dim] = [
     Dim("tgid",              "Booking details",      "TGID"),
     Dim("fulfilment_type",   "Booking details",      "Fulfilment type"),
     Dim("booking_status",    "Booking details",      "Booking status"),
+    Dim("booking_date",      "Booking details",      "Booking date"),
+    Dim("visit_date",        "Booking details",      "Visit date"),
     Dim("tier",              "Matching",             "Match tier"),
     Dim("traceable",         "Matching",             "Booking traced"),
     Dim("match_method",      "Matching",             "Match method"),
@@ -175,6 +177,18 @@ def _norm_owner(picked_up_by: str) -> str:
     return UNASSIGNED if (not name or name.lower() in TEST_OWNERS) else name
 
 
+def _takedown_value(raw, rca_prompt_version):
+    """The takedown verdict, with 'RCA ran but no verdict' distinguished from
+    'no RCA yet'. A stamped prompt version means the pipeline ran; a blank
+    verdict from a run that happened is 'Uncertain' (the model did not decide),
+    not missing data. No prompt version means the RCA has not run — return None,
+    which the picker shows as (not set)."""
+    v = (str(raw or "").strip())
+    if v:
+        return v
+    return "Uncertain" if (rca_prompt_version or "").strip() else None
+
+
 def _hours_between(start, end):
     if not start or not end:
         return None
@@ -200,6 +214,11 @@ def project(review, draft) -> dict:
         "tgid":              row.get("tgid") or None,
         "fulfilment_type":   row.get("fulfilment_type") or None,
         "booking_status":    row.get("booking_status") or None,
+        # Dates as their day only: the export writes booked_on as a full
+        # timestamp (date_of_booking), and grouping "2026-07-15 02:15:00" and
+        # "2026-07-15 09:40:00" into two buckets for the same day is noise.
+        "booking_date":      (str(row.get("booked_on") or "")[:10] or None),
+        "visit_date":        (str(row.get("visit_date") or "")[:10] or None),
         "tier":              _tier_label(row.get("match_tier"),
                                          row.get("close_reason") or "",
                                          row.get("match_method") or ""),
@@ -212,7 +231,13 @@ def project(review, draft) -> dict:
         "overlay_scenarios": list(row.get("overlay_scenarios") or []),
         "claim_accuracy":    list(row.get("claim_accuracy") or []),
         "resolution_given":  "Yes" if (row.get("resolution") or "").strip() else "No",
-        "takedown":          row.get("takedown") or None,
+        # Takedown is a CALCULATED verdict. When the RCA ran (a prompt version is
+        # stamped) but produced no verdict, that is "Uncertain" — a real state,
+        # not missing data. `(not set)` is then reserved for "no RCA yet", so the
+        # two are distinguishable (CLAUDE.md rule 1). Without this, a reader
+        # cannot tell "the model was unsure" from "the pipeline never ran".
+        "takedown":          _takedown_value(row.get("takedown"),
+                                             row.get("rca_prompt_version")),
         "outcome_category":  row.get("outcome_category") or None,
         "dss_followed":      row.get("dss_followed") or None,
         "owner":             _norm_owner(row.get("picked_up_by") or ""),

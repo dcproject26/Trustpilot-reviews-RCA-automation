@@ -5,7 +5,7 @@ which is what `reporting_query.records()` reads through `sheet_export.row_for`.
 Counts below are RAW (before the test-owner exclusion; the live engine drops
 those rows — `selfcheck.excluded_test_rows` reports how many).
 
-## Dimensions — all 26 verified against real data
+## Dimensions — all 28 verified against real data (added Booking date, Visit date)
 
 | Key | Label | Source (through row_for → project) | Populated | Verdict |
 |---|---|---|---|---|

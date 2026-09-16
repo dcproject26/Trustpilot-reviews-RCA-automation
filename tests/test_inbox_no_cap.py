@@ -28,3 +28,19 @@ def test_the_inbox_returns_more_than_the_old_200_cap(client, live_db):
     ids = {r["id"] for r in rows if r["id"].startswith("tp_bulk_")}
     # All 205 present — a reinstated .limit(200) would drop at least 5.
     assert len(ids) == 205, f"the inbox capped the list at {len(ids)} rows"
+
+
+def test_the_inbox_returns_every_review_row(client, live_db):
+    """Not just ">200": the unfiltered inbox must return EXACTLY as many rows as
+    exist. A silent drop inside the Python loop (not the query) would slip past
+    a ">200" check; an exact match against Review.count() catches it."""
+    from server.db import Review
+    _seed(live_db, 30)
+    s = live_db.SessionLocal()
+    try:
+        total = s.query(Review).count()
+    finally:
+        s.close()
+    rows = client.get("/api/reviews").json()
+    assert len(rows) == total, (
+        f"the inbox returned {len(rows)} of {total} reviews — a row was dropped")

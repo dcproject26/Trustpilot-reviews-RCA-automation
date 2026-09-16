@@ -231,3 +231,48 @@ def test_a_review_with_no_booking_is_not_traceable(live_db):
     assert rec["traceable"] == "No booking found"
     assert rec["tier"] == "Untraceable"          # no booking, no tier
     assert run_query([rec], [], ["traced_pct"])["totals"]["traced_pct"] == 0.0
+
+
+# ── the new dimensions and the calculated takedown ──────────────────────────
+
+def test_takedown_uncertain_when_the_rca_ran_but_left_it_blank():
+    """A CALCULATED verdict: RCA ran (a prompt version is stamped) but produced
+    no takedown -> Uncertain, a real state. No RCA -> (not set). The two must
+    not read the same (CLAUDE.md rule 1)."""
+    from server.services.reporting_query import _takedown_value
+    assert _takedown_value("Yes", "rca_v4+abc") == "Yes"
+    assert _takedown_value("", "rca_v4+abc") == "Uncertain"     # ran, undecided
+    assert _takedown_value(None, "rca_v4+abc") == "Uncertain"
+    assert _takedown_value("", "") is None                      # never ran
+    assert _takedown_value(None, None) is None
+
+
+def test_new_dimensions_are_in_the_picker():
+    dims = {d["key"]: d for d in field_registry()["dimensions"]}
+    assert dims["booking_date"]["view"] == "Booking details"
+    assert dims["visit_date"]["view"] == "Booking details"
+
+
+def test_new_dimensions_project_from_the_real_models(live_db):
+    from server.db import Review, RcaDraft
+    rec_at = datetime(2026, 9, 1, 8, 0)
+    s = live_db.SessionLocal()
+    try:
+        s.add(Review(id="nd", received_at=_n(rec_at), status="sent", rating=1,
+                     language="German", picked_up_by="Avi",
+                     sent_route="rca_posted"))
+        s.add(RcaDraft(id="nd-d", review_id="nd", match_tier=1,
+                       rca_prompt_version="rca_v4+abc",
+                       booking={"id": "B1", "date_of_booking": "2026-07-15 02:15:00",
+                                "date_of_visit": "2026-07-23"},
+                       sent_at=_n(rec_at + timedelta(hours=6))))
+        s.commit()
+        rec = project(s.query(Review).filter_by(id="nd").one(),
+                      s.query(RcaDraft).filter_by(review_id="nd").one())
+    finally:
+        s.close()
+    # dates as their day only, not the timestamp
+    assert rec["booking_date"] == "2026-07-15"
+    assert rec["visit_date"] == "2026-07-23"
+    # RCA ran (prompt version present) but no takedown verdict -> Uncertain
+    assert rec["takedown"] == "Uncertain"
