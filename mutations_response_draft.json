@@ -2,7 +2,7 @@
   {
     "file": "server/prompts.py",
     "name": "prospective language instruction removed — AI reverts to past-tense overpromising",
-    "find": "9. Use PROSPECTIVE language (\"is being processed\", \"I'm looking into this\",\n    \"we'll get this sorted\") for any action the RESOLUTION field does not\n    confirm as already COMPLETE. Past-tense claims (\"has been refunded\", \"was\n    processed\") are only correct when the resolution explicitly says so.\n    When in doubt, draft forward-looking.",
+    "find": "9. Use PROSPECTIVE language (\"is being processed\", \"I'm looking into this\",\n   \"we'll get this sorted\") for any action the RESOLUTION field does not\n   confirm as already COMPLETE. Past-tense claims (\"has been refunded\", \"was\n   processed\") are only correct when the resolution explicitly says so.\n   When in doubt, draft forward-looking.",
     "replace": ""
   },
   {

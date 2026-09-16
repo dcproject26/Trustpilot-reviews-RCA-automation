@@ -41,11 +41,12 @@ def test_the_prompt_says_past_tense_needs_confirmation():
 
 def test_the_prompt_requires_a_concrete_detail():
     """A reply that could go to any guest unchanged was the single most common
-    divergence from the team standard."""
+    divergence from the team standard. Checks instruction 10 specifically —
+    the brand voice carries its own case-specificity rule, but that alone
+    does not name what counts as a concrete detail."""
     out = _draft()
     low = out.lower()
-    assert "concrete detail" in low or "specific detail" in low or \
-        "experience name" in low or "could not be sent unchanged" in low
+    assert "experience name" in low or "concrete detail" in low
 
 
 # ── DSS remedy alignment ──────────────────────────────────────────────────
