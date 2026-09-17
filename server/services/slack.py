@@ -1183,6 +1183,31 @@ def _points(v) -> list:
     return [str(v).strip()] if str(v or "").strip() else []
 
 
+_SENT_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[\"'‘“]?[A-Z0-9])")
+
+
+def _detail_sentences(v) -> list:
+    """A contact's `detail` is one-sentence bullets now (prompts.py rule 10b).
+
+    New drafts store it as an array — each item is one bullet. Drafts written
+    when it was a paragraph store a string: newlines (the old bullet separator)
+    are honoured, and any remaining prose is split into sentences — the same rule
+    the dashboard's `asSentences` uses. The sentence split breaks only on a
+    sentence end followed by a capital / opening quote, so a decimal, a time like
+    "13:56" or "3 min 12 sec" is never cut. Leading bullet glyphs are stripped."""
+    if isinstance(v, (list, tuple)):
+        chunks = [str(x or "") for x in v]
+    else:
+        chunks = str(v or "").split("\n") if str(v or "").strip() else []
+    out = []
+    for chunk in chunks:
+        for p in _SENT_SPLIT.split(chunk):
+            t = re.sub(r"^\s*[•·\-–▪]\s*", "", str(p)).strip()
+            if t:
+                out.append(t)
+    return out
+
+
 # The nine teams, and any key an older draft still holds. Hard-coding the five
 # old tab names here is what would silently drop every row on a card written
 # under the new vocabulary: the loop would find no key and post "—", which is
@@ -1353,7 +1378,7 @@ def _head_summary(summary: str, detail: str, limit: int = 130) -> str:
     to carry the rest, and trimming there would lose the only telling.
     """
     s = (summary or "").strip()
-    d = (detail or "").strip()
+    d = " ".join(_detail_sentences(detail)).strip()
     if not s or not d:
         return s
     first = re.split(r"(?<=[.!?])\s+", s)[0].strip()
@@ -1398,11 +1423,10 @@ def _contact_body(group, note, nl) -> list:
     look identical, or a failed zd_ref join reads as a terse model.
     """
     lines = []
-    detail = ((note or {}).get("detail") or "").strip()
-    if detail:
-        for ln in detail.split("\n"):
-            if ln.strip():
-                lines.append(f"   {ln.strip()}")
+    sentences = _detail_sentences((note or {}).get("detail"))
+    if sentences:
+        for s in sentences:
+            lines.append(f"   • {s}")
     elif note is None:
         # No model note joined to this contact. Say it, then give the raw
         # messages — unlabelled, they would look like a chosen summary.
@@ -1495,15 +1519,13 @@ def contacts_section(draft, v3, nl) -> str:
         if nkey:
             head += f" (ZD-{nkey})"
         rows.append(head + f" ({why})")
-        detail = (note.get("detail") or "").strip()
-        for ln in detail.split("\n") if detail else []:
-            if ln.strip():
-                rows.append(f"   {ln.strip()}")
+        for s in _detail_sentences(note.get("detail")):
+            rows.append(f"   \u2022 {s}")
         if note.get("ce_miss"):
             rows.append(f"   \u26a0 CE miss: {note['ce_miss']}")
     _moved_note = moved_frames_note(_moved)
     if rows:
-        return nl.join(rows + ([f"\u2022 ({_moved_note})"] if _moved_note else []))
+        return nl.join(rows + ([f"• ({_moved_note})"] if _moved_note else []))
     return ("No conversation with the guest on this booking \u2014 "
             f"{_moved_note}, so nobody spoke to them"
             if _moved_note

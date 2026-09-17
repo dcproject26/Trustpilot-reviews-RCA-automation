@@ -2369,7 +2369,7 @@ that turned out fine is silence — never a line in the output.
       "time": "<DD Mon HH:MM — when the GUEST reached out | null>",
       "channel": "<the support type: chat | email | call | web | app | null>",
       "summary": "<one line, what happened in this contact>",
-      "detail": "<the fuller account, quoting the guest and the agent | null>",
+      "detail": ["<one sentence per array item — the account of the exchange, in order: the guest's ask, what we did, what they said back, the outcome. Attribute the guest's claims to the guest. No quotes, no ellipses.>"],
       "ce_miss": "<what CE should have done differently | null>"
     }
   ],
@@ -2786,8 +2786,23 @@ that turned out fine is silence — never a line in the output.
     happened, not how it felt. No paragraphs.
 
     `detail` NARRATES. `ce_miss` JUDGES. NEITHER DOES THE OTHER'S JOB.
-    `detail` is the account of the exchange and nothing else: what the guest asked, what
-    we answered, what they said back — in their words and ours. It carries no verdict.
+    `detail` IS AN ARRAY OF SINGLE-SENTENCE BULLETS — one plain sentence per array item, in
+    the order things happened: what the guest asked, what we did, what they said back, the
+    outcome. Not a paragraph, and not one item holding several sentences. A reviewer scans
+    the bullets and understands the contact and our response without reading prose.
+      ["Guest asked for a refund, saying the site had booked the wrong dates for their tour.",
+       "Skylar declined a refund on the non-cancellable policy and offered 25% credit.",
+       "Guest said the credit was no use as they were leaving the next day.",
+       "No human agent connected, and the chat closed unresolved."]
+    ATTRIBUTE THE GUEST'S CLAIMS TO THE GUEST. A guest assertion is written as "guest said",
+    "saying", "the guest reported" — never restated as Headout fact. "The site booked the
+    wrong dates" as a flat statement asserts our own fault; "the guest said the site booked
+    the wrong dates" reports what they claimed, which is all the record supports.
+    NO DIRECT QUOTES AND NO ELLIPSES. Paraphrase in a full sentence; never paste the guest's
+    or the agent's words verbatim, and never trail off with "…". Say who acted: SKYLAR IS AN
+    AI BOT, so where Skylar answered say so, and name the human agent where one took over —
+    "we replied in 30 seconds" means something entirely different when it was the bot.
+    `detail` carries no verdict.
       ACCOUNT:  "Taylor replied that the Night Safari tickets stayed valid for 60 days."
       VERDICT:  "Taylor replied that the tickets stayed valid WITHOUT CHECKING whether a
                 timeslot was already reserved."

@@ -5556,6 +5556,16 @@ const actionTeamKey = k => {
 const asPoints = v => (Array.isArray(v) ? v : (v ? [v] : [])).filter(Boolean)
   .map(p => String(p).replace(/^\s*[•·\-–▪]\s*/, ''));
 
+// A contact's `detail` is one-sentence bullets now (rule 10b). New drafts store
+// it as an array; drafts written when it was a paragraph store a string, so a
+// legacy string is split back into sentences for display. The split breaks only
+// on a sentence end followed by whitespace and a capital / opening quote, so a
+// decimal, a time like "13:56", or "3 min 12 sec" inside a sentence is not cut.
+const asSentences = v => (Array.isArray(v) ? v : (v ? String(v).split('\n') : []))
+  .flatMap(chunk => String(chunk).split(/(?<=[.!?])\s+(?=["'‘“]?[A-Z0-9])/))
+  .map(s => String(s).replace(/^\s*[•·\-–▪]\s*/, '').trim())
+  .filter(Boolean);
+
 // §5 an area-of-improvement point is {point, from, source} now. The provenance
 // is not decoration and it is not a second column: it is the constraint that
 // makes an invented point impossible to write, because the server drops any
@@ -6097,6 +6107,23 @@ function renderRcaCol() {
     return out;
   };
 
+  // A contact's `detail` renders as one-sentence bullets, not a prose block.
+  // A legacy paragraph is normalised into an array IN PLACE so the per-bullet
+  // edit path (support_interaction_notes.N.detail.J) indexes an array rather
+  // than a string - editing bullet 0 of an un-normalised string would collapse
+  // the whole paragraph to a single point.
+  const _detailBullets = (note, baseIdx) => {
+    const raw = note && note.detail;
+    let pts;
+    if (Array.isArray(raw)) pts = asSentences(raw);
+    else if (raw) { pts = asSentences(raw); note.detail = pts; }
+    else return '';
+    if (!pts.length) return '';
+    return `<ul class="convo-narr">` + pts.map((p, j) =>
+      `<li class="convo-bullet">${edSpan(`support_interaction_notes.${baseIdx}.detail.${j}`, p)}</li>`
+    ).join('') + `</ul>`;
+  };
+
   const _contactRow = (row) => {
     const i = row.i;
     const open = !!state.ixOpen[i];
@@ -6130,7 +6157,7 @@ function renderRcaCol() {
             <span class="convo-chevron">${open ? '▾' : '▸'}</span>
           </div>
           <div class="convo-body">
-            ${note.detail ? `<div class="convo-detail">${edSpan(`support_interaction_notes.${oIdx}.detail`, note.detail)}</div>` : ''}
+            ${_detailBullets(note, oIdx)}
             ${note.ce_miss ? `<div class="convo-gap">⚠ CE miss: ${edSpan(`support_interaction_notes.${oIdx}.ce_miss`, note.ce_miss)}</div>` : ''}
           </div>
         </div>`;
@@ -6160,8 +6187,7 @@ function renderRcaCol() {
           <span class="convo-chevron">${open ? '▾' : '▸'}</span>
         </div>
         <div class="convo-body">
-          ${row.note && row.note.detail ? `<div class="convo-detail">${
-            edSpan(`support_interaction_notes.${nIdx}.detail`, row.note.detail)}</div>` : ''}
+          ${_detailBullets(row.note, nIdx)}
           ${_contactGaps(rows).map(g => `<div class="convo-gap">⚠ ${esc(g)}</div>`).join('')}
           ${row.note && row.note.ce_miss ? `<div class="convo-gap">⚠ CE miss: ${
             edSpan(`support_interaction_notes.${nIdx}.ce_miss`, row.note.ce_miss)}</div>` : ''}

@@ -72,11 +72,49 @@ def test_several_chats_are_numbered_chronologically():
 
 def test_the_detail_is_the_account_of_the_whole_exchange():
     """`detail` is written about the contact, not about one message — it is
-    what replaces the per-message list."""
+    what replaces the per-message list. It renders as one bullet per line/
+    sentence (rule 10b), so a legacy newline-separated detail becomes bullets."""
     out = _sec([dict(CHAT, time="10 Aug 13:21", guestSaid="hi")],
                [{"zd_ref": "ZD-4491", "summary": "s",
                  "detail": "line one\nline two"}])
-    assert "   line one" in out and "   line two" in out
+    assert "• line one" in out and "• line two" in out
+
+
+def test_the_detail_array_renders_one_bullet_per_item():
+    """The new shape: `detail` is a list of single sentences, each a bullet."""
+    out = _sec([dict(CHAT, time="10 Aug 13:21", guestSaid="hi")],
+               [{"zd_ref": "ZD-4491", "summary": "s",
+                 "detail": ["Guest asked where the tickets were.",
+                            "Skylar resent the voucher link."]}])
+    assert "• Guest asked where the tickets were." in out
+    assert "• Skylar resent the voucher link." in out
+
+
+def test_a_contact_detail_array_survives_validation():
+    """The projector/validator must not stringify a list `detail` — a Python
+    repr would reach the card as one bullet reading "['a', 'b']"."""
+    from server.services.rca_v4_validate import validate
+    rca = {"support_interaction_notes": [
+        {"zd_ref": "ZD-4491", "time": "10 Aug 13:21", "channel": "chat",
+         "summary": "s",
+         "detail": ["Guest asked for a refund.", "Skylar declined on policy."],
+         "ce_miss": None}]}
+    out, _notes = validate(rca)
+    notes = out["support_interaction_notes"]
+    assert notes and isinstance(notes[0]["detail"], list)
+    assert notes[0]["detail"] == ["Guest asked for a refund.",
+                                  "Skylar declined on policy."]
+
+
+def test_a_legacy_paragraph_detail_is_split_into_sentence_bullets():
+    """A string written when detail was a paragraph splits into one bullet per
+    sentence, without cutting a decimal or a time mid-sentence."""
+    out = _sec([dict(CHAT, time="10 Aug 13:21", guestSaid="hi")],
+               [{"zd_ref": "ZD-4491", "summary": "s",
+                 "detail": "Guest called at 13:56 about the delay. Skylar "
+                           "offered 25% credit."}])
+    assert "• Guest called at 13:56 about the delay." in out
+    assert "• Skylar offered 25% credit." in out
 
 
 # ── the failures a contact carries ──────────────────────────────────────────
