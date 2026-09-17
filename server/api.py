@@ -93,6 +93,30 @@ def _received_at_from(slack_ts, rid="", published_at=None, published_src=""):
     return datetime.utcnow()
 
 
+def _received_source_from(slack_ts, published_at=None, published_src=""):
+    """Which of the three facts `_received_at_from` actually returned, as a
+    short label stored on the review so the card can say it out loud instead of
+    the reader inferring it from a date that looks slightly off.
+
+    Mirrors `_received_at_from`'s decision EXACTLY — same inputs, same order —
+    so the stored source can never disagree with the stored date:
+      * "publish" — the Trustpilot publish time from the payload (the real one).
+        `published_src` (footer / attachment_ts / field:<title>) says where.
+      * "arrival" — the Slack relay timestamp, later by the integration delay,
+        used only when the payload carried no publish date.
+      * "ingest"  — when we happened to run; not a fact about the review. The
+        last-resort fallback, and the one worth flagging loudest."""
+    if published_at is not None:
+        return "publish"
+    try:
+        ts = float(str(slack_ts).strip())
+        if 1e9 < ts < 4e9:
+            return "arrival"
+    except (TypeError, ValueError):
+        pass
+    return "ingest"
+
+
 class ManualReview(BaseModel):
     body: str
     rating: int = 1
@@ -1111,6 +1135,7 @@ def list_reviews(status: str | None = None, tab: str | None = None,
             "status":      r.status,
             "snippet":     (r.body_english or r.body_original or "")[:120],
             "received_at": r.received_at.isoformat() if r.received_at else None,
+            "date_source": r.date_source,
             "match_tier":  tier,
             "candidate_state": cand_state,
             # The bucket is computed here so the dashboard never has to derive
@@ -1177,7 +1202,7 @@ async def add_manual_review(
         id=review_id, slack_ts=ts, slack_channel=data.slack_channel,
         rating=data.rating, language=None,
         author=data.author or None, body_original=data.body,
-        received_at=datetime.utcnow(),
+        received_at=datetime.utcnow(), date_source="manual",
         reference_number=data.reference_number, status="new",
     )
     db.add(review)
@@ -1222,6 +1247,7 @@ def get_review(review_id: str, db: Session = Depends(get_session)):
             "slack_channel":    r.slack_channel,
             "slack_ts":         r.slack_ts,
             "received_at":      r.received_at.isoformat() if r.received_at else None,
+            "date_source":      r.date_source,
             "closed_at":        r.closed_at.isoformat() if r.closed_at else None,
             "close_reason":     r.close_reason,
             "sent_route":       r.sent_route,
@@ -4080,7 +4106,7 @@ async def vs_intake(body: VsIntake, x_vs_key: str | None = Header(default=None),
         body_original=rv.get("body_original") or "",
         body_english=_en_to_store,
         reference_number=bid or None,
-        received_at=datetime.utcnow(),
+        received_at=datetime.utcnow(), date_source="ingest",
         status="draft",
     )
     db.add(review)

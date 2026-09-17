@@ -102,10 +102,13 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
         # the batch importer beside it has guarded against exactly this since
         # it was written. One path fixed, the other left with the default:
         # the two disagreed and the live one was wrong.
-        from server.api import _received_at_from
+        from server.api import _received_at_from, _received_source_from
         _at = _received_at_from(parsed["slack_ts"], review_id,
                                 parsed.get("published_at"),
                                 parsed.get("published_at_source", ""))
+        _src = _received_source_from(parsed["slack_ts"],
+                                     parsed.get("published_at"),
+                                     parsed.get("published_at_source", ""))
         review = _db.Review(
             id               = review_id,
             slack_ts         = parsed["slack_ts"],
@@ -115,6 +118,7 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
             author           = parsed.get("author") or None,
             body_original    = parsed["body_original"],
             received_at      = _at,
+            date_source      = _src,
             reference_number = parsed["reference_number"],
         )
         db.add(review)

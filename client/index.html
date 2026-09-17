@@ -626,6 +626,8 @@
   .detail-row .v { font-weight: 500; overflow-wrap: anywhere; }
   .detail-row .v.mono { font-family: var(--mono); font-size: 11.5px; }
   .detail-row .v.dim, .detail-row .v .placeholder { color: var(--empty); }
+  .detail-row .v .v-src { font-weight: 400; font-size: 11px; color: var(--muted-2); }
+  .detail-row .v .v-src.warn { color: var(--amber); }
   /* An absent value carrying its reason. Same colour as .placeholder so it
      never reads as data, and normal weight so it does not compete with the
      rows that hold real values. */
@@ -2406,6 +2408,24 @@ function stampDetail(v) {
   return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute} IST`;
 }
 
+// The provenance of the Review date, so the reader knows whether it is the
+// real Trustpilot publish time or a fallback. "publish" is confirmed quietly;
+// the fallbacks are flagged VISIBLY, because a date that is actually the relay
+// or ingest time — silently — is the exact "looks slightly off, no idea why"
+// failure this exists to end. Empty/unknown (rows before the column existed)
+// says nothing rather than guessing.
+function reviewDateNote(src) {
+  if (src === 'publish')
+    return ` <span class="v-src" title="From the Trustpilot review itself">· publish date</span>`;
+  if (src === 'arrival')
+    return ` <span class="v-src warn" title="No publish date in the payload — this is when Slack relayed it, minutes-to-hours after the guest posted">· arrival time (not the guest's post time)</span>`;
+  if (src === 'ingest')
+    return ` <span class="v-src warn" title="Neither a publish nor a relay time was available — this is when we ingested the row, not a fact about the review">· ingest time (not the review's date)</span>`;
+  if (src === 'manual')
+    return ` <span class="v-src" title="Typed on the add-review form">· entered by hand</span>`;
+  return '';
+}
+
 function _candScore(c) {
   // EVERY NON-ZERO TERM, or none of them. This printed "venue X + date Y" for
   // a ranking that sums FIVE — venue, date, ticket-text, name+venue and name
@@ -3292,6 +3312,10 @@ async function loadDraftOverlays() {
       if (review && review.received_at) {
         r.booking = r.booking || {};
         r.booking.reviewDate = review.received_at.split('T')[0];
+        // WHERE that date came from, so the reader trusts it rather than
+        // inferring provenance from a date that looks slightly off. Stored on
+        // the review at ingest (server: _received_source_from).
+        r.booking.reviewDateSource = review.date_source || '';
       }
 
       // ── Lead time: days between booking date and visit date ───────────────
@@ -4872,7 +4896,7 @@ function renderReviewCol() {
              names and broke the parse — directly underneath the warning. -->
         <div class="detail-row"><span class="k">Visit date</span><span class="v">${b.experienceDate || '—'}</span></div>
         <div class="detail-row"><span class="k">Booking date</span><span class="v">${stampDetail(b.bookingDate || b.creationDate)}</span></div>
-        <div class="detail-row"><span class="k">Review date</span><span class="v">${b.reviewDate || '—'}</span></div>
+        <div class="detail-row"><span class="k">Review date</span><span class="v">${b.reviewDate || '—'}${b.reviewDate ? reviewDateNote(b.reviewDateSource) : ''}</span></div>
         <div class="detail-row"><span class="k">Partnered vendor</span><span class="v">${b.isPartnered == null ? '<span class="placeholder">—</span>' : `<span class="pill-sm ${b.isPartnered ? 'pill-green' : 'pill-grey'}">${b.isPartnered ? 'Yes' : 'No'}</span>`}</span></div>
         <!-- Escalation email row removed by request. The value still reaches the
              client (r.booking.escalationEmail) but is no longer shown here, and

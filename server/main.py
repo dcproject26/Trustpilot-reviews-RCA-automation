@@ -63,6 +63,10 @@ def seed_mocks():
                 body_original=r["body_original"], body_english=r.get("body_english"),
                 reference_number=r.get("reference_number"),
                 received_at=datetime.fromisoformat(r["received_at"]),
+                # Seed data with a deliberate date — treated as manually set, so
+                # the card labels it rather than implying a Trustpilot publish
+                # time the mock never had.
+                date_source=r.get("date_source", "manual"),
                 status=r["status"],
             )
             db.add(review)

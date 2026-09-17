@@ -438,7 +438,7 @@ async def sync_channel_to_db(db, hours: float | None = None,
     # Lazy: _received_at_from lives in api.py (webhook.py already imports it
     # the same way) — a top-level import here would cycle with api.py's own
     # (also lazy) import of this module.
-    from server.api import _received_at_from
+    from server.api import _received_at_from, _received_source_from
 
     found = skipped = queued = 0
     ingested = []
@@ -457,11 +457,15 @@ async def sync_channel_to_db(db, hours: float | None = None,
         _at = _received_at_from(parsed["slack_ts"], rid,
                                 parsed.get("published_at"),
                                 parsed.get("published_at_source", ""))
+        _src = _received_source_from(parsed["slack_ts"],
+                                     parsed.get("published_at"),
+                                     parsed.get("published_at_source", ""))
         db.add(Review(
             id=rid, slack_ts=parsed["slack_ts"],
             slack_channel=parsed["slack_channel"], rating=parsed["rating"],
             language=parsed["language"], author=parsed.get("author") or None,
             body_original=parsed["body_original"], received_at=_at,
+            date_source=_src,
             reference_number=parsed["reference_number"], status="new"))
         db.commit()
         try:

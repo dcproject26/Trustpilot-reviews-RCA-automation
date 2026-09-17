@@ -157,6 +157,14 @@ class Review(Base):
     # which renders as "no date recorded" — visibly missing rather than
     # quietly wrong.
     received_at      = Column(DateTime, nullable=True)
+    # WHERE received_at CAME FROM: "publish" (the real Trustpilot publish time),
+    # "arrival" (the Slack relay time — later by the integration delay, used
+    # when the payload had no publish date), "ingest" (when we ran — not a fact
+    # about the review), or "manual" (a person typed it on the add-review form).
+    # NULL on rows created before this column existed. The card shows it so the
+    # reader can trust the date rather than infer its provenance. See
+    # api._received_source_from, which mirrors _received_at_from's decision.
+    date_source      = Column(String, nullable=True)
     status           = Column(String, default="new")   # new|draft|sent
     # Closed out rather than replied to. An untraceable review reaches Sent by
     # someone deciding there is nothing more to do — no RCA, no posted reply —
@@ -493,6 +501,10 @@ def _WANTED_REVIEW_COLUMNS(is_pg: bool) -> dict:
         # not scoped by auth (there is none). Kept nullable so an unfilled
         # owner reads differently from an empty string typed and cleared.
         "picked_up_by": "TEXT",
+        # Where received_at came from — publish / arrival / ingest / manual —
+        # so the card shows the date's provenance instead of the reader
+        # inferring it. NULL on rows ingested before this column existed.
+        "date_source":  "TEXT",
     }
 
 

@@ -1,0 +1,18 @@
+[
+  {"file":"server/api.py",
+   "name":"date source: a fallback is mislabelled as the real publish date",
+   "find":"    if published_at is not None:\n        return \"publish\"",
+   "replace":"    if True:\n        return \"publish\""},
+  {"file":"server/api.py",
+   "name":"date source: the arrival fallback is not distinguished from ingest",
+   "find":"        if 1e9 < ts < 4e9:\n            return \"arrival\"",
+   "replace":"        if 1e9 < ts < 4e9:\n            return \"ingest\""},
+  {"file":"server/services/slack.py",
+   "name":"slack ingest: date_source not stored",
+   "find":"            body_original=parsed[\"body_original\"], received_at=_at,\n            date_source=_src,",
+   "replace":"            body_original=parsed[\"body_original\"], received_at=_at,"},
+  {"file":"server/webhook.py",
+   "name":"webhook ingest: date_source not stored",
+   "find":"            received_at      = _at,\n            date_source      = _src,",
+   "replace":"            received_at      = _at,"}
+]

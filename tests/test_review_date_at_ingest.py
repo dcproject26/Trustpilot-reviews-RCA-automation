@@ -31,8 +31,17 @@ def _review_creations():
     for path in sorted(root.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for n in ast.walk(tree):
-            if (isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-                    and n.func.id == "Review"):
+            # BOTH `Review(...)` and `_db.Review(...)` / `db.Review(...)` — the
+            # live webhook constructs it through the module alias, so a sweep
+            # that only matched the bare name silently skipped the one path
+            # that carries the traffic (and let a date_source-dropping mutant
+            # survive).
+            if not isinstance(n, ast.Call):
+                continue
+            f = n.func
+            is_review = ((isinstance(f, ast.Name) and f.id == "Review")
+                         or (isinstance(f, ast.Attribute) and f.attr == "Review"))
+            if is_review:
                 out.append((path.name, n.lineno,
                             {k.arg for k in n.keywords if k.arg}))
     return out
@@ -126,3 +135,58 @@ def test_a_metric_row_copies_the_reviews_date_rather_than_taking_its_own():
     src = inspect.getsource(pipeline)
     assert "m.received_at      = review.received_at" in src, (
         "the metric no longer derives its date from the review")
+
+
+# ── the date's PROVENANCE, shown so it is not inferred ──────────────────────
+
+def test_the_source_label_mirrors_the_date_decision_exactly():
+    """_received_source_from must return the label for the SAME branch
+    _received_at_from took — a source that disagrees with the date is worse
+    than no source at all."""
+    from datetime import datetime
+    from server.api import _received_source_from
+    # publish date present -> "publish"
+    assert _received_source_from("1785931800.0", datetime(2026, 8, 2), "footer") == "publish"
+    # no publish, a real slack ts -> "arrival"
+    assert _received_source_from("1785931800.0", None, "") == "arrival"
+    # no publish, an unusable ts -> "ingest"
+    assert _received_source_from("not-a-ts", None, "") == "ingest"
+    assert _received_source_from("123", None, "") == "ingest"
+
+
+def test_every_creation_site_states_the_date_source():
+    """The provenance is only useful if EVERY path sets it — a path that
+    forgets stores NULL and the card silently shows a bare date again."""
+    missing = [f"{f}:{ln}" for f, ln, kw in _review_creations()
+               if "date_source" not in kw]
+    assert not missing, (
+        f"these create a Review without a date_source: {missing}. The card "
+        f"cannot then say whether the date is the publish time or a fallback.")
+
+
+def test_date_source_column_exists_and_is_nullable():
+    from server.db import Review
+    assert "date_source" in Review.__table__.c
+    assert Review.__table__.c.date_source.nullable is True
+
+
+def test_the_ingest_stores_the_publish_source_on_the_review(live_db):
+    """End to end on the live schema: a review whose payload carries a publish
+    date is stored with date_source='publish', and it reaches the API."""
+    from server.db import Review
+    from server.api import _received_at_from, _received_source_from
+    from datetime import datetime
+    pub = datetime(2026, 8, 19, 19, 50)
+    s = live_db.SessionLocal()
+    try:
+        at = _received_at_from("1787169351.03", "tp_x", pub, "footer")
+        src = _received_source_from("1787169351.03", pub, "footer")
+        s.add(Review(id="tp_x", slack_ts="1787169351.03", rating=1,
+                     body_original="b", received_at=at, date_source=src,
+                     status="new"))
+        s.commit()
+        r = s.query(Review).filter_by(id="tp_x").one()
+        assert r.date_source == "publish"
+        assert r.received_at == pub          # the real publish time, not now
+    finally:
+        s.close()
