@@ -1,0 +1,14 @@
+[
+  {
+    "file": "server/services/slack.py",
+    "name": "epoch normalisation removed — Slack post shows raw 1.789E9 again",
+    "find": "            return _normalise_stamp(v)",
+    "replace": "            return v"
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "sign-off prohibition removed — model free to use Warm regards again",
+    "find": "   No other sign-off is acceptable — not \"Warm regards\", not \"Kind regards\",\n   not \"Cheers\", not \"Thanks\". Always \"Best,\" on its own line.",
+    "replace": ""
+  }
+]

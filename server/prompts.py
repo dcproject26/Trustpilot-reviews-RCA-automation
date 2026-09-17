@@ -1062,6 +1062,8 @@ INSTRUCTIONS:
 7. Sign off on its own two lines, exactly:
    Best,
    [Your Name], Headout
+   No other sign-off is acceptable — not "Warm regards", not "Kind regards",
+   not "Cheers", not "Thanks". Always "Best," on its own line.
 8. Return ONLY the reply text.
 9. Use PROSPECTIVE language ("is being processed", "I'm looking into this",
    "we'll get this sorted") for any action the RESOLUTION field does not

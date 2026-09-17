@@ -1280,11 +1280,33 @@ _BOOKING_DETAIL_ROWS = (
 )
 
 
+def _normalise_stamp(v: str) -> str:
+    """Convert epoch timestamps (like 1.789312429E9) to ISO dates.
+
+    Mirrors the client's normaliseStamp — BigQuery returns TIMESTAMP as epoch
+    seconds, and a float that large str()s into scientific notation.
+    """
+    import datetime
+    s = str(v or "").strip()
+    if not s or not re.match(r'^[0-9.eE+]+$', s):
+        return s
+    try:
+        n = float(s)
+    except ValueError:
+        return s
+    if n > 1e11:
+        n = n / 1000
+    if 1e9 < n < 4e9:
+        return datetime.datetime.fromtimestamp(n, tz=datetime.timezone.utc
+                                               ).strftime("%Y-%m-%d %H:%M UTC")
+    return s
+
+
 def _booking_field(bk: dict, keys) -> str:
     for k in keys:
         v = str((bk or {}).get(k) or "").strip()
         if v:
-            return v
+            return _normalise_stamp(v)
     return ""
 
 

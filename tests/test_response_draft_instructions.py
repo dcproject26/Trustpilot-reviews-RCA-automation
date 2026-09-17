@@ -88,3 +88,14 @@ def test_the_brand_voice_reaches_the_draft_prompt():
     out = _draft()
     assert "HEADOUT VOICE AND TONE" in out
     assert "HARD RULES" in out
+
+
+# ── sign-off enforcement ───────────────────────────────────────────────────
+
+def test_the_prompt_prohibits_alternative_signoffs():
+    """The model was using 'Warm regards' despite 'Best,' being specified.
+    The prompt must explicitly ban common alternatives."""
+    out = _draft()
+    low = out.lower()
+    assert "warm regards" in low
+    assert "no other sign-off" in low or "not acceptable" in low
