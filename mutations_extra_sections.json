@@ -1,0 +1,26 @@
+[
+  {
+    "file": "server/services/daily_report.py",
+    "name": "extra sections: an empty/omitted dims list still appends something",
+    "find": "    if not dims:\n        return \"\"",
+    "replace": "    if False:\n        return \"\""
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "extra sections: unknown dimension key is not skipped (would crash)",
+    "find": "        d = DIM_BY_KEY.get(key)\n        if d is None:\n            continue",
+    "replace": "        d = DIM_BY_KEY.get(key)\n        if False:\n            continue"
+  },
+  {
+    "file": "server/services/daily_report.py",
+    "name": "extra sections: the appended block is dropped from the digest",
+    "find": "    return text + (\"\\n\" + extra if extra else \"\")",
+    "replace": "    return text  # extra dropped"
+  },
+  {
+    "file": "server/services/weekly_report.py",
+    "name": "weekly extra sections: the appended block is dropped",
+    "find": "    return text + (\"\\n\" + extra if extra else \"\")",
+    "replace": "    return text  # extra dropped"
+  }
+]

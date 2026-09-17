@@ -710,3 +710,71 @@ def test_a_null_status_review_is_counted_as_pending(live_db):
         assert pending_count(s) >= 1, "a NULL-status review vanished from pending"
     finally:
         s.close()
+
+
+# ── optional extra category sections (for a person composing before sending) ──
+
+def _plant_window(db, now, n=6):
+    """n reviews received inside the daily 8pm→8pm window of `now`, split across
+    two L1 categories, so an appended breakdown has something to group."""
+    from server.db import Review, RcaDraft
+    from server.services.daily_report import _db_bounds
+    start, end = _db_bounds(now)
+    mid = start + timedelta(hours=6)
+    s = db.SessionLocal()
+    try:
+        for i in range(n):
+            rid = f"x{i}"
+            s.add(Review(id=rid, received_at=mid, status="sent", rating=1,
+                         picked_up_by="Avi"))
+            s.add(RcaDraft(id=rid + "-d", review_id=rid, match_tier=1,
+                           l1=("Operations Issue" if i % 2 else "Supply Partner Issue"),
+                           l2="Ticket Issues", sent_at=mid,
+                           booking={"id": f"B{i}"}))
+        s.commit()
+    finally:
+        s.close()
+
+
+def test_no_extra_sections_leaves_the_digest_unchanged(live_db):
+    from datetime import datetime, timezone
+    now = datetime(2026, 9, 11, 14, 30, tzinfo=timezone.utc)
+    _plant_window(live_db, now)
+    s = live_db.SessionLocal()
+    try:
+        plain = build_daily_digest(s, now)
+        none1 = build_daily_digest(s, now, extra_sections=None)
+        none2 = build_daily_digest(s, now, extra_sections=[])
+    finally:
+        s.close()
+    assert plain == none1 == none2      # the scheduled auto-post is untouched
+
+
+def test_an_extra_category_section_is_appended_and_sums_to_received(live_db):
+    from datetime import datetime, timezone
+    now = datetime(2026, 9, 11, 14, 30, tzinfo=timezone.utc)
+    _plant_window(live_db, now, n=6)
+    s = live_db.SessionLocal()
+    try:
+        text = build_daily_digest(s, now, extra_sections=["l1"])
+    finally:
+        s.close()
+    assert "*🏷️  Solved by tier*" in text          # the fixed core is still there
+    assert "*🗂️  L1 category — received in the window*" in text
+    assert "• Operations Issue — 3" in text
+    assert "• Supply Partner Issue — 3" in text
+    # The two buckets sum to Received (6) — a recoverable denominator.
+    assert "• Received today — *6*" in text
+
+
+def test_an_unknown_extra_section_key_is_ignored_not_crashed(live_db):
+    from datetime import datetime, timezone
+    now = datetime(2026, 9, 11, 14, 30, tzinfo=timezone.utc)
+    _plant_window(live_db, now)
+    s = live_db.SessionLocal()
+    try:
+        text = build_daily_digest(s, now, extra_sections=["l1", "nonsense_key"])
+    finally:
+        s.close()
+    assert "L1 category — received in the window" in text
+    assert "nonsense_key" not in text

@@ -10112,6 +10112,7 @@ const RPG = {
   limit: 25, sort: null, desc: true, expanded: {}, seq: 0, popClose: null,
   host: null, modal: null, repSections: ['tier', 'owner'],
   repPreset: 'daily', repRank: 'count', repDirty: false,
+  repExtra: [],  // extra category breakdowns appended to daily/weekly before sending
   // The rows the Explore table was last drawn from, as an array of arrays
   // (header row first) — what CSV/Copy serialise, so the file and the screen
   // are the same thing. null means no query has answered yet, which is NOT the
@@ -10761,6 +10762,8 @@ function rpgRepSidebarState(view) {
   const custom = RPG.repPreset === 'custom';
   view.querySelector('[data-rpg-rcustom]').hidden = !custom;
   view.querySelector('[data-rpg-rbuild]').hidden = !custom;
+  const rextra = view.querySelector('[data-rpg-rextra]');
+  if (rextra) rextra.hidden = custom;   // daily/weekly can append categories; Custom builds its own
   const note = view.querySelector('[data-rpg-rnote]');
   if (custom) {
     note.textContent = '';
@@ -10793,6 +10796,11 @@ function rpgReports(view) {
           <div class="rpg-fld"><label>To</label><input type="date" data-rpg-rto></div>
         </div>
         <p class="rpg-hint" data-rpg-rnote style="margin:8px 4px;font-size:11.5px;color:var(--dim)"></p>
+        <div data-rpg-rextra hidden>
+          <span class="rpg-lab" style="display:block;margin:2px 4px 6px">Add categories</span>
+          <p class="rpg-hint" style="margin:0 4px 6px;font-size:11px;color:var(--dim)">Appends a breakdown of the reviews received in this window. Refresh to apply.</p>
+          <div data-rpg-rextrasecs></div>
+        </div>
         <div data-rpg-rbuild>
           <div class="rpg-fld"><label>Rank sections by</label><select data-rpg-rrank></select></div>
           <span class="rpg-lab" style="display:block;margin:12px 4px 6px">Sections</span>
@@ -10819,6 +10827,11 @@ function rpgReports(view) {
       RPG.fields.dimensions.filter(d => d.view === v && d.key !== 'date').map(d =>
         `<label class="rpg-secitem"><input type="checkbox" data-sec="${rpgAttr(d.key)}"` +
         `${RPG.repSections.includes(d.key) ? ' checked' : ''}>${esc(d.label)}</label>`).join('') + `</details>`).join('');
+    view.querySelector('[data-rpg-rextrasecs]').innerHTML = RPG.views.map(v =>
+      `<details class="rpg-grp"><summary>${esc(v)}</summary>` +
+      RPG.fields.dimensions.filter(d => d.view === v && d.key !== 'date').map(d =>
+        `<label class="rpg-secitem"><input type="checkbox" data-xsec="${rpgAttr(d.key)}"` +
+        `${RPG.repExtra.includes(d.key) ? ' checked' : ''}>${esc(d.label)}</label>`).join('') + `</details>`).join('');
     rpgReportsWire(view);
     // Daily and Weekly are fixed-format scheduled digests — their sections are set
     // by the report itself. Only Custom exposes build controls.
@@ -10844,6 +10857,10 @@ function rpgReportsWire(view) {
   view.querySelectorAll('[data-sec]').forEach(cb => cb.addEventListener('change', () => {
     const k = cb.dataset.sec;
     RPG.repSections = cb.checked ? RPG.repSections.concat([k]) : RPG.repSections.filter(x => x !== k);
+    stale(); }));
+  view.querySelectorAll('[data-xsec]').forEach(cb => cb.addEventListener('change', () => {
+    const k = cb.dataset.xsec;
+    RPG.repExtra = cb.checked ? RPG.repExtra.concat([k]) : RPG.repExtra.filter(x => x !== k);
     stale(); }));
   view.querySelector('[data-rpg-refresh]').addEventListener('click', () => rpgReportsRefresh(view, true));
   view.querySelector('[data-rpg-draft]').addEventListener('input', () => {
@@ -10872,7 +10889,8 @@ async function rpgReportsRefresh(view, announce) {
     let data;
     if (RPG.repPreset === 'daily') {
       // ONE daily definition: the same endpoint the 8pm auto-post rebuilds from.
-      const r = await fetch('/api/reports/daily/preview', {cache: 'no-store'});
+      const xs = RPG.repExtra.length ? '?sections=' + encodeURIComponent(RPG.repExtra.join(',')) : '';
+      const r = await fetch('/api/reports/daily/preview' + xs, {cache: 'no-store'});
       if (!r.ok) throw new Error(`${r.status}`);
       data = await r.json();
       win.textContent = 'The 8pm→8pm IST day. This is the same report that auto-posts at 8pm.';
@@ -10881,7 +10899,8 @@ async function rpgReportsRefresh(view, announce) {
       // posts, most-recently-completed week. This used to route to the generic
       // composer, which produced a DIFFERENT format ("Received: X · Solved: Y ·
       // RCAs posted: Z", italics, ranked sections) — two weeklies that disagreed.
-      const r = await fetch('/api/reports/weekly/preview?weeks_ago=0', {cache: 'no-store'});
+      const xs = RPG.repExtra.length ? '&sections=' + encodeURIComponent(RPG.repExtra.join(',')) : '';
+      const r = await fetch('/api/reports/weekly/preview?weeks_ago=0' + xs, {cache: 'no-store'});
       if (!r.ok) throw new Error(`${r.status}`);
       data = await r.json();
       win.textContent = 'The most recent completed Mon 8pm→Mon 8pm IST week. Same report that auto-posts weekly.';
@@ -10913,9 +10932,9 @@ async function rpgReportsSend(view) {
   btn.disabled = true; btn.textContent = '⟳ sending…';
   try {
     const out = RPG.repPreset === 'daily'
-      ? await rpgPost('/api/reports/daily/send', {text})
+      ? await rpgPost('/api/reports/daily/send', {text, sections: RPG.repExtra})
       : RPG.repPreset === 'weekly'
-      ? await rpgPost('/api/reports/weekly/send', {text, weeks_ago: 0})
+      ? await rpgPost('/api/reports/weekly/send', {text, weeks_ago: 0, sections: RPG.repExtra})
       : await rpgPost('/api/reporting/report/send', Object.assign(rpgReportBody(view), {text}));
     msg.innerHTML = `<span style="color:var(--green)">Posted ✓ (${esc(out.channel || '')})</span>`;
   } catch (e) {

@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from server.services.daily_report import (
     IST, REPORT_HOUR_IST, Summary, summarize, _section, _DIV,
     _TIER_FIXED, _TIER_DOT, _collect_solved_between, _received_between,
-    pending_count, _pct)
+    pending_count, _pct, extra_category_sections)
 
 WEEK = timedelta(days=7)
 
@@ -66,8 +66,13 @@ def _day_label(day_end_utc_naive: datetime) -> str:
     return f"{end_ist.strftime('%a')} {end_ist.strftime('%d %b').lstrip('0')}"
 
 
-def build_weekly_digest(db, now: datetime | None = None, weeks_ago: int = 0) -> str:
-    """The full weekly digest text for the selected completed week."""
+def build_weekly_digest(db, now: datetime | None = None, weeks_ago: int = 0,
+                        extra_sections: list[str] | None = None) -> str:
+    """The full weekly digest text for the selected completed week.
+
+    `extra_sections` appends optional category breakdowns over the same week
+    window, for a person composing the report to send; the scheduled auto-post
+    passes none, so its format is unchanged."""
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
@@ -97,7 +102,9 @@ def build_weekly_digest(db, now: datetime | None = None, weeks_ago: int = 0) -> 
     _d = lambda t: t.strftime("%d %b").lstrip("0")
     title_label = f"{_d(a_ist)} – {b_ist.strftime('%d %b %Y').lstrip('0')}"
     window_label = f"Mon {_d(a_ist)} 8pm → Mon {_d(b_ist)} 8pm IST"
-    return render_weekly(summary, title_label, window_label, trend, "(all time)")
+    text = render_weekly(summary, title_label, window_label, trend, "(all time)")
+    extra = extra_category_sections(db, start, end, extra_sections)
+    return text + ("\n" + extra if extra else "")
 
 
 def render_weekly(summary: Summary, title_label: str, window_label: str,

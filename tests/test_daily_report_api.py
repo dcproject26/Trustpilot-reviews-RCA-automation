@@ -98,3 +98,35 @@ def test_trigger_accepts_bearer_and_x_header(client, monkeypatch):
                      headers={"X-Report-Token": "secret"})
     assert r1.status_code == 200 and r1.json()["ok"] is True
     assert r2.status_code == 200 and r2.json()["ts"] == "ts_ok"
+
+
+def test_preview_appends_extra_category_sections(client, live_db, monkeypatch):
+    """A person composing the report can append category breakdowns via
+    ?sections=; the endpoint threads them into the same build the auto-post
+    uses, so the appended numbers come from the one query engine."""
+    import server.config as cfg
+    from datetime import datetime
+    from server.db import Review, RcaDraft
+    from server.services.daily_report import _db_bounds
+    monkeypatch.setattr(cfg, "SLACK_CHANNEL_DAILY", "C045KG5AJF5")
+    # plant reviews inside the current daily window so the section has content
+    start, end = _db_bounds(datetime.utcnow())
+    mid = start + (end - start) / 2
+    s = live_db.SessionLocal()
+    try:
+        for i in range(4):
+            rid = f"api_x{i}"
+            s.add(Review(id=rid, received_at=mid, status="sent", rating=1,
+                         picked_up_by="Avi"))
+            s.add(RcaDraft(id=rid + "-d", review_id=rid, match_tier=1,
+                           l1=("Operations Issue" if i % 2 else "Product Issue"),
+                           sent_at=mid, booking={"id": f"B{i}"}))
+        s.commit()
+    finally:
+        s.close()
+    plain = client.get("/api/reports/daily/preview").json()["text"]
+    withl1 = client.get("/api/reports/daily/preview?sections=l1").json()["text"]
+    assert "L1 category — received in the window" not in plain
+    assert "L1 category — received in the window" in withl1
+    # both l1 buckets present and summing to the 4 received
+    assert "• Operations Issue — 2" in withl1 and "• Product Issue — 2" in withl1

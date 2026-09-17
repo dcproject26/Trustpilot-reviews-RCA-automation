@@ -241,3 +241,30 @@ def test_weekly_tier_block_is_the_solved_cohort_including_carried_in(live_db):
     assert "% of" not in text
     assert "🟡 Tier 2 — 1 (100%)" in text
     assert "🟢 Tier 1 — 0 (0%)" in text
+
+
+def test_weekly_appends_an_extra_category_section(live_db):
+    """Same feature as the daily: a person composing the weekly can append a
+    category breakdown over the week window; the scheduled auto-post passes
+    none, so its format is unchanged."""
+    from server.db import Review, RcaDraft
+    now = datetime(2026, 9, 16, 6, 0, tzinfo=timezone.utc)
+    start, end = _week_db_bounds(now)
+    mid = start + timedelta(days=2)
+    s = live_db.SessionLocal()
+    try:
+        for i in range(4):
+            rid = f"we{i}"
+            s.add(Review(id=rid, received_at=_n(mid), status="sent", rating=1,
+                         picked_up_by="Avi"))
+            s.add(RcaDraft(id=rid + "-d", review_id=rid, match_tier=1,
+                           l1=("Operations Issue" if i % 2 else "Product Issue"),
+                           sent_at=_n(mid), booking={"id": f"B{i}"}))
+        s.commit()
+        plain = build_weekly_digest(s, now)
+        withl1 = build_weekly_digest(s, now, extra_sections=["l1"])
+    finally:
+        s.close()
+    assert "L1 category — received in the window" not in plain
+    assert "*🗂️  L1 category — received in the window*" in withl1
+    assert "• Operations Issue — 2" in withl1 and "• Product Issue — 2" in withl1

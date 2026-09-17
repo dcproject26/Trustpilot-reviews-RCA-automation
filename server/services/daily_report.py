@@ -449,8 +449,48 @@ def pending_count(db) -> int:
               .count())
 
 
-def build_daily_digest(db, now: datetime | None = None) -> str:
-    """The full digest text for a run at `now` (defaults to real now)."""
+def extra_category_sections(db, start: datetime, end: datetime,
+                            dims: list[str] | None) -> str:
+    """Optional category breakdowns appended to a digest before it is sent.
+
+    The daily and weekly digests are fixed-format, but a person composing one to
+    send can ask for extra breakdowns — "and what were today's reviews about" —
+    by picking dimensions. Each is grouped over the reviews RECEIVED in the same
+    window as the digest's Received count, through the SAME `run_query` the
+    Reporting page uses, so an appended number can never drift from what Explore
+    would show for that field and window. Empty/omitted dims add nothing.
+
+    `start`/`end` are the digest's own NAIVE-UTC window bounds, so the appended
+    sections cover exactly the reviews the "Received" line counted."""
+    if not dims:
+        return ""
+    from server.services.reporting_query import records, run_query, DIM_BY_KEY
+    recs = records(db, start, end)          # received in window, test rows excluded
+    blocks: list[str] = []
+    for key in dims:
+        d = DIM_BY_KEY.get(key)
+        if d is None:
+            continue
+        res = run_query(recs, [key], ["count"], limit=8, sort="count")
+        if not res["rows"]:
+            continue
+        # run_query already folds no-value reviews into a "(not set)" row, so the
+        # bullets sum to the received cohort — the reader can check them against
+        # the Received count above (CLAUDE.md rule 5: a recoverable denominator).
+        rows = [f"• {r['key'][0]} — {r['values']['count']}" for r in res["rows"]]
+        if res["truncated"]:
+            rows.append(f"…top 8 of {res['row_count']} {d.label.lower()} values")
+        blocks += _section(f"*🗂️  {d.label} — received in the window*", rows)
+    return "\n".join(blocks)
+
+
+def build_daily_digest(db, now: datetime | None = None,
+                       extra_sections: list[str] | None = None) -> str:
+    """The full digest text for a run at `now` (defaults to real now).
+
+    `extra_sections` appends optional category breakdowns (by dimension key)
+    over the same 8pm→8pm window, for a person composing the report to send.
+    The scheduled auto-post passes none, so its format is unchanged."""
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
@@ -478,4 +518,6 @@ def build_daily_digest(db, now: datetime | None = None) -> str:
     # The backlog is a stock with no window — captioned so it is never read as
     # "pending that arrived today", which would be a much smaller number.
     pending_label = "(all time)"
-    return render_digest(summary, date_label, window_label, pending_label)
+    text = render_digest(summary, date_label, window_label, pending_label)
+    extra = extra_category_sections(db, *_db_bounds(now), extra_sections)
+    return text + ("\n" + extra if extra else "")

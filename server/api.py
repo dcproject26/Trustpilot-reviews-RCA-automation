@@ -3777,6 +3777,8 @@ class DailySend(BaseModel):
     # The edited text from the dashboard. Absent/blank -> rebuild fresh, so the
     # "Send" button works even if the preview never loaded.
     text: str | None = None
+    # Optional category breakdowns to append (dimension keys) when rebuilding.
+    sections: list[str] | None = None
 
 
 def _daily_channel() -> str:
@@ -3785,11 +3787,15 @@ def _daily_channel() -> str:
 
 
 @router.get("/api/reports/daily/preview")
-def daily_preview(db: Session = Depends(get_session)):
+def daily_preview(sections: str = Query(""),
+                  db: Session = Depends(get_session)):
     """The digest text that would go out now, for the dashboard to show/edit.
-    Read-only — builds nothing external, posts nothing."""
+    Read-only — builds nothing external, posts nothing. `sections` is a comma-
+    separated list of dimension keys to append as extra category breakdowns."""
     from server.services.daily_report import build_daily_digest
-    return {"text": build_daily_digest(db), "channel": _daily_channel()}
+    extra = [x for x in sections.split(",") if x.strip()]
+    return {"text": build_daily_digest(db, extra_sections=extra),
+            "channel": _daily_channel()}
 
 
 @router.post("/api/reports/daily/send")
@@ -3802,7 +3808,7 @@ def daily_send(body: DailySend, db: Session = Depends(get_session)):
     if not channel:
         raise HTTPException(400, "SLACK_CHANNEL_DAILY is not set — no channel to "
                                  "post the daily report to.")
-    text = (body.text or "").strip() or build_daily_digest(db)
+    text = (body.text or "").strip() or build_daily_digest(db, extra_sections=body.sections)
     ts = post_to_channel(channel, text)
     if not ts:
         # Not an empty day — we tried to post and Slack did not accept it. Say
@@ -3854,6 +3860,7 @@ def daily_trigger(x_report_token: str | None = Header(default=None),
 class WeeklySend(BaseModel):
     text: str | None = None          # edited text; blank -> rebuild fresh
     weeks_ago: int = 0               # which completed week the text is for
+    sections: list[str] | None = None  # extra category breakdowns to append
 
 
 @router.get("/api/reports/weekly/options")
@@ -3865,10 +3872,13 @@ def weekly_options(db: Session = Depends(get_session)):
 
 @router.get("/api/reports/weekly/preview")
 def weekly_preview(weeks_ago: int = Query(0, ge=0, le=51),
+                   sections: str = Query(""),
                    db: Session = Depends(get_session)):
-    """The weekly digest text for the selected completed week — read-only."""
+    """The weekly digest text for the selected completed week — read-only.
+    `sections` is a comma-separated list of dimension keys to append."""
     from server.services.weekly_report import build_weekly_digest
-    return {"text": build_weekly_digest(db, weeks_ago=weeks_ago),
+    extra = [x for x in sections.split(",") if x.strip()]
+    return {"text": build_weekly_digest(db, weeks_ago=weeks_ago, extra_sections=extra),
             "channel": _daily_channel(), "weeks_ago": weeks_ago}
 
 
@@ -3883,7 +3893,8 @@ def weekly_send(body: WeeklySend, db: Session = Depends(get_session)):
     if not channel:
         raise HTTPException(400, "SLACK_CHANNEL_DAILY is not set — no channel to "
                                  "post the weekly report to.")
-    text = (body.text or "").strip() or build_weekly_digest(db, weeks_ago=body.weeks_ago)
+    text = (body.text or "").strip() or build_weekly_digest(
+        db, weeks_ago=body.weeks_ago, extra_sections=body.sections)
     ts = post_to_channel(channel, text)
     if not ts:
         why = last_post_failure.get("why") or "Slack returned no message ts."
