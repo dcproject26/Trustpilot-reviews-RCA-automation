@@ -10186,12 +10186,22 @@ function rpgWire() {
     RPG.modal.querySelectorAll('[data-rpg-tabs] button')
       .forEach(x => x.setAttribute('aria-pressed', x.dataset.v === RPG.tab));
     // Reports carries its own window, so the global date control is hidden there;
-    // the FILTERS stay visible because they do apply to the report.
+    // filters apply to Custom reports only, so visibility depends on the preset.
     const rep = RPG.tab === 'reports';
-    ['[data-rpg-datelab]', '[data-rpg-presets]', '[data-rpg-sep]']
+    ['[data-rpg-datelab]', '[data-rpg-presets]']
       .forEach(sel => h.querySelector(sel).style.display = rep ? 'none' : '');
     if (rep) h.querySelector('[data-rpg-dates]').classList.remove('show');
     else if (RPG.preset === 'custom') h.querySelector('[data-rpg-dates]').classList.add('show');
+    const addf = h.querySelector('[data-rpg-addf]');
+    const sep = h.querySelector('[data-rpg-sep]');
+    if (!rep) {
+      if (addf) addf.style.display = '';
+      if (sep) sep.style.display = '';
+    } else {
+      const custom = RPG.repPreset === 'custom';
+      if (addf) addf.style.display = custom ? '' : 'none';
+      if (sep) sep.style.display = 'none';
+    }
     rpgRender();
   });
   h.querySelector('[data-rpg-presets]').addEventListener('click', (e) => {
@@ -10722,6 +10732,28 @@ async function rpgExploreRun(view) {
 // Daily deliberately reuses the EXISTING /api/reports/daily endpoints, so there
 // is exactly one definition of the daily digest — the 8pm→8pm one that also
 // auto-posts. Weekly and custom use the new composer.
+
+function rpgRepSidebarState(view) {
+  const custom = RPG.repPreset === 'custom';
+  view.querySelector('[data-rpg-rcustom]').hidden = !custom;
+  view.querySelector('[data-rpg-rbuild]').hidden = !custom;
+  const note = view.querySelector('[data-rpg-rnote]');
+  if (custom) {
+    note.textContent = '';
+    note.hidden = true;
+  } else {
+    const label = RPG.repPreset === 'daily'
+      ? 'The daily digest is the scheduled 8 pm IST report — its format is fixed.'
+      : 'The weekly digest is the scheduled Mon 8 pm IST report — its format is fixed.';
+    note.textContent = label + ' Switch to Custom for configurable sections.';
+    note.hidden = false;
+  }
+  const addf = RPG.host.querySelector('[data-rpg-addf]');
+  const sep = RPG.host.querySelector('[data-rpg-sep]');
+  if (addf) addf.style.display = (RPG.tab === 'reports' && !custom) ? 'none' : '';
+  if (sep) sep.style.display = (RPG.tab === 'reports') ? 'none' : '';
+}
+
 function rpgReports(view) {
   if (!view.querySelector('[data-rpg-draft]')) {
     view.innerHTML = `<div class="rpg-rep">
@@ -10736,6 +10768,7 @@ function rpgReports(view) {
           <div class="rpg-fld"><label>From</label><input type="date" data-rpg-rfrom></div>
           <div class="rpg-fld"><label>To</label><input type="date" data-rpg-rto></div>
         </div>
+        <p class="rpg-hint" data-rpg-rnote style="margin:8px 4px;font-size:11.5px;color:var(--dim)"></p>
         <div data-rpg-rbuild>
           <div class="rpg-fld"><label>Rank sections by</label><select data-rpg-rrank></select></div>
           <span class="rpg-lab" style="display:block;margin:12px 4px 6px">Sections</span>
@@ -10763,10 +10796,9 @@ function rpgReports(view) {
         `<label class="rpg-secitem"><input type="checkbox" data-sec="${rpgAttr(d.key)}"` +
         `${RPG.repSections.includes(d.key) ? ' checked' : ''}>${esc(d.label)}</label>`).join('') + `</details>`).join('');
     rpgReportsWire(view);
-    // Daily is the scheduled 8pm digest, whose sections are fixed by that report,
-    // so the builder controls start hidden rather than only after a click.
-    view.querySelector('[data-rpg-rbuild]').hidden = RPG.repPreset !== 'custom';
-    view.querySelector('[data-rpg-rcustom]').hidden = RPG.repPreset !== 'custom';
+    // Daily and Weekly are fixed-format scheduled digests — their sections are set
+    // by the report itself. Only Custom exposes build controls.
+    rpgRepSidebarState(view);
   }
   rpgReportsRefresh(view, false);
 }
@@ -10779,10 +10811,7 @@ function rpgReportsWire(view) {
     const b = e.target.closest('button'); if (!b) return;
     RPG.repPreset = b.dataset.p;
     view.querySelectorAll('[data-rpg-rpreset] button').forEach(x => x.setAttribute('aria-pressed', x === b));
-    view.querySelector('[data-rpg-rcustom]').hidden = RPG.repPreset !== 'custom';
-    // The daily digest is the scheduled 8pm→8pm one; its sections are fixed by
-    // that report, so the builder controls only apply to weekly/custom.
-    view.querySelector('[data-rpg-rbuild]').hidden = RPG.repPreset !== 'custom';
+    rpgRepSidebarState(view);
     rpgReportsRefresh(view, false);
   });
   ['[data-rpg-rfrom]', '[data-rpg-rto]'].forEach(s =>
@@ -10834,7 +10863,7 @@ async function rpgReportsRefresh(view, announce) {
       win.textContent = 'The most recent completed Mon 8pm→Mon 8pm IST week. Same report that auto-posts weekly.';
     } else {
       data = await rpgPost('/api/reporting/report/preview', rpgReportBody(view));
-      win.textContent = `${data.date_from} → ${data.date_to} · ${data.reviews} review(s) in this window.`;
+      win.textContent = `${data.date_from} → ${data.date_to} · ${data.reviews} review(s) received in this window. "Solved" counts those already sent.`;
     }
     ta.value = data.text || '';
     view.querySelector('[data-rpg-chan]').textContent = data.channel || 'SLACK_CHANNEL_DAILY not set';
