@@ -1544,8 +1544,9 @@ def test_ce_raw_frames_shown_when_model_has_no_detail(page):
 # ── SP multi-event groups show all events, not just the first ─────────────
 
 def test_sp_multi_event_group_is_one_card_with_badge(page):
-    """Three SP events on the same ticket render as one card — like CE — with
-    the model summary, a count badge, and the individual event lines.
+    """Three SP events on the same ticket render as one collapsible card —
+    same .convo-frame structure as CE — with the model summary in the header,
+    a count badge, and event lines in the body.
     Client-side JS, so a browser assertion (CLAUDE.md §2)."""
     _rca_tab(page, "inter")
     got = page.evaluate("""() => {
@@ -1564,29 +1565,28 @@ def test_sp_multi_event_group_is_one_card_with_badge(page):
         {zd_ref: "ZD-33421719", summary: "Booking sent, then name change handled."}]};
       renderRcaCol();
       const panel = document.querySelector('[data-tab="inter"]');
-      const spFrames = panel ? panel.querySelectorAll('.sp-frame') : [];
-      const eventFrames = [...spFrames].slice(1);
-      const badge = panel ? panel.querySelector('.sp-frame .convo-count') : null;
-      const lines = panel ? panel.querySelectorAll('.sp-frame .convo-line') : [];
-      const summaryText = eventFrames.length
-        ? (eventFrames[0].querySelector('.sp-frame-summary') || {}).innerText || ''
-        : '';
+      const spSection = panel ? [...panel.querySelectorAll('.section-label span')].find(s => s.textContent === 'SP interaction') : null;
+      const spBox = spSection ? spSection.closest('.section') : null;
+      const spCards = spBox ? spBox.querySelectorAll('.convo-frame') : [];
+      const badge = spBox ? spBox.querySelector('.convo-frame .convo-count') : null;
+      const lines = spBox ? spBox.querySelectorAll('.convo-frame .convo-body .convo-line') : [];
+      const chevron = spBox ? spBox.querySelector('.convo-frame .convo-chevron') : null;
+      const summaryEl = spBox ? spBox.querySelector('.convo-frame .interaction-summary-line') : null;
       const result = {
-        spFrameCount: spFrames.length,
-        eventGroups: eventFrames.length,
+        groupCards: spCards.length,
         hasBadge: !!badge,
         eventLines: lines.length,
-        summary: summaryText};
+        hasChevron: !!chevron,
+        summary: summaryEl ? summaryEl.innerText : ''};
       rca.spFrames = keepSP;
       d.sp_interaction_notes = keepV3;
       renderRcaCol();
       return result;
     }""")
-    assert got["spFrameCount"] >= 2, \
-        f"expected >=2 sp-frames (header + 1 group), got {got['spFrameCount']}"
-    assert got["eventGroups"] == 1, \
-        f"3 frames on 1 ticket should be 1 group, got {got['eventGroups']}"
+    assert got["groupCards"] == 1, \
+        f"3 frames on 1 ticket should be 1 group card, got {got['groupCards']}"
     assert got["hasBadge"], "the '3 events' count badge is missing"
+    assert got["hasChevron"], "the expand/collapse chevron is missing"
     assert got["eventLines"] == 3, \
         f"3 event lines should render inside the group, got {got['eventLines']}"
     assert "Booking sent" in got["summary"], "the model summary is missing"

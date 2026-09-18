@@ -6292,18 +6292,23 @@ function renderRcaCol() {
         ${spGroups.map((g, i) => {
           const note = spNoteFor(g.key), first = g.rows[0] || {};
           const nIdx = ((spV3.records) || []).indexOf(note);
+          const spKey = 'sp-' + i;
+          const spOpen = !!state.ixOpen[spKey];
+          const spSummary = (note && note.summary) || first.guest_words || first.guestSaid || first.guestReply || first.summary || '';
           return `
-        <div class="sp-frame">
-          <div class="sp-frame-head">
+        <div class="convo-frame ${spOpen ? 'open' : ''}">
+          <div class="convo-frame-head" data-ix-toggle="${spKey}">
             <span class="convo-num sp">${String(i + 1).padStart(2, '0')}</span>
+            <span class="convo-type-pill">SP</span>
             <span class="convo-time${first.time ? '' : ' dim'}">${esc(first.time || '—')}</span>
+            <span class="interaction-summary-line">${nIdx >= 0
+              ? edSpan(`sp_interaction_notes.records.${nIdx}.summary`, spSummary)
+              : esc(spSummary)}</span>
             ${g.rows.length > 1 ? `<span class="convo-count">${g.rows.length} events</span>` : ''}
-            <span style="margin-left:auto">${g.key ? zdLink(g.key) : ''}</span>
+            ${g.key ? zdLink(g.key) : ''}
+            <span class="convo-chevron">${spOpen ? '▾' : '▸'}</span>
           </div>
-          <div class="sp-frame-body">
-            <div class="sp-frame-summary">${nIdx >= 0
-              ? edSpan(`sp_interaction_notes.records.${nIdx}.summary`, (note || {}).summary)
-              : esc(first.guest_words || first.guestSaid || first.guestReply || first.summary || '')}</div>
+          <div class="convo-body">
             ${g.rows.map(fr => `
             <div class="convo-line">
               <span class="convo-ev-time">${esc(fr.time || '—')}</span>
@@ -8269,7 +8274,8 @@ function renderRcaCol() {
   col.querySelectorAll('[data-ix-toggle]').forEach(el => {
     el.addEventListener('click', ev => {
       if (ev.target.closest('[contenteditable="true"], button, a')) return;
-      const i = parseInt(el.dataset.ixToggle);
+      const raw = el.dataset.ixToggle;
+      const i = raw.includes('-') ? raw : parseInt(raw);
       state.ixOpen[i] = !state.ixOpen[i];
       renderRcaCol();
     });
