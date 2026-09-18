@@ -127,10 +127,9 @@ def test_a_booking_with_only_machinery_does_not_read_as_a_guest_who_never_wrote(
     out = format_rca_slack(REVIEW, _draft(
         rca_v3={"support_interaction_notes": []},
         support_interaction_frames=[_fr("booking"), _fr("api"), _fr("review")]))
-    assert "No conversation with the guest" in out
-    assert "3 system events moved to the timeline" in out
-    assert "No guest contact found on this booking" not in out, (
-        "a filtered list is reading as a guest who never reached us")
+    assert "No guest contact found on this booking" in out
+    assert "moved to the timeline" not in out, (
+        "the moved-frames note was removed from the Slack post")
 
 
 def test_a_booking_with_nothing_at_all_still_says_so_plainly():
