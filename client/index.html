@@ -6251,8 +6251,13 @@ function renderRcaCol() {
   const spUsed = new Set(spGroups.map(g => g.key).filter(k => k && spNoteFor(k)));
   const spOrphans = ((spV3 && spV3.records) || [])
     .filter(x => x && !spUsed.has(_zdKey(x.zd_ref)));
-  const spLegacyText = spV3 && !((spV3.records || []).length)
-    ? (asPoints(spV3.detail).join(' ') || spV3.reason_if_not || '') : '';
+  // A legacy SP detail (old draft, no records) shows as one bullet per sentence,
+  // the same as CE, rather than one joined prose line.
+  const spLegacyPts = spV3 && !((spV3.records || []).length)
+    ? (asSentences(spV3.detail).length ? asSentences(spV3.detail)
+        : (spV3.reason_if_not ? [spV3.reason_if_not] : []))
+    : [];
+  const spLegacyText = spLegacyPts.join(' ');
   const spRowCount = spGroups.length + spOrphans.length;
   const spInter = spV3
     ? `<div class="interactions">
@@ -6306,9 +6311,9 @@ function renderRcaCol() {
             <div class="sp-frame-summary">${edSpan(`sp_interaction_notes.records.${nIdx}.summary`, rec.summary)}</div>
           </div>
         </div>`; }).join('')}
-        ${spLegacyText ? `
+        ${spLegacyPts.length ? `
         <div class="sp-frame"><div class="sp-frame-body" style="padding-left:14px">
-          <div class="sp-frame-summary">${esc(spLegacyText)}</div>
+          <ul class="convo-narr">${spLegacyPts.map(p => `<li class="convo-bullet">${esc(p)}</li>`).join('')}</ul>
         </div></div>` : ''}
         ${(!spRowCount && !spLegacyText && !spV3.reason) ? `
         <div class="interactions-empty">No SP contact on record for this case.</div>` : ''}

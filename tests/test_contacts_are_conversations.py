@@ -139,3 +139,18 @@ def test_a_booking_with_nothing_at_all_still_says_so_plainly():
                                           support_interaction_frames=[]))
     assert "No guest contact found on this booking" in out
     assert "moved to the timeline" not in out
+
+
+def test_a_legacy_sp_detail_paragraph_renders_as_sentence_bullets():
+    """The SP legacy-detail fallback (old draft, no records) splits into one
+    bullet per sentence, the same as a CE detail — not one joined prose line."""
+    from server.services.slack import format_rca_slack
+    from tests.test_slack_v3_format import REVIEW
+    out = format_rca_slack(REVIEW, _draft(
+        rca_v3={"support_interaction_notes": [],
+                "sp_interaction_notes": {"raised": "Yes", "records": [],
+                    "detail": "We asked the partner about the host. "
+                              "The partner said the host was on the way."}},
+        support_interaction_frames=[], sp_interaction_frames=[]))
+    assert "• We asked the partner about the host." in out
+    assert "• The partner said the host was on the way." in out

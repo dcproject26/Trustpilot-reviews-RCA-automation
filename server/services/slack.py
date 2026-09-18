@@ -1636,8 +1636,10 @@ def _format_rca_v3_slack(review, draft, header, div, nl) -> str:
             t = f"{rec.get('time')} \u2014 " if rec.get("time") else ""
             rows.append(f"\u2022 {t}{rec.get('summary') or ''} (unverified)")
         if len(rows) == 1:
-            rows += [f"\u2022 {d}" for d in _points(sp_notes.get("detail"))]
-            if not _points(sp_notes.get("detail")) and sp_notes.get("reason_if_not"):
+            # A legacy SP detail is one bullet per sentence, the same as CE.
+            _sp_detail = _detail_sentences(sp_notes.get("detail"))
+            rows += [f"\u2022 {d}" for d in _sp_detail]
+            if not _sp_detail and sp_notes.get("reason_if_not"):
                 rows.append(f"\u2022 {sp_notes['reason_if_not']}")
         sections.append(("SP interaction", nl.join(rows)))
 

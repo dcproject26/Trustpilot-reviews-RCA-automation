@@ -2377,7 +2377,7 @@ that turned out fine is silence — never a line in the output.
     "raised": "<Yes | No | N/A>",
     "reason": "<why not, when raised is No or N/A: e.g. 'vendor is not a partnered SP' | null>",
     "records": [
-      { "zd_ref": "<ZD-xxxxx — the join key | null>", "summary": "<what was raised and what came back>" }
+      { "zd_ref": "<ZD-xxxxx — the join key | null>", "summary": "<what was raised and what came back, in clear full sentences. Attribute the partner's claims to the partner ('the partner said'). No direct quotes, no ellipses.>" }
     ]
   },
   "booking_logs": [
@@ -2912,6 +2912,10 @@ that turned out fine is silence — never a line in the output.
     `sp_interaction_notes.reason` says why escalation did not happen when `raised` is No or N/A —
     a blocked escalation (non-partnered vendor, opted-out contact) is a FACT about this booking,
     not a miss, and with no reason stated "N/A" is indistinguishable from a section you skipped.
+    WRITE THE SP `summary` THE SAME WAY AS A CE `detail` BULLET: clear full sentences, what we
+    raised and what the partner said back, in order. Attribute the partner's claims to the
+    partner ("the partner said the host was on the way"), never as established fact. No direct
+    quotes, no ellipses. One SP exchange is one record — do not fold several into one summary.
 19. `suggested_response` IS THE APPROVED MACRO, adapted to this guest. The macro shown above was
     chosen for this review and gated so that what it promises is a remedy the DSS actually
     named — so its sentences are the approved ones and they are what goes out. Keep them.
