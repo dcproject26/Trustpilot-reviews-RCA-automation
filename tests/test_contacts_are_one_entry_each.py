@@ -341,8 +341,9 @@ def test_the_card_reports_one_gap_once_not_once_per_message(page):
 
 
 def test_the_card_leads_with_the_account_then_the_failures(page):
-    """The summarised account and the misses come first; the raw messages sit
-    beneath as the drill-down. Reading order should match the Slack post."""
+    """The summarised account and the misses come first. When the model
+    provides detail, the raw Zendesk frames are suppressed — they are
+    redundant beneath a formatted summary."""
     try:
         _render_with_frames(page, _FR, _NOTE)
         html = page.evaluate(
@@ -350,7 +351,8 @@ def test_the_card_leads_with_the_account_then_the_failures(page):
             ".map(e => e.innerHTML).join('')")
         assert (html.index("The whole exchange, in prose.")
                 < html.index("Wrong policy applied")
-                < html.index("CE miss")
-                < html.index("m0")), "the card's reading order regressed"
+                < html.index("CE miss")), "the card's reading order regressed"
+        assert "m0" not in html, \
+            "raw frames rendered alongside detail — the conditional guard is broken"
     finally:
         _restore_frames(page)

@@ -1,0 +1,20 @@
+[
+  {
+    "file": "client/index.html",
+    "name": "CE raw-frame guard removed — detail and raw frames render together again",
+    "find": "${!(row.note && row.note.detail && (Array.isArray(row.note.detail) ? row.note.detail.length : String(row.note.detail).trim())) ? rows.map(fr => `",
+    "replace": "${rows.map(fr => `"
+  },
+  {
+    "file": "client/index.html",
+    "name": "SP multi-event lines removed — only the first event in a group is visible",
+    "find": "${g.rows.length > 1 ? g.rows.map(fr => `\n            <div class=\"convo-line\">\n              <span class=\"convo-ev-time\">${esc(fr.time || '—')}</span>\n              <span class=\"convo-ev-body\">${esc(fr.guest_words || fr.guestSaid || fr.guestReply || fr.summary || '')}</span>\n            </div>`).join('') : ''}",
+    "replace": ""
+  },
+  {
+    "file": "client/index.html",
+    "name": "SP event count badge removed — multi-event groups show no count",
+    "find": "${g.rows.length > 1 ? `<span class=\"convo-count\">${g.rows.length} events</span>` : ''}",
+    "replace": ""
+  }
+]

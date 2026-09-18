@@ -6191,12 +6191,12 @@ function renderRcaCol() {
           ${_contactGaps(rows).map(g => `<div class="convo-gap">⚠ ${esc(g)}</div>`).join('')}
           ${row.note && row.note.ce_miss ? `<div class="convo-gap">⚠ CE miss: ${
             edSpan(`support_interaction_notes.${nIdx}.ce_miss`, row.note.ce_miss)}</div>` : ''}
-          ${rows.map(fr => `
+          ${!(row.note && row.note.detail && (Array.isArray(row.note.detail) ? row.note.detail.length : String(row.note.detail).trim())) ? rows.map(fr => `
             <div class="convo-line">
               <span class="convo-ev-time">${esc(fr.time || '—')}</span>
               <span class="convo-ev-body">${esc(fr.guest_words || fr.guestSaid || fr.guestReply || '')}${
                 fr.weDid ? ` <span class="convo-ev-we">we: ${esc(fr.weDid)}</span>` : ''}</span>
-            </div>`).join('')}
+            </div>`).join('') : ''}
         </div>
       </div>`;
   };
@@ -6288,12 +6288,18 @@ function renderRcaCol() {
           <div class="sp-frame-head">
             <span class="convo-num sp">${String(i + 1).padStart(2, '0')}</span>
             <span class="convo-time${first.time ? '' : ' dim'}">${esc(first.time || '—')}</span>
+            ${g.rows.length > 1 ? `<span class="convo-count">${g.rows.length} events</span>` : ''}
             <span style="margin-left:auto">${g.key ? zdLink(g.key) : ''}</span>
           </div>
           <div class="sp-frame-body">
             <div class="sp-frame-summary">${nIdx >= 0
               ? edSpan(`sp_interaction_notes.records.${nIdx}.summary`, (note || {}).summary)
               : esc(first.guest_words || first.guestSaid || first.guestReply || first.summary || '')}</div>
+            ${g.rows.length > 1 ? g.rows.map(fr => `
+            <div class="convo-line">
+              <span class="convo-ev-time">${esc(fr.time || '—')}</span>
+              <span class="convo-ev-body">${esc(fr.guest_words || fr.guestSaid || fr.guestReply || fr.summary || '')}</span>
+            </div>`).join('') : ''}
           </div>
         </div>`; }).join('')}
         ${spOrphans.map((rec) => {

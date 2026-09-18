@@ -1479,3 +1479,110 @@ def test_case_findings_carry_the_merged_evidence(page):
     assert got["inIssue"] == 0, \
         "the evidence is rendering under the issue AS WELL as in §1 — the "\
         "duplication is back, from the other side"
+
+
+# ── CE raw frames are suppressed when the model already provided detail ───
+
+def test_ce_raw_frames_hidden_when_model_provides_detail(page):
+    """The model's detail bullets replace the raw Zendesk transcript. Showing
+    both was the bug: date lines appeared below the nicely formatted bullets,
+    making the reader think the formatter was broken.  Client-side JS, so a
+    browser assertion (CLAUDE.md §2)."""
+    _rca_tab(page, "inter")
+    got = page.evaluate("""() => {
+      // Open every collapsed contact so the body is in the DOM.
+      document.querySelectorAll('[data-ix-toggle]').forEach(e => {
+        const f = e.closest('.convo-frame');
+        if (f && !f.classList.contains('open')) e.click();
+      });
+      const frames = [...document.querySelectorAll('.convo-frame')];
+      const withDetail = frames.find(f => f.querySelector('.convo-bullet'));
+      if (!withDetail) return {detail: false, count: frames.length};
+      const rawLines = withDetail.querySelectorAll('.convo-line');
+      return {detail: true, rawLines: rawLines.length};
+    }""")
+    assert got["detail"], \
+        f"fixture's first contact has no detail bullets — test is vacuous; " \
+        f"convo-frames found: {got.get('count')}"
+    assert got["rawLines"] == 0, \
+        f"raw frames ({got['rawLines']}) rendered alongside detail bullets — the CE fix is broken"
+
+
+def test_ce_raw_frames_shown_when_model_has_no_detail(page):
+    """When the model provided no detail, the raw Zendesk frames are the only
+    content — they must render.  Client-side JS, so a browser assertion
+    (CLAUDE.md §2)."""
+    _rca_tab(page, "inter")
+    got = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const rca = r.rca, d = rca.v3;
+      const keepF = JSON.parse(JSON.stringify(rca.supportFrames || []));
+      const keepN = JSON.parse(JSON.stringify(d.support_interaction_notes || []));
+      rca.supportFrames = [
+        {ticket_id: "99001", time: "15 Aug 10:00", time_sort: "2026-08-15T10:00:00",
+         thread: "chat", guestSaid: "Help me please", weDid: "Resolved"}];
+      d.support_interaction_notes = [];
+      renderRcaCol();
+      // Open all contacts so body is visible
+      document.querySelectorAll('[data-ix-toggle]').forEach(e => {
+        const f = e.closest('.convo-frame');
+        if (f && !f.classList.contains('open')) e.click();
+      });
+      const panel = document.querySelector('[data-tab="inter"]');
+      const lines = panel ? panel.querySelectorAll('.convo-line') : [];
+      const result = {rawLines: lines.length,
+                      text: [...lines].map(l => l.innerText).join(' ')};
+      rca.supportFrames = keepF;
+      d.support_interaction_notes = keepN;
+      renderRcaCol();
+      return result;
+    }""")
+    assert got["rawLines"] >= 1, "raw frames should render when the model has no detail"
+    assert "Help me" in got["text"], "the raw frame text is missing"
+
+
+# ── SP multi-event groups show all events, not just the first ─────────────
+
+def test_sp_multi_event_group_shows_all_frames(page):
+    """Three SP events on the same ticket must each be visible. The old code
+    showed only `g.rows[0]`, hiding the second and third event entirely.
+    Client-side JS, so a browser assertion (CLAUDE.md §2)."""
+    _rca_tab(page, "inter")
+    got = page.evaluate("""() => {
+      const r = REVIEWS.find(x => x.id === state.selected);
+      const rca = r.rca, d = rca.v3;
+      const keepSP = JSON.parse(JSON.stringify(rca.spFrames || []));
+      const keepV3 = JSON.parse(JSON.stringify(d.sp_interaction_notes || {}));
+      rca.spFrames = [
+        {ticket_id: "33421719", time: "02 Jul 11:00", time_sort: "2026-07-02T11:00:00",
+         guest_words: "Booking intimation sent"},
+        {ticket_id: "33421719", time: "31 Aug 09:15", time_sort: "2026-08-31T09:15:00",
+         guest_words: "Name change request"},
+        {ticket_id: "33421719", time: "31 Aug 14:30", time_sort: "2026-08-31T14:30:00",
+         guest_words: "Name change confirmed"}];
+      d.sp_interaction_notes = {raised: "Yes", records: [
+        {zd_ref: "ZD-33421719", summary: "Booking sent, then name change handled."}]};
+      renderRcaCol();
+      const panel = document.querySelector('[data-tab="inter"]');
+      const spFrames = panel ? panel.querySelectorAll('.sp-frame') : [];
+      const lines = panel ? panel.querySelectorAll('.sp-frame .convo-line') : [];
+      const badge = panel ? panel.querySelector('.sp-frame .convo-count') : null;
+      const text = [...lines].map(l => l.innerText).join('|||');
+      const result = {
+        spFrameCount: spFrames.length,
+        eventLines: lines.length,
+        hasBadge: !!badge,
+        text: text};
+      rca.spFrames = keepSP;
+      d.sp_interaction_notes = keepV3;
+      renderRcaCol();
+      return result;
+    }""")
+    assert got["spFrameCount"] >= 2, \
+        f"expected >=2 sp-frames (header + events), got {got['spFrameCount']}"
+    assert got["eventLines"] == 3, \
+        f"expected 3 event lines for 3 frames on one ticket, got {got['eventLines']}"
+    assert got["hasBadge"], "the '3 events' count badge is missing"
+    assert "Booking intimation" in got["text"], "first SP event text missing"
+    assert "Name change request" in got["text"], "second SP event text missing"
+    assert "Name change confirmed" in got["text"], "third SP event text missing"
