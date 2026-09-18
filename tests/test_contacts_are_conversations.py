@@ -141,6 +141,25 @@ def test_a_booking_with_nothing_at_all_still_says_so_plainly():
     assert "moved to the timeline" not in out
 
 
+def test_an_off_ticket_sp_record_shows_in_the_sp_section():
+    """SP contact that sits on the guest's own ticket (no SP-brand ticket, so
+    zd_ref is null) must still render in SP interactions. This is the case the
+    events timeline shows — CE phoned the partner, an escalation email went out,
+    the partner confirmed the refund — that the section used to leave blank
+    because it only had SP-brand frames to draw from."""
+    from server.services.slack import format_rca_slack
+    from tests.test_slack_v3_format import REVIEW
+    out = format_rca_slack(REVIEW, _draft(
+        rca_v3={"support_interaction_notes": [],
+                "sp_interaction_notes": {"raised": "Yes", "reason": None,
+                    "records": [{"zd_ref": None,
+                        "summary": "We called the partner and the partner said "
+                                   "the host was on the way."}]}},
+        support_interaction_frames=[], sp_interaction_frames=[]))
+    assert "raised with SP: Yes" in out
+    assert "the partner said the host was on the way" in out
+
+
 def test_a_legacy_sp_detail_paragraph_renders_as_sentence_bullets():
     """The SP legacy-detail fallback (old draft, no records) splits into one
     bullet per sentence, the same as a CE detail — not one joined prose line."""

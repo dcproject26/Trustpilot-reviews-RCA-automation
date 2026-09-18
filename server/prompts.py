@@ -2821,6 +2821,28 @@ that turned out fine is silence — never a line in the output.
     "No direct interaction found between the customer and the support team." and every other
     field null. Do not pad the section with the booking thread to avoid an empty one.
 
+10c. `sp_interaction_notes` — WHAT PASSED BETWEEN US AND THE SUPPLY PARTNER. Fill this from the
+    SP contact you can already see in the events — the SAME events that feed the timeline and
+    your case findings. If the record shows us phoning or emailing the partner, an escalation
+    email sent to them, or the partner replying (a status, a refund approval or a denial), that
+    IS SP interaction and it belongs here.
+      `raised` is "Yes" when the events show we contacted the SP about this booking in ANY form
+        — a call to the partner, an escalation email to them, or a reply from them. It is "No"
+        or "N/A" ONLY when we did not, and then `reason` says why (non-partnered vendor, opt-out).
+        Do not leave it "N/A" on a booking where the timeline plainly shows we reached the SP.
+      `records` is ONE ENTRY PER SP EXCHANGE, in order: our call or email and what came back,
+        the partner's own reply, the refund/deny decision. `zd_ref` is the ticket the exchange
+        sits on where it has one, and null where it does not — MOST SP CONTACT SITS ON THE
+        GUEST'S TICKET, so do NOT require a separate SP-brand ticket before you record it. A
+        record with a null `zd_ref` renders marked unverified, which is correct for off-ticket
+        SP contact; it is not a reason to drop it.
+      Each `summary` is clear full sentences: what we raised and what came back, the partner's
+        claims attributed to the partner ("the partner said the host was on the way"), no direct
+        quotes, no ellipses. One exchange per record — do not fold several into one.
+    THIS DOES NOT CHANGE THE ESCALATION-CAPABILITY RULE. Record escalations that HAPPENED, read
+    off the events. Never comment on whether an escalation email COULD have been sent, or whether
+    an address is on record — you are not given that, and that rule stands.
+
 11. If a section genuinely has nothing (no SP contact, no support contact), return an empty
     array. Do NOT fabricate a row whose summary says nothing was found. The REVIEW ITSELF is
     never a support contact: it is the artefact being analysed, not a channel the guest reached
