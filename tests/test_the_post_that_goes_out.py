@@ -93,13 +93,13 @@ def test_no_machinery_or_agent_only_row_reaches_the_post(live_db, noise):
     assert noise not in _section(live_db, _seed(live_db)), noise
 
 
-def test_what_was_left_out_is_named_and_not_called_machinery(live_db):
-    """An agent note is our side of the record, not a system event, and a
-    reader told "6 system events moved" about their own agents' notes has been
-    given the wrong fact."""
+def test_moved_frames_note_omitted_when_contacts_exist(live_db):
+    """The moved-frames note is noise when the section already carries real
+    contacts — the reader does not need to know how many system rows were
+    filtered out."""
     body = _section(live_db, _seed(live_db))
-    assert "4 system events moved to the timeline" in body, body
-    assert "2 agent-side notes with no guest message" in body, body
+    assert "system events moved" not in body, body
+    assert "agent-side notes" not in body, body
 
 
 # ── the hand-written post says when it predates the analysis ───────────────

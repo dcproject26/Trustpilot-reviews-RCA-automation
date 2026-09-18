@@ -117,7 +117,8 @@ def test_the_slack_post_counts_conversations_not_events():
         _fr("review", guestSaid="Review posted")]))
     assert "• 01." in out and "• 02." not in out, (
         "the booking, API and review rows are being counted as contacts")
-    assert "3 system events moved to the timeline" in out
+    assert "system events moved to the timeline" not in out, (
+        "the moved-frames note should not appear when contacts exist")
 
 
 def test_a_booking_with_only_machinery_does_not_read_as_a_guest_who_never_wrote():

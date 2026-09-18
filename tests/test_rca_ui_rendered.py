@@ -1543,9 +1543,9 @@ def test_ce_raw_frames_shown_when_model_has_no_detail(page):
 
 # ── SP multi-event groups show all events, not just the first ─────────────
 
-def test_sp_multi_event_group_shows_all_frames(page):
-    """Three SP events on the same ticket must each be visible. The old code
-    showed only `g.rows[0]`, hiding the second and third event entirely.
+def test_sp_multi_event_group_is_one_card_with_badge(page):
+    """Three SP events on the same ticket render as one card — like CE — with
+    the model summary and a count badge, not individual event lines.
     Client-side JS, so a browser assertion (CLAUDE.md §2)."""
     _rca_tab(page, "inter")
     got = page.evaluate("""() => {
@@ -1565,24 +1565,28 @@ def test_sp_multi_event_group_shows_all_frames(page):
       renderRcaCol();
       const panel = document.querySelector('[data-tab="inter"]');
       const spFrames = panel ? panel.querySelectorAll('.sp-frame') : [];
-      const lines = panel ? panel.querySelectorAll('.sp-frame .convo-line') : [];
+      const eventFrames = [...spFrames].slice(1);
       const badge = panel ? panel.querySelector('.sp-frame .convo-count') : null;
-      const text = [...lines].map(l => l.innerText).join('|||');
+      const lines = panel ? panel.querySelectorAll('.sp-frame .convo-line') : [];
+      const summaryText = eventFrames.length
+        ? (eventFrames[0].querySelector('.sp-frame-summary') || {}).innerText || ''
+        : '';
       const result = {
         spFrameCount: spFrames.length,
-        eventLines: lines.length,
+        eventGroups: eventFrames.length,
         hasBadge: !!badge,
-        text: text};
+        eventLines: lines.length,
+        summary: summaryText};
       rca.spFrames = keepSP;
       d.sp_interaction_notes = keepV3;
       renderRcaCol();
       return result;
     }""")
     assert got["spFrameCount"] >= 2, \
-        f"expected >=2 sp-frames (header + events), got {got['spFrameCount']}"
-    assert got["eventLines"] == 3, \
-        f"expected 3 event lines for 3 frames on one ticket, got {got['eventLines']}"
+        f"expected >=2 sp-frames (header + 1 group), got {got['spFrameCount']}"
+    assert got["eventGroups"] == 1, \
+        f"3 frames on 1 ticket should be 1 group, got {got['eventGroups']}"
     assert got["hasBadge"], "the '3 events' count badge is missing"
-    assert "Booking intimation" in got["text"], "first SP event text missing"
-    assert "Name change request" in got["text"], "second SP event text missing"
-    assert "Name change confirmed" in got["text"], "third SP event text missing"
+    assert got["eventLines"] == 0, \
+        f"individual event lines should not render, got {got['eventLines']}"
+    assert "Booking sent" in got["summary"], "the model summary is missing"

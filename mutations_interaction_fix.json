@@ -6,10 +6,10 @@
     "replace": "${rows.map(fr => `"
   },
   {
-    "file": "client/index.html",
-    "name": "SP multi-event lines removed — only the first event in a group is visible",
-    "find": "${g.rows.length > 1 ? g.rows.map(fr => `\n            <div class=\"convo-line\">\n              <span class=\"convo-ev-time\">${esc(fr.time || '—')}</span>\n              <span class=\"convo-ev-body\">${esc(fr.guest_words || fr.guestSaid || fr.guestReply || fr.summary || '')}</span>\n            </div>`).join('') : ''}",
-    "replace": ""
+    "file": "server/services/slack.py",
+    "name": "moved-frames note restored — Slack post shows system-events line again",
+    "find": "    if rows:\n        return nl.join(rows)",
+    "replace": "    if rows:\n        return nl.join(rows + ([f\"\\u2022 ({_moved_note})\"] if _moved_note else []))"
   },
   {
     "file": "client/index.html",

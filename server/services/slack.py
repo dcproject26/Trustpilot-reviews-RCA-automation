@@ -1055,9 +1055,7 @@ def format_rca_slack(review, draft) -> str:
     _convos, _moved = _split(draft.support_interaction_frames or [])
     support_text = _frames(_convos, "Customer / CE interactions")
     _mv = _moved_note_fn(_moved)
-    if _mv and support_text:
-        support_text += nl + f"• ({_mv})"
-    elif _mv:
+    if _mv and not support_text:
         # NO CONVERSATIONS AT ALL. `_frames` returns "" for an empty list, so
         # appending the note on its own left a bare parenthetical floating
         # between two rules with no heading above it. The heading has to come
@@ -1525,7 +1523,7 @@ def contacts_section(draft, v3, nl) -> str:
             rows.append(f"   \u26a0 CE miss: {note['ce_miss']}")
     _moved_note = moved_frames_note(_moved)
     if rows:
-        return nl.join(rows + ([f"• ({_moved_note})"] if _moved_note else []))
+        return nl.join(rows)
     return ("No conversation with the guest on this booking \u2014 "
             f"{_moved_note}, so nobody spoke to them"
             if _moved_note

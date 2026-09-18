@@ -6295,11 +6295,6 @@ function renderRcaCol() {
             <div class="sp-frame-summary">${nIdx >= 0
               ? edSpan(`sp_interaction_notes.records.${nIdx}.summary`, (note || {}).summary)
               : esc(first.guest_words || first.guestSaid || first.guestReply || first.summary || '')}</div>
-            ${g.rows.length > 1 ? g.rows.map(fr => `
-            <div class="convo-line">
-              <span class="convo-ev-time">${esc(fr.time || '—')}</span>
-              <span class="convo-ev-body">${esc(fr.guest_words || fr.guestSaid || fr.guestReply || fr.summary || '')}</span>
-            </div>`).join('') : ''}
           </div>
         </div>`; }).join('')}
         ${spOrphans.map((rec) => {
