@@ -4297,9 +4297,18 @@ function mergedTimelineRows(r, v3d) {
   // So there is no guessing. Where Zendesk gave us events they are the
   // timeline, and the only booking_logs rows shown beside them are the ones a
   // PERSON typed — the only ones carrying anything the events do not. Where
-  // there are no events at all, the narration is all we have and it is shown
+  // there are no VISIBLE events, the narration is all we have and it is shown
   // in full.
-  const kept = evs.length ? logs.filter(l => l.hand) : logs;
+  //
+  // Gate on visible events, not the raw count. The events are filtered by
+  // is_internal below, so a booking whose every Zendesk event is internal
+  // machinery (a Selenium fulfilment run, a BMS prompt, an SOP reminder) has a
+  // truthy evs.length but nothing a reader will see — and the old `evs.length`
+  // test then discarded the model's booking_logs too, leaving the section
+  // blank on a booking that had a full narrated story. `.some(non-internal)`
+  // keeps the narration for the all-internal case while leaving the normal
+  // "real events → only hand logs" and "no events → all logs" cases unchanged.
+  const kept = evs.some(e => !e.is_internal) ? logs.filter(l => l.hand) : logs;
   const all = [...evs, ...kept].map(x => ({...x, _sv: _tlSortValue(x, _y)}));
   // A row with NO time sinks to the end rather than floating to the top: an
   // undated row at the top reads as the first thing that happened, which is a
