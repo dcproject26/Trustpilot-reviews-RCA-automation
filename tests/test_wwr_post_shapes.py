@@ -125,13 +125,14 @@ def test_only_exchanges_a_person_took_part_in_reach_the_ce_section():
     assert "General Admission" not in block, block
 
 
-def test_the_machinery_is_counted_not_silently_dropped():
-    """A section that quietly shrinks reads as a guest nobody spoke to, which
-    is the opposite of what happened."""
+def test_moved_frames_note_omitted_when_a_contact_exists():
+    """The moved-frames note is noise when real contacts are present — the
+    reader already sees the conversations and does not need a parenthetical
+    about what was filtered out."""
     import server.services.slack as sl
     text = sl.format_rca_slack({"id": "r1"}, _draft([CHAT, API, BOOKING]))
     i = text.index("Customer / CE interactions")
-    assert "moved to the timeline" in text[i:i + 600], text[i:i + 600]
+    assert "moved to the timeline" not in text[i:i + 600], text[i:i + 600]
 
 
 def test_a_card_with_only_machinery_does_not_claim_a_conversation():
