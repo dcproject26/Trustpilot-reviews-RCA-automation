@@ -116,6 +116,26 @@ def test_booking_log_rows_stay_editable_and_events_do_not(page):
     assert ev["editable"] is False and ev["deletable"] is False, ev
 
 
+def test_all_internal_events_still_show_the_model_narration(page):
+    """When every Zendesk event is internal machinery (all hidden by the
+    is-internal filter), the model's booking_logs are the only readable record
+    of what happened — they must still render, not leave the section blank.
+
+    The bug: the merge gated on raw event count, so an all-internal booking had
+    a truthy events list, discarded the model logs, then hid the events — a
+    booking with a full narrated story showed nothing. Client-side JS, so this
+    is verified through the rendered card (CLAUDE.md §2)."""
+    internal = [dict(EV[0], is_internal=True, label="Selenium fulfilment run")]
+    got = _render(page, internal,
+                  [{"time": "2026-07-21 15:30", "what": "Card charged, no tickets",
+                    "detail": "vendor card charged; tickets never arrived",
+                    "hand": False}])
+    whats = [r["what"] for r in got["rows"]]
+    assert "Card charged, no tickets" in whats, (
+        "all events were internal, so the model narration is the only record — "
+        f"it was dropped and the timeline is blank: {whats}")
+
+
 def test_events_and_logs_interleave_by_time(page):
     """Not events-then-logs. The whole point is one chronology."""
     got = _render(page, [EV[0], EV[1]],
