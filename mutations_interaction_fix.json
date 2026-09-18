@@ -16,5 +16,11 @@
     "name": "SP event count badge removed — multi-event groups show no count",
     "find": "${g.rows.length > 1 ? `<span class=\"convo-count\">${g.rows.length} events</span>` : ''}",
     "replace": ""
+  },
+  {
+    "file": "client/index.html",
+    "name": "SP event lines removed — group shows only summary, no conversation detail",
+    "find": "            ${g.rows.map(fr => `\n            <div class=\"convo-line\">",
+    "replace": "            ${false && g.rows.map(fr => `\n            <div class=\"convo-line\">"
   }
 ]

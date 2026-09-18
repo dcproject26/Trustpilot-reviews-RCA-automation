@@ -1545,7 +1545,7 @@ def test_ce_raw_frames_shown_when_model_has_no_detail(page):
 
 def test_sp_multi_event_group_is_one_card_with_badge(page):
     """Three SP events on the same ticket render as one card — like CE — with
-    the model summary and a count badge, not individual event lines.
+    the model summary, a count badge, and the individual event lines.
     Client-side JS, so a browser assertion (CLAUDE.md §2)."""
     _rca_tab(page, "inter")
     got = page.evaluate("""() => {
@@ -1587,6 +1587,6 @@ def test_sp_multi_event_group_is_one_card_with_badge(page):
     assert got["eventGroups"] == 1, \
         f"3 frames on 1 ticket should be 1 group, got {got['eventGroups']}"
     assert got["hasBadge"], "the '3 events' count badge is missing"
-    assert got["eventLines"] == 0, \
-        f"individual event lines should not render, got {got['eventLines']}"
+    assert got["eventLines"] == 3, \
+        f"3 event lines should render inside the group, got {got['eventLines']}"
     assert "Booking sent" in got["summary"], "the model summary is missing"
