@@ -183,6 +183,32 @@ def test_no_contact_at_all_is_a_sentence_not_a_blank():
     assert "No guest contact found on this booking" in _sec([])
 
 
+# ── the "no direct interaction" note renders as a bare sentence ──────────────
+
+NO_CONTACT = "No direct interaction found between the customer and the support team."
+
+
+def test_the_no_direct_interaction_note_is_rendered_as_a_bare_sentence():
+    """When nobody reached us the model returns a single note carrying this
+    sentence as its summary (prompts.py rule 10). It must render as exactly the
+    sentence — no "• 01. ? —" numbered prefix and no "(guest's account,
+    unverified)" suffix, which is what the numbered-contact path produced."""
+    out = _sec([], notes=[{"zd_ref": None, "time": None, "channel": None,
+                           "summary": NO_CONTACT, "detail": None,
+                           "ce_miss": None}])
+    assert out == NO_CONTACT
+    assert "01." not in out
+    assert "unverified" not in out
+
+
+def test_a_real_unverified_note_still_gets_the_numbered_treatment():
+    """The special-case is only for the no-contact sentence — a genuine
+    off-Zendesk contact still renders numbered and marked unverified."""
+    out = _sec([], notes=[{"zd_ref": None, "summary": "Guest called us on WhatsApp."}])
+    assert "01." in out
+    assert "unverified" in out
+
+
 # ── one composer ────────────────────────────────────────────────────────────
 
 V4_NOTES = {"support_interaction_notes": [

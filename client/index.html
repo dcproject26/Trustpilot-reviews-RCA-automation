@@ -6472,9 +6472,25 @@ function renderRcaCol() {
     // Area of improvement, from the same list the RCA column edits. An empty
     // one says so rather than dropping the section: "nothing to change here"
     // and "nobody wrote one" are different, and only the second is a gap.
+    // Items are OBJECTS ({text|area|point, team, ...}) in the v3 shape, not
+    // strings; String(a) on one printed "[object Object]" into the post. Pull
+    // the human-readable pointer out — text, then area, then point — falling
+    // back to a join of the object's meaningful string fields.
+    const aoiText1 = (a) => {
+      if (a == null) return '';
+      if (typeof a === 'string') return a.trim();
+      if (typeof a === 'object') {
+        const t = a.text || a.area || a.point;
+        if (t) return String(t).trim();
+        return Object.values(a)
+          .filter(v => typeof v === 'string' && v.trim())
+          .join(' — ').trim();
+      }
+      return String(a).trim();
+    };
     const aoiLines = (Array.isArray(rca.areaOfImproving) ? rca.areaOfImproving
                       : String(rca.areaOfImproving || '').split('\n'))
-                     .map(a => String(a || '').trim()).filter(Boolean);
+                     .map(aoiText1).filter(Boolean);
     const aoiText = aoiLines.length ? aoiLines.map(a => '• ' + a).join(nl)
                                     : 'No area of improvement recorded';
 
