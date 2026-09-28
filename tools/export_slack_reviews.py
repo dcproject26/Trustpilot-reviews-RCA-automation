@@ -51,6 +51,53 @@ def _call(fn, **kw):
     raise RuntimeError("Slack kept rate-limiting after 8 retries")
 
 
+def _workspace_url(client):
+    """The workspace base URL, fetched ONCE, so every review permalink is built
+    locally (channel + ts) instead of an API call per review."""
+    try:
+        r = _call(client.auth_test)
+        return (r.get("url") or "").rstrip("/") + "/"
+    except Exception:
+        return ""
+
+
+def _permalink(base_url, channel, ts):
+    """The standard Slack archive link: <workspace>/archives/<channel>/p<ts no dot>."""
+    if not base_url or not ts:
+        return ""
+    return f"{base_url}archives/{channel}/p{ts.replace('.', '')}"
+
+
+def _tp_reference_raw(msg):
+    """The RAW value of Trustpilot's 'Reference number' field, as the guest typed
+    it — which is often NOT a booking id (a venue name, a date, free text). This
+    is separate from the extracted BID; parse_review keeps only the BID."""
+    for att in msg.get("attachments", []) or []:
+        for f in att.get("fields", []) or []:
+            if "reference" in str(f.get("title") or "").lower():
+                v = str(f.get("value") or "").strip()
+                if v:
+                    return v
+    return ""
+
+
+def _detect_language(text):
+    """Best-effort language NAME, only if langdetect is installed. Returns '' when
+    it is not, so the column is honestly empty rather than guessed — never a
+    silent wrong label. Install with: pip install langdetect"""
+    t = (text or "").strip()
+    if len(t) < 8:
+        return ""
+    try:
+        from langdetect import detect
+    except Exception:
+        return ""
+    try:
+        return detect(t)          # ISO code, e.g. 'en', 'it', 'de'
+    except Exception:
+        return ""
+
+
 def _rca_from_replies(client, channel, ts):
     """Join the thread replies for one review into the RCA text. The review
     message itself is the first item in a thread and is excluded; everything
@@ -92,6 +139,7 @@ def main():
     from server.services.slack import is_trustpilot_message, parse_review
 
     client = _client()
+    base_url = _workspace_url(client)          # one call, reused for every permalink
     oldest = time.time() - a.months * 30.44 * 24 * 3600
 
     # 1. page the channel history back to `oldest`
@@ -118,13 +166,17 @@ def main():
         ts = m.get("ts", "")
         when = datetime.fromtimestamp(float(ts), IST).strftime("%Y-%m-%d %H:%M") if ts else ""
         rca = _rca_from_replies(client, a.channel, ts) if ts else ""
+        review_text = (p.get("body_original") or "").strip()
         rows.append({
             "slack_ts": ts,
             "datetime_ist": when,
+            "permalink": _permalink(base_url, a.channel, ts),
             "author": p.get("author") or "",
             "rating": p.get("rating") or "",
-            "booking_id": p.get("booking_id") or "",
-            "review_text": (p.get("body") or p.get("text") or "").strip(),
+            "language": _detect_language(review_text),
+            "booking_id": p.get("reference_number") or "",     # the extracted BID
+            "tp_reference_raw": _tp_reference_raw(m),           # raw TP reference field
+            "review_text": review_text,
             "has_rca": "yes" if rca else "no",
             "rca_text": rca,
         })
@@ -133,7 +185,8 @@ def main():
 
     # 3. write the CSV
     rows.sort(key=lambda r: r["slack_ts"])
-    cols = ["slack_ts", "datetime_ist", "author", "rating", "booking_id",
+    cols = ["slack_ts", "datetime_ist", "permalink", "author", "rating",
+            "language", "booking_id", "tp_reference_raw",
             "review_text", "has_rca", "rca_text"]
     with open(a.out, "w", encoding="utf-8-sig", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=cols)
