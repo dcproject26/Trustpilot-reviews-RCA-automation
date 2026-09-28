@@ -147,11 +147,16 @@ def _rca_from_replies(client, channel, ts):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--since", default="",
+                    help="start date YYYY-MM-DD (e.g. 2026-04-01). Overrides --months.")
     ap.add_argument("--months", type=float, default=6,
-                    help="how far back to go (default 6)")
+                    help="how far back to go if --since is not given (default 6)")
     ap.add_argument("--out", default="rca_slack_export.csv")
     ap.add_argument("--channel", default=os.getenv("SLACK_CHANNEL_ORM", "").strip(),
                     help="channel id (defaults to SLACK_CHANNEL_ORM)")
+    ap.add_argument("--sleep", type=float, default=0.4,
+                    help="seconds to pause between thread-reply calls, to stay "
+                         "under Slack's rate limit (default 0.4)")
     a = ap.parse_args()
     if not a.channel:
         sys.exit("No channel — set SLACK_CHANNEL_ORM or pass --channel C0XXXX.")
@@ -162,16 +167,42 @@ def main():
 
     client = _client()
     base_url = _workspace_url(client)          # one call, reused for every permalink
-    oldest = time.time() - a.months * 30.44 * 24 * 3600
+    if a.since:
+        try:
+            oldest = datetime.strptime(a.since, "%Y-%m-%d").replace(
+                tzinfo=IST).timestamp()
+        except ValueError:
+            sys.exit(f"--since must be YYYY-MM-DD, got {a.since!r}")
+        window_desc = f"since {a.since}"
+    else:
+        oldest = time.time() - a.months * 30.44 * 24 * 3600
+        window_desc = f"~{a.months} months"
 
-    # 1. page the channel history back to `oldest`
+    # 1. page the channel history back to `oldest`.
+    # An ok:true page with ZERO messages on a channel we know is busy is Slack
+    # softly throttling (it hands back empty pages under load rather than a 429).
+    # So the FIRST page is retried with backoff before we believe an empty
+    # channel — the "found-nothing vs did-not-run" rule applied to a soft limit.
     msgs, cursor, pages = [], None, 0
     while True:
         pages += 1
         res = _call(client.conversations_history, channel=a.channel,
                     oldest=str(oldest), limit=200,
                     **({"cursor": cursor} if cursor else {}))
-        msgs.extend(res.get("messages", []))
+        page_msgs = res.get("messages", [])
+        if pages == 1 and not page_msgs and not cursor:
+            warn = res.get("warning") or (res.get("response_metadata") or {}).get("warnings")
+            for wait in (20, 40, 80):
+                print(f"  page 1 came back EMPTY (ok=true, warning={warn!r}) — "
+                      f"likely a soft throttle; waiting {wait}s and retrying…",
+                      flush=True)
+                time.sleep(wait)
+                res = _call(client.conversations_history, channel=a.channel,
+                            oldest=str(oldest), limit=200)
+                page_msgs = res.get("messages", [])
+                if page_msgs:
+                    break
+        msgs.extend(page_msgs)
         cursor = (res.get("response_metadata") or {}).get("next_cursor") or None
         print(f"  history page {pages}: {len(msgs)} messages so far", flush=True)
         if not cursor:
@@ -218,6 +249,8 @@ def main():
             "has_rca": "yes" if rca else "no",
             "rca_text": rca,
         })
+        if a.sleep:
+            time.sleep(a.sleep)          # gentle pacing so we don't trip the limiter
         if n_rev % 25 == 0:
             print(f"  pulled RCA threads for {n_rev} reviews…", flush=True)
 
@@ -232,7 +265,7 @@ def main():
         w.writerows(rows)
 
     with_rca = sum(1 for r in rows if r["has_rca"] == "yes")
-    print(f"\nDone. {n_rev} reviews over ~{a.months} months → {a.out}")
+    print(f"\nDone. {n_rev} reviews ({window_desc}) → {a.out}")
     print(f"  {with_rca} have an RCA in-thread, {n_rev - with_rca} do not.")
     print("  (Nothing was written to the database.)")
 
