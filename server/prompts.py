@@ -2374,8 +2374,8 @@ that turned out fine is silence — never a line in the output.
     }
   ],
   "sp_interaction_notes": {
-    "raised": "<Yes | No | N/A>",
-    "reason": "<why not, when raised is No or N/A: e.g. 'vendor is not a partnered SP' | null>",
+    "raised": "<Yes | No | N/A — 'Yes' ONLY if we contacted the SP about THIS issue (call, escalation email about the problem, or a partner reply about it); the automatic booking intimation / confirmation email alone is NOT an escalation, so it is 'No'>",
+    "reason": "<why not, when raised is No or N/A: e.g. 'vendor is not a partnered SP', or 'only the automatic booking intimation was sent; the issue was not raised with the SP' | null>",
     "records": [
       { "zd_ref": "<ZD-xxxxx — the join key | null>", "summary": "<what was raised and what came back, in clear full sentences. Attribute the partner's claims to the partner ('the partner said'). No direct quotes, no ellipses.>" }
     ]
@@ -2826,10 +2826,18 @@ that turned out fine is silence — never a line in the output.
     your case findings. If the record shows us phoning or emailing the partner, an escalation
     email sent to them, or the partner replying (a status, a refund approval or a denial), that
     IS SP interaction and it belongs here.
-      `raised` is "Yes" when the events show we contacted the SP about this booking in ANY form
-        — a call to the partner, an escalation email to them, or a reply from them. It is "No"
-        or "N/A" ONLY when we did not, and then `reason` says why (non-partnered vendor, opt-out).
+      `raised` is "Yes" when the events show we contacted the SP ABOUT THIS ISSUE in ANY form
+        — a call to the partner, an escalation email about the problem, or a reply from them
+        about it. It is "No" or "N/A" when we did not, and then `reason` says why (non-partnered
+        vendor, opt-out).
         Do not leave it "N/A" on a booking where the timeline plainly shows we reached the SP.
+      THE AUTOMATIC BOOKING INTIMATION DOES NOT COUNT. A booking intimation / confirmation email
+        sent to the partner at the time of booking (e.g. "A booking intimation was sent to
+        <partner> at the time of booking...") is machinery, not an escalation about the guest's
+        issue. When that intimation is the ONLY supply-partner contact on the record, `raised`
+        is "No" and `reason` notes that only the automatic booking intimation exists — we did
+        not raise this issue with the SP. `raised` is "Yes" ONLY when we actually contacted the
+        SP about THIS issue.
       `records` is ONE ENTRY PER SP EXCHANGE, in order: our call or email and what came back,
         the partner's own reply, the refund/deny decision. `zd_ref` is the ticket the exchange
         sits on where it has one, and null where it does not — MOST SP CONTACT SITS ON THE

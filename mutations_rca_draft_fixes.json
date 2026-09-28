@@ -1,0 +1,26 @@
+[
+  {
+    "file": "server/services/slack.py",
+    "name": "contacts_section stops special-casing the no-direct-interaction note (Fix 1)",
+    "find": "    if not _convo and len(_notes_list) == 1 and isinstance(_notes_list[0], dict):",
+    "replace": "    if not _convo and len(_notes_list) == 99 and isinstance(_notes_list[0], dict):"
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "contacts_section returns the numbered row instead of the bare sentence (Fix 1)",
+    "find": "            return _no_contact",
+    "replace": "            pass"
+  },
+  {
+    "file": "server/services/slack.py",
+    "name": "_points stops extracting text/area from a point object (Fix 3)",
+    "find": "            t = str((x.get(\"point\") or x.get(\"text\") or x.get(\"area\") or \"\")\n                    if isinstance(x, dict) else (x or \"\")).strip()",
+    "replace": "            t = str(x if isinstance(x, dict) else (x or \"\")).strip()"
+  },
+  {
+    "file": "server/prompts.py",
+    "name": "rule 10c drops the booking-intimation-is-not-an-escalation rule (Fix 2)",
+    "find": "      THE AUTOMATIC BOOKING INTIMATION DOES NOT COUNT. A booking intimation / confirmation email",
+    "replace": "      (intimation rule removed by mutation) A booking intimation / confirmation email"
+  }
+]

@@ -225,3 +225,20 @@ def test_an_empty_improvement_list_posts_the_empty_marker_not_a_blank_heading():
     i = out.find("Area of improvement")
     assert i > 0, "the section heading is gone from the post"
     assert "—" in out[i:i + 120], out[i:i + 120]
+
+
+def test_a_point_with_a_text_field_reaches_slack_as_its_text():
+    """Items carrying `text` (an alternate pointer shape) render the sentence,
+    not "[object Object]"/a Python repr of the dict."""
+    out = _slack(rca_v3={"area_of_improving": [
+        {"text": "Confirm the meeting point before dispatch", "team": "CE"}]})
+    assert "• Confirm the meeting point before dispatch" in out
+    assert "[object" not in out and "{'" not in out, out[:400]
+    assert "'text'" not in out
+
+
+def test_a_point_with_only_an_area_field_falls_back_to_it():
+    out = _slack(rca_v3={"area_of_improving": [
+        {"area": "Vendor SLA tracking", "team": "SP"}]})
+    assert "• Vendor SLA tracking" in out
+    assert "{'" not in out

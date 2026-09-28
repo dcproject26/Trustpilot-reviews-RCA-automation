@@ -188,3 +188,20 @@ def test_the_no_contact_sentence_is_given_verbatim():
 
 def test_the_section_is_not_padded_to_avoid_an_empty_one():
     assert "Do not pad the section" in " ".join(SEG.split())
+
+
+# ── SP interaction: the booking intimation is not an escalation ──────────────
+#
+# Content assertion on the PROMPT, for the same reason as the rest of this file:
+# whether `sp_interaction_notes.raised` is No on an intimation-only booking is
+# the model's judgement, and the prompt is the only place that judgement is
+# enforced. A rule deleted here has no other symptom.
+
+def test_the_booking_intimation_alone_is_raised_no():
+    """An automatic booking-intimation / confirmation email to the partner is
+    machinery, not an escalation about the guest's issue. When it is the only SP
+    contact, raised must be No."""
+    assert "THE AUTOMATIC BOOKING INTIMATION DOES NOT COUNT" in SEG
+    flat = " ".join(SEG.split())
+    assert 'about THIS issue' in flat
+    assert "only the automatic booking intimation exists" in flat

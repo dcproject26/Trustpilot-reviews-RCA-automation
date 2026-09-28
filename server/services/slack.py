@@ -1059,7 +1059,10 @@ def format_rca_slack(review, draft) -> str:
     sp_text      = _frames(draft.sp_interaction_frames or [], "SP interactions")
 
     # 6. Area of improvement
-    aoi = draft.area_of_improving or []
+    # Items are objects ({point|text|area, ...}), not strings; _points pulls the
+    # human-readable pointer out of each. Joining the dict directly printed
+    # "[object Object]"/a Python repr into the post.
+    aoi = _points(draft.area_of_improving)
     aoi_text = nl.join(f"• {a}" for a in aoi) if aoi else "—"
 
     # 7. Actions taken — flattened, owner in parens
@@ -1164,8 +1167,8 @@ def _points(v) -> list:
     if isinstance(v, (list, tuple)):
         out = []
         for x in v:
-            t = str((x.get("point") or x.get("text") or "") if isinstance(x, dict)
-                    else (x or "")).strip()
+            t = str((x.get("point") or x.get("text") or x.get("area") or "")
+                    if isinstance(x, dict) else (x or "")).strip()
             if t:
                 out.append(t)
         return out
@@ -1463,6 +1466,22 @@ def contacts_section(draft, v3, nl) -> str:
     from server.services.zendesk import split_contact_frames
     _convo, _moved = split_contact_frames(
         getattr(draft, "support_interaction_frames", None))
+
+    # THE "NO DIRECT INTERACTION" CASE renders as the bare sentence, with no
+    # numbered "• 01. ? —" prefix and no "(guest's account, unverified)" suffix.
+    # The model returns exactly one note carrying this sentence as its summary
+    # when nobody reached us (prompts.py rule 10, "IF THERE WAS NO DIRECT
+    # CONTACT AT ALL"); routing it through the numbered-contact path below turned
+    # a plain statement into a data row that read like an unverified contact.
+    _no_contact = "No direct interaction found between the customer and the support team."
+    _notes_list = si_notes if isinstance(si_notes, list) else (
+        [si_notes] if isinstance(si_notes, dict) else [])
+    if not _convo and len(_notes_list) == 1 and isinstance(_notes_list[0], dict):
+        _only = _notes_list[0]
+        if (str(_only.get("summary") or "").strip().rstrip(".").lower()
+                == _no_contact.rstrip(".").lower()):
+            return _no_contact
+
     rows, used = [], set()
     n = 0
     for n, (key, group) in enumerate(_contacts(_convo), 1):
