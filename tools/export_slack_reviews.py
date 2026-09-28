@@ -41,14 +41,36 @@ def _call(fn, **kw):
     from slack_sdk.errors import SlackApiError
     for attempt in range(8):
         try:
-            return fn(**kw)
+            res = fn(**kw)
         except SlackApiError as e:
+            # A 429 is a plain throttle: wait the stated time and retry.
             if e.response is not None and e.response.status_code == 429:
                 wait = int(e.response.headers.get("Retry-After", "5"))
+                print(f"  (rate-limited, waiting {wait}s…)", flush=True)
                 time.sleep(wait + 1)
                 continue
             raise
-    raise RuntimeError("Slack kept rate-limiting after 8 retries")
+        # Slack ALSO returns errors as HTTP 200 with {"ok": false, "error": ...}
+        # (e.g. "ratelimited", "missing_scope", "not_in_channel"). The slack_sdk
+        # normally raises on these, but not always — so check explicitly rather
+        # than let an error body slip through as "0 messages". "ratelimited"
+        # here means back off and retry; anything else is a hard failure that
+        # must be NAMED, not silently reported as an empty result.
+        if not res.get("ok", True):
+            err = res.get("error", "unknown_error")
+            if err in ("ratelimited", "rate_limited"):
+                print("  (rate-limited body, waiting 30s…)", flush=True)
+                time.sleep(30)
+                continue
+            raise RuntimeError(
+                f"Slack returned ok=false: {err!r}. "
+                f"(missing_scope → the bot token lacks channels:history/"
+                f"groups:history or conversations.replies; not_in_channel → add "
+                f"the bot to the channel; channel_not_found → wrong channel id.)")
+        return res
+    raise RuntimeError("Slack kept rate-limiting after 8 retries — wait a few "
+                       "minutes and run again; the previous full pull likely "
+                       "used up the app's history-read budget.")
 
 
 def _workspace_url(client):
@@ -154,6 +176,22 @@ def main():
         print(f"  history page {pages}: {len(msgs)} messages so far", flush=True)
         if not cursor:
             break
+
+    # `_call` now raises on any Slack error, so reaching here with zero messages
+    # means Slack genuinely returned an empty window — NOT a swallowed failure.
+    # Say what the two honest causes are rather than a bare "0 reviews".
+    if not msgs:
+        sys.exit(
+            "Slack returned 0 messages for this window, with no error.\n"
+            "  Two real causes:\n"
+            "   1) Rate-limit cool-down — a big pull just before this can leave the\n"
+            "      app's conversations.history budget spent for a while. Wait ~15\n"
+            "      minutes and run again.\n"
+            "   2) Retention — the channel does not hold messages this far back.\n"
+            "      Try a shorter window, e.g. --months 1, to tell the two apart:\n"
+            "      if --months 1 returns rows, it was retention/throttle on the\n"
+            "      longer window; if it is also 0, the app cannot read the channel\n"
+            "      right now (throttle) — wait and retry.")
 
     # 2. keep the reviews, pull each one's RCA thread
     rows, n_rev = [], 0
