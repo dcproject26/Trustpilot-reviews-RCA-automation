@@ -186,6 +186,12 @@ class Review(Base):
     # value renders as "unassigned" — an unfilled owner and an unclaimed queue
     # are different facts and the UI has to be able to tell them apart.
     picked_up_by     = Column(Text, nullable=True)
+    # WHEN it was picked up — a distinct event from when it was solved
+    # (sent_at/closed_at). An associate can claim a case (the :wip: reaction on
+    # Slack, or the dashboard roster) and solve it hours later, so pickup and
+    # solve are two timestamps, not one. NULL = never picked up. Cleared back to
+    # NULL when the owner is removed, so "unpicked" is a real, visible state.
+    picked_up_at     = Column(DateTime, nullable=True)
     draft            = relationship("RcaDraft", back_populates="review", uselist=False)
 
 
@@ -501,6 +507,9 @@ def _WANTED_REVIEW_COLUMNS(is_pg: bool) -> dict:
         # not scoped by auth (there is none). Kept nullable so an unfilled
         # owner reads differently from an empty string typed and cleared.
         "picked_up_by": "TEXT",
+        # When it was picked up — distinct from when it was solved. See the
+        # column's note on the model. TIMESTAMP on both sqlite and Postgres.
+        "picked_up_at": "TIMESTAMP",
         # Where received_at came from — publish / arrival / ingest / manual —
         # so the card shows the date's provenance instead of the reader
         # inferring it. NULL on rows ingested before this column existed.
