@@ -1293,9 +1293,23 @@ def patch_picked_up_by(review_id: str, body: PickedUpByPatch,
         # ridiculous in the queue column. 120 chars covers any real name.
         if len(v) > 120:
             v = v[:120]
-    r.picked_up_by = v
+    # Set the owner through the shared assignment logic so the dashboard and the
+    # Slack :wip: path cannot diverge: a name is a deliberate roster choice and
+    # overrides (reassign), an empty value releases back to the pool. Both set/
+    # clear picked_up_at, so "when it was picked up" is tracked either way.
+    from server.services import assignment as _assign
+    outcome = _assign.apply_reassign(r, v if isinstance(v, str) else "")
     db.commit()
-    return {"ok": True, "picked_up_by": r.picked_up_by}
+    # Mirror to Slack — best-effort, never fails the save (DB is the truth).
+    try:
+        if outcome == "reassigned":
+            _assign.mirror_claim_to_slack(r, r.picked_up_by)
+        elif outcome == "released":
+            _assign.mirror_release_to_slack(r)
+    except Exception as _e:
+        log.info(f"[assign] Slack mirror for {review_id} failed (owner saved): {_e}")
+    return {"ok": True, "picked_up_by": r.picked_up_by,
+            "picked_up_at": r.picked_up_at.isoformat() if r.picked_up_at else None}
 
 
 # ── NEW: Experience Insights endpoint ───────────────────────────────────────
@@ -2990,6 +3004,14 @@ async def send_review(review_id: str, db: Session = Depends(get_session)):
     # arrival created the row, so a completion that finds none means that hook
     # did not run, and appending here would hide it and race a late arrival
     # into a duplicate. Logged, not raised: the review is finished either way.
+    # Solved -> add :white_check_mark: on the review's Slack message (keeping
+    # :wip:), so the channel shows claimed-then-done. Best-effort; the review is
+    # finished regardless of Slack.
+    try:
+        from server.services.assignment import mark_solved_on_slack
+        mark_solved_on_slack(r)
+    except Exception as _e:
+        log.info(f"[assign] could not mark {review_id} solved on Slack: {_e}")
     try:
         from server.services.sheet_export import on_review_finished
         on_review_finished(r, d)
@@ -3080,6 +3102,14 @@ async def close_review(review_id: str, body: CloseOut | None = None,
     # arrival created the row, so a completion that finds none means that hook
     # did not run, and appending here would hide it and race a late arrival
     # into a duplicate. Logged, not raised: the review is finished either way.
+    # Solved -> add :white_check_mark: on the review's Slack message (keeping
+    # :wip:), so the channel shows claimed-then-done. Best-effort; the review is
+    # finished regardless of Slack.
+    try:
+        from server.services.assignment import mark_solved_on_slack
+        mark_solved_on_slack(r)
+    except Exception as _e:
+        log.info(f"[assign] could not mark {review_id} solved on Slack: {_e}")
     try:
         from server.services.sheet_export import on_review_finished
         on_review_finished(r, d)

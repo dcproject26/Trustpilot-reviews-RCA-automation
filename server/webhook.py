@@ -68,6 +68,22 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
             db.close()
 
     event = payload.get("event", {})
+
+    # ── Reaction events: :wip: on a review message claims/releases the case,
+    # keeping the dashboard owner in sync with the channel. Handled before the
+    # message-only gate below. The reaction's channel is on item.channel, not
+    # event.channel, so the ORM-channel check happens inside the handler.
+    if event.get("type") in ("reaction_added", "reaction_removed"):
+        item = event.get("item") or {}
+        if ORM_CHANNELS and item.get("channel") not in ORM_CHANNELS:
+            return {"ok": True}
+        from server.services.assignment import handle_reaction_event
+        db = _db.SessionLocal()
+        try:
+            return handle_reaction_event(event, db)
+        finally:
+            db.close()
+
     if event.get("type") != "message":
         return {"ok": True}
 
