@@ -186,6 +186,34 @@ def test_removing_someone_elses_wip_does_not_release(live_db):
     assert r.picked_up_by == "Avi"
 
 
+def test_removing_wip_on_a_solved_case_keeps_the_owner(live_db):
+    # Finished work keeps its attribution — un-reacting :wip: on a sent case must
+    # not blank out who handled it (symmetric with the reaction_added guard).
+    _review(live_db, owner="Devshree", status="sent")
+    s = live_db.SessionLocal()
+    try:
+        out = A.handle_reaction_event(_event("reaction_removed"), s)  # owner un-reacts
+        from server.db import Review
+        r = s.query(Review).filter_by(id="tp_1743500000_000100").one()
+    finally:
+        s.close()
+    assert out["ignored"] == "already_solved"
+    assert r.picked_up_by == "Devshree"            # attribution survives
+
+
+def test_re_saving_the_same_owner_does_not_re_mirror(client, live_db, monkeypatch):
+    # Saving the owner the case already has is a no-op on Slack — no duplicate
+    # "Picked up by" thread note each time the dashboard re-PATCHes the same name.
+    _review(live_db, owner="Shruti")
+    calls = {"add": 0, "remove": 0}
+    monkeypatch.setattr(A, "mirror_claim_to_slack", lambda r, n: calls.__setitem__("add", calls["add"] + 1))
+    monkeypatch.setattr(A, "mirror_release_to_slack", lambda r: calls.__setitem__("remove", calls["remove"] + 1))
+    out = client.patch("/api/reviews/tp_1743500000_000100/picked-up-by",
+                       json={"name": "Shruti"}).json()
+    assert out["picked_up_by"] == "Shruti"
+    assert calls["add"] == 0 and calls["remove"] == 0   # unchanged owner, no mirror
+
+
 def test_reaction_on_a_review_we_dont_have_is_a_named_noop(live_db):
     s = live_db.SessionLocal()
     try:

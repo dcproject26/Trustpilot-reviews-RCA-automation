@@ -675,6 +675,7 @@ DRIVEN = {
     "data-english-status",     # …::test_the_boxes_say_they_disagree_while_a_translation…
     "data-outcome-cat",        # test_outcome_category_select_renders_in_resolution_tab
     "data-sel-id",             # test_bulk_select::test_clicking_a_checkbox_adds_to_selectedIds
+    "data-load-owner",         # test_inbox_filter::test_the_team_load_chip_filters_to_that_owner
 }
 
 # Not controls: status targets, stamps and identifiers the handlers read.

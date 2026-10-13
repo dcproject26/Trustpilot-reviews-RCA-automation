@@ -158,6 +158,23 @@ def test_the_backend_still_holds_the_points_the_card_stopped_showing(page):
 # (leave out / put back, not a checkbox) and how a body is edited (in its row,
 # not in one big box).
 
+def _reopen_after_reload(page):
+    """Re-open the one fixture review after a reload.
+
+    The home inbox now defaults to the "Needs action" tab, which excludes work
+    that has left the active queue (sent, or still processing). A review these
+    tests have already sent/edited can therefore be absent from the default
+    view — so land on the "All" tab, which always holds it, before clicking in.
+    The tests here are about RCA/Slack-post persistence, not which tab the row
+    sits in, so the tab is made explicit rather than assumed."""
+    page.reload(wait_until="load")
+    page.wait_for_timeout(800)
+    page.click('[data-tab="all"]')
+    page.wait_for_selector(".inbox-row", timeout=15000)
+    page.locator(".inbox-row").first.click()
+    page.wait_for_timeout(1400)
+
+
 def _open_slack(page):
     # The Slack post lives in the Slack tab (handoff §1); show it first. Also
     # re-selects it after a reload, which resets the active tab to Diagnosis.
@@ -311,10 +328,7 @@ def test_the_selection_survives_a_reload(page):
     _restore(page, "insights")
     before = _mirror(page)
 
-    page.reload(wait_until="load")
-    page.wait_for_timeout(1000)
-    page.locator(".inbox-row").first.click()
-    page.wait_for_timeout(1400)
+    _reopen_after_reload(page)
 
     after = _mirror(page)
     assert after.strip() == before.strip(), \
@@ -342,10 +356,7 @@ def test_an_empty_section_is_not_read_back_as_a_deselection(page):
         await fetch('/api/reviews/tp_ui/draft-v2', {method: 'PATCH',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({takedown: {}})}); }""")
-    page.reload(wait_until="load")
-    page.wait_for_timeout(1000)
-    page.locator(".inbox-row").first.click()
-    page.wait_for_timeout(1400)
+    _reopen_after_reload(page)
 
     _open_slack(page)
     page.click("[data-slack-sec-all]")
@@ -358,10 +369,7 @@ def test_an_empty_section_is_not_read_back_as_a_deselection(page):
     assert page.locator('[data-slack-drop="takedown"], [data-slack-restore="takedown"]').count() == 0, \
         "an empty section rendered a toggle — it should be 'nothing to post'"
 
-    page.reload(wait_until="load")
-    page.wait_for_timeout(1000)
-    page.locator(".inbox-row").first.click()
-    page.wait_for_timeout(1400)
+    _reopen_after_reload(page)
     _open_slack(page)
     state = _row_state(page)
     off = sorted(k for k, v in state.items() if v == "out")
