@@ -2253,7 +2253,7 @@ async function fetchInbox() {
         // A missing date says so. The column has no default any more, so a
         // creation site that forgets one leaves NULL — and an empty cell
         // reads as a formatting bug rather than as an absent fact.
-        time:           row.received_at ? new Date(row.received_at).toLocaleString('en-GB', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : 'no date recorded',
+        time:           row.received_at ? fmtIST(row.received_at) : 'no date recorded',
         status:         row.status || 'new',
         closedAt:       row.closed_at    || null,
         closeReason:    row.close_reason || '',
@@ -2395,6 +2395,25 @@ function bookingCreatedAt(db) {
 // before the slot rather than weeks. IST, matching every other time on the
 // card. A value that is not a date is returned untouched rather than dressed
 // as one.
+// The ONE user-facing timestamp formatter. Every displayed instant goes
+// through here so the dashboard reads in a single zone — Asia/Kolkata, the
+// team's zone — with a visible IST label, instead of some cells silently
+// rendering in whatever zone the viewer's browser happens to sit in. Takes any
+// value new Date() accepts (ISO string, epoch ms, Date); returns '' for an
+// absent or unparseable value so callers can decide their own placeholder.
+// This formats DISPLAY only — it must never be fed into a sort comparison
+// (see time_sort, which stays UTC on purpose).
+function fmtIST(ts) {
+  if (ts == null || ts === '') return '';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  const p = new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+    hour12: false, timeZone: 'Asia/Kolkata'}).formatToParts(d)
+    .reduce((a, x) => (a[x.type] = x.value, a), {});
+  return `${p.day} ${p.month} ${p.hour}:${p.minute} IST`;
+}
+
 function stampDetail(v) {
   const s = normaliseStamp(v);
   if (!s) return '—';
@@ -2454,10 +2473,7 @@ function stampText(v) {
   if (!/^\d{4}-\d{2}-\d{2}T/.test(s)) return String(s || '').replace(/ IST$/, '');
   const d = new Date(s);
   if (isNaN(d.getTime())) return String(v || '');
-  return d.toLocaleString('en-GB', {day: '2-digit', month: 'short',
-                                    hour: '2-digit', minute: '2-digit',
-                                    hour12: false, timeZone: 'Asia/Kolkata'})
-          .replace(',', '');
+  return fmtIST(d);
 }
 
 function normaliseStamp(v) {
@@ -3736,6 +3752,12 @@ document.addEventListener('click', (e) => {
 function renderInbox() {
   _renderChips();
   const list = document.getElementById('inbox-list');
+  // Rebuilding innerHTML (below) drops the scrolled children and resets the
+  // container's scrollTop to 0. A background poll re-renders while the user is
+  // reading mid-list, so without this they get snapped to the top every few
+  // seconds. Capture before the rebuild, restore after — .inbox-list is itself
+  // the overflow-y:auto scroll container.
+  const prevScroll = list ? list.scrollTop : 0;
   const q = state.search;
   // Filter first, then search, then tab. Tab counts (below) then count
   // only rows the filter admits, so a "Received today" filter narrows the
@@ -3826,6 +3848,10 @@ function renderInbox() {
       <div class="ic-received">${esc(r.time)}</div>
     </div>`;
   }).join('');
+  // Restore the pre-rebuild scroll position (clamped by the browser to the new
+  // content height) so a re-render — background poll or otherwise — never moves
+  // the user. Done right after the rows exist and before listeners/bulk-bar.
+  if (list) list.scrollTop = prevScroll;
   _syncBulkBar(filtered);
   _syncSelectAll(filtered);
 
@@ -4457,9 +4483,7 @@ function renderReviewCol() {
       ${r.closedAt ? `
       <div class="content-mismatch">
         <span class="reconcile-mark">✓</span>
-        <span class="reconcile-text">Closed out ${esc(
-          new Date(r.closedAt).toLocaleString('en-GB',
-            {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}))} —
+        <span class="reconcile-text">Closed out ${esc(fmtIST(r.closedAt))} —
           ${esc(r.closeReason || 'no reason was recorded')} Nothing was posted
           to Slack.</span>
       </div>` : ''}
@@ -5484,13 +5508,9 @@ function _saveToast(msg, sticky) {
 // "14:02" today, "3 Jul" before that. Used on buttons whose action already
 // happened, so the label says when rather than inviting a repeat.
 function _shortWhen(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (isNaN(d)) return '';
-  const now = new Date();
-  return d.toDateString() === now.toDateString()
-    ? d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})
-    : d.toLocaleDateString([], {day: 'numeric', month: 'short'});
+  // Routed through the one IST formatter so a button's "when" matches every
+  // other timestamp on the card instead of rendering in the viewer's zone.
+  return fmtIST(iso);
 }
 // Pointer fields are lists in the v3 shape; older drafts hold one string.
 // "Frau Nicole Liebschner" is not called Frau. Taking the first word of the
@@ -6835,7 +6855,10 @@ function renderRcaCol() {
            the row-blur recompose. -->
       <textarea class="slack-edit-area" data-slack-edit hidden style="display:none">${_slackText.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
       <div class="slack-post-row">
-        <button class="slack-post-btn" data-slack-post>Post to Slack thread ↑</button>
+        <button class="slack-post-btn" data-slack-post
+                ${r.rcaPostedAt ? 'disabled' : ''}
+                title="${r.rcaPostedAt ? 'The RCA is already in the thread — posting again would add a second copy.' : ''}"
+                >${r.rcaPostedAt ? '✓ Posted to thread ' + _shortWhen(r.rcaPostedAt) : 'Post to Slack thread ↑'}</button>
         <!-- Mark sent, beside the button people actually work from. /post-rca
              sets rca_posted_at and NOTHING else, so a matched review whose RCA
              had gone to the thread stayed in Matched, and the only way out was
@@ -6861,10 +6884,15 @@ function renderRcaCol() {
              what the disabling was protecting. -->
         <button class="slack-sent-btn btn" data-mark-sent
                 data-sent-mode="${r.rcaPostedAt ? 'send' : 'close'}"
-                title="${r.rcaPostedAt
-                  ? 'Finish this review. The RCA is already in the thread, so nothing is posted again.'
-                  : 'Finish this review WITHOUT posting to Slack. Nothing is sent to the thread, and the Sent tab records it as closed by hand.'}"
-                >${r.rcaPostedAt ? 'Mark sent →' : 'Send to Sent without posting →'}</button>
+                ${r.status === 'sent' ? 'disabled' : ''}
+                title="${r.status === 'sent'
+                  ? 'This review is finished — it is in the Sent tab.'
+                  : (r.rcaPostedAt
+                    ? 'Finish this review. The RCA is already in the thread, so nothing is posted again.'
+                    : 'Finish this review WITHOUT posting to Slack. Nothing is sent to the thread, and the Sent tab records it as closed by hand.')}"
+                >${r.status === 'sent'
+                  ? '✓ Sent'
+                  : (r.rcaPostedAt ? 'Mark sent →' : 'Send to Sent without posting →')}</button>
       </div>
       <!-- Filled by showPostError when Slack refuses the post. Empty is the
            normal state and draws nothing — an always-present empty box would
@@ -10023,7 +10051,7 @@ function loadDailyPanel(host) {
         // letting the button post into nothing.
         if (!data.channel) { send.disabled = true; }
         if (announce) {
-          const t = new Date().toLocaleTimeString();
+          const t = fmtIST(Date.now());
           setMsg('Refreshed ✓ ' + t, 'ok');
         }
       })
@@ -10116,7 +10144,7 @@ function loadWeeklyPanel(host) {
           ? 'posts to ' + channel
           : 'SLACK_CHANNEL_DAILY not set — set it to enable sending';
         send.disabled = !channel;
-        if (announce) setMsg('Refreshed ✓ ' + new Date().toLocaleTimeString(), 'ok');
+        if (announce) setMsg('Refreshed ✓ ' + fmtIST(Date.now()), 'ok');
       })
       .catch((e) => {
         ta.value = ''; ta.disabled = true; refr.disabled = false; sel.disabled = false;
@@ -10521,7 +10549,7 @@ async function rpgOverview(view) {
     }
     if (ticket !== RPG.seq) return;
     const asof = view.querySelector('[data-rpg-asof]');
-    if (asof) asof.textContent = `${nCards} field(s) · as of ${new Date().toLocaleTimeString()} · one scan of ${data.matched} reviews`;
+    if (asof) asof.textContent = `${nCards} field(s) · as of ${fmtIST(Date.now())} · one scan of ${data.matched} reviews`;
     const oref = view.querySelector('[data-rpg-oref]');
     if (oref) oref.addEventListener('click', () => rpgOverview(view));
     // Expand/collapse is a client-side re-render off the SAME data — no re-fetch,
@@ -10987,7 +11015,7 @@ async function rpgReportsRefresh(view, announce) {
       msg.innerHTML = `<span style="color:var(--green)" data-rpg-added>${esc(RPG.repNotice)}</span>`;
       RPG.repNotice = '';
     }
-    else if (announce) msg.innerHTML = `<span style="color:var(--green)">Refreshed ✓ ${new Date().toLocaleTimeString()}</span>`;
+    else if (announce) msg.innerHTML = `<span style="color:var(--green)">Refreshed ✓ ${fmtIST(Date.now())}</span>`;
   } catch (e) {
     msg.innerHTML = `<span style="color:var(--red)">${esc(String(e.message || e).slice(0,160))}</span>`;
   }
