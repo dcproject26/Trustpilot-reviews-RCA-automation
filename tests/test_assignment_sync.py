@@ -72,19 +72,6 @@ def test_release_without_force_only_clears_your_own():
     assert r.picked_up_by == "Devshree"
     assert A.apply_release(r, "Devshree", force=False) == "released"
     assert r.picked_up_by == "" and r.picked_up_at is None
-
-
-def test_dashboard_reassign_overrides_an_existing_owner():
-    r = _Rev(owner="Devshree", at=datetime(2026, 9, 1))
-    assert A.apply_reassign(r, "Avi") == "reassigned"   # roster is deliberate
-    assert r.picked_up_by == "Avi" and r.picked_up_at != datetime(2026, 9, 1)
-    assert A.apply_reassign(r, "Avi") == "unchanged"
-    assert A.apply_reassign(r, "") == "released"
-    assert r.picked_up_by == "" and r.picked_up_at is None
-
-
-# ── identity + id mapping ───────────────────────────────────────────────────
-
 def test_review_id_matches_the_ingest_format():
     assert A.review_id_for_ts("1743500000.000100") == "tp_1743500000_000100"
 
@@ -234,13 +221,13 @@ def test_an_unmapped_reactor_falls_back_to_a_display_name(live_db):
 # ── the dashboard PATCH endpoint mirrors to Slack ───────────────────────────
 
 def test_dashboard_patch_sets_owner_time_and_mirrors(client, live_db, monkeypatch):
-    _review(live_db)
+    _review(live_db, owner="Avi")        # already owned — the roster overrides
     calls = {"add": 0, "remove": 0}
     monkeypatch.setattr(A, "mirror_claim_to_slack", lambda r, n: calls.__setitem__("add", calls["add"] + 1))
     monkeypatch.setattr(A, "mirror_release_to_slack", lambda r: calls.__setitem__("remove", calls["remove"] + 1))
     out = client.patch("/api/reviews/tp_1743500000_000100/picked-up-by",
                        json={"name": "Shruti"}).json()
-    assert out["picked_up_by"] == "Shruti" and out["picked_up_at"]
+    assert out["picked_up_by"] == "Shruti" and out["picked_up_at"]   # overrode Avi
     assert calls["add"] == 1 and calls["remove"] == 0
     # now release
     out = client.patch("/api/reviews/tp_1743500000_000100/picked-up-by",
