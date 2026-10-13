@@ -88,6 +88,12 @@ def _click(page, posted_at):
     return page.evaluate("""async (ts) => {
       const r = REVIEWS.find(x => x.id === state.selected);
       const keep = r.rcaPostedAt;
+      // The mark-sent button is (correctly) DISABLED once a review is sent — a
+      // prior test on the shared page may have sent this review, which would
+      // leave the button unclickable here. This test is about WHICH endpoint
+      // the button calls, so put the review back in a not-yet-sent state first.
+      const keepStatus = r.status;
+      r.status = 'draft';
       r.rcaPostedAt = ts;
       renderRcaCol();
       const b = document.querySelector('[data-mark-sent]');
@@ -100,6 +106,7 @@ def _click(page, posted_at):
       await new Promise(x => setTimeout(x, 500));
       window.fetch = real;
       r.rcaPostedAt = keep;
+      r.status = keepStatus;
       return hits; }""", posted_at)
 
 

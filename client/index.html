@@ -6855,9 +6855,12 @@ function renderRcaCol() {
            the row-blur recompose. -->
       <textarea class="slack-edit-area" data-slack-edit hidden style="display:none">${_slackText.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
       <div class="slack-post-row">
+        <!-- NOT disabled once posted: posting again is a deliberate, confirmed
+             action (the button flips to a red "second copy" warning and only
+             a second click sends force=true). Disabling it removed that path.
+             The label still reflects the posted state. -->
         <button class="slack-post-btn" data-slack-post
-                ${r.rcaPostedAt ? 'disabled' : ''}
-                title="${r.rcaPostedAt ? 'The RCA is already in the thread — posting again would add a second copy.' : ''}"
+                title="${r.rcaPostedAt ? 'The RCA is already in the thread — clicking again warns before adding a second copy.' : ''}"
                 >${r.rcaPostedAt ? '✓ Posted to thread ' + _shortWhen(r.rcaPostedAt) : 'Post to Slack thread ↑'}</button>
         <!-- Mark sent, beside the button people actually work from. /post-rca
              sets rca_posted_at and NOTHING else, so a matched review whose RCA
