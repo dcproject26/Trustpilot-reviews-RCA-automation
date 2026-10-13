@@ -324,6 +324,29 @@
   .ic-owner-none { color: var(--dim); }
   .ic-received{ min-width: 0; text-align: right; font-size: 11.5px; color: var(--dim);
                 white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .ic-when { color: var(--dim); }
+  /* Age badge — how long a review has waited. Amber past 24h, red past 48h, so
+     overdue work is visible at a glance on a priority-sorted queue. */
+  .ic-age { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 8px;
+            font-size: 10.5px; font-weight: 600; background: var(--facts-bg); color: var(--muted-2); }
+  .ic-age.age-amber { background: var(--amber-bg); color: var(--amber); }
+  .ic-age.age-red   { background: var(--red-bg);   color: var(--red); }
+  /* Sort control lives at the end of the tab strip. */
+  .inbox-sortwrap { margin-left: auto; align-self: center; font-size: 11px; color: var(--muted-2); }
+  .inbox-sort { margin-left: 4px; font: inherit; font-size: 11.5px; padding: 2px 4px;
+                border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text); }
+  /* Team-load strip: who holds how many of the actionable queue. */
+  .ibx-load-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 2px; }
+  .ibx-load-lab { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted-2); }
+  .ibx-load-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
+                   border: 1px solid var(--border); border-radius: 999px; background: var(--card);
+                   color: var(--text); font-size: 11.5px; cursor: pointer; }
+  .ibx-load-chip:hover { border-color: var(--accent); }
+  .ibx-load-chip.on { background: var(--text); color: #fff; border-color: var(--text); }
+  .ibx-load-chip .n { font-weight: 600; }
+  .ibx-load-chip.on .n { color: #fff; }
+  .ibx-load-clear { background: transparent; border: 0; color: var(--muted-2); cursor: pointer;
+                    font-size: 11px; text-decoration: underline; padding: 2px 4px; }
   /* The list lost its padding to the rows, so the empty states (which live
      directly in the list) carry their own. */
   .inbox-list > .empty-state,
@@ -1972,13 +1995,25 @@
           <button class="add-manual-btn">+ Add review</button>
         </div>
         <div class="inbox-tabs">
-          <button class="inbox-tab active" data-tab="all">All <span class="num" id="cnt-all">0</span></button>
+          <button class="inbox-tab active" data-tab="needs">Needs action <span class="num" id="cnt-needs">0</span></button>
+          <button class="inbox-tab" data-tab="all">All <span class="num" id="cnt-all">0</span></button>
           <button class="inbox-tab" data-tab="identified">Matched <span class="num" id="cnt-identified">0</span></button>
           <button class="inbox-tab" data-tab="candidates">Possible matches <span class="num" id="cnt-candidates">0</span></button>
           <button class="inbox-tab" data-tab="processing">Processing <span class="num" id="cnt-processing">0</span></button>
           <button class="inbox-tab" data-tab="untraceable">Untraceable <span class="num" id="cnt-untraceable">0</span></button>
           <button class="inbox-tab" data-tab="sent">Sent <span class="num" id="cnt-sent">0</span></button>
+          <span class="inbox-sortwrap">Sort
+            <select id="inbox-sort" class="inbox-sort" title="Order the queue">
+              <option value="priority">Priority (1★ &amp; oldest first)</option>
+              <option value="oldest">Oldest first</option>
+              <option value="newest">Newest first</option>
+              <option value="stars">Lowest stars first</option>
+            </select></span>
         </div>
+        <!-- Team load: who holds how many of the actionable cases right now, and
+             how many are unpicked. Clicking a chip filters the queue to that
+             owner (the unpicked chip to the pool). A live stock, not per-day. -->
+        <div class="ibx-load-row" id="ibx-load-row" hidden></div>
         <!-- Active filter chips. Hidden when no filter is set — so the row
              does not fake a filter that isn't there. Each chip has its own
              × so it can be dropped without opening the popover again. -->
@@ -3408,12 +3443,16 @@ const state = {
   // simply means "nothing selected" until the inbox is clicked.
   selected: null,
   selectedIds: new Set(),
-  // Must agree with the tab marked `active` in the markup, which is All.
-  // It said 'identified' while the All tab rendered as selected, so the
-  // dashboard opened claiming to show everything, with the count saying 3,
-  // and listed one review. The two it hid were the ones that need a human:
-  // the unconfirmed match and the untraceable one.
-  filter: 'all',
+  // The landing view is "Needs action", not "All": the home is a work queue,
+  // so done (Sent) and not-yet-actionable (Processing) reviews are off it by
+  // default and one tab away. Must agree with the tab marked `active` in the
+  // markup, which is now Needs action.
+  filter: 'needs',
+  // How the queue is ordered. 'priority' = worst-and-oldest first (1★ and the
+  // longest-waiting float up), the SLA-correct default; the reader can change
+  // it from the Sort control, and the choice is remembered per browser.
+  sort: (() => { try { return localStorage.getItem('ibx-sort') || 'priority'; }
+                 catch (e) { return 'priority'; } })(),
   // WHAT THE + FILTER BUTTON HAS SET, on top of the tab.
   // Filters STACK with the tab. Presets rewrite the concrete fields when set
   // — "today" fills a date range, "pending" implies status ≠ sent — because
@@ -3484,6 +3523,11 @@ const state = {
 // show everything while listing one review.
 function inTab(r, tab) {
   if (tab === 'all') return true;
+  // "Needs action" — the default landing: everything that wants a human NOW.
+  // Not sent/closed (done) and not processing (the pipeline is still working —
+  // nothing to do but wait). What is left is the real work queue: a match to
+  // confirm, a draft to send, or an untraceable to reply to.
+  if (tab === 'needs') return r.status !== 'sent' && r.type !== 'processing';
   // A sent review belongs to Sent, not to its old working tab — otherwise it
   // counts in two tabs at once and the "N elsewhere" breakdown sums past the
   // unique total. `identified` already excluded it; the other three now match.
@@ -3749,6 +3793,68 @@ document.addEventListener('click', (e) => {
   if (fbtn) { e.preventDefault(); _openFilterPopover(); }
 });
 
+// ── sort + age, for the work-queue feel ─────────────────────────────────────
+function _ageHours(r) {
+  const t = Date.parse(r.receivedAt || r.time || '');
+  return isNaN(t) ? -1 : (Date.now() - t) / 3.6e6;   // -1 = no/未 date, sorts last
+}
+function _stars(r) {
+  // r.stars is the ★/☆ string; count the filled ones. Fall back to rating.
+  const s = (r.stars || '').toString();
+  const n = (s.match(/★/g) || []).length;
+  return n || Number(r.rating) || 0;
+}
+// A short age badge in whole units, with a severity class past the agreed
+// thresholds (amber > 24h, red > 48h). Derived from the SAME IST-correct
+// instant fmtIST uses — it is the gap from now, which is timezone-independent.
+function ageBadge(r) {
+  const h = _ageHours(r);
+  if (h < 0) return '';
+  const cls = h > 48 ? 'age-red' : h > 24 ? 'age-amber' : '';
+  const txt = h < 1 ? Math.max(1, Math.round(h * 60)) + 'm'
+            : h < 24 ? Math.round(h) + 'h'
+            : Math.round(h / 24) + 'd';
+  return `<span class="ic-age ${cls}" title="waiting ${txt}">${txt}</span>`;
+}
+// Team load: the per-owner split of the ACTIONABLE queue (not sent, not
+// processing), a live stock of "who holds how many right now". Chips filter the
+// queue to that owner; the Unpicked chip to the pool. Counts are over `hits`
+// (search + the + Filter), restricted to the needs-action cohort, so they match
+// what the reader is actually working through.
+function _renderTeamLoad(hits) {
+  const row = document.getElementById('ibx-load-row');
+  if (!row) return;
+  const actionable = hits.filter(r => inTab(r, 'needs'));
+  const owned = {};
+  let unpicked = 0;
+  for (const r of actionable) {
+    const o = (r.owner || '').toString().trim();
+    if (o) owned[o] = (owned[o] || 0) + 1; else unpicked++;
+  }
+  const names = Object.keys(owned).sort((a, b) => owned[b] - owned[a] || a.localeCompare(b));
+  if (!actionable.length) { row.hidden = true; row.innerHTML = ''; return; }
+  row.hidden = false;
+  const cur = (state.filters && state.filters.owner || '').toLowerCase();
+  const chip = (key, label, n, on) =>
+    `<button class="ibx-load-chip${on ? ' on' : ''}" data-load-owner="${esc(key)}">` +
+    `${esc(label)} <span class="n">${n}</span></button>`;
+  row.innerHTML =
+    `<span class="ibx-load-lab">Load</span>` +
+    chip('unassigned', 'Unpicked', unpicked, cur === 'unassigned') +
+    names.map(o => chip(o, o, owned[o], cur === o.toLowerCase())).join('') +
+    (cur ? `<button class="ibx-load-clear" data-load-owner="">clear</button>` : '');
+}
+
+function sortReviews(list) {
+  const by = state.sort;
+  const arr = list.slice();
+  if (by === 'newest')  arr.sort((a, b) => _ageHours(a) - _ageHours(b));
+  else if (by === 'oldest') arr.sort((a, b) => _ageHours(b) - _ageHours(a));
+  else if (by === 'stars')  arr.sort((a, b) => _stars(a) - _stars(b) || _ageHours(b) - _ageHours(a));
+  else /* priority */       arr.sort((a, b) => _stars(a) - _stars(b) || _ageHours(b) - _ageHours(a));
+  return arr;
+}
+
 function renderInbox() {
   _renderChips();
   const list = document.getElementById('inbox-list');
@@ -3764,13 +3870,15 @@ function renderInbox() {
   // tab pills too — otherwise "All 200 / Sent 194" would sit over a list of 3.
   const admitted = REVIEWS.filter(r => matchesFilters(r));
   const hits = admitted.filter(r => matchesSearch(r, q));
-  const filtered = hits.filter(r => inTab(r, state.filter));
+  const filtered = sortReviews(hits.filter(r => inTab(r, state.filter)));
+  _renderTeamLoad(hits);
 
   // While searching, the tab numbers count MATCHES, not totals — otherwise
   // "Untraceable 12" sits above an empty list and the reader concludes the
   // list is broken. They also answer the question a search actually asks,
   // which is "where is it".
-  const TABS = [['all', 'cnt-all'], ['identified', 'cnt-identified'],
+  const TABS = [['needs', 'cnt-needs'], ['all', 'cnt-all'],
+                ['identified', 'cnt-identified'],
                 ['candidates', 'cnt-candidates'],
                 ['processing', 'cnt-processing'],
                 ['untraceable', 'cnt-untraceable'], ['sent', 'cnt-sent']];
@@ -3845,7 +3953,7 @@ function renderInbox() {
       </div>
       <div class="ic-state"><span class="tag stage-${kind}">${stage}</span></div>
       <div class="ic-owner">${ownerCell(r.owner)}</div>
-      <div class="ic-received">${esc(r.time)}</div>
+      <div class="ic-received">${ageBadge(r)}<span class="ic-when">${esc(r.time)}</span></div>
     </div>`;
   }).join('');
   // Restore the pre-rebuild scroll position (clamped by the browser to the new
@@ -9538,6 +9646,30 @@ document.querySelectorAll('.inbox-tab').forEach(tab => {
     renderReviewCol();
     renderRcaCol();
   });
+});
+
+// Sort control: remembered per browser, re-orders the queue in place (no fetch).
+(() => {
+  const sel = document.getElementById('inbox-sort');
+  if (!sel) return;
+  sel.value = state.sort;
+  sel.addEventListener('change', () => {
+    state.sort = sel.value;
+    try { localStorage.setItem('ibx-sort', sel.value); } catch (e) { /* private mode */ }
+    renderInbox();
+  });
+})();
+
+// Team-load chips: click a name to filter the queue to that owner, "Unpicked"
+// for the pool, "clear" to drop it. Reuses the SAME owner filter the + Filter
+// popover sets, so the two can never disagree about who is shown.
+document.addEventListener('click', (ev) => {
+  const chip = ev.target.closest('[data-load-owner]');
+  if (!chip) return;
+  if (!state.filters) state.filters = {receivedFrom: '', receivedTo: '', owner: '', preset: ''};
+  state.filters.owner = chip.dataset.loadOwner || '';
+  _renderChips();
+  renderInbox();
 });
 
 // "None of these → Untraceable" — the candidate list was wrong. Clears the

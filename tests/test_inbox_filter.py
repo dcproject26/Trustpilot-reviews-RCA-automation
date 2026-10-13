@@ -207,6 +207,36 @@ def test_the_popover_lists_owners_from_the_actual_inbox(page):
     assert "unassigned" in opts
 
 
+def test_the_team_load_chip_filters_to_that_owner(page):
+    """The home team-load strip is a live split of the actionable queue by
+    owner; clicking an owner's chip sets the same owner filter the popover does.
+    Driven by a real click — a dead chip and a live one look identical.
+
+    Over the needs-action cohort (not sent, not processing) the seed gives
+    a→Devshree, b→Shruti, d→unassigned; c (sent) and e (processing) are out, so
+    the Devshree chip reads 1."""
+    chip = page.wait_for_selector('#ibx-load-row [data-load-owner="Devshree"]',
+                                  state="visible", timeout=8000)
+    assert "1" in chip.inner_text()                 # one actionable case for Devshree
+    chip.click()
+    page.wait_for_timeout(300)
+    assert page.evaluate("() => state.filters.owner") == "Devshree"
+    # the owner filter now drives the list — Devshree's rows across the tab
+    assert set(_rows(page)) == {"a", "c", "e"}
+    assert any("Devshree" in c for c in _chips(page))
+
+
+def test_the_team_load_unpicked_chip_filters_to_the_pool(page):
+    """The Unpicked chip filters to the unassigned pool — the same 'unassigned'
+    owner filter, reached in one click from the strip."""
+    chip = page.wait_for_selector('#ibx-load-row [data-load-owner="unassigned"]',
+                                  state="visible", timeout=8000)
+    chip.click()
+    page.wait_for_timeout(300)
+    assert page.evaluate("() => state.filters.owner") == "unassigned"
+    assert _rows(page) == ["d"]
+
+
 def test_applying_the_range_drops_the_today_preset(page):
     """A "Received today" preset that stays on while the range says a
     different day is a control lying about itself. Typing a range demotes

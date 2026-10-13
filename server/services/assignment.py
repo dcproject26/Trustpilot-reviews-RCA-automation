@@ -238,6 +238,13 @@ def handle_reaction_event(event: dict, db) -> dict:
         return {"ok": True, "action": outcome, "review_id": rid, "owner": review.picked_up_by}
 
     if etype == "reaction_removed":
+        if _is_solved(review):
+            # A solved case keeps its owner attribution; removing :wip: from
+            # finished work must not blank out who handled it (symmetric with the
+            # reaction_added guard — you cannot un-pick done work either).
+            log.info(f"[assign] un-:wip: on already-solved {rid} by {name} — kept.")
+            return {"ok": True, "ignored": "already_solved", "review_id": rid,
+                    "owner": review.picked_up_by}
         outcome = apply_release(review, name, force=False)
         if outcome == "released":
             db.commit()

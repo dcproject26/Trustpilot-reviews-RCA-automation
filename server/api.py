@@ -1311,9 +1311,9 @@ def patch_picked_up_by(review_id: str, body: PickedUpByPatch,
     # Mirror to Slack — best-effort, never fails the save (the DB is the truth).
     from server.services import assignment as _assign
     try:
-        if has_name:
+        if has_name and (prev or "") != v:   # a NEW/changed owner, not a re-save
             _assign.mirror_claim_to_slack(r, v)
-        elif prev:                       # was owned, now released back to the pool
+        elif not has_name and prev:      # was owned, now released back to the pool
             _assign.mirror_release_to_slack(r)
     except Exception as _e:
         log.info(f"[assign] Slack mirror for {review_id} failed (owner saved): {_e}")
