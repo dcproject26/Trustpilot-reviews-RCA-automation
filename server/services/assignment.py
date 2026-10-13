@@ -133,22 +133,6 @@ def apply_release(review, name: str | None, force: bool = False) -> str:
     return "kept"
 
 
-def apply_reassign(review, name: str, at: datetime | None = None) -> str:
-    """Dashboard EXPLICIT override — the roster is a deliberate human choice, so
-    it wins over an existing owner (unlike a Slack :wip:, which is first-wins).
-    Empty name routes to a forced release. Returns 'reassigned' | 'released' |
-    'unchanged'."""
-    want = (name or "").strip()
-    cur = (getattr(review, "picked_up_by", None) or "").strip()
-    if not want:
-        return "released" if apply_release(review, None, force=True) == "released" else "unchanged"
-    if cur == want:
-        return "unchanged"
-    review.picked_up_by = want
-    review.picked_up_at = at or datetime.utcnow()
-    return "reassigned"
-
-
 # ── Slack side effects (best-effort, never raise into the caller) ───────────
 
 def _channel_ts(review):

@@ -1293,18 +1293,27 @@ def patch_picked_up_by(review_id: str, body: PickedUpByPatch,
         # ridiculous in the queue column. 120 chars covers any real name.
         if len(v) > 120:
             v = v[:120]
-    # Set the owner through the shared assignment logic so the dashboard and the
-    # Slack :wip: path cannot diverge: a name is a deliberate roster choice and
-    # overrides (reassign), an empty value releases back to the pool. Both set/
-    # clear picked_up_at, so "when it was picked up" is tracked either way.
-    from server.services import assignment as _assign
-    outcome = _assign.apply_reassign(r, v if isinstance(v, str) else "")
+    # None stays None (never claimed), "" stays "" (typed then cleared), a name
+    # is the owner. That None-vs-"" distinction is a real one the UI renders, so
+    # it is preserved verbatim — the assignment helpers deliberately collapse to
+    # "" and must not be used on this path.
+    prev = r.picked_up_by
+    r.picked_up_by = v
+    # picked_up_at: a NEW real owner stamps the pickup time; clearing (None or
+    # "") clears it. Re-setting the same name keeps the original time.
+    has_name = bool(v)
+    if has_name:
+        if (prev or "") != v:
+            r.picked_up_at = datetime.utcnow()
+    else:
+        r.picked_up_at = None
     db.commit()
-    # Mirror to Slack — best-effort, never fails the save (DB is the truth).
+    # Mirror to Slack — best-effort, never fails the save (the DB is the truth).
+    from server.services import assignment as _assign
     try:
-        if outcome == "reassigned":
-            _assign.mirror_claim_to_slack(r, r.picked_up_by)
-        elif outcome == "released":
+        if has_name:
+            _assign.mirror_claim_to_slack(r, v)
+        elif prev:                       # was owned, now released back to the pool
             _assign.mirror_release_to_slack(r)
     except Exception as _e:
         log.info(f"[assign] Slack mirror for {review_id} failed (owner saved): {_e}")
