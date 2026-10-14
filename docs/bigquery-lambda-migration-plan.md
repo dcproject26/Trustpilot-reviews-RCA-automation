@@ -1,6 +1,10 @@
 # BigQuery `*_lambda` migration — implementation plan
 
-**Status:** Steps 1–3 **done** — de-hardcoded, defaults flipped to `_lambda`, all field edits applied, full suite green (4555 passed), new guard mutation-CAUGHT. Awaiting a **live single-BID smoke test** (see below) before it can be trusted in production. · **Hard deadline:** legacy tables dropped **15 Oct 2026**
+**Status: LIVE-VALIDATED ✅** — matcher, enrichment, escalation and insights all confirmed on the real `_lambda` tables (errors=0, 7/8 BIDs matched, escalation emails populate, insights panel returns all tiles). Ready to redeploy.
+
+> **Correction / lesson:** the first migration was built from the migration guide's example SQL, which was WRONG about the deployed schema (claimed `experience_id`/`experience_name` moved to `fct_orders_lambda` and implied a `booking_id` on `fct_fulfilments_lambda`). The live `INFORMATION_SCHEMA` showed those columns are on `fct_bookings_lambda`, and the fulfilments table uses `fulfilment_*`-prefixed columns. The live retest caught the 400s; the fix (commits `0a07f2b`, `59284ed`) reads everything from `fct_bookings_lambda` and sources `completion_type` from `fct_zendesk_tickets`. **Always verify column locations against the live schema, not the guide.**
+
+· **Hard deadline:** legacy tables dropped **15 Oct 2026**
 
 ## Live validation required (cannot be done from mocked tests)
 The mocked suite validates query structure/routing, not that the real `_lambda`
