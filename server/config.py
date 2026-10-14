@@ -50,31 +50,26 @@ TRUSTPILOT_BOT_USER_ID = os.getenv("TRUSTPILOT_BOT_USER_ID", "").strip()
 # BigQuery
 #
 # ── Realtime `*_lambda` migration (see docs/bigquery-lambda-migration-plan.md) ──
-# The warehouse is moving Orders/Bookings/Fulfilments to new `*_lambda` tables and
-# DROPPING the legacy ones on 15 Oct 2026. Every warehouse table name is read from
-# the environment so the cutover — and the later suffix-removal — is a config
-# change, not a code change. Three callers that hardcoded the table strings
-# (bigquery_patch.py, insights.py, venue_resolver.py) now route through these
-# constants too.
+# The warehouse replaced the legacy Orders/Bookings/Fulfilments tables with new
+# `*_lambda` tables and DROPPED the legacy ones on 15 Oct 2026. Table names are
+# env-driven so the cutover — and the later suffix-removal — is config, not code.
 #
-# Defaults now point at the realtime `*_lambda` tables (the legacy ones are dropped
-# 15 Oct 2026). The query field-edits that this requires have landed:
-# experience_date→experience_timestamp, experience_id/experience_name sourced from
-# fct_orders_lambda via order_id, the fulfilments join collapsed to one attempt per
-# booking, and a booking_status NOT IN ('Dummy','Uncaptured') filter. reviews and
-# support are NOT in the migration, so they keep their names.
+# Verified against the LIVE schema (the migration guide was wrong about what
+# moved): everything the matcher/enrichment/insights need is on
+# fct_bookings_lambda directly — experience_id/name, vendor_id/name, is_partnered,
+# final_fulfilment_type, fulfilment_status, booking_status, price_payable_usd. So
+# there is NO orders join and NO fulfilments join. ids are STRING (compared via
+# CAST). reviews / support / zendesk / dim_* are NOT in the migration and keep
+# their names.
 GCP_SERVICE_ACCOUNT_JSON  = os.getenv("GCP_SERVICE_ACCOUNT_JSON", "")
 BIGQUERY_BOOKINGS_TABLE   = os.getenv("BIGQUERY_BOOKINGS_TABLE",
                                        "headout-analytics.analytics_reporting.fct_bookings_lambda")
 BIGQUERY_REVIEWS_TABLE    = os.getenv("BIGQUERY_REVIEWS_TABLE",
                                        "headout-analytics.analytics_reporting.fct_reviews")
-BIGQUERY_FULFILMENTS_TABLE = os.getenv("BIGQUERY_FULFILMENTS_TABLE",
-                                        "headout-analytics.analytics_reporting.fct_fulfilments_lambda")
 BIGQUERY_SUPPORT_TABLE     = os.getenv("BIGQUERY_SUPPORT_TABLE",
                                         "headout-analytics.analytics_reporting.fct_support_queries")
-# NEW with the migration: experience_id / experience_name move off the bookings
-# table onto the orders table (grain order_id), so the match queries will join to
-# this to recover them. Unused until the field-edit change lands.
+# venue_resolver's dim_experiences fallback reads experience_id/name from the
+# orders table. Nothing else queries it (experience_id/name are on bookings).
 BIGQUERY_ORDERS_TABLE      = os.getenv("BIGQUERY_ORDERS_TABLE",
                                         "headout-analytics.analytics_reporting.fct_orders_lambda")
 
