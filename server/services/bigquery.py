@@ -12,11 +12,15 @@ Insights:
   - Same-day same-VID fulfilment issues
   - Fulfilment type
 
-Real table paths confirmed from the Retool workflow:
-  headout-analytics.analytics_reporting.fct_bookings
-  headout-analytics.analytics_reporting.fct_reviews
-  headout-analytics.analytics_reporting.fct_fulfilments
-  headout-analytics.analytics_reporting.dim_vendors
+Real table paths (post realtime `*_lambda` migration — verified against the live
+INFORMATION_SCHEMA, see docs/bigquery-lambda-migration-plan.md):
+  headout-analytics.analytics_reporting.fct_bookings_lambda   (everything the
+      matcher/enrichment needs: experience_id/name, vendor, is_partnered,
+      final_fulfilment_type, fulfilment_status, booking_status, price_payable_usd)
+  headout-analytics.analytics_reporting.fct_reviews           (not migrated)
+  headout-analytics.analytics_reporting.fct_zendesk_tickets   (completion_type, not migrated)
+  headout-analytics.analytics_reporting.dim_vendors           (escalation contact, not migrated)
+The fulfilments table is NOT queried any more — its fields live on the booking row.
 """
 import asyncio
 import json, logging
