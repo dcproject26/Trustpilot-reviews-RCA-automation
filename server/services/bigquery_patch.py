@@ -15,6 +15,7 @@ one small change at the return step.
 import logging
 from server.config import (
     is_live, BIGQUERY_BOOKINGS_TABLE, BIGQUERY_REVIEWS_TABLE, BIGQUERY_SUPPORT_TABLE,
+    BIGQUERY_FULFILMENTS_TABLE, BIGQUERY_ORDERS_TABLE,
     BMS_URL_PATTERN, TGID_URL_PATTERN,
 )
 from server.taxonomy import SIMILAR_MATCH_RULE
@@ -126,7 +127,15 @@ def _get_client():
 # NEW: verify_bid — Tier 1 BID lookup, returns a booking dict or None
 # ─────────────────────────────────────────────────────────────────────────
 
-_VERIFY_BID_SQL = """
+# Realtime `*_lambda` migration (docs/bigquery-lambda-migration-plan.md):
+#   • experience_date  -> experience_timestamp (combined date+time; DATE() recovers the day)
+#   • experience_id / experience_name moved off bookings onto fct_orders_lambda,
+#     joined on order_id
+#   • fct_fulfilments_lambda is per-fulfilment grain now, so the join is collapsed
+#     to the latest attempt per booking
+#   • booking_status is SELECTed (not SQL-filtered) so verify_bid can tell a
+#     Dummy/Uncaptured booking apart from a genuinely absent one (rule 1).
+_VERIFY_BID_SQL = f"""
 SELECT
   b.booking_id,
   -- The TIMESTAMP, not DATE(). b.created_at carries a time and DATE() threw it
@@ -135,17 +144,23 @@ SELECT
   -- blamed for truncating something it never received. The visit date stays a
   -- DATE because that is what it is — an experience is booked for a day.
   b.created_at            AS date_of_booking,
-  DATE(b.experience_date) AS date_of_visit,
+  DATE(b.experience_timestamp) AS date_of_visit,
   b.tour_id               AS tid,
-  b.experience_id         AS tgid,
-  b.experience_name,
+  o.experience_id         AS tgid,
+  o.experience_name,
   b.vendor_id,
   v.vendor_name,
   f.fulfilment_type,
-  b.primary_guest_name
-FROM `headout-analytics.analytics_reporting.fct_bookings` b
-LEFT JOIN `headout-analytics.analytics_reporting.fct_fulfilments` f
-  ON b.booking_id = f.booking_id
+  b.primary_guest_name,
+  b.booking_status
+FROM `{BIGQUERY_BOOKINGS_TABLE}` b
+LEFT JOIN `{BIGQUERY_ORDERS_TABLE}` o
+  ON b.order_id = o.order_id
+LEFT JOIN (
+  SELECT booking_id, fulfilment_type
+  FROM `{BIGQUERY_FULFILMENTS_TABLE}`
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY booking_id ORDER BY created_at DESC) = 1
+) f ON b.booking_id = f.booking_id
 LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
   ON b.vendor_id = v.vendor_id
 WHERE b.booking_id = @bid
@@ -163,6 +178,14 @@ def verify_bid(bid: str) -> dict | None:
     if not rows:
         return None
     r = rows[0]
+    # The realtime fct_bookings_lambda now carries Dummy/Uncaptured rows the old
+    # table did not. A BID resolving to one of these is NOT a real booking — say
+    # so distinctly (rule 1: not the same as "no such BID") and treat as unmatched.
+    _status = str(r.get("booking_status") or "")
+    if _status in ("Dummy", "Uncaptured"):
+        log.info(f"verify_bid({bid}): resolves to a {_status} booking — not a "
+                 f"real booking, treating as unmatched")
+        return None
     booking_id_str = str(r.get("booking_id") or bid)
     tgid_str       = str(r.get("tgid") or "")
     booking = {
@@ -189,22 +212,25 @@ def verify_bid(bid: str) -> dict | None:
 # NEW: run_narrowing_query — Tier 2 cascade, one attempt
 # ─────────────────────────────────────────────────────────────────────────
 
-_NARROWING_SQL_WITH_TGIDS = """
+_NARROWING_SQL_WITH_TGIDS = f"""
 SELECT
   b.booking_id,
   b.primary_guest_name,
-  DATE(b.experience_date) AS date_of_visit,
-  b.experience_name,
+  DATE(b.experience_timestamp) AS date_of_visit,
+  o.experience_name,
   b.tour_id               AS tid,
-  b.experience_id         AS tgid,
+  o.experience_id         AS tgid,
   b.vendor_id,
   v.vendor_name
-FROM `headout-analytics.analytics_reporting.fct_bookings` b
+FROM `{BIGQUERY_BOOKINGS_TABLE}` b
+LEFT JOIN `{BIGQUERY_ORDERS_TABLE}` o
+  ON b.order_id = o.order_id
 LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
   ON b.vendor_id = v.vendor_id
-WHERE b.experience_id IN UNNEST(@tgid_list)
-  AND b.experience_date BETWEEN
+WHERE o.experience_id IN UNNEST(@tgid_list)
+  AND DATE(b.experience_timestamp) BETWEEN
       DATE_SUB(@review_pub_date, INTERVAL @date_window DAY) AND @review_pub_date
+  AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
   AND (
     (@author_first = '' AND @author_last = '')
     OR (@author_first != '' AND
@@ -212,25 +238,28 @@ WHERE b.experience_id IN UNNEST(@tgid_list)
     OR (@author_last != '' AND
         LOWER(b.primary_guest_name) LIKE CONCAT('%', LOWER(@author_last), '%'))
   )
-ORDER BY b.experience_date DESC
+ORDER BY b.experience_timestamp DESC
 LIMIT 10
 """
 
-_NARROWING_SQL_NO_TGIDS = """
+_NARROWING_SQL_NO_TGIDS = f"""
 SELECT
   b.booking_id,
   b.primary_guest_name,
-  DATE(b.experience_date) AS date_of_visit,
-  b.experience_name,
+  DATE(b.experience_timestamp) AS date_of_visit,
+  o.experience_name,
   b.tour_id               AS tid,
-  b.experience_id         AS tgid,
+  o.experience_id         AS tgid,
   b.vendor_id,
   v.vendor_name
-FROM `headout-analytics.analytics_reporting.fct_bookings` b
+FROM `{BIGQUERY_BOOKINGS_TABLE}` b
+LEFT JOIN `{BIGQUERY_ORDERS_TABLE}` o
+  ON b.order_id = o.order_id
 LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
   ON b.vendor_id = v.vendor_id
-WHERE b.experience_date BETWEEN
+WHERE DATE(b.experience_timestamp) BETWEEN
       DATE_SUB(@review_pub_date, INTERVAL @date_window DAY) AND @review_pub_date
+  AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
   AND (
     (@author_first = '' AND @author_last = '')
     OR (@author_first != '' AND
@@ -238,7 +267,7 @@ WHERE b.experience_date BETWEEN
     OR (@author_last != '' AND
         LOWER(b.primary_guest_name) LIKE CONCAT('%', LOWER(@author_last), '%'))
   )
-ORDER BY b.experience_date DESC
+ORDER BY b.experience_timestamp DESC
 LIMIT 10
 """
 

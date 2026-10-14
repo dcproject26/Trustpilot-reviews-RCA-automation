@@ -5,6 +5,7 @@ Returns the union of experience_ids matching any of the hint strings.
 import logging
 import re
 from server.services import bq_connector as bq
+from server.config import BIGQUERY_ORDERS_TABLE
 
 log = logging.getLogger(__name__)
 
@@ -12,9 +13,12 @@ _TABLES = [
     "headout-analytics.analytics_reporting.dim_experiences",
     "headout-analytics.shivam_reporting.dim_experiences",
 ]
-_FALLBACK_SQL = """
+# Fallback when dim_experiences is unreachable. `experience_id` / `experience_name`
+# live on fct_orders_lambda after the realtime migration (they were dropped from
+# fct_bookings_lambda), so the fallback reads them from the orders table.
+_FALLBACK_SQL = f"""
     SELECT DISTINCT experience_id, experience_name
-    FROM `headout-analytics.analytics_reporting.fct_bookings`
+    FROM `{BIGQUERY_ORDERS_TABLE}`
     WHERE LOWER(experience_name) LIKE CONCAT('%', @hint, '%')
     LIMIT 100
 """
@@ -301,8 +305,8 @@ async def resolve(venue_hints: list[str] | None) -> list[int] | None:
             if rows is None:
                 try:
                     rows = bq.run_query(_FALLBACK_SQL, params={"hint": hint})
-                    _WORKING_TABLE = "fallback:fct_bookings"
-                    log.info("venue_resolver: using fct_bookings fallback for dim_experiences")
+                    _WORKING_TABLE = "fallback:fct_orders"
+                    log.info("venue_resolver: using fct_orders fallback for dim_experiences")
                 except Exception as e2:
                     log.warning(f"venue_resolver: fallback also failed for '{hint}': {e2}")
                     rows = []

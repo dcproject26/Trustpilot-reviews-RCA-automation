@@ -99,7 +99,7 @@ def test_every_windowed_query_carries_the_interval(bq):
     unbounded = [s for s in bq
                  if "COUNT" in s.upper() or "AVG(" in s.upper()]
     missing = [s for s in unbounded
-               if "INTERVAL" not in s and "experience_date) = " not in s]
+               if "INTERVAL" not in s and "experience_timestamp) = " not in s]
     assert not missing, (
         f"{len(missing)} counting quer(ies) have neither a window nor a "
         f"same-day anchor:\n\n" + "\n\n---\n\n".join(s[:300] for s in missing))

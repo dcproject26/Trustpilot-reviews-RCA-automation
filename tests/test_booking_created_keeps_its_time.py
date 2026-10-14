@@ -35,9 +35,13 @@ def test_the_booking_query_selects_the_timestamp():
 
 def test_the_visit_date_is_still_a_date():
     """The other half. An experience is booked FOR a day — giving it a
-    spurious 00:00 would read as a time somebody recorded."""
+    spurious 00:00 would read as a time somebody recorded.
+
+    The realtime migration renamed experience_date -> experience_timestamp, so
+    the DATE() wrapper now recovers the day from the combined timestamp. The
+    intent is unchanged: the visit date stays a DATE."""
     sql = open("server/services/bigquery_patch.py", encoding="utf-8").read()
-    assert "DATE(b.experience_date) AS date_of_visit" in sql
+    assert "DATE(b.experience_timestamp) AS date_of_visit" in sql
 
 
 # ── the formatter renders it ────────────────────────────────────────────────

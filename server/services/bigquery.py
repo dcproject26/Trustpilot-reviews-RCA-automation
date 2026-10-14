@@ -24,7 +24,7 @@ import re as _re_mod
 from server.config import (
     is_live, GCP_SERVICE_ACCOUNT_JSON,
     BIGQUERY_BOOKINGS_TABLE, BIGQUERY_REVIEWS_TABLE, BIGQUERY_FULFILMENTS_TABLE,
-    BIGQUERY_SUPPORT_TABLE,
+    BIGQUERY_SUPPORT_TABLE, BIGQUERY_ORDERS_TABLE,
 )
 from server.names import looks_like_digest
 from server.services.mock_data import MOCK_BOOKINGS, MOCK_INSIGHTS
@@ -120,20 +120,26 @@ async def find_booking(review: dict) -> dict | None:
         sql = f"""
         SELECT
             b.booking_id,
-            b.experience_name,
-            b.experience_id   AS tgid,
+            o.experience_name,
+            o.experience_id   AS tgid,
             b.tour_id         AS tid,
             b.vendor_id       AS vid,
             v.vendor_name,
-            DATE(b.created_at)       AS booked_on,
-            DATE(b.experience_date)  AS visit_date,
+            DATE(b.created_at)            AS booked_on,
+            DATE(b.experience_timestamp)  AS visit_date,
             b.primary_guest_name     AS guest_name,
             f.fulfilment_type
         FROM `{BIGQUERY_BOOKINGS_TABLE}` b
-        LEFT JOIN `{BIGQUERY_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
+        LEFT JOIN `{BIGQUERY_ORDERS_TABLE}` o ON b.order_id = o.order_id
+        LEFT JOIN (
+          SELECT booking_id, fulfilment_type
+          FROM `{BIGQUERY_FULFILMENTS_TABLE}`
+          QUALIFY ROW_NUMBER() OVER (PARTITION BY booking_id ORDER BY created_at DESC) = 1
+        ) f ON b.booking_id = f.booking_id
         LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
                ON b.vendor_id = v.vendor_id
         WHERE b.booking_id = @ref
+          AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
         LIMIT 1
         """
         rows = _run_query(sql, [_bqlib.ScalarQueryParameter("ref", "INT64", int(ref))])
@@ -149,20 +155,26 @@ async def find_booking(review: dict) -> dict | None:
         sql = f"""
         SELECT
             b.booking_id,
-            b.experience_name,
-            b.experience_id   AS tgid,
+            o.experience_name,
+            o.experience_id   AS tgid,
             b.tour_id         AS tid,
             b.vendor_id       AS vid,
             v.vendor_name,
-            DATE(b.created_at)       AS booked_on,
-            DATE(b.experience_date)  AS visit_date,
+            DATE(b.created_at)            AS booked_on,
+            DATE(b.experience_timestamp)  AS visit_date,
             b.primary_guest_name     AS guest_name,
             f.fulfilment_type
         FROM `{BIGQUERY_BOOKINGS_TABLE}` b
-        LEFT JOIN `{BIGQUERY_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
+        LEFT JOIN `{BIGQUERY_ORDERS_TABLE}` o ON b.order_id = o.order_id
+        LEFT JOIN (
+          SELECT booking_id, fulfilment_type
+          FROM `{BIGQUERY_FULFILMENTS_TABLE}`
+          QUALIFY ROW_NUMBER() OVER (PARTITION BY booking_id ORDER BY created_at DESC) = 1
+        ) f ON b.booking_id = f.booking_id
         LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
                ON b.vendor_id = v.vendor_id
         WHERE LOWER(b.primary_guest_name) LIKE LOWER(CONCAT('%', @name, '%'))
+          AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
         ORDER BY b.created_at DESC
         LIMIT 5
         """
@@ -414,7 +426,7 @@ def support_search_sql(indicators: dict, tgids: list | None = None,
         # already turned whatever the guest called the place into real ids, and
         # guests name product types - "musical ticket", "skip-the-line entry" -
         # which match no experience_name at all.
-        where.append("CAST(b.experience_id AS STRING) IN UNNEST(@tgids)")
+        where.append("CAST(o.experience_id AS STRING) IN UNNEST(@tgids)")
         params.append(_P.ArrayQueryParameter("tgids", "STRING", tgids))
     if dates:
         # A date the review named may be the visit date OR the date the guest
@@ -430,20 +442,22 @@ def support_search_sql(indicators: dict, tgids: list | None = None,
         # support contact, none surviving a date filter pinned to a guessed
         # year. Day and month must agree; the year may be off by one.
         where.append(f"""(
-            {_day_month_match("b.experience_date")}
+            {_day_month_match("b.experience_timestamp")}
             OR {_day_month_match("b.created_at")}
         )""")
         params.append(_P.ArrayQueryParameter("dates", "STRING", dates))
+    # Realtime migration: drop Dummy/Uncaptured bookings the new table now carries.
+    where.append("b.booking_status NOT IN ('Dummy', 'Uncaptured')")
     sql = f"""
     SELECT
         b.booking_id,
-        b.experience_name,
-        b.experience_id          AS tgid,
+        o.experience_name,
+        o.experience_id          AS tgid,
         b.tour_id                AS tid,
         b.vendor_id              AS vid,
         v.vendor_name,
-        DATE(b.created_at)       AS booked_on,
-        DATE(b.experience_date)  AS visit_date,
+        DATE(b.created_at)            AS booked_on,
+        DATE(b.experience_timestamp)  AS visit_date,
         b.primary_guest_name     AS guest_name,
         COUNT(sq.query_id)       AS contact_count,
         STRING_AGG(DISTINCT COALESCE(sq.query_tag, sq.query_type,
@@ -453,6 +467,8 @@ def support_search_sql(indicators: dict, tgids: list | None = None,
     FROM `{BIGQUERY_SUPPORT_TABLE}` sq
     JOIN `{BIGQUERY_BOOKINGS_TABLE}` b
       ON SAFE_CAST(sq.booking_id AS INT64) = b.booking_id
+    LEFT JOIN `{BIGQUERY_ORDERS_TABLE}` o
+           ON b.order_id = o.order_id
     LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
            ON b.vendor_id = v.vendor_id
     WHERE {" AND ".join(where)}
@@ -639,7 +655,14 @@ def _get_booking_extra(bid: str) -> dict:
                FROM UNNEST(v.contact_details) c)         AS contact_types,
             ARRAY_LENGTH(v.contact_details)              AS contact_count
         FROM `{BIGQUERY_BOOKINGS_TABLE}` b
-        LEFT JOIN `{BIGQUERY_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
+        -- fct_fulfilments_lambda is per-fulfilment grain now; collapse to the
+        -- latest attempt per booking so is_partnered and the fulfilling vendor
+        -- (vendor_id) resolve to one deterministic row, not a fan-out.
+        LEFT JOIN (
+          SELECT booking_id, is_partnered, vendor_id
+          FROM `{BIGQUERY_FULFILMENTS_TABLE}`
+          QUALIFY ROW_NUMBER() OVER (PARTITION BY booking_id ORDER BY created_at DESC) = 1
+        ) f ON b.booking_id = f.booking_id
         LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
                ON v.vendor_id = f.vendor_id
         WHERE b.booking_id = @bid
