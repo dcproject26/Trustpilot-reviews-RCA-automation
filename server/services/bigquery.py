@@ -640,17 +640,27 @@ def _get_booking_extra(bid: str) -> dict:
             b.booking_status,
             b.tour_name,
             f.is_partnered,
-            (SELECT AS STRUCT c.email, c.type, c.name
-               FROM UNNEST(v.contact_details) c
-              WHERE REGEXP_CONTAINS(LOWER(IFNULL(c.type, '')),
-                                    r'{_ESCALATION_TYPE_RE}')
+            -- THREE SCALAR subqueries, not one `AS STRUCT`. The REST query shim
+            -- (bq_connector._convert) only deserializes scalars — a nested
+            -- RECORD came back as the raw BigQuery wire shape {{"f":[...]}}, so
+            -- `.get("email")` on it was always None and the escalation email
+            -- read blank in production (the deployment uses that shim). Scalar
+            -- columns deserialize correctly on both the shim and the real
+            -- client. All three share the same WHERE + ORDER BY, so they pick
+            -- the SAME contact (a vendor can list more than one ESCALATIONS
+            -- contact; ordering by address keeps the choice stable between runs).
+            (SELECT c.email FROM UNNEST(v.contact_details) c
+              WHERE REGEXP_CONTAINS(LOWER(IFNULL(c.type, '')), r'{_ESCALATION_TYPE_RE}')
                 AND IFNULL(c.email, '') != ''
-              -- A vendor can list more than one ESCALATIONS contact. Order
-              -- by address so the same booking always shows the same one -
-              -- a value that changes between runs with no cause is worse
-              -- than either candidate.
-              ORDER BY c.email
-              LIMIT 1)                                   AS escalation,
+              ORDER BY c.email LIMIT 1)                   AS escalation_email,
+            (SELECT c.type FROM UNNEST(v.contact_details) c
+              WHERE REGEXP_CONTAINS(LOWER(IFNULL(c.type, '')), r'{_ESCALATION_TYPE_RE}')
+                AND IFNULL(c.email, '') != ''
+              ORDER BY c.email LIMIT 1)                   AS escalation_type,
+            (SELECT c.name FROM UNNEST(v.contact_details) c
+              WHERE REGEXP_CONTAINS(LOWER(IFNULL(c.type, '')), r'{_ESCALATION_TYPE_RE}')
+                AND IFNULL(c.email, '') != ''
+              ORDER BY c.email LIMIT 1)                   AS escalation_name,
             (SELECT STRING_AGG(DISTINCT IFNULL(c.type, '(untyped)'), ', ')
                FROM UNNEST(v.contact_details) c)         AS contact_types,
             ARRAY_LENGTH(v.contact_details)              AS contact_count
@@ -685,14 +695,13 @@ def _get_booking_extra(bid: str) -> dict:
             # has no contacts on file", which is a claim about the vendor
             # rather than an admission that we did not find the vendor.
             _n_contacts = getattr(rows[0], "contact_count", None)
-            _esc = getattr(rows[0], "escalation", None)
             return {
                 "booking_status":   getattr(rows[0], "booking_status", None) or "",
                 "tid_name":         getattr(rows[0], "tour_name",      None) or "",
                 "isPartnered":      None if _partnered is None else bool(_partnered),
-                "escalationEmail":  (_esc or {}).get("email") or "",
-                "escalationType":   (_esc or {}).get("type") or "",
-                "escalationName":   (_esc or {}).get("name") or "",
+                "escalationEmail":  getattr(rows[0], "escalation_email", None) or "",
+                "escalationType":   getattr(rows[0], "escalation_type",  None) or "",
+                "escalationName":   getattr(rows[0], "escalation_name",  None) or "",
                 "contactTypes":     getattr(rows[0], "contact_types", None) or "",
                 "contactCount":     None if _n_contacts is None else int(_n_contacts),
                 **_get_booking_amount(bid_int),
