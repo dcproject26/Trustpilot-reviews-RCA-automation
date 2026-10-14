@@ -15,7 +15,6 @@ one small change at the return step.
 import logging
 from server.config import (
     is_live, BIGQUERY_BOOKINGS_TABLE, BIGQUERY_REVIEWS_TABLE, BIGQUERY_SUPPORT_TABLE,
-    BIGQUERY_FULFILMENTS_TABLE, BIGQUERY_ORDERS_TABLE,
     BMS_URL_PATTERN, TGID_URL_PATTERN,
 )
 from server.taxonomy import SIMILAR_MATCH_RULE
@@ -127,12 +126,13 @@ def _get_client():
 # NEW: verify_bid — Tier 1 BID lookup, returns a booking dict or None
 # ─────────────────────────────────────────────────────────────────────────
 
-# Realtime `*_lambda` migration (docs/bigquery-lambda-migration-plan.md):
-#   • experience_date  -> experience_timestamp (combined date+time; DATE() recovers the day)
-#   • experience_id / experience_name moved off bookings onto fct_orders_lambda,
-#     joined on order_id
-#   • fct_fulfilments_lambda is per-fulfilment grain now, so the join is collapsed
-#     to the latest attempt per booking
+# Realtime `*_lambda` migration (verified against the live fct_bookings_lambda
+# schema, not the migration guide's examples — which were wrong about what moved):
+#   • experience_id / experience_name / vendor_id / vendor_name / is_partnered /
+#     fulfilment type / fulfilment_status all live ON fct_bookings_lambda — no
+#     orders join and no fulfilments join are needed; read them straight off b.
+#   • experience_date -> experience_timestamp (combined date+time; DATE() recovers the day)
+#   • fulfilment_type -> final_fulfilment_type (the realized fulfilment method)
 #   • booking_status is SELECTed (not SQL-filtered) so verify_bid can tell a
 #     Dummy/Uncaptured booking apart from a genuinely absent one (rule 1).
 _VERIFY_BID_SQL = f"""
@@ -146,23 +146,14 @@ SELECT
   b.created_at            AS date_of_booking,
   DATE(b.experience_timestamp) AS date_of_visit,
   b.tour_id               AS tid,
-  o.experience_id         AS tgid,
-  o.experience_name,
+  b.experience_id         AS tgid,
+  b.experience_name,
   b.vendor_id,
-  v.vendor_name,
-  f.fulfilment_type,
+  b.vendor_name,
+  b.final_fulfilment_type AS fulfilment_type,
   b.primary_guest_name,
   b.booking_status
 FROM `{BIGQUERY_BOOKINGS_TABLE}` b
-LEFT JOIN `{BIGQUERY_ORDERS_TABLE}` o
-  ON b.order_id = o.order_id
-LEFT JOIN (
-  SELECT booking_id, fulfilment_type
-  FROM `{BIGQUERY_FULFILMENTS_TABLE}`
-  QUALIFY ROW_NUMBER() OVER (PARTITION BY booking_id ORDER BY created_at DESC) = 1
-) f ON b.booking_id = f.booking_id
-LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
-  ON b.vendor_id = v.vendor_id
 WHERE b.booking_id = @bid
 LIMIT 1
 """
@@ -217,17 +208,13 @@ SELECT
   b.booking_id,
   b.primary_guest_name,
   DATE(b.experience_timestamp) AS date_of_visit,
-  o.experience_name,
+  b.experience_name,
   b.tour_id               AS tid,
-  o.experience_id         AS tgid,
+  b.experience_id         AS tgid,
   b.vendor_id,
-  v.vendor_name
+  b.vendor_name
 FROM `{BIGQUERY_BOOKINGS_TABLE}` b
-LEFT JOIN `{BIGQUERY_ORDERS_TABLE}` o
-  ON b.order_id = o.order_id
-LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
-  ON b.vendor_id = v.vendor_id
-WHERE o.experience_id IN UNNEST(@tgid_list)
+WHERE b.experience_id IN UNNEST(@tgid_list)
   AND DATE(b.experience_timestamp) BETWEEN
       DATE_SUB(@review_pub_date, INTERVAL @date_window DAY) AND @review_pub_date
   AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
@@ -247,16 +234,12 @@ SELECT
   b.booking_id,
   b.primary_guest_name,
   DATE(b.experience_timestamp) AS date_of_visit,
-  o.experience_name,
+  b.experience_name,
   b.tour_id               AS tid,
-  o.experience_id         AS tgid,
+  b.experience_id         AS tgid,
   b.vendor_id,
-  v.vendor_name
+  b.vendor_name
 FROM `{BIGQUERY_BOOKINGS_TABLE}` b
-LEFT JOIN `{BIGQUERY_ORDERS_TABLE}` o
-  ON b.order_id = o.order_id
-LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
-  ON b.vendor_id = v.vendor_id
 WHERE DATE(b.experience_timestamp) BETWEEN
       DATE_SUB(@review_pub_date, INTERVAL @date_window DAY) AND @review_pub_date
   AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
