@@ -214,7 +214,7 @@ SELECT
   b.vendor_id,
   b.vendor_name
 FROM `{BIGQUERY_BOOKINGS_TABLE}` b
-WHERE b.experience_id IN UNNEST(@tgid_list)
+WHERE CAST(b.experience_id AS STRING) IN UNNEST(@tgid_list)
   AND DATE(b.experience_timestamp) BETWEEN
       DATE_SUB(@review_pub_date, INTERVAL @date_window DAY) AND @review_pub_date
   AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
@@ -275,7 +275,10 @@ def run_narrowing_query(
     }
 
     if tgid_list:
-        params["tgid_list"] = ("INT64", tgid_list)
+        # experience_id is compared as STRING (CAST in the SQL) so the match is
+        # type-safe whatever fct_bookings_lambda stores it as — mirrors the
+        # working find_via_support. Pass the tgids as strings to match.
+        params["tgid_list"] = ("STRING", [str(t) for t in tgid_list])
         sql = _NARROWING_SQL_WITH_TGIDS
         # Null-name guard: if both are empty strings, force NULL semantics via SQL
         # (LIKE '%empty%' would still match — use a sentinel approach: pass as empty

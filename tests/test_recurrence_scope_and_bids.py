@@ -108,7 +108,7 @@ def test_no_tgid_scoped_recurrence_query_runs():
     """
     _, calls = _drive()
     recurrence_like = [c for c in calls
-                       if "experience_id = @tgid" in c
+                       if "experience_id AS STRING) = @tgid" in c
                        and "avg_rating" not in c
                        and "fulfilment_status" not in c]
     assert not recurrence_like, (
