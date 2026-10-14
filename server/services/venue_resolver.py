@@ -11,7 +11,8 @@ log = logging.getLogger(__name__)
 
 _TABLES = [
     "headout-analytics.analytics_reporting.dim_experiences",
-    "headout-analytics.shivam_reporting.dim_experiences",
+    # (removed shivam_reporting.dim_experiences — that dev dataset 404s and never
+    #  resolved; the primary above works, with the fct_orders_lambda fallback below.)
 ]
 # Fallback when dim_experiences is unreachable. `experience_id` / `experience_name`
 # live on fct_orders_lambda after the realtime migration (they were dropped from
