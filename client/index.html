@@ -3448,11 +3448,12 @@ const state = {
   // default and one tab away. Must agree with the tab marked `active` in the
   // markup, which is now Needs action.
   filter: 'needs',
-  // How the queue is ordered. 'priority' = worst-and-oldest first (1★ and the
-  // longest-waiting float up), the SLA-correct default; the reader can change
-  // it from the Sort control, and the choice is remembered per browser.
-  sort: (() => { try { return localStorage.getItem('ibx-sort') || 'priority'; }
-                 catch (e) { return 'priority'; } })(),
+  // How the queue is ordered. Default 'newest' — most recent reviews first, the
+  // natural reading order for the queue. The reader can switch to 'priority'
+  // (1★ and longest-waiting first), 'oldest' or 'stars' from the Sort control,
+  // and the choice is remembered per browser.
+  sort: (() => { try { return localStorage.getItem('ibx-sort') || 'newest'; }
+                 catch (e) { return 'newest'; } })(),
   // WHAT THE + FILTER BUTTON HAS SET, on top of the tab.
   // Filters STACK with the tab. Presets rewrite the concrete fields when set
   // — "today" fills a date range, "pending" implies status ≠ sent — because
