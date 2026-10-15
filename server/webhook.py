@@ -75,7 +75,18 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
     # event.channel, so the ORM-channel check happens inside the handler.
     if event.get("type") in ("reaction_added", "reaction_removed"):
         item = event.get("item") or {}
+        # Logged on arrival so the deployment logs can CONFIRM Slack is actually
+        # delivering reaction events (the usual reason :wip: sync "does nothing"
+        # is that the Slack app has no reactions:read scope / no reaction_added
+        # event subscription, so nothing ever reaches here).
+        log.info(f"[webhook] reaction {event.get('reaction')!r} "
+                 f"({event.get('type')}) ch={item.get('channel')} "
+                 f"ts={item.get('ts')} by={event.get('user')}")
         if ORM_CHANNELS and item.get("channel") not in ORM_CHANNELS:
+            # Not a silent drop: a reaction in the wrong channel (or a
+            # mis-set SLACK_CHANNEL_ORM) is said out loud (CLAUDE.md rule 1).
+            log.info(f"[webhook] reaction ignored — channel {item.get('channel')} "
+                     f"not in ORM_CHANNELS {ORM_CHANNELS}")
             return {"ok": True}
         from server.services.assignment import handle_reaction_event
         db = _db.SessionLocal()
