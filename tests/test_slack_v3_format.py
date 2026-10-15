@@ -312,8 +312,10 @@ def test_a_summarised_contact_is_one_entry_not_a_transcript():
     d = _v4draft(support_interaction_frames=FRAMES,
                  rca_v3={"support_interaction_notes": NOTES})
     out = format_rca_slack(REVIEW, d)
-    assert "• 01. 22 Jul 15:41 · chat — Guest chased the voucher. (ZD-4491)" in out
-    assert "⚠ CE miss: No proactive update after the first failure." in out
+    assert "• 01. 22 Jul 15:41 · chat" in out          # head: number · time · channel
+    assert "Guest chased the voucher." in out           # the account, below the head
+    assert "(ZD-4491)" not in out, "the Zendesk ref is no longer shown"
+    assert "CE miss" not in out, "the CE-miss flag is no longer shown in this section"
     assert "Where are my tickets? | we: Resent them." not in out, (
         "the contact's individual messages were re-listed under its summary")
 
@@ -325,7 +327,7 @@ def test_several_events_on_one_ticket_are_one_contact():
     out = format_rca_slack(REVIEW, _v4draft(support_interaction_frames=frames))
     assert out.count("• 01.") == 1
     assert "• 02." not in out
-    assert "[3 events]" in out
+    assert "events]" not in out, "the event count is no longer shown"
     for i in range(3):
         assert f"msg {i}" in out, "an event was swallowed by the grouping"
 
@@ -369,7 +371,8 @@ def test_a_contact_zendesk_does_not_have_still_renders_marked_unverified():
                      {"zd_ref": None, "channel": "call", "time": "22 Jul 14:10",
                       "summary": "Guest says they phoned and got no answer."}]})
     out = format_rca_slack(REVIEW, d)
-    assert "Guest says they phoned and got no answer. (guest's account, unverified)" in out
+    assert "Guest says they phoned and got no answer." in out
+    assert "(unverified)" in out, "an off-Zendesk contact must be marked unverified"
 
 
 def test_a_joined_note_is_not_also_rendered_as_an_orphan():
@@ -382,7 +385,9 @@ def test_a_joined_note_is_not_also_rendered_as_an_orphan():
 
 def test_the_frame_summary_fills_in_when_the_model_has_no_note():
     out = format_rca_slack(REVIEW, _v4draft(support_interaction_frames=FRAMES))
-    assert "• 01. 22 Jul 15:41 · chat — Where are my tickets? (ZD-4491)" in out
+    assert "• 01. 22 Jul 15:41 · chat" in out        # head
+    assert "Where are my tickets?" in out             # the raw guest words as the account
+    assert "(ZD-4491)" not in out, "the Zendesk ref is no longer shown"
 
 
 def test_a_note_whose_reference_matched_nothing_says_so():
@@ -393,7 +398,9 @@ def test_a_note_whose_reference_matched_nothing_says_so():
                  rca_v3={"support_interaction_notes": [
                      {"zd_ref": "ZD-9999", "summary": "A contact on no known ticket."}]})
     out = format_rca_slack(REVIEW, d)
-    assert "A contact on no known ticket. (ZD-9999) (unmatched ZD reference)" in out
+    assert "A contact on no known ticket." in out
+    assert "(unmatched ZD reference)" in out, (
+        "a failed join must read differently from an off-Zendesk contact")
 
 
 def test_sp_rows_are_frames_and_raised_comes_from_the_notes():

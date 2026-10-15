@@ -80,7 +80,9 @@ def _section(db, rid):
 
 def test_only_the_guest_contact_is_in_the_section(live_db):
     body = _section(live_db, _seed(live_db))
-    assert "01." in body and "ZD-34335318" in body, body
+    # The Zendesk ref is no longer printed in the section; key on the contact's
+    # own content instead to confirm the one guest contact rendered.
+    assert "01." in body and "revert to 08:30" in body, body
     assert "02." not in body, f"a second contact was composed: {body}"
 
 

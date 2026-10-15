@@ -16,7 +16,7 @@ import re
 
 import pytest
 
-from server.services.slack import _head_summary, contacts_section, format_rca_slack
+from server.services.slack import contacts_section, format_rca_slack
 from server.taxonomy import GAP_TAXONOMY
 from tests.test_slack_v3_format import REVIEW, V3, _draft
 
@@ -37,49 +37,24 @@ def _sec(notes):
     return contacts_section(_D(FR), {"support_interaction_notes": notes}, "\n")
 
 
-# ── 1. the head does not repeat the detail ──────────────────────────────────
+# ── 1. the interaction renders as head + account (no head-summary dedup) ─────
 
-def test_a_long_summary_is_cut_to_one_sentence_when_a_detail_follows():
-    """THE POINT. The head printed the whole summary and the detail printed the
-    whole account of the same exchange, so a long contact rendered the same
-    paragraph twice."""
+def test_the_head_is_number_time_channel_and_the_account_follows():
+    """The head is the scannable line (number · time · channel); the account —
+    the model's detail, or its summary when there is no detail — sits on the
+    next line. No Zendesk ref, no ⚠ flags."""
     out = _sec([{"zd_ref": "ZD-4491", "summary": LONG,
                  "detail": "Taylor never checked the reserved timeslot."}])
     head = out.split("\n")[0]
-    assert "Guest emailed requesting reschedule of both bookings due to illness." in head
-    assert "Taylor collected booking IDs" not in head, "the head kept the whole summary"
+    assert head.startswith("• 01.")
+    assert "ZD-4491" not in head, "the Zendesk ref is no longer shown"
     assert "Taylor never checked the reserved timeslot." in out
 
 
-def test_a_detail_that_restates_the_summary_wins_and_the_head_drops_it():
-    """A model that opens its detail by repeating its summary is common. Then
-    the head's copy is pure repetition and the detail is the better version."""
-    s = "Guest asked to move both bookings."
-    out = _sec([{"zd_ref": "ZD-4491", "summary": s,
-                 "detail": s + " Taylor replied without checking the slot."}])
-    head = out.split("\n")[0]
-    assert s not in head
-    assert head.rstrip().endswith("(ZD-4491)"), head
-
-
-def test_a_contact_with_no_detail_keeps_its_whole_summary():
-    """Nothing under it carries the rest, so trimming would lose the only
-    telling. The opposite failure to the one above, and just as bad."""
+def test_a_contact_with_no_detail_shows_its_whole_summary_as_the_account():
+    """With no detail, the summary is the account — nothing is trimmed."""
     out = _sec([{"zd_ref": "ZD-4491", "summary": LONG}])
     assert "Guest later reported he was also ill" in out
-
-
-def test_the_trim_is_never_a_mid_word_cut():
-    out = _sec([{"zd_ref": "ZD-4491", "summary": "x" + " word" * 60,
-                 "detail": "d"}])
-    head = out.split("\n")[0]
-    assert "…" in head and not re.search(r"\bwor…", head)
-
-
-def test_head_summary_is_driveable_on_its_own():
-    assert _head_summary("", "d") == ""
-    assert _head_summary("Short one.", "") == "Short one."
-    assert _head_summary("First. Second.", "detail") == "First."
 
 
 # ── 2. no Minded AI gaps ────────────────────────────────────────────────────
