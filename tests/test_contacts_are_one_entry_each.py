@@ -72,22 +72,26 @@ def test_several_chats_are_numbered_chronologically():
 
 def test_the_detail_is_the_account_of_the_whole_exchange():
     """`detail` is written about the contact, not about one message — it is
-    what replaces the per-message list. It renders as one bullet per line/
-    sentence (rule 10b), so a legacy newline-separated detail becomes bullets."""
+    what replaces the per-message list. It now renders as ONE flowing account
+    (prose), not bullets, so a legacy newline-separated detail becomes a
+    paragraph rather than bullet lines."""
     out = _sec([dict(CHAT, time="10 Aug 13:21", guestSaid="hi")],
                [{"zd_ref": "ZD-4491", "summary": "s",
                  "detail": "line one\nline two"}])
-    assert "• line one" in out and "• line two" in out
+    assert "line one" in out and "line two" in out
+    assert "• line one" not in out, "detail renders as prose now, not bullets"
 
 
-def test_the_detail_array_renders_one_bullet_per_item():
-    """The new shape: `detail` is a list of single sentences, each a bullet."""
+def test_the_detail_array_renders_as_one_flowing_account():
+    """`detail` is a list of single sentences; they are joined into one prose
+    account for the contact, not printed as a bullet list."""
     out = _sec([dict(CHAT, time="10 Aug 13:21", guestSaid="hi")],
                [{"zd_ref": "ZD-4491", "summary": "s",
                  "detail": ["Guest asked where the tickets were.",
                             "Skylar resent the voucher link."]}])
-    assert "• Guest asked where the tickets were." in out
-    assert "• Skylar resent the voucher link." in out
+    assert "Guest asked where the tickets were." in out
+    assert "Skylar resent the voucher link." in out
+    assert "• Guest asked" not in out, "the account is prose, not bullets"
 
 
 def test_a_contact_detail_array_survives_validation():
@@ -106,65 +110,52 @@ def test_a_contact_detail_array_survives_validation():
                                   "Skylar declined on policy."]
 
 
-def test_a_legacy_paragraph_detail_is_split_into_sentence_bullets():
-    """A string written when detail was a paragraph splits into one bullet per
-    sentence, without cutting a decimal or a time mid-sentence."""
+def test_a_legacy_paragraph_detail_renders_as_prose():
+    """A string written when detail was a paragraph renders as the account
+    (prose), keeping its sentences intact — no bullets, nothing cut."""
     out = _sec([dict(CHAT, time="10 Aug 13:21", guestSaid="hi")],
                [{"zd_ref": "ZD-4491", "summary": "s",
                  "detail": "Guest called at 13:56 about the delay. Skylar "
                            "offered 25% credit."}])
-    assert "• Guest called at 13:56 about the delay." in out
-    assert "• Skylar offered 25% credit." in out
+    assert "Guest called at 13:56 about the delay." in out
+    assert "Skylar offered 25% credit." in out
+    assert "•" not in out.split("chat", 1)[-1], "no bullets in the account"
 
 
-# ── the failures a contact carries ──────────────────────────────────────────
+# ── the ⚠ flags are NO LONGER shown in this section ─────────────────────────
+# By request, the Customer / CE interactions section is a readable record of
+# each exchange, not a judgement sheet: the per-frame gap labels and the
+# per-contact CE-miss line are dropped from this block (they still inform the
+# rest of the RCA). The section is the account, nothing more.
 
-def test_one_gap_on_four_messages_is_reported_once():
-    """A gap is recorded per FRAME but the reader is being told about a
-    CONTACT. Repeating the same label four times describes how chatty the
-    exchange was, not how it failed."""
+def test_gap_flags_are_not_shown_in_this_section():
     frames = [dict(CHAT, time=f"10 Aug 13:2{i}", guestSaid=f"m{i}",
                    gap="Wrong policy applied") for i in range(4)]
     out = _sec(frames, [{"zd_ref": "ZD-4491", "summary": "s", "detail": "d"}])
-    assert out.count("Wrong policy applied") == 1
+    assert "Wrong policy applied" not in out
+    assert "⚠" not in out, "no ⚠ flags in the interactions record"
 
 
-def test_two_different_gaps_are_both_kept():
-    """Deduping must not become swallowing — distinct failures are distinct."""
-    frames = [dict(CHAT, time="10 Aug 13:21", guestSaid="a",
-                   gap="Wrong policy applied"),
-              dict(CHAT, time="10 Aug 13:22", guestSaid="b",
-                   gap="CE escalation missing")]
-    out = _sec(frames, [{"zd_ref": "ZD-4491", "summary": "s", "detail": "d"}])
-    assert "Wrong policy applied" in out and "CE escalation missing" in out
-
-
-def test_the_ce_miss_is_on_the_contact():
+def test_the_ce_miss_flag_is_not_shown_in_this_section():
     out = _sec([dict(CHAT, time="10 Aug 13:21", guestSaid="hi")],
                [{"zd_ref": "ZD-4491", "summary": "s", "detail": "d",
                  "ce_miss": "No escalation raised."}])
-    assert "⚠ CE miss: No escalation raised." in out
+    assert "CE miss" not in out
+    assert "No escalation raised." not in out
 
 
 # ── an unsummarised contact must not look like a summarised one ─────────────
 
-def test_a_contact_with_no_note_says_so_before_falling_back():
-    """CLAUDE.md rule 1. A contact the model never summarised and one it
-    summarised in a line must not render identically — that is a failed zd_ref
-    join reading as a terse model."""
+def test_a_contact_with_no_note_falls_back_to_its_raw_account():
+    """A contact the model never summarised still renders — its raw guest words
+    become the account, so nothing is swallowed by the grouping. (It is no longer
+    prefixed with a 'no summary generated' banner; the account itself is shown.)"""
     frames = [dict(CHAT, time=f"10 Aug 13:2{i}", guestSaid=f"m{i}")
               for i in range(3)]
     out = _sec(frames)                      # no notes at all
-    assert "no summary generated for this contact" in out
-    assert "3 raw events" in out
+    assert out.count("• 01.") == 1 and "• 02." not in out
     for i in range(3):
         assert f"m{i}" in out, "an event was swallowed by the grouping"
-
-
-def test_the_fallback_is_not_used_when_a_note_exists():
-    out = _sec([dict(CHAT, time="10 Aug 13:21", guestSaid="hi")],
-               [{"zd_ref": "ZD-4491", "summary": "s", "detail": "d"}])
-    assert "no summary generated" not in out
 
 
 def test_machinery_is_still_filtered_out():

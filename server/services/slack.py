@@ -1356,91 +1356,31 @@ def _booking_details_lines(draft, nl: str) -> str:
     return nl.join(rows)
 
 
-def _head_summary(summary: str, detail: str, limit: int = 130) -> str:
-    """The head line's summary, trimmed to one sentence when a detail follows.
+def _contact_account(group, note) -> str:
+    """One flowing paragraph for a contact: what the guest raised, what we did,
+    what they said back, the outcome — the account of the exchange, read as prose.
 
-    THE DUPLICATION THIS REMOVES. The head printed the model's whole `summary`
-    and the detail printed its whole account of the same exchange, so a long
-    contact rendered the same paragraph twice, once wrapped across the head row
-    and once beneath it. The head is meant to be the scannable line — who, when,
-    what about — and the detail is the account; giving both the full text made
-    the section twice as long and no more informative.
-
-    A contact with NO detail keeps its full summary: there is nothing under it
-    to carry the rest, and trimming there would lose the only telling.
-    """
-    s = (summary or "").strip()
-    d = " ".join(_detail_sentences(detail)).strip()
-    if not s or not d:
+    Built from the model's `detail` (already written as the ordered account) and
+    joined into a paragraph; falls back to `summary`, then to the raw guest words
+    when no note joined. Deliberately carries NO Zendesk ref, NO event count and
+    NO ⚠ flags (gaps / CE miss): this section is a readable record of each
+    interaction, not a provenance dump or a judgement sheet."""
+    detail = " ".join(_detail_sentences((note or {}).get("detail"))).strip()
+    if detail:
+        return detail
+    s = ((note or {}).get("summary") or "").strip()
+    if s:
         return s
-    first = re.split(r"(?<=[.!?])\s+", s)[0].strip()
-    # The detail opens by restating the summary — a common model habit. Then
-    # the head's copy is pure repetition and the detail is the better version.
-    if d[:60].lower().startswith(first[:60].lower()):
-        return ""
-    if len(first) <= limit:
-        return first
-    return first[:limit].rsplit(" ", 1)[0].rstrip(" ,;:") + "…"
-
-
-def _contact_gaps(group) -> list:
-    """The distinct gap labels across a contact's frames, in order.
-
-    A gap is recorded per FRAME ("Wrong policy applied" on the message where it
-    happened) but the reader is being told about a CONTACT, so the same label on
-    four messages is one fact, not four. Deduped rather than counted: the count
-    of messages carrying a label says more about how chatty the exchange was
-    than about the failure.
-    """
-    out = []
-    for fr in group:
-        g = (fr.get("gap") or "").strip()
-        if g and g not in out:
-            out.append(g)
-    return out
-
-
-def _contact_body(group, note, nl) -> list:
-    """The lines under a contact's head: the account of it, then its failures.
-
-    ONE ENTRY PER CONTACT, NOT PER MESSAGE. This used to render the head and
-    then every frame in the group beneath it, so a nine-message chat became ten
-    lines saying the same thing at nine timestamps, and the post read as a
-    transcript rather than as a record of what happened. The model's `detail` is
-    written about the whole exchange — it quotes the guest and the agent — which
-    is what a reader of this section needs.
-
-    A contact WITH NO NOTE says so and then falls back to its frames. That is
-    the honest version: a summarised contact and an unsummarised one must not
-    look identical, or a failed zd_ref join reads as a terse model.
-    """
-    lines = []
-    sentences = _detail_sentences((note or {}).get("detail"))
-    if sentences:
-        for s in sentences:
-            lines.append(f"   • {s}")
-    elif note is None:
-        # No model note joined to this contact. Say it, then give the raw
-        # messages — unlabelled, they would look like a chosen summary.
-        n_ev = len(group)
-        lines.append(f"   (no summary generated for this contact \u2014 "
-                     f"{n_ev} raw event{'s' if n_ev != 1 else ''} below)")
-        for fr in group:
-            said = _zd.guest_words(fr)
-            did  = (fr.get("weDid") or "").strip()
-            if not said and not did:
-                continue
-            ev = f"   - {fr.get('time') or '?'}"
-            if said:
-                ev += f" \u2014 {said}"
-            if did:
-                ev += f" | we: {did}"
-            lines.append(ev)
-    for gap in _contact_gaps(group):
-        lines.append(f"   \u26a0 {gap}")
-    if note and (note.get("ce_miss") or "").strip():
-        lines.append(f"   \u26a0 CE miss: {note['ce_miss'].strip()}")
-    return lines
+    parts = []
+    for fr in (group or []):
+        said = (_zd.guest_words(fr) or "").strip()
+        did = (fr.get("weDid") or "").strip()
+        seg = said
+        if did:
+            seg = (seg + " We: " + did).strip() if seg else "We: " + did
+        if seg:
+            parts.append(seg)
+    return " ".join(parts)
 
 
 def contacts_section(draft, v3, nl) -> str:
@@ -1482,6 +1422,10 @@ def contacts_section(draft, v3, nl) -> str:
                 == _no_contact.rstrip(".").lower()):
             return _no_contact
 
+    # ONE ENTRY PER CONTACT: a head (number \u00b7 time \u00b7 channel) and, on the next
+    # line, the account of the exchange as flowing prose. No Zendesk ref, no
+    # event count, no \u26a0 gap/CE-miss flags \u2014 those made the section a judgement
+    # sheet; the reader wants a scannable record of what each interaction was.
     rows, used = [], set()
     n = 0
     for n, (key, group) in enumerate(_contacts(_convo), 1):
@@ -1490,27 +1434,16 @@ def contacts_section(draft, v3, nl) -> str:
             used.add(key)
         first = group[0]
         ch = (first.get("thread") or "").strip()
-        # The contact's own line: what this exchange was, in one line. The
-        # model's summary is about the contact; a frame's guestSaid is about
-        # one message, so it is the fallback rather than the other way round.
-        summary = ((note or {}).get("summary") or _zd.guest_words(first)).strip()
-        summary = _head_summary(summary, (note or {}).get("detail") or "")
         head = f"\u2022 {n:02d}. {first.get('time') or '?'}"
         if ch:
             head += f" \u00b7 {ch}"
-        if summary:
-            head += f" \u2014 {summary}"
-        if key:
-            head += f" (ZD-{key})"
-        if len(group) > 1:
-            head += f" [{len(group)} events]"
         rows.append(head)
-        rows.extend(_contact_body(group, note, nl))
-    # A contact the model reports and Zendesk has no frame for still renders,
-    # marked unverified. Either the guest reached us off Zendesk or the model
-    # invented a contact; both are worth seeing, neither worth hiding. A note
-    # carrying a zd_ref that matched nothing is the more serious of the two -
-    # that is a failed join, and the pipeline records it in the trail.
+        account = _contact_account(group, note)
+        if account:
+            rows.append(f"   {account}")
+    # A contact the model reports that Zendesk has no frame for still renders,
+    # marked "(unverified)": either the guest reached us off Zendesk or the model
+    # invented a contact \u2014 both worth seeing. The ZD ref itself is not shown.
     for note in (si_notes if isinstance(si_notes, list) else []):
         if not isinstance(note, dict):
             continue
@@ -1519,18 +1452,17 @@ def contacts_section(draft, v3, nl) -> str:
             continue
         n += 1
         ch = note.get("channel") or ""
-        why = "unmatched ZD reference" if nkey else "guest's account, unverified"
         head = f"\u2022 {n:02d}. {note.get('time') or '?'}"
         if ch:
             head += f" \u00b7 {ch}"
-        head += f" \u2014 {note.get('summary') or ''}"
-        if nkey:
-            head += f" (ZD-{nkey})"
-        rows.append(head + f" ({why})")
-        for s in _detail_sentences(note.get("detail")):
-            rows.append(f"   \u2022 {s}")
-        if note.get("ce_miss"):
-            rows.append(f"   \u26a0 CE miss: {note['ce_miss']}")
+        # A note carrying a zd_ref that matched NO frame is a failed join, not an
+        # off-Zendesk contact \u2014 the two must read differently (rule 1). The raw
+        # ZD key is not shown (it is in the trail); only the distinguishing marker.
+        head += " (unmatched ZD reference)" if nkey else " (unverified)"
+        rows.append(head)
+        account = _contact_account([], note)
+        if account:
+            rows.append(f"   {account}")
     if rows:
         return nl.join(rows)
     return "No guest contact found on this booking"
