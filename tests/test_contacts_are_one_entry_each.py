@@ -343,32 +343,29 @@ _NOTE = {"zd_ref": "ZD-4491", "summary": "Guest chased the voucher.",
          "ce_miss": "No escalation raised."}
 
 
-def test_the_card_reports_one_gap_once_not_once_per_message(page):
-    """Four messages carrying one label were four identical red boxes stacked
-    down the card. The contact failed one way, not four."""
+def test_the_card_shows_no_gap_or_ce_miss_flags(page):
+    """The card matches the Slack draft now: a readable account per contact,
+    with the ⚠ gap labels and the CE-miss line dropped from the section."""
     try:
         _render_with_frames(page, _FR, _NOTE)
         html = page.evaluate(
             "() => [...document.querySelectorAll('.interactions')]"
             ".map(e => e.innerHTML).join('')")
-        assert html.count("Wrong policy applied") == 1, (
-            "the gap was repeated once per message")
+        assert "Wrong policy applied" not in html, "a gap flag is still on the card"
+        assert "CE miss" not in html, "the CE-miss flag is still on the card"
     finally:
         _restore_frames(page)
 
 
-def test_the_card_leads_with_the_account_then_the_failures(page):
-    """The summarised account and the misses come first. When the model
-    provides detail, the raw Zendesk frames are suppressed — they are
-    redundant beneath a formatted summary."""
+def test_the_card_shows_the_account_and_suppresses_raw_frames(page):
+    """When the model provides detail, the account is shown and the raw Zendesk
+    frames are suppressed — they are redundant beneath the formatted account."""
     try:
         _render_with_frames(page, _FR, _NOTE)
         html = page.evaluate(
             "() => [...document.querySelectorAll('.interactions')]"
             ".map(e => e.innerHTML).join('')")
-        assert (html.index("The whole exchange, in prose.")
-                < html.index("Wrong policy applied")
-                < html.index("CE miss")), "the card's reading order regressed"
+        assert "The whole exchange, in prose." in html, "the account is missing"
         assert "m0" not in html, \
             "raw frames rendered alongside detail — the conditional guard is broken"
     finally:

@@ -6236,20 +6236,11 @@ function renderRcaCol() {
   // identical red boxes stacked down the card. Deduped rather than counted:
   // how many messages carried the label says more about how chatty the guest
   // was than about the failure.
-  const _contactGaps = (rows) => {
-    const out = [];
-    for (const fr of (rows || [])) {
-      const g = String((fr && fr.gap) || '').trim();
-      if (g && out.indexOf(g) < 0) out.push(g);
-    }
-    return out;
-  };
-
-  // A contact's `detail` renders as one-sentence bullets, not a prose block.
-  // A legacy paragraph is normalised into an array IN PLACE so the per-bullet
-  // edit path (support_interaction_notes.N.detail.J) indexes an array rather
-  // than a string - editing bullet 0 of an un-normalised string would collapse
-  // the whole paragraph to a single point.
+  // A contact's `detail` renders as one flowing account (prose), each sentence
+  // still individually editable. A legacy paragraph is normalised into an array
+  // IN PLACE so the per-sentence edit path (support_interaction_notes.N.detail.J)
+  // indexes an array rather than a string — editing sentence 0 of an
+  // un-normalised string would collapse the whole paragraph to a single point.
   const _detailBullets = (note, baseIdx) => {
     const raw = note && note.detail;
     let pts;
@@ -6257,9 +6248,12 @@ function renderRcaCol() {
     else if (raw) { pts = asSentences(raw); note.detail = pts; }
     else return '';
     if (!pts.length) return '';
-    return `<ul class="convo-narr">` + pts.map((p, j) =>
-      `<li class="convo-bullet">${edSpan(`support_interaction_notes.${baseIdx}.detail.${j}`, p)}</li>`
-    ).join('') + `</ul>`;
+    // The account as one flowing paragraph (prose), not a bullet list — this
+    // matches the Slack draft, which renders the interaction as a single
+    // readable account. Each sentence stays individually editable.
+    return `<div class="convo-narr">` + pts.map((p, j) =>
+      edSpan(`support_interaction_notes.${baseIdx}.detail.${j}`, p)
+    ).join(' ') + `</div>`;
   };
 
   const _contactRow = (row) => {
@@ -6291,12 +6285,10 @@ function renderRcaCol() {
             <span class="convo-time${oTime ? '' : ' dim'}">${esc(oTime || '—')}</span>
             <span class="interaction-summary-line">${edSpan(`support_interaction_notes.${oIdx}.summary`, note.summary)}</span>
             <span class="convo-unverified" title="no Zendesk frame backs this contact">${esc(why)}</span>
-            ${note.zd_ref ? zdLink(note.zd_ref) : ''}
             <span class="convo-chevron">${open ? '▾' : '▸'}</span>
           </div>
           <div class="convo-body">
             ${_detailBullets(note, oIdx)}
-            ${note.ce_miss ? `<div class="convo-gap">⚠ CE miss: ${edSpan(`support_interaction_notes.${oIdx}.ce_miss`, note.ce_miss)}</div>` : ''}
           </div>
         </div>`;
     }
@@ -6320,15 +6312,10 @@ function renderRcaCol() {
           <span class="interaction-summary-line">${nIdx >= 0
             ? edSpan(`support_interaction_notes.${nIdx}.summary`, summary)
             : esc(summary)}</span>
-          ${rows.length > 1 ? `<span class="convo-count">${rows.length} events</span>` : ''}
-          ${row.g.key ? zdLink(row.g.key) : ''}
           <span class="convo-chevron">${open ? '▾' : '▸'}</span>
         </div>
         <div class="convo-body">
           ${_detailBullets(row.note, nIdx)}
-          ${_contactGaps(rows).map(g => `<div class="convo-gap">⚠ ${esc(g)}</div>`).join('')}
-          ${row.note && row.note.ce_miss ? `<div class="convo-gap">⚠ CE miss: ${
-            edSpan(`support_interaction_notes.${nIdx}.ce_miss`, row.note.ce_miss)}</div>` : ''}
           ${!(row.note && row.note.detail && (Array.isArray(row.note.detail) ? row.note.detail.length : String(row.note.detail).trim())) ? rows.map(fr => `
             <div class="convo-line">
               <span class="convo-ev-time">${esc(fr.time || '—')}</span>

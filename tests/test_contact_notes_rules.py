@@ -201,18 +201,19 @@ def test_the_booking_intimation_alone_is_raised_no():
     """An automatic booking-intimation / confirmation email to the partner is
     machinery, not an escalation. When it is the only SP contact AND nothing
     came back, raised must be No."""
-    assert "THE AUTOMATIC BOOKING INTIMATION, STANDING ALONE, DOES NOT COUNT" in SEG
+    assert "THE AUTOMATIC BOOKING INTIMATION ALONE IS NEVER" in SEG
     flat = " ".join(SEG.split())
     assert "only the automatic booking intimation exists" in flat
+    assert "is the ONE AND ONLY supply-partner contact" in flat
 
 
 def test_an_sp_reply_or_sp_initiated_contact_is_raised_yes():
     """The intimation-is-machinery rule must NOT swallow a real exchange: if the
-    SP replies to the intimation, or reaches out on its own, that is a two-way
-    contact and raised is Yes — regardless of who sent the first message. This
+    SP replies to the intimation, or reaches out on its own, raised is Yes.
+    Per the owner's rule, ONE non-intimation message is enough — a second email
+    from us OR any message from the SP — the exchange need not be two-way. This
     is the case the narrower "only when WE contacted them" wording got wrong."""
     flat = " ".join(SEG.split())
-    assert 'ANY REAL TWO-WAY CONTACT MAKES IT "Yes"' in flat
-    assert "SP REPLIED to the booking intimation" in flat
-    assert "reached out on their OWN" in flat
-    assert "whether a message passed BOTH ways" in flat
+    assert 'the SP sent us something' in flat
+    assert 'a reply to the booking intimation' in flat
+    assert 'the exchange does NOT have to be two-way' in flat

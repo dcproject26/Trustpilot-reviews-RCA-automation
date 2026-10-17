@@ -334,7 +334,9 @@ def test_two_events_on_one_ticket_render_as_one_contact(page):
         unverified: !!f.querySelector('.convo-unverified')}))""")
     joined = [r for r in rows if not r["unverified"]]
     assert len(joined) == 1, f"two frames on one ticket became {len(joined)} contacts"
-    assert joined[0]["count"] == "2 events"
+    # The per-contact events count was removed from the card by owner request;
+    # what still matters is that the two frames collapse into one contact.
+    assert joined[0]["count"] is None, "the events count must no longer be shown"
     assert joined[0]["pill"] == "chat", "the channel must come from the Zendesk frame"
     assert joined[0]["time"] == "22 Jul 15:41"
 
@@ -1484,9 +1486,10 @@ def test_case_findings_carry_the_merged_evidence(page):
 # ── CE raw frames are suppressed when the model already provided detail ───
 
 def test_ce_raw_frames_hidden_when_model_provides_detail(page):
-    """The model's detail bullets replace the raw Zendesk transcript. Showing
-    both was the bug: date lines appeared below the nicely formatted bullets,
-    making the reader think the formatter was broken.  Client-side JS, so a
+    """The model's account (prose) replaces the raw Zendesk transcript. Showing
+    both was the bug: date lines appeared below the nicely formatted account,
+    making the reader think the formatter was broken.  The account now renders as
+    one flowing paragraph (.convo-narr), not a bullet list.  Client-side JS, so a
     browser assertion (CLAUDE.md §2)."""
     _rca_tab(page, "inter")
     got = page.evaluate("""() => {
@@ -1496,7 +1499,7 @@ def test_ce_raw_frames_hidden_when_model_provides_detail(page):
         if (f && !f.classList.contains('open')) e.click();
       });
       const frames = [...document.querySelectorAll('.convo-frame')];
-      const withDetail = frames.find(f => f.querySelector('.convo-bullet'));
+      const withDetail = frames.find(f => f.querySelector('.convo-narr'));
       if (!withDetail) return {detail: false, count: frames.length};
       const rawLines = withDetail.querySelectorAll('.convo-line');
       return {detail: true, rawLines: rawLines.length};
