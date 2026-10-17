@@ -2826,24 +2826,32 @@ that turned out fine is silence — never a line in the output.
     your case findings. If the record shows us phoning or emailing the partner, an escalation
     email sent to them, or the partner replying (a status, a refund approval or a denial), that
     IS SP interaction and it belongs here.
-      `raised` is "Yes" when the events show we contacted the SP ABOUT THIS ISSUE in ANY form
-        — a call to the partner, an escalation email about the problem, or a reply from them
-        about it. It is "No" or "N/A" when we did not, and then `reason` says why (non-partnered
-        vendor, opt-out).
-        Do not leave it "N/A" on a booking where the timeline plainly shows we reached the SP.
-      THE AUTOMATIC BOOKING INTIMATION, STANDING ALONE, DOES NOT COUNT. A booking intimation /
-        confirmation email sent to the partner at the time of booking (e.g. "A booking
-        intimation was sent to <partner> at the time of booking...") is machinery, not an
-        escalation. `raised` is "No" ONLY when that intimation is the ONLY supply-partner
-        contact on the record AND nothing came back — no reply from the partner, no message the
-        partner started, and no escalation from us. Then `reason` notes that only the automatic
-        booking intimation exists and it drew no response.
-      BUT ANY REAL TWO-WAY CONTACT MAKES IT "Yes", no matter who started it: WE escalated to the
-        SP, OR the SP REPLIED to the booking intimation (a reply is an exchange — it is no longer
-        just machinery), OR the SP reached out on their OWN. If the partner responded in any
-        form, or contact went beyond that single automatic mail, `raised` is "Yes" and every
-        exchange goes in `records`. The test is whether a message passed BOTH ways, not whether
-        we sent the first one.
+      `raised` — did a real supply-partner exchange happen about THIS issue? Decide by this
+      test, and nothing else:
+        Set "Yes" if EITHER is true:
+          (a) WE sent the SP something beyond the automatic booking intimation — a call, or an
+              email/escalation about the problem — EVEN IF no reply ever came back; OR
+          (b) the SP sent us something — a reply to the booking intimation, a status update, a
+              refund approval or denial, or a message the partner started.
+        Set "No" ONLY when the automatic booking intimation / confirmation email (sent to the
+          partner at booking time, e.g. "A booking intimation was sent to <partner> at the time
+          of booking...") is the ONE AND ONLY supply-partner contact on the record and nothing
+          came back — no reply from the partner, no escalation from us. Then `reason` notes that
+          only the automatic booking intimation exists and it drew no response.
+        Set "N/A" only when there is no SP to raise with (non-partnered vendor, opt-out);
+          `reason` says which. Do NOT leave "N/A" where the timeline plainly shows we reached the SP.
+      THE AUTOMATIC BOOKING INTIMATION ALONE IS NEVER "Yes". It is machinery, not an escalation.
+        What turns it to "Yes" is a SECOND thing: either another message FROM US to the SP (an
+        escalation about the problem), or ANY message FROM the SP. One such message is enough —
+        the exchange does NOT have to be two-way. A booking that has only the one automatic
+        intimation and no response is "No".
+      Worked examples:
+        • Only "Booking intimation sent to the partner", nothing else → "No" (reason: only the
+          automatic intimation, no response).
+        • Booking intimation, then WE emailed the SP to chase the cancellation → "Yes" (we sent
+          a second, non-intimation message), even if the SP never replied.
+        • Booking intimation, then the SP replied with a status or a denial → "Yes".
+      When "Yes", every exchange goes in `records".
       `records` is ONE ENTRY PER SP EXCHANGE, in order: our call or email and what came back,
         the partner's own reply, the refund/deny decision. `zd_ref` is the ticket the exchange
         sits on where it has one, and null where it does not — MOST SP CONTACT SITS ON THE
