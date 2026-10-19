@@ -476,10 +476,24 @@ async def sync_channel_to_db(db, hours: float | None = None,
         queued += 1
         ingested.append(rid)
 
+    # RECOVER MISSED :wip: CLAIMS on the same history we already pulled. The
+    # reactions are in the payload, so this costs no extra Slack call. Claim-
+    # only and best-effort: a reconcile hiccup must never fail the ingest the
+    # caller came for. See assignment.reconcile_wip_from_messages for why this
+    # is the guarantee the webhook push cannot give when Slack is not
+    # delivering reaction events.
+    wip = {"examined": 0, "claimed": 0}
+    try:
+        from server.services.assignment import reconcile_wip_from_messages
+        wip = reconcile_wip_from_messages(db, msgs)
+    except Exception as e:                       # never fail ingest over this
+        log.warning(f"[slack-poll] :wip: reconcile failed (ingest unaffected): {e}")
+
     return {"ok": True, "window_hours": round(window_hours, 1),
             "window_reason": window_reason, "messages_scanned": len(msgs),
             "trustpilot_found": found, "already_present": skipped,
-            "queued": queued, "review_ids": ingested}
+            "queued": queued, "review_ids": ingested,
+            "wip_examined": wip["examined"], "wip_claimed": wip["claimed"]}
 
 
 # A Zendesk ticket id and a Headout booking id are both 7-12 digits and occupy
