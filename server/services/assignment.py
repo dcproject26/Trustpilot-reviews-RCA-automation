@@ -263,3 +263,75 @@ def _display_name(uid: str) -> str:
         return (u.get("profile") or {}).get("display_name") or u.get("real_name") or ""
     except Exception:
         return ""
+
+
+# ── the poll entry point: recover :wip: claims the webhook never delivered ───
+
+def reconcile_wip_from_messages(db, messages) -> dict:
+    """Converge the DB toward the channel's :wip: state, using the reactions
+    that conversations.history already carries on each message.
+
+    WHY THIS EXISTS. The webhook (handle_reaction_event) is the fast path for a
+    :wip: reaction, but it only fires when Slack actually delivers the event —
+    and when the app has no `reactions:read` scope, no reaction_added event
+    subscription, or the push is simply down, the reaction never arrives and
+    the dashboard never shows an owner. That was the live symptom: someone adds
+    :wip: on Slack and nothing happens on the board. The poll cycle already
+    pulls channel history every few minutes to self-heal missed REVIEWS; this
+    gives it the same guarantee for missed :wip: CLAIMS, with no extra Slack
+    call — the `reactions` array is in the history payload.
+
+    DELIBERATELY CLAIM-ONLY and first-picker-wins, mirroring the webhook's
+    reaction_added branch exactly: an unowned, unsolved review that carries a
+    human :wip: is claimed for the earliest human reactor; an already-owned or
+    solved review is left untouched. It NEVER releases and NEVER steals, so it
+    cannot fight a dashboard claim, drop another person's case, or re-pick work
+    that was released. The asymmetry is real and stated, not hidden: removing a
+    :wip: (release) still needs the webhook, because current history cannot
+    tell "un-reacted" apart from "never reacted here" for a case that was
+    claimed on the dashboard (CLAUDE.md rule 1 — a limitation said out loud).
+
+    Returns {"examined": N, "claimed": N} — examined counts reviews that had a
+    human :wip: and exist in the DB, claimed counts the ones this pass actually
+    assigned, so a cycle that ran and changed nothing is distinguishable from
+    one that never looked (CLAUDE.md rule 1)."""
+    from server.db import Review
+
+    bot = bot_user_id()
+    examined = claimed = 0
+    for m in messages or []:
+        wip = next((r for r in (m.get("reactions") or [])
+                    if (r.get("name") or "") == WIP_EMOJI), None)
+        if not wip:
+            continue
+        # Slack lists reactors in the order they reacted, so users[0] (after
+        # dropping the bot's own mirror-reaction) is the first human claimant —
+        # the same first-picker-wins the webhook path enforces.
+        humans = [u for u in (wip.get("users") or []) if u and u != bot]
+        if not humans:
+            continue
+        rid = review_id_for_ts(m.get("ts", ""))
+        review = db.query(Review).filter(Review.id == rid).first()
+        if not review:
+            continue
+        examined += 1
+        if _is_solved(review):
+            continue
+        if (getattr(review, "picked_up_by", None) or "").strip():
+            # Already owned — never steal. This is an EARLY-OUT, not the only
+            # guard: apply_claim() below is itself first-picker-wins and would
+            # return "already_owned" without mutating, so dropping this line
+            # changes no outcome (a mutation that deletes it is equivalent). It
+            # earns its place by skipping the roster/display-name lookups for a
+            # review there is nothing to do to.
+            continue
+        reactor = humans[0]
+        name, mapped = reviewer_for_slack_id(reactor)
+        if not mapped:
+            name = _display_name(reactor) or reactor
+        if apply_claim(review, name) == "claimed":
+            db.commit()
+            claimed += 1
+            log.info(f"[assign] {rid} claimed by {name} via :wip: (poll reconcile "
+                     f"— the webhook did not deliver this reaction)")
+    return {"examined": examined, "claimed": claimed}

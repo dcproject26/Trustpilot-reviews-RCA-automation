@@ -124,6 +124,12 @@ async def _slack_poll_once(db) -> dict:
             _jobs2.enqueue(rid, "slack-poll")
         log.info(f"[slack-poll] queued {result['queued']} new review(s) "
                  f"(window {result['window_hours']}h, {result['window_reason']})")
+    # Said even when zero, so the logs show the :wip: reconcile ran — the whole
+    # point is to recover claims the webhook did not deliver, and a silent pass
+    # would look the same as one that never happened (CLAUDE.md rule 1).
+    if result.get("ok") and result.get("wip_claimed"):
+        log.info(f"[slack-poll] reconciled {result['wip_claimed']} :wip: claim(s) "
+                 f"the webhook had not delivered")
     return result
 
 

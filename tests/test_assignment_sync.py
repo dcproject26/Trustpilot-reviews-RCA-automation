@@ -262,3 +262,146 @@ def test_dashboard_patch_sets_owner_time_and_mirrors(client, live_db, monkeypatc
                        json={"name": ""}).json()
     assert (out["picked_up_by"] or "") == "" and out["picked_up_at"] is None
     assert calls["remove"] == 1
+
+
+# ── the POLL reconcile: recover :wip: claims the webhook never delivered ─────
+#
+# The webhook path above fires only when Slack delivers the reaction event.
+# When it does not (no reactions:read scope, no reaction_added subscription, a
+# push outage), the claim lives only in the channel's history. These drive
+# reconcile_wip_from_messages against the live schema with the real roster, so
+# the behaviour — not the wording — is what is pinned (CLAUDE.md rule 2).
+
+def _msg(ts="1743500000.000100", wip_users=("U02B2KJF2T0",), other=None):
+    """A conversations.history message carrying a :wip: reaction, shaped like
+    Slack's payload (reactions: [{name, users, count}])."""
+    reactions = []
+    if wip_users is not None:
+        reactions.append({"name": "wip", "users": list(wip_users), "count": len(wip_users)})
+    if other:
+        reactions.append(other)
+    return {"ts": ts, "reactions": reactions}
+
+
+def test_poll_reconcile_claims_an_unowned_review_from_history(live_db):
+    _review(live_db)                                   # unowned
+    s = live_db.SessionLocal()
+    try:
+        out = A.reconcile_wip_from_messages(s, [_msg()])
+        from server.db import Review
+        r = s.query(Review).filter_by(id="tp_1743500000_000100").one()
+    finally:
+        s.close()
+    assert out == {"examined": 1, "claimed": 1}
+    assert r.picked_up_by == "Devshree" and r.picked_up_at is not None
+
+
+def test_poll_reconcile_is_first_picker_wins_and_never_steals(live_db):
+    _review(live_db, owner="Avi")                      # already owned
+    s = live_db.SessionLocal()
+    try:
+        out = A.reconcile_wip_from_messages(s, [_msg(wip_users=("U02B2KJF2T0",))])
+        from server.db import Review
+        r = s.query(Review).filter_by(id="tp_1743500000_000100").one()
+    finally:
+        s.close()
+    assert out == {"examined": 1, "claimed": 0}         # looked, changed nothing
+    assert r.picked_up_by == "Avi"                      # NOT stolen
+
+
+def test_poll_reconcile_ignores_the_bots_own_wip(live_db):
+    """The bot adds :wip: when the dashboard claims; on an unowned review that
+    the bot alone reacted to, reconcile must not invent a claim."""
+    _review(live_db)
+    s = live_db.SessionLocal()
+    try:
+        out = A.reconcile_wip_from_messages(s, [_msg(wip_users=("UBOTSELF",))])
+        from server.db import Review
+        r = s.query(Review).filter_by(id="tp_1743500000_000100").one()
+    finally:
+        s.close()
+    assert out == {"examined": 0, "claimed": 0}
+    assert (r.picked_up_by or "") == ""
+
+
+def test_poll_reconcile_takes_the_first_human_past_the_bot(live_db):
+    """Bot reacted first (dashboard mirror), a human after — the human is the
+    claimant, and the bot in users[0] must not shadow them."""
+    _review(live_db)
+    s = live_db.SessionLocal()
+    try:
+        A.reconcile_wip_from_messages(s, [_msg(wip_users=("UBOTSELF", "U02B2KJF2T0"))])
+        from server.db import Review
+        r = s.query(Review).filter_by(id="tp_1743500000_000100").one()
+    finally:
+        s.close()
+    assert r.picked_up_by == "Devshree"
+
+
+def test_poll_reconcile_picks_the_earliest_of_two_humans(live_db):
+    """Two humans reacted; the FIRST in Slack's order wins (first-picker-wins).
+    With one human in the list first==last, so this needs two to pin that the
+    EARLIEST is taken, not whoever happens to be at the end."""
+    _review(live_db)
+    s = live_db.SessionLocal()
+    try:
+        # Devshree reacted first, an off-roster person after.
+        A.reconcile_wip_from_messages(
+            s, [_msg(wip_users=("U02B2KJF2T0", "U_OFF_ROSTER"))])
+        from server.db import Review
+        r = s.query(Review).filter_by(id="tp_1743500000_000100").one()
+    finally:
+        s.close()
+    assert r.picked_up_by == "Devshree"      # the first reactor, not "Display Person"
+
+
+def test_poll_reconcile_leaves_a_solved_case_alone(live_db):
+    _review(live_db, status="sent")                    # solved
+    s = live_db.SessionLocal()
+    try:
+        out = A.reconcile_wip_from_messages(s, [_msg()])
+        from server.db import Review
+        r = s.query(Review).filter_by(id="tp_1743500000_000100").one()
+    finally:
+        s.close()
+    assert out["claimed"] == 0
+    assert (r.picked_up_by or "") == ""                # finished work not re-picked
+
+
+def test_poll_reconcile_no_wip_reaction_is_a_clean_noop(live_db):
+    _review(live_db)
+    s = live_db.SessionLocal()
+    try:
+        # A message with a different emoji, and one with no reactions at all.
+        out = A.reconcile_wip_from_messages(s, [
+            _msg(wip_users=None, other={"name": "eyes", "users": ["U02B2KJF2T0"], "count": 1}),
+            {"ts": "1743500000.000100"}])
+        from server.db import Review
+        r = s.query(Review).filter_by(id="tp_1743500000_000100").one()
+    finally:
+        s.close()
+    assert out == {"examined": 0, "claimed": 0}
+    assert (r.picked_up_by or "") == ""
+
+
+def test_poll_reconcile_names_an_unmapped_reactor_rather_than_dropping(live_db):
+    _review(live_db)
+    s = live_db.SessionLocal()
+    try:
+        A.reconcile_wip_from_messages(s, [_msg(wip_users=("U_OFF_ROSTER",))])
+        from server.db import Review
+        r = s.query(Review).filter_by(id="tp_1743500000_000100").one()
+    finally:
+        s.close()
+    assert r.picked_up_by == "Display Person"          # fallback, not dropped
+
+
+def test_poll_reconcile_skips_a_message_with_no_review_row(live_db):
+    """A :wip: on a message we never ingested is not a claim target — examined
+    counts only reviews that exist, so a busy channel does not inflate it."""
+    s = live_db.SessionLocal()
+    try:
+        out = A.reconcile_wip_from_messages(s, [_msg(ts="9999999999.000000")])
+    finally:
+        s.close()
+    assert out == {"examined": 0, "claimed": 0}
