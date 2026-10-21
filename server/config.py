@@ -139,6 +139,22 @@ DSS_SHEET_TAB           = os.getenv("DSS_SHEET_TAB", "")          # legacy, unus
 RCA_EXPORT_SHEET_ID     = os.getenv("RCA_EXPORT_SHEET_ID", "")
 RCA_EXPORT_SHEET_TAB    = os.getenv("RCA_EXPORT_SHEET_TAB", "0")
 
+# ORM RAW — the TEAM dashboard sheet. One human-logging row per solved Trustpilot
+# case lands on its `ORM RAW` tab, beside the social-media and app rows people
+# log by hand. Separate from the engineering export above (different sheet,
+# different 24-column shape). The id defaults to the live team sheet so the
+# feature works once the service account can reach it; override per environment.
+# ORM_RAW_EXPORT_ENABLED gates the AUTOMATIC write on solve — off until the team
+# confirms the mapping on a test row; the /api/orm-raw/test endpoint writes
+# regardless so a row can be verified before the auto-write is switched on.
+ORM_RAW_SHEET_ID        = os.getenv("ORM_RAW_SHEET_ID",
+                                    "1hKhueUF_1gy-YUAkCU0pKuiUX8ZGkqKgVjNnWcG9-0k")
+ORM_RAW_SHEET_TAB       = os.getenv("ORM_RAW_SHEET_TAB", "ORM RAW")
+ORM_RAW_EXPORT_ENABLED  = os.getenv("ORM_RAW_EXPORT_ENABLED", "false").strip().lower() in (
+    "1", "true", "yes", "on")
+# The ORM internal Slack channel the daily per-owner count report posts to.
+ORM_REPORT_CHANNEL      = os.getenv("ORM_REPORT_CHANNEL", "C045KG5AJF5")
+
 # Canned responses — OPTIONAL live refresh of server/data/canned_macros.json.
 #
 # No default, deliberately. There used to be one here while .env.example named

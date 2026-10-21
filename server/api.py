@@ -3026,6 +3026,17 @@ async def send_review(review_id: str, db: Session = Depends(get_session)):
         on_review_finished(r, d)
     except Exception as _e:
         log.warning(f"[sheet] {review_id}: completed row not written: {_e}")
+    # The ORM RAW team sheet — a separate, human-logging row. Gated on
+    # ORM_RAW_EXPORT_ENABLED so it stays off until the mapping is confirmed on a
+    # test row; best-effort, like the export above — the review is finished
+    # regardless of either sheet.
+    try:
+        from server.services.orm_raw_export import on_review_finished as _orm_fin
+        _orm_res = _orm_fin(r, d)
+        if _orm_res.get("error"):
+            log.warning(f"[orm_raw] {review_id}: row not written: {_orm_res['error']}")
+    except Exception as _e:
+        log.warning(f"[orm_raw] {review_id}: completed row not written: {_e}")
     # `posted` is a separate fact from `ok`. The caller used to get {"ok":
     # true, "ts": null} for a post that was skipped, for one that failed and
     # for one that was never attempted, and had to guess which.
@@ -3124,6 +3135,17 @@ async def close_review(review_id: str, body: CloseOut | None = None,
         on_review_finished(r, d)
     except Exception as _e:
         log.warning(f"[sheet] {review_id}: completed row not written: {_e}")
+    # The ORM RAW team sheet — a separate, human-logging row. Gated on
+    # ORM_RAW_EXPORT_ENABLED so it stays off until the mapping is confirmed on a
+    # test row; best-effort, like the export above — the review is finished
+    # regardless of either sheet.
+    try:
+        from server.services.orm_raw_export import on_review_finished as _orm_fin
+        _orm_res = _orm_fin(r, d)
+        if _orm_res.get("error"):
+            log.warning(f"[orm_raw] {review_id}: row not written: {_orm_res['error']}")
+    except Exception as _e:
+        log.warning(f"[orm_raw] {review_id}: completed row not written: {_e}")
     log.info(f"[close] {review_id}: closed from {bucket} — {reason}")
     return {"ok": True, "closed_from": bucket, "reason": reason,
             "posted": False, "had_draft": d is not None}
@@ -3888,6 +3910,94 @@ def daily_trigger(x_report_token: str | None = Header(default=None),
         why = last_post_failure.get("why") or "Slack returned no message ts."
         raise HTTPException(502, f"Not posted: {why}")
     return {"ok": True, "ts": ts, "channel": channel}
+
+
+# ── ORM RAW sheet + internal daily per-owner report ──────────────────────────
+# Two things that read/write the TEAM dashboard sheet (not Postgres):
+#   * /api/orm-raw/test  — plan or write one ORM RAW row for a solved review, so
+#     the mapping is verified on a real case before the auto-write is enabled.
+#   * /api/orm-report/*  — the per-owner × platform count for the day, previewed
+#     or posted to the ORM internal channel (and a token-guarded trigger for the
+#     8pm scheduler).
+
+class OrmRawTest(BaseModel):
+    apply: bool = False          # dry-run by default; True actually appends
+
+
+@router.post("/api/orm-raw/test")
+def orm_raw_test(review_id: str, body: OrmRawTest | None = None,
+                 db: Session = Depends(get_session)):
+    """Plan (dry-run) or, with apply=true, write one ORM RAW row for a solved
+    review — so the 24-column mapping can be checked on a real case before the
+    automatic write is switched on. Returns {planned, header_problem, wrote,
+    error}."""
+    from server.services import orm_raw_export as O
+    from server.config import ORM_RAW_SHEET_ID, ORM_RAW_SHEET_TAB
+    r = db.query(Review).filter(Review.id == review_id).first()
+    if not r:
+        raise HTTPException(404, f"no review {review_id}")
+    d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
+    apply = bool(body and body.apply)
+    if apply and not ORM_RAW_SHEET_ID:
+        raise HTTPException(400, "ORM_RAW_SHEET_ID is not set.")
+    return O.append_row(r, d, ORM_RAW_SHEET_ID, ORM_RAW_SHEET_TAB, apply=apply)
+
+
+@router.get("/api/orm-report/preview")
+def orm_report_preview():
+    """The internal daily report that would go out now — reads ORM RAW, posts
+    nothing. Returns {text, counts, meta, error, day}."""
+    from server.services.orm_daily_report import build_report
+    return build_report()
+
+
+@router.post("/api/orm-report/send")
+def orm_report_send():
+    """Build the per-owner report from ORM RAW and post it to the ORM internal
+    channel on demand."""
+    from server.services.orm_daily_report import build_report
+    from server.services.slack import post_to_channel, last_post_failure
+    from server.config import ORM_REPORT_CHANNEL
+    if not ORM_REPORT_CHANNEL:
+        raise HTTPException(400, "ORM_REPORT_CHANNEL is not set.")
+    rep = build_report()
+    if rep.get("error"):
+        raise HTTPException(502, f"Could not build the report: {rep['error']}")
+    ts = post_to_channel(ORM_REPORT_CHANNEL, rep["text"])
+    if not ts:
+        why = last_post_failure.get("why") or "Slack returned no message ts."
+        raise HTTPException(502, f"Not posted: {why}")
+    return {"ok": True, "ts": ts, "channel": ORM_REPORT_CHANNEL, "day": rep.get("day")}
+
+
+@router.post("/api/orm-report")
+def orm_report_trigger(x_report_token: str | None = Header(default=None),
+                       authorization: str | None = Header(default=None)):
+    """Token-guarded build+post for the 8pm-IST scheduler — same token mechanism
+    as the daily digest trigger (X-Report-Token or 'Authorization: Bearer')."""
+    from server.config import DAILY_REPORT_TOKEN, ORM_REPORT_CHANNEL
+    from server.services.orm_daily_report import build_report
+    from server.services.slack import post_to_channel, last_post_failure
+    if not DAILY_REPORT_TOKEN:
+        raise HTTPException(503, "DAILY_REPORT_TOKEN is not set, so this trigger "
+                                 "is disabled.")
+    supplied = x_report_token or ""
+    if not supplied and authorization:
+        auth = authorization.strip()
+        if auth.lower().startswith("bearer "):
+            supplied = auth[7:].strip()
+    if supplied != DAILY_REPORT_TOKEN:
+        raise HTTPException(401, "bad or missing report token")
+    if not ORM_REPORT_CHANNEL:
+        raise HTTPException(400, "ORM_REPORT_CHANNEL is not set.")
+    rep = build_report()
+    if rep.get("error"):
+        raise HTTPException(502, f"Could not build the report: {rep['error']}")
+    ts = post_to_channel(ORM_REPORT_CHANNEL, rep["text"])
+    if not ts:
+        why = last_post_failure.get("why") or "Slack returned no message ts."
+        raise HTTPException(502, f"Not posted: {why}")
+    return {"ok": True, "ts": ts, "channel": ORM_REPORT_CHANNEL, "day": rep.get("day")}
 
 
 # ── Weekly digest ────────────────────────────────────────────────────────────
