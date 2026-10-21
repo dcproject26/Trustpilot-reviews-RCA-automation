@@ -70,6 +70,23 @@ def _dig(settings: dict) -> tuple[str, str]:
     return token, scope
 
 
+def _pick_sheet(items: list) -> dict | None:
+    """The Google Sheets connection among all of this Repl's connections.
+
+    MATCH ON THE WORD, NOT AN EXACT SLUG. Replit's slug for this connector has
+    appeared as "google-sheet" and "googlesheets"; querying the API with
+    ?connector_names=<one exact slug> returned nothing the moment the slug
+    differed, which read as "not connected" on a Repl where it WAS connected —
+    the whole afternoon that cost. Listing every connection and matching any
+    name containing "sheet" survives the rename. Returns None when none is
+    bound to this Repl, which is a different fact (the connector exists on the
+    account but is not linked to THIS app) than the API being unreachable."""
+    for i in (items or []):
+        if "sheet" in str(i.get("connector_name") or "").lower():
+            return i
+    return None
+
+
 def _settings(force: bool = False) -> tuple[str, str]:
     """Returns (access_token, granted_scope), cached for _TOKEN_TTL seconds."""
     with _lock:
@@ -77,17 +94,22 @@ def _settings(force: bool = False) -> tuple[str, str]:
         if not force and _cache["token"] and now - _cache["fetched_at"] < _TOKEN_TTL:
             return _cache["token"], _cache["scope"]
         host = os.environ["REPLIT_CONNECTORS_HOSTNAME"]
+        # No connector_names filter — fetch every connection and pick Sheets by
+        # name, so an upstream slug rename cannot silently disconnect us.
         r = requests.get(
-            f"https://{host}/api/v2/connection?include_secrets=true"
-            f"&connector_names={CONNECTOR_NAME}",
+            f"https://{host}/api/v2/connection?include_secrets=true",
             headers=_identity_header(), timeout=15)
         r.raise_for_status()
         items = r.json().get("items", [])
-        if not items:
+        sheet = _pick_sheet(items)
+        if not sheet:
+            present = [i.get("connector_name") for i in items]
             raise RuntimeError(
-                "Google Sheets connection not found — add it via Replit "
-                "integrations (Tools → Connectors → Google Sheets)")
-        token, scope = _dig(items[0].get("settings") or {})
+                "Google Sheets connection not found FOR THIS REPL — it must be "
+                "connected to this app (Tools → Connectors → Google Sheets → "
+                "connect it to this Repl), not only to your account. "
+                f"Connections currently bound here: {present!r}")
+        token, scope = _dig(sheet.get("settings") or {})
         _cache.update(token=token, scope=scope, fetched_at=now)
         return token, scope
 

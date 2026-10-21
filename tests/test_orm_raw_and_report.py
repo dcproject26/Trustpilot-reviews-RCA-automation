@@ -180,3 +180,20 @@ def test_render_shows_a_table_with_a_total_and_reports_unparsed():
 def test_a_day_with_nothing_says_so():
     text = R.render({}, date(2026, 10, 21), {})
     assert "No cases logged for today" in text
+
+
+# ── the Sheets connector is matched by name, not an exact slug ───────────────
+
+def test_sheet_connection_matched_by_name_not_exact_slug():
+    from server.services.sheets_connector import _pick_sheet
+    for slug in ("googlesheets", "google-sheet", "google-sheets", "Google Sheets"):
+        items = [{"connector_name": "bigquery"}, {"connector_name": slug, "settings": {"x": 1}}]
+        got = _pick_sheet(items)
+        assert got and got.get("connector_name") == slug, slug
+
+
+def test_sheet_connection_absent_returns_none():
+    from server.services.sheets_connector import _pick_sheet
+    # the exact case we hit: on the account but not bound to this Repl
+    assert _pick_sheet([{"connector_name": "zendesk"}, {"connector_name": "bigquery"}]) is None
+    assert _pick_sheet([]) is None
