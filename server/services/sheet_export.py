@@ -776,6 +776,20 @@ class SheetIO:
         ids = [(row[0] if row else "") for row in (r2.json().get("values") or [])]
         return header, ids
 
+    def read_range(self, a1: str):
+        """The values in an A1 range (e.g. 'ORM RAW!A2:I') as a list of rows.
+
+        Trailing empty cells in a row are omitted by the API, so callers index
+        defensively. Used by the ORM daily report, which needs more than column
+        A."""
+        import httpx
+        import urllib.parse
+        rng = urllib.parse.quote(a1, safe="")
+        r = httpx.get(f"{self._base()}/values/{rng}",
+                      headers=self._hdr(), timeout=30.0)
+        r.raise_for_status()
+        return r.json().get("values") or []
+
     def write_header(self):
         import httpx
         r = httpx.put(f"{self._base()}/values/{self.tab}!A1",
