@@ -159,12 +159,15 @@ def render(counts: dict, day: date, meta: dict | None = None) -> str:
             row += "  " + str(cells[p]).rjust(widths[p])
         return row
 
-    lines = [line("Owner", {p: caps[p] for p in headers})]
+    header_line = line("Owner", {p: caps[p] for p in headers})
+    rule = "-" * len(header_line)                      # separators span the table
+    lines = [header_line, rule]
     totals = {p: 0 for p in headers}
     for o in owners:
         lines.append(line(o, {p: counts[o].get(p, 0) for p in headers}))
         for p in headers:
             totals[p] += counts[o].get(p, 0)
+    lines.append(rule)                                 # a line before the total
     lines.append(line("TOTAL", totals))
 
     body = "```\n" + "\n".join(lines) + "\n```"
