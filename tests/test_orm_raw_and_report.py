@@ -119,9 +119,14 @@ def test_dry_run_plans_without_writing():
 
 def test_platform_buckets_are_a_denylist_of_two():
     assert R.platform_of("Trustpilot") == R.TRUSTPILOT
+    # app feedback is "APP Feedback" (and an older "App Feedback Form"); both
+    # match the prefix, an app STORE does not.
+    assert R.platform_of("APP Feedback") == R.APP_FEEDBACK
     assert R.platform_of("App Feedback Form") == R.APP_FEEDBACK
-    for sm in ("Instagram", "Facebook", "Playstore", "Twitter", "whatever"):
-        assert R.platform_of(sm) == R.SOCIAL_MEDIA
+    assert R.platform_of("Escalations raised Internally") == R.ESCALATIONS
+    for sm in ("Instagram", "Facebook", "PlayStore", "Playstore", "App Store",
+               "Appstore", "Twitter", "Linkedin", "whatever"):
+        assert R.platform_of(sm) == R.SOCIAL_MEDIA, sm
 
 
 def _row(datestr, source, owner):
@@ -141,7 +146,9 @@ def test_count_rows_tallies_by_owner_and_platform_for_the_day():
         _row("October 21, 2026", "Instagram", "@Shruti"),  # @ stripped
     ]
     counts, meta = R.count_rows(rows, day)
-    assert counts["Devshree"] == {R.SOCIAL_MEDIA: 1, R.TRUSTPILOT: 2, R.APP_FEEDBACK: 0}
+    assert counts["Devshree"][R.SOCIAL_MEDIA] == 1
+    assert counts["Devshree"][R.TRUSTPILOT] == 2
+    assert counts["Devshree"][R.APP_FEEDBACK] == 0
     assert counts["Paul"][R.APP_FEEDBACK] == 1
     assert counts["Shruti"][R.SOCIAL_MEDIA] == 1
     assert "Avi" not in counts and "Test" not in counts

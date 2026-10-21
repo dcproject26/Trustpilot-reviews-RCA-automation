@@ -29,10 +29,12 @@ from server.services.daily_report import IST
 log = logging.getLogger("orm_daily_report")
 
 TRUSTPILOT = "Trustpilot"
-APP_FEEDBACK = "App Feedback Form"
+APP_FEEDBACK = "App Feedback"
+ESCALATIONS = "Escalations raised Internally"
 SOCIAL_MEDIA = "Social Media"
-# The report's column order.
-PLATFORMS = [SOCIAL_MEDIA, TRUSTPILOT, APP_FEEDBACK]
+# The report's column order. Trustpilot, app-alert feedback and internally-raised
+# escalations each have their own label; Social Media is everything else.
+PLATFORMS = [SOCIAL_MEDIA, TRUSTPILOT, APP_FEEDBACK, ESCALATIONS]
 
 # Owners that are not people. Dropped from the roster, case-insensitively.
 _NON_OWNERS = {"", "test", "unassigned", "(none)", "na", "n/a"}
@@ -52,12 +54,22 @@ _DATE_FORMATS = ("%B %d, %Y", "%d %B %Y", "%B %d %Y", "%m/%d/%Y", "%d/%m/%Y",
 
 
 def platform_of(source: str) -> str:
-    """Which of the three report columns this Source falls in."""
+    """Which of the three report columns this Source falls in.
+
+    Trustpilot and app-alert feedback each have their OWN label; everything else
+    — Instagram, Facebook, Twitter, LinkedIn, PlayStore, App Store, … — is
+    Social Media. App feedback is logged as "APP Feedback" (and a few older rows
+    as "App Feedback Form"), so the match is the "app feedback" prefix, which
+    catches both and nothing else (an app STORE is "app store", not "app
+    feedback"). A denylist of the two named buckets, so a new SM channel counts
+    with no code change."""
     s = str(source or "").strip().lower()
     if s == "trustpilot":
         return TRUSTPILOT
-    if s == "app feedback form":
+    if s.startswith("app feedback"):
         return APP_FEEDBACK
+    if s.startswith("escalation"):
+        return ESCALATIONS
     return SOCIAL_MEDIA
 
 
@@ -135,9 +147,10 @@ def render(counts: dict, day: date, meta: dict | None = None) -> str:
 
     owners = sorted(counts, key=lambda o: -sum(counts[o].values()))
     name_w = max([len("Owner")] + [len(o) for o in owners])
-    headers = [SOCIAL_MEDIA, TRUSTPILOT, APP_FEEDBACK]
+    headers = list(PLATFORMS)
     # Short column captions so the table fits a Slack code block on a phone.
-    caps = {SOCIAL_MEDIA: "Social", TRUSTPILOT: "Trustpilot", APP_FEEDBACK: "App Fdbk"}
+    caps = {SOCIAL_MEDIA: "Social", TRUSTPILOT: "Trustpilot",
+            APP_FEEDBACK: "App Fdbk", ESCALATIONS: "Esc(Int)"}
     widths = {p: max(len(caps[p]), 3) for p in headers}
 
     def line(name, cells):
@@ -149,9 +162,9 @@ def render(counts: dict, day: date, meta: dict | None = None) -> str:
     lines = [line("Owner", {p: caps[p] for p in headers})]
     totals = {p: 0 for p in headers}
     for o in owners:
-        lines.append(line(o, {p: counts[o][p] for p in headers}))
+        lines.append(line(o, {p: counts[o].get(p, 0) for p in headers}))
         for p in headers:
-            totals[p] += counts[o][p]
+            totals[p] += counts[o].get(p, 0)
     lines.append(line("TOTAL", totals))
 
     body = "```\n" + "\n".join(lines) + "\n```"
