@@ -42,7 +42,9 @@ def _api(monkeypatch, payload):
 
 
 def _conn(**settings):
-    return {"items": [{"settings": settings}]}
+    # connector_name carries "sheet" so _pick_sheet selects it out of the list,
+    # the way the live Google Sheets connection is matched by name.
+    return {"items": [{"connector_name": "googlesheets", "settings": settings}]}
 
 
 # ── reading the connection ──────────────────────────────────────────────────
