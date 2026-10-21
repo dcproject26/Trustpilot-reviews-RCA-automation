@@ -32,6 +32,7 @@ class _Draft:
         self.resolution = kw.get("resolution", "")
         self.booking = kw.get("booking", {})
         self.ticket_facts = kw.get("ticket_facts", {})
+        self.extracted_signals = kw.get("extracted_signals", {})
         self.rca_v3 = kw.get("rca_v3", {})
 
 
@@ -70,6 +71,28 @@ def test_the_mapping_fills_the_fields_we_own():
     assert row["Did we raise with the team?"] == "Supply Partner"  # sp, not guest (empty)
     assert row["Review Take down sent?"] == "Yes"
     assert row["Month"] == "Oct" and row["Year"] == "2026" and row["Week"] == "43"
+
+
+def test_city_comes_from_the_review_indicator_like_the_card():
+    """City is the card's "Extracted from review" city_or_country, stored at
+    extracted_signals.match_indicators — not the Zendesk/BQ booking city."""
+    d = _Draft(sent_at=datetime(2026, 10, 21, 9, 0),
+               extracted_signals={"match_indicators": {"city_or_country": "Japan"}},
+               ticket_facts={"city": "Tokyo"})      # indicator wins over ticket
+    assert O.orm_row_for(_Review(), d)["City"] == "Japan"
+
+
+def test_solution_offered_is_the_resolution_dropdown_not_the_empty_freetext():
+    """Solution Offered is the structured resolution's compensation_type (the
+    card's dropdown), with the amount when present — the free-text column was
+    blank on most cards."""
+    d = _Draft(sent_at=datetime(2026, 10, 21, 9, 0), resolution="",  # free-text empty
+               rca_v3={"resolution": {"compensation_type": "Refund to card",
+                                      "amount": None, "text": ""}})
+    assert O.orm_row_for(_Review(), d)["Solution Offered"] == "Refund to card"
+    d2 = _Draft(sent_at=datetime(2026, 10, 21, 9, 0),
+                rca_v3={"resolution": {"compensation_type": "HOC", "amount": "25%"}})
+    assert O.orm_row_for(_Review(), d2)["Solution Offered"] == "HOC — 25%"
 
 
 def test_human_filled_columns_are_left_blank():

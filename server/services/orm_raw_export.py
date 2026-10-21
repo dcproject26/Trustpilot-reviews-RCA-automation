@@ -98,16 +98,48 @@ def _query(l1: str, l2: str) -> str:
 
 
 def _city_for(draft, bk: dict) -> str:
-    """City from the Zendesk booking-details 'City' custom field.
+    """The City/country, the same value the card shows under "Extracted from
+    review".
 
-    `ticket_signals()` reads that field as `city` (zendesk.py), and it is folded
-    into the draft's ticket_facts. Read from there first; fall back to any city
-    key the booking dict happens to carry. Blank when the ticket had none —
-    never invented, because an invented city reads as a matched fact."""
+    It is the review indicator `city_or_country`, stored on the draft at
+    extracted_signals.match_indicators (the card reads exactly this:
+    `_sig.match_indicators.city_or_country`). Falls back to the Zendesk
+    booking-details city (ticket_facts) and then any city key the booking dict
+    carries. Blank when none — never invented."""
+    sig = (getattr(draft, "extracted_signals", None) or {}) if draft else {}
+    ind = sig.get("match_indicators") if isinstance(sig, dict) else None
+    if isinstance(ind, dict) and str(ind.get("city_or_country") or "").strip():
+        return str(ind["city_or_country"]).strip()
     tf = (getattr(draft, "ticket_facts", None) or {}) if draft else {}
     if isinstance(tf, dict) and str(tf.get("city") or "").strip():
         return str(tf["city"]).strip()
     return _bkfield(bk, "city", "cityName", "experienceCity", "venue_city") or ""
+
+
+def _solution_for(v3: dict, draft) -> str:
+    """Solution Offered — the resolution the card shows, not the empty free-text.
+
+    The card's RESOLUTION dropdown is the STRUCTURED resolution
+    (v3.resolution = {compensation_type, amount, text}); its compensation_type
+    is the dropdown value ("Refund to card", "HOC", …). Render that, with the
+    amount when there is one. The one-line free text is the fallback, and the
+    legacy draft.resolution column is the last resort — that column was blank on
+    most cards, which is why the structured type is read first."""
+    res = v3.get("resolution")
+    if isinstance(res, dict):
+        ctype = str(res.get("compensation_type") or "").strip()
+        amount = res.get("amount")
+        text = str(res.get("text") or "").strip()
+        if ctype and amount not in (None, "", 0, "0"):
+            return f"{ctype} — {amount}"
+        if ctype:
+            return ctype
+        if text:
+            return text
+        return ""
+    if res:
+        return str(res).strip()
+    return (getattr(draft, "resolution", "") if draft else "") or ""
 
 
 def _raised_with_team(actions_taken) -> str:
@@ -156,7 +188,7 @@ def orm_row_for(review, draft, now: datetime | None = None) -> dict:
         "City":            _city_for(d, bk),
         "Link to the review": slack_link(review),
         "Owner":           getattr(review, "picked_up_by", "") or "",
-        "Solution Offered": (getattr(d, "resolution", "") if d else "") or "",
+        "Solution Offered": _solution_for(v3, d),
         "What was the issue?": v3.get("outcome_category") or "",
         "Did we raise with the team?": _raised_with_team(v3.get("actions_taken")),
         # The takedown dropdown value exactly as the dashboard holds it —
