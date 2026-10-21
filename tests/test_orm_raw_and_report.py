@@ -73,13 +73,16 @@ def test_the_mapping_fills_the_fields_we_own():
     assert row["Month"] == "Oct" and row["Year"] == "2026" and row["Week"] == "43"
 
 
-def test_city_comes_from_the_review_indicator_like_the_card():
-    """City is the card's "Extracted from review" city_or_country, stored at
-    extracted_signals.match_indicators — not the Zendesk/BQ booking city."""
+def test_city_prefers_zendesk_then_the_review_indicator():
+    """City is the Zendesk booking-details city when present (the actual city),
+    else the review's city_or_country indicator (what the card shows)."""
     d = _Draft(sent_at=datetime(2026, 10, 21, 9, 0),
                extracted_signals={"match_indicators": {"city_or_country": "Japan"}},
-               ticket_facts={"city": "Tokyo"})      # indicator wins over ticket
-    assert O.orm_row_for(_Review(), d)["City"] == "Japan"
+               ticket_facts={"city": "Osaka"})       # Zendesk wins
+    assert O.orm_row_for(_Review(), d)["City"] == "Osaka"
+    d2 = _Draft(sent_at=datetime(2026, 10, 21, 9, 0),
+                extracted_signals={"match_indicators": {"city_or_country": "Japan"}})
+    assert O.orm_row_for(_Review(), d2)["City"] == "Japan"   # indicator fallback
 
 
 def test_solution_offered_is_the_resolution_dropdown_not_the_empty_freetext():
@@ -127,6 +130,32 @@ def test_a_spaced_tab_name_is_single_quoted_for_a1():
     assert O.a1_sheet("ORM RAW") == "'ORM RAW'"
     assert O.a1_sheet("Sheet1") == "Sheet1"
     assert O.a1_sheet("O'Brien") == "'O''Brien'"        # internal quote doubled
+
+
+def test_append_row_dedups_by_review_link(monkeypatch):
+    """A case already on the sheet (same review Slack link) is skipped — so the
+    write-on-send hook and the 8pm backfill cannot write it twice, and a
+    re-sent RCA does not duplicate."""
+    class FakeIO:
+        def __init__(self, *a, **k):
+            self.appended = []
+        def read_column_a_and_header(self):
+            return (list(O.COLUMNS), [])
+        def read_range(self, rng):
+            return []
+        def append_rows(self, rows):
+            self.appended.extend(rows)
+    monkeypatch.setattr(O, "SheetIO", FakeIO)
+    rev = _Review()
+    rev.slack_channel = "CAB4TQ2AJ"
+    rev.slack_ts = "1792427245.258299"
+    d = _Draft(sent_at=datetime(2026, 10, 21, 9, 0))
+    link = O.orm_row_for(rev, d)["Link to the review"]
+    assert link, "the test review should produce a Slack link"
+    already = O.append_row(rev, d, "s", "ORM RAW", apply=True, existing_links={link})
+    assert already["wrote"] is False and "already on the sheet" in already["skipped"]
+    fresh = O.append_row(rev, d, "s", "ORM RAW", apply=True, existing_links=set())
+    assert fresh["wrote"] is True
 
 
 def test_dry_run_plans_without_writing():
