@@ -106,13 +106,16 @@ def _city_for(draft, bk: dict) -> str:
     `_sig.match_indicators.city_or_country`). Falls back to the Zendesk
     booking-details city (ticket_facts) and then any city key the booking dict
     carries. Blank when none — never invented."""
+    # Zendesk booking-details city first — it is the actual city, where the
+    # review indicator is often only a country ("Japan"). Fall back to the
+    # review's city_or_country indicator (what the card shows), then the booking.
+    tf = (getattr(draft, "ticket_facts", None) or {}) if draft else {}
+    if isinstance(tf, dict) and str(tf.get("city") or "").strip():
+        return str(tf["city"]).strip()
     sig = (getattr(draft, "extracted_signals", None) or {}) if draft else {}
     ind = sig.get("match_indicators") if isinstance(sig, dict) else None
     if isinstance(ind, dict) and str(ind.get("city_or_country") or "").strip():
         return str(ind["city_or_country"]).strip()
-    tf = (getattr(draft, "ticket_facts", None) or {}) if draft else {}
-    if isinstance(tf, dict) and str(tf.get("city") or "").strip():
-        return str(tf["city"]).strip()
     return _bkfield(bk, "city", "cityName", "experienceCity", "venue_city") or ""
 
 
@@ -231,16 +234,23 @@ def check_header(existing_header: list) -> str:
 
 
 def append_row(review, draft, sheet_id: str, tab: str,
-               now: datetime | None = None, apply: bool = False) -> dict:
+               now: datetime | None = None, apply: bool = False,
+               existing_links: set | None = None) -> dict:
     """Append one Trustpilot row to ORM RAW. Dry-run unless apply=True.
 
-    Returns {planned, header_problem, wrote, row} so the caller (and the test
-    endpoint) can see what WOULD be written and why a write was refused, rather
-    than a silent empty sheet."""
+    DEDUP BY THE REVIEW'S SLACK LINK. Column H (Link to the review) is a
+    permalink unique to the review, so a case that is already on the sheet is
+    skipped — whether it got there from the write-on-send hook or the 8pm
+    backfill, and however many times an RCA is re-sent. `existing_links` lets a
+    batch read the column once and share it (and it is updated as rows are
+    written, so a batch never duplicates within itself).
+
+    Returns {planned, header_problem, wrote, skipped, error} so the caller can
+    see what WOULD be written and why a write was skipped or refused."""
     row = orm_row_for(review, draft, now=now)
     cells = to_cells(row)
     out = {"planned": dict(zip(COLUMNS, cells)), "wrote": False,
-           "header_problem": "", "error": ""}
+           "skipped": "", "header_problem": "", "error": ""}
     if not apply:
         return out
     try:
@@ -250,7 +260,18 @@ def append_row(review, draft, sheet_id: str, tab: str,
         if problem:
             out["header_problem"] = problem
             return out
+        link = (row.get("Link to the review") or "").strip()
+        if link:
+            if existing_links is None:
+                existing_links = {str(r[0]).strip()
+                                  for r in io.read_range(f"{a1_sheet(tab)}!H2:H")
+                                  if r and r[0]}
+            if link in existing_links:
+                out["skipped"] = "already on the sheet (same review link)"
+                return out
         io.append_rows([cells])
+        if link and isinstance(existing_links, set):
+            existing_links.add(link)
         out["wrote"] = True
     except Exception as e:                              # a failed write is a finding
         out["error"] = f"{type(e).__name__}: {e}"
@@ -295,19 +316,35 @@ def write_solved_day(db, day: str = "", now: datetime | None = None,
                            and_(Review.closed_at >= start, Review.closed_at < end)))
                .filter(not_test_row_clause(Review))
                .all())
-    rows, wrote = [], 0
+    # Read the sheet's review-links once so the batch dedups against what is
+    # already there (and against itself) without a read per row.
+    existing_links = None
+    if apply and pairs:
+        try:
+            _io = SheetIO(ORM_RAW_SHEET_ID, a1_sheet(ORM_RAW_SHEET_TAB))
+            existing_links = {str(x[0]).strip()
+                              for x in _io.read_range(f"{a1_sheet(ORM_RAW_SHEET_TAB)}!H2:H")
+                              if x and x[0]}
+        except Exception as e:
+            log.warning("[orm_raw] could not read existing links for dedup: %s", e)
+            existing_links = None
+
+    rows, wrote, skipped = [], 0, 0
     for r, d in pairs:
-        res = append_row(r, d, ORM_RAW_SHEET_ID, ORM_RAW_SHEET_TAB, apply=apply)
+        res = append_row(r, d, ORM_RAW_SHEET_ID, ORM_RAW_SHEET_TAB, apply=apply,
+                         existing_links=existing_links)
         p = res["planned"]
         rows.append({"review_id": getattr(r, "id", ""),
                      "owner": p.get("Owner"), "booking_id": p.get("Booking ID"),
                      "issue": p.get("What was the issue?"),
-                     "wrote": res["wrote"],
+                     "wrote": res["wrote"], "skipped": res.get("skipped") or "",
                      "problem": res.get("error") or res.get("header_problem") or ""})
         if res.get("wrote"):
             wrote += 1
+        elif res.get("skipped"):
+            skipped += 1
     return {"day": str(start_ist.date()), "solved": len(pairs), "wrote": wrote,
-            "apply": apply, "rows": rows}
+            "skipped": skipped, "apply": apply, "rows": rows}
 
 
 def on_review_finished(review, draft) -> dict:
