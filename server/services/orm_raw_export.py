@@ -227,6 +227,57 @@ def append_row(review, draft, sheet_id: str, tab: str,
     return out
 
 
+def write_solved_day(db, day: str = "", now: datetime | None = None,
+                     apply: bool = False) -> dict:
+    """Append an ORM RAW row for every Trustpilot case SOLVED on `day` (an IST
+    calendar day; default today). Dry-run unless apply=True.
+
+    "Solved" is the tool's own definition, shared with the daily digest:
+    status=='sent' AND (draft.sent_at OR review.closed_at) inside the day, minus
+    test rows — so a case closed either way counts, exactly as the Solved number
+    on the report does. Runs against whatever DB the process is connected to, so
+    it writes today's PRODUCTION rows only when run on the deployment."""
+    from datetime import date as _date, timedelta
+    from sqlalchemy import or_, and_
+    from server.db import Review, RcaDraft
+    from server.tiers import SENT
+    from server.services.reporting_query import not_test_row_clause
+    from server.config import ORM_RAW_SHEET_ID, ORM_RAW_SHEET_TAB
+
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    if day:
+        t = _date.fromisoformat(day)
+        start_ist = datetime(t.year, t.month, t.day, tzinfo=IST)
+    else:
+        start_ist = now.astimezone(IST).replace(hour=0, minute=0, second=0,
+                                                microsecond=0)
+    start = start_ist.astimezone(timezone.utc).replace(tzinfo=None)
+    end = (start_ist + timedelta(days=1)).astimezone(timezone.utc).replace(tzinfo=None)
+
+    pairs = (db.query(Review, RcaDraft)
+               .outerjoin(RcaDraft, RcaDraft.review_id == Review.id)
+               .filter(Review.status == SENT)
+               .filter(or_(and_(RcaDraft.sent_at >= start, RcaDraft.sent_at < end),
+                           and_(Review.closed_at >= start, Review.closed_at < end)))
+               .filter(not_test_row_clause(Review))
+               .all())
+    rows, wrote = [], 0
+    for r, d in pairs:
+        res = append_row(r, d, ORM_RAW_SHEET_ID, ORM_RAW_SHEET_TAB, apply=apply)
+        p = res["planned"]
+        rows.append({"review_id": getattr(r, "id", ""),
+                     "owner": p.get("Owner"), "booking_id": p.get("Booking ID"),
+                     "issue": p.get("What was the issue?"),
+                     "wrote": res["wrote"],
+                     "problem": res.get("error") or res.get("header_problem") or ""})
+        if res.get("wrote"):
+            wrote += 1
+    return {"day": str(start_ist.date()), "solved": len(pairs), "wrote": wrote,
+            "apply": apply, "rows": rows}
+
+
 def on_review_finished(review, draft) -> dict:
     """Append this solved Trustpilot case to ORM RAW — ONLY when the automatic
     write is switched on. Off by default (ORM_RAW_EXPORT_ENABLED) so the mapping

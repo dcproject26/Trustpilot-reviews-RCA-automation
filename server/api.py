@@ -3943,6 +3943,21 @@ def orm_raw_test(review_id: str, body: OrmRawTest | None = None,
     return O.append_row(r, d, ORM_RAW_SHEET_ID, ORM_RAW_SHEET_TAB, apply=apply)
 
 
+@router.post("/api/orm-raw/write-solved")
+def orm_raw_write_solved(apply: bool = Query(False),
+                         day: str = Query(""),
+                         db: Session = Depends(get_session)):
+    """Append an ORM RAW row for every Trustpilot case solved on `day` (default
+    today IST). Dry-run unless apply=true. Meant to run ON THE DEPLOYMENT, where
+    the Google key and the production DB both live — a one-shot backfill for the
+    cases already solved today before the auto-write is switched on."""
+    from server.services.orm_raw_export import write_solved_day
+    from server.config import ORM_RAW_SHEET_ID
+    if apply and not ORM_RAW_SHEET_ID:
+        raise HTTPException(400, "ORM_RAW_SHEET_ID is not set.")
+    return write_solved_day(db, day=day, apply=apply)
+
+
 @router.get("/api/orm-report/preview")
 def orm_report_preview():
     """The internal daily report that would go out now — reads ORM RAW, posts
