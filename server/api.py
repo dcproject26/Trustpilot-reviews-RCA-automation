@@ -1169,6 +1169,13 @@ def list_reviews(status: str | None = None, tab: str | None = None,
             # both have status "sent"; without this the tab shows them as one
             # thing and the count means two different pieces of work.
             "closed_at":   r.closed_at.isoformat() if r.closed_at else None,
+            # WHEN the RCA/reply went out. This — not closed_at — is the solve
+            # instant the daily and ORM reports count by (sent_at OR closed_at on
+            # a sent review). closed_at is only set on a close-out, so a
+            # replied-to review has sent_at but no closed_at; counting solves by
+            # closed_at alone silently undercounts. The inbox's "Solved on a day"
+            # filter reads this so it agrees with the reports.
+            "sent_at":     draft.sent_at.isoformat() if draft and draft.sent_at else None,
             "close_reason": r.close_reason,
             "sent_route":  r.sent_route,
             # Sent through so the inbox can render the "Picked up by" column
