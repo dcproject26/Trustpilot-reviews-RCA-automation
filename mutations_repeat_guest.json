@@ -1,0 +1,23 @@
+[
+{"file":"server/services/repeat_guest.py","name":"unconfirmed other returned","find":"if o.get(\"id\") == me.get(\"id\") or not o.get(\"confirmed_bid\"):","replace":"if o.get(\"id\") == me.get(\"id\"):"},
+{"file":"server/services/repeat_guest.py","name":"self not excluded","find":"if o.get(\"id\") == me.get(\"id\") or not","replace":"if False or not"},
+{"file":"server/services/repeat_guest.py","name":"same bid ignored","find":"same_bid = o[\"confirmed_bid\"] == bid","replace":"same_bid = False"},
+{"file":"server/services/repeat_guest.py","name":"key match ignores key presence","find":"same_key = bool(key) and o.get(\"guest_key\") == key","replace":"same_key = o.get(\"guest_key\") == key"},
+{"file":"server/services/repeat_guest.py","name":"unconfirmed me claims","find":"    if not bid:\n        return {\"state\": \"not_confirmed\"","replace":"    if False:\n        return {\"state\": \"not_confirmed\""},
+{"file":"server/services/repeat_guest.py","name":"no_guest_key collapses into none","find":"\"none\" if key else \"no_guest_key\"","replace":"\"none\""},
+{"file":"server/services/repeat_guest.py","name":"sort reversed","find":"matches.sort(key=_sort_key)","replace":"matches.sort(key=_sort_key, reverse=True)"},
+{"file":"server/services/repeat_guest.py","name":"ordinal off by one","find":"\"ordinal\": earlier + 1","replace":"\"ordinal\": earlier"},
+{"file":"server/services/repeat_guest.py","name":"hash not used as key","find":"out[\"guest_key\"] = \"hash:\" + nm","replace":"pass"},
+{"file":"server/services/repeat_guest.py","name":"plain name accepted as key","find":"if nm and looks_like_digest(nm):","replace":"if nm:"},
+{"file":"server/services/repeat_guest.py","name":"email ignored","find":"if email and \"@\" in email:","replace":"if False:"},
+{"file":"server/services/repeat_guest.py","name":"email not lowercased","find":".strip().lower()\n    nm","replace":".strip()\n    nm"},
+{"file":"server/services/repeat_guest.py","name":"picker counts as confirmed","find":"    if candidate_state:\n        out[\"reason\"]","replace":"    if False:\n        out[\"reason\"]"},
+{"file":"server/services/repeat_guest.py","name":"unverified counts as confirmed","find":"if b.get(\"_unverified\"):","replace":"if False:"},
+{"file":"server/services/repeat_guest.py","name":"carry-forward bid dropped","find":"m[\"carry_forward_bid\"] = o[\"confirmed_bid\"]","replace":"m[\"carry_forward_bid\"] = None"},
+{"file":"server/services/repeat_guest.py","name":"stamp does not set bid","find":"draft.confirmed_bid = r[\"confirmed_bid\"]","replace":"pass"},
+{"file":"server/api.py","name":"guest_key leaks on wire","find":"m.pop(\"guest_key\", None)","replace":"pass"},
+{"file":"server/api.py","name":"endpoint drops self filter","find":"RcaDraft.review_id != review_id).all()","replace":"RcaDraft.review_id != 'zz').all()"},
+{"file":"server/api.py","name":"endpoint ignores bid condition","find":"conds = [RcaDraft.confirmed_bid == me[\"confirmed_bid\"]]","replace":"conds = [RcaDraft.guest_key == me['guest_key']]"},
+{"file":"server/api.py","name":"untraceable does not clear key","find":"stamp_guest_key(d)   # booking is None","replace":"pass   # booking is None"},
+{"file":"server/api.py","name":"select-candidate does not stamp","find":"    stamp_guest_key(d)\n    db.commit()\n\n    # Re-run pipeline","replace":"    db.commit()\n\n    # Re-run pipeline"}
+]
