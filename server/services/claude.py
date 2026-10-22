@@ -325,8 +325,22 @@ async def detect_language(text: str) -> str:
         "name of the language and nothing else — no punctuation, no "
         "explanation. If you cannot tell, reply UNKNOWN.\n\n"
         + str(text)[:1500], max_tokens=12)
+    return parse_language_name(out)
+
+
+def parse_language_name(out: str) -> str:
+    """Turn the model's raw answer into a language name, or "" if it isn't one.
+
+    Multi-word names are legitimate ("Brazilian Portuguese", "Simplified
+    Chinese", "Mandarin Chinese"); the old guard rejected ANY space, so a
+    perfectly good translation was refused downstream as `unverified`. What
+    must still be rejected is a sentence: more than three words, sentence
+    punctuation, digits, or an overlong answer.
+    """
     out = (out or "").strip().strip(".").strip()
-    if not out or out.upper() == "UNKNOWN" or len(out) > 30 or " " in out.strip():
+    if not out or out.upper() == "UNKNOWN" or len(out) > 30:
+        return ""
+    if len(out.split()) > 3 or re.search(r"[0-9:;,!?\n]", out):
         return ""
     return out
 

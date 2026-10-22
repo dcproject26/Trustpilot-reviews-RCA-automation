@@ -1,0 +1,20 @@
+[
+ {"file":"server/services/claude.py","name":"allow 10 words","find":"len(out.split()) > 3","replace":"len(out.split()) > 10"},
+ {"file":"server/services/claude.py","name":"reject all spaces again","find":"len(out.split()) > 3","replace":"len(out.split()) > 0"},
+ {"file":"server/services/claude.py","name":"drop punctuation guard","find":"or re.search(r\"[0-9:;,!?\\n]\", out)","replace":""},
+ {"file":"server/services/claude.py","name":"drop length guard","find":"or len(out) > 30:","replace":":"},
+ {"file":"server/services/reply_language.py","name":"unverified never stored","find":"        if looks_english(text):\n            return","replace":"        if False:\n            return"},
+ {"file":"server/services/reply_language.py","name":"heuristic accepts anything","find":"    if not letters:\n        return False","replace":"    if not letters:\n        return True"},
+ {"file":"server/services/reply_language.py","name":"ascii threshold off","find":"/ len(letters) < 0.97","replace":"/ len(letters) < 0.0"},
+ {"file":"server/services/reply_language.py","name":"stopword threshold lax","find":"return hits >= 2 and hits / len(words) >= 0.15","replace":"return hits >= 0"},
+ {"file":"server/services/reply_language.py","name":"short text threshold","find":"return hits >= 1","replace":"return hits >= 0"},
+ {"file":"server/services/reply_language.py","name":"suspicious not flagged","find":"            if _known_non_english(review.language):","replace":"            if False:"},
+ {"file":"server/services/reply_language.py","name":"suspicious state dropped","find":"review.translation_state = \"english_already_suspicious\"","replace":"review.translation_state = \"english_already\""},
+ {"file":"server/services/reply_language.py","name":"failed state dropped","find":"        review.translation_state = \"failed\"","replace":"        pass"},
+ {"file":"server/services/reply_language.py","name":"state not set after verdict","find":"        review.translation_state = _STATE_FOR_OUTCOME.get(\n            verdict[\"outcome\"], \"failed\")","replace":"        pass"},
+ {"file":"server/services/reply_language.py","name":"unverified stored mark pass","find":"mark = \"pass\" if verdict[\"outcome\"] == \"stored\" else \"warn\"","replace":"mark = \"pass\""},
+ {"file":"server/services/reply_language.py","name":"wrong language stored","find":"    return {\"store\": False, \"outcome\": \"wrong_language\"","replace":"    return {\"store\": True, \"outcome\": \"wrong_language\""},
+ {"file":"server/services/reply_language.py","name":"english_already state dropped","find":"            review.translation_state = \"english_already\"\n            return","replace":"            return"},
+ {"file":"server/pipeline.py","name":"pipeline skips inbound translation","find":"            _xl_trail = await reply_language.translate_inbound(review, review_id)","replace":"            _xl_trail = None"},
+ {"file":"server/api.py","name":"vs-intake drops state","find":"        translation_state=_xl_state,\n","replace":""}
+]

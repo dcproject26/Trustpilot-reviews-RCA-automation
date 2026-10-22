@@ -61,7 +61,8 @@ def test_an_unverifiable_result_is_refused_but_not_as_wrong_language(monkeypatch
     assert v["store"] is False and v["outcome"] == "unverified"
 
     monkeypatch.setattr(claude, "detect_language", _araise(RuntimeError("529")))
-    raised = asyncio.run(RL.english_or_reject("some text"))
+    raised = asyncio.run(RL.english_or_reject(
+        "Ho prenotato i biglietti e ho pagato il doppio."))
     assert raised["store"] is False and raised["outcome"] == "unverified"
 
 
