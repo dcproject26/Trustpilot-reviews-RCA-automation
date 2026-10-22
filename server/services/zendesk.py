@@ -345,7 +345,17 @@ def ticket_signals(ticket) -> dict:
     pax_raw = _v(_F_PAX)
     pax_total = sum(int(n) for n in re.findall(r"(\d+)\s*(?:adult|child|infant|senior|youth)",
                                                pax_raw, re.I)) or None
+    # The channel the ticket ARRIVED on. A guest who chats or phones support
+    # about a problem and then writes a review about it is the strongest
+    # same-escalation evidence there is, and until this field existed nothing
+    # on the signal could say which tickets were conversations. "" means the
+    # ticket carried no via.channel at all - NOT email; the two must stay
+    # distinguishable (an absent channel is "did not know", not "it was mail").
+    _via_ch = str(getattr(getattr(ticket, "via", None), "channel", "") or "")
     return {
+        "channel":     _map_channel(_via_ch) if _via_ch.strip() else "",
+        "via_channel": _via_ch,
+        "created_at":  str(getattr(ticket, "created_at", "") or ""),
         "booking_id":  booking_id_from_ticket(ticket) or "",
         "guest_name":  _v(_F_GUEST_NAME),
         "guest_email": _v(_F_GUEST_EMAIL),
@@ -2159,6 +2169,89 @@ def _date_in_text(iso: str, hay: str) -> bool:
     return any(f in hay for f in forms)
 
 
+# ── Same-escalation correlation ────────────────────────────────────────────
+# A guest who CHATS or PHONES support about a problem and then reviews the
+# same problem has told us which booking it is, in their own timeline. The
+# evidence is the conjunction of FOUR things and none alone is enough:
+# the ticket is a live conversation (chat/call), it is the same guest, it was
+# raised inside the review's timeline, and it describes the same issue.
+ESCALATION_WINDOW_DAYS = 21
+ESCALATION_CHANNELS = ("chat", "call")
+
+
+def _day(s):
+    """A date from the first ten characters of an ISO-ish string, else None."""
+    try:
+        return datetime.strptime(str(s or "")[:10], "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+def ticket_in_window(created_at, indicators: dict, review_date=None,
+                     days: int = ESCALATION_WINDOW_DAYS) -> tuple:
+    """Was this ticket raised inside the review's timeline?  (verdict, why)
+
+    verdict is True / False, or None when it could not be judged - an
+    unparseable created_at is "did not run", and must never read as "out of
+    window" (False) or "in window" (True).
+
+    Reference days are the visit the guest named plus every date they
+    mentioned, minus the day the review was written (it agrees with
+    everyone). A ticket is in window when it was created from one day before
+    to `days` after any reference day. With NO reference day the review's own
+    date anchors it: created up to `days` before the review, or the day after.
+    """
+    created = _day(created_at)
+    if created is None:
+        return None, "the ticket has no readable created date"
+    refs = []
+    for d in ([indicators.get("visit_date_hint")]
+              + list(indicators.get("dates_mentioned") or [])):
+        dd = _day(d)
+        if dd and not _is_review_date(d, review_date) and dd not in refs:
+            refs.append(dd)
+    for ref in refs:
+        if -1 <= (created - ref).days <= days:
+            return True, f"created {created} within {days}d of {ref}"
+    if refs:
+        return False, f"created {created}, outside {days}d of every named date"
+    rd = _day(review_date)
+    if rd is None:
+        return None, "the review names no date and has no posting date"
+    if -days <= (created - rd).days <= 1:
+        return True, f"created {created}, within {days}d before the review ({rd})"
+    return False, f"created {created}, not within {days}d before the review ({rd})"
+
+
+def escalation_evidence(sig: dict, ticket_text: str, indicators: dict,
+                        author_first, author_last, review_date=None) -> dict:
+    """Does this ticket describe the SAME escalation as the review?
+
+    `qualifies` needs all four: a chat/call channel, the same guest (the
+    ticket's own guest-name field - an empty field is NOT the same guest),
+    in-window creation, and at least one extracted issue term in the ticket's
+    own words. Never decided by the name alone.
+    """
+    channel = sig.get("channel") or ""
+    hay = (ticket_text or "").lower()
+    terms = [str(t).strip() for t in (indicators.get("issue_terms") or [])
+             if str(t).strip()][:5]
+    hits = [t for t in terms if _term_in_text(t, hay)]
+    in_win, why = ticket_in_window(sig.get("created_at"), indicators, review_date)
+    same = bool(sig.get("guest_name")) and name_matches(
+        sig.get("guest_name") or "", author_first, author_last)
+    return {
+        "channel": channel,
+        "is_conversation": channel in ESCALATION_CHANNELS,
+        "same_guest": same,
+        "in_window": in_win,
+        "window_why": why,
+        "issue_hits": hits,
+        "qualifies": bool(channel in ESCALATION_CHANNELS and same
+                          and in_win is True and hits),
+    }
+
+
 async def shortlist(indicators: dict, author_first, author_last,
                     limit_total: int = 5, since: str | None = None,
                     notes: list | None = None,
@@ -2273,6 +2366,30 @@ async def shortlist(indicators: dict, author_first, author_last,
     # AND a date the review named. Two independent signals with no name
     # is still worth a human's glance.
     issue_by_bid = {}
+    # Same-escalation evidence: a chat/call ticket from the SAME guest, inside
+    # the review's timeline, describing the SAME problem. Held apart from
+    # by_bid so it can neither open nor close pass 2's gate - it is merged in
+    # after both passes, and only ever ADDS a candidate or strengthens one.
+    esc_by_bid = {}
+    # Needs a name (same guest) and an issue (same escalation). Without either
+    # the correlation cannot run, and the notes below say so rather than
+    # leaving a silence that reads as "ran, nothing there".
+    esc_enabled = bool(name) and bool(issue_terms)
+    # Sets of ticket ids, not counters: pass 2 clears the seen set and judges
+    # the same tickets again, which a counter would count twice.
+    esc_stats = {"conversations": set(), "in_window": set(), "qualified": set(),
+                 "promoted": set(), "errors": set()}
+
+    def _attach_escalation(target, esc):
+        """Record qualifying chat/call evidence on a candidate."""
+        target["escalation"] = esc
+        _tok = f"{esc['channel']} ticket"
+        mo = list(target.get("matched_on") or [])
+        if _tok not in mo:
+            mo.append(_tok)
+        target["matched_on"] = mo
+        target["weak"] = False
+
     async def _scan(qs, issue_pass):
         for q, label in qs:
             try:
@@ -2352,7 +2469,29 @@ async def shortlist(indicators: dict, author_first, author_last,
                 # independent searches is exactly what says which booking best
                 # matches the review, so it is recorded instead of discarded.
                 ticket_bid[tid] = bid
+                esc = None
+                if esc_enabled:
+                    try:
+                        esc = escalation_evidence(
+                            sig,
+                            " ".join((str(getattr(t, "subject", "") or ""),
+                                      str(getattr(t, "description", "") or "")[:4000])),
+                            indicators, author_first, author_last, review_date)
+                    except Exception as e:
+                        esc_stats["errors"].add(tid)
+                        log.warning(f"[shortlist] escalation check failed for "
+                                    f"ticket {tid}: {e}")
+                    if esc and esc["is_conversation"]:
+                        esc_stats["conversations"].add(tid)
+                        sig["escalation"] = esc
+                        if esc["in_window"] is True:
+                            esc_stats["in_window"].add(tid)
+                _esc_ok = bool(esc and esc["qualifies"])
+                if _esc_ok:
+                    esc_stats["qualified"].add(tid)
                 if bid in by_bid:
+                    if _esc_ok:
+                        _attach_escalation(by_bid[bid], esc)
                     _merge_via(by_bid[bid], label)
                     continue
                 # A weak candidate still accumulates evidence. It is judged
@@ -2363,6 +2502,27 @@ async def shortlist(indicators: dict, author_first, author_last,
                 if bid in weak_by_bid:
                     _merge_via(weak_by_bid[bid], label)
                 ok, used = matches_indicators(sig, indicators, author_first, author_last)
+                if _esc_ok and not ok:
+                    # The direct indicators did not all agree (the review named
+                    # no venue, or spelled it differently), but the guest's own
+                    # chat/call about the same problem, in the same timeline,
+                    # did. Four independent agreements - not the name alone.
+                    sig["matched_on"] = ["name", f"{esc['channel']} ticket",
+                                         f"issue:{esc['issue_hits'][0]}", "in window"]
+                    sig["weak"] = False
+                    sig["escalation_promoted"] = True
+                    sig["found_via"] = label
+                    sig["found_via_all"] = [label]
+                    sig["created_at"] = str(getattr(t, "created_at", "") or "")
+                    sig["ticket_id"] = tid
+                    if bid not in esc_by_bid:
+                        esc_stats["promoted"].add(tid)
+                        esc_by_bid[bid] = sig
+                    else:
+                        _merge_via(esc_by_bid[bid], label)
+                    continue
+                if _esc_ok:
+                    used = list(used) + [f"{esc['channel']} ticket"]
 
                 # Does the ticket's own visit-date field land on a date the
                 # review named? This is a field comparison, not a text search,
@@ -2460,7 +2620,7 @@ async def shortlist(indicators: dict, author_first, author_last,
                     # continents, each labelled a confident match. One agreement
                     # is a lead, not an identification, and the card has to say
                     # which it is.
-                    if _evidence(sig) < 2 and not _visit_hit:
+                    if _evidence(sig) < 2 and not _visit_hit and not _esc_ok:
                         sig["weak"] = True
                     by_bid[bid] = sig
                     weak_by_bid.pop(bid, None)   # promoted: drop the weak reading
@@ -2536,6 +2696,30 @@ async def shortlist(indicators: dict, author_first, author_last,
         # nothing already decided can be disturbed.
         seen_tickets.clear()
         await _scan(issue_queries, issue_pass=True)
+    # ADDITIVE, without a second search. When the direct indicators found
+    # something, pass 2 is NOT run (a working matcher is never second-guessed
+    # by a text search - test_issue_search_does_not_run_when_direct_indicators_
+    # match). The chat/call evidence needs no extra query: the same-guest
+    # tickets are exactly what the name searches of pass 1 already returned,
+    # and _scan judged each of them for escalation as it went.
+
+    # Merge the same-escalation candidates. A booking already present keeps
+    # its entry (evidence was attached in place); a new one is ADDED, and a
+    # weak name-only reading of the same booking is superseded by it.
+    for _b, _sg in esc_by_bid.items():
+        if _b not in by_bid:
+            by_bid[_b] = _sg
+
+    if notes is not None:
+        # RAN-AND-FOUND-NOTHING versus DID-NOT-RUN, distinguishable.
+        if not esc_enabled:
+            notes.append({"kind": "escalation_skipped", "label": "escalation",
+                          "detail": ("the review has no parseable guest name"
+                                     if not name else
+                                     "no issue terms were extracted from the review")})
+        else:
+            notes.append({"kind": "escalation_checked", "label": "escalation",
+                          "stats": {k: len(v) for k, v in esc_stats.items()}})
 
     # Preference order: everything agreed > problem and date agreed > only
     # the name agreed. Each step down is a weaker claim, so a stronger tier
@@ -2563,6 +2747,7 @@ async def shortlist(indicators: dict, author_first, author_last,
     # booking, from both the indicators the ticket itself satisfied and the
     # queries that surfaced it.
     out.sort(key=lambda s: (_evidence(s),
+                            1 if (s.get("escalation") or {}).get("qualifies") else 0,
                             2 if s.get("visit_hit") else 0,
                             len(s.get("issue_hits") or []) + len(s.get("date_hits") or []),
                             s.get("created_at") or ""), reverse=True)

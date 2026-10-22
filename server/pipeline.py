@@ -257,7 +257,7 @@ def _candidate_agrees(c: dict) -> bool:
     guest name, or a Zendesk ticket — rather than only a close visit date?"""
     if c.get("venue_signal"):
         return True
-    for k in ("score_venue", "score_name", "score_ticket"):
+    for k in ("score_venue", "score_name", "score_ticket", "score_escalation"):
         try:
             if float(c.get(k) or 0) > 0:
                 return True
@@ -270,7 +270,8 @@ def _candidate_unscored(c: dict) -> bool:
     """A candidate from a path that recorded no sub-scores at all. It cannot be
     SHOWN to be noise, and an unproven claim is not grounds for dropping
     somebody's only lead — so it is kept, deliberately."""
-    return not any(k in c for k in ("score_venue", "score_name", "score_ticket"))
+    return not any(k in c for k in ("score_venue", "score_name", "score_ticket",
+                                    "score_escalation"))
 
 
 def surviving_candidates(candidates: list) -> list:
@@ -365,6 +366,72 @@ def tier1_promotable(conf: float, corroboration: float,
         return False, ("the only agreement is the guest name; nothing about the "
                        "venue, the date or the ticket corroborates it")
     return True, ""
+
+
+ESCALATION_PTS = 2.0
+
+
+def escalation_points(esc: dict | None) -> float:
+    """Points for a chat/call ticket that describes the SAME escalation.
+
+    `esc` is zendesk.escalation_evidence()'s verdict. The points are earned by
+    the conjunction it already demands - a live conversation, the same guest,
+    raised inside the review's timeline, describing the same problem - so a
+    ticket that is merely by the same name, or merely about the same problem,
+    or merely a chat, scores nothing. Counted as CORROBORATION (it is not the
+    guest name), which is what lets tier1_promotable's invariant stand: the
+    name alone is still never enough.
+    """
+    return ESCALATION_PTS if (esc or {}).get("qualifies") else 0.0
+
+
+def compose_tier2_score(venue: float, date: float, ticket: float, both: float,
+                        name: float, escalation: float = 0.0) -> tuple:
+    """(confidence, corroboration) for the legacy Tier-2 scorer.
+
+    Its own function so the arithmetic that decides Tier-1 promotion can be
+    driven by a test; it was a closure inside a 2000-line coroutine.
+    Corroboration is everything EXCEPT the name. With escalation=0.0 the
+    result is identical to the sum this replaces.
+    """
+    corrob = venue + date + ticket + both + escalation
+    return venue + date + ticket + both + escalation + name, corrob
+
+
+def escalation_trail(notes: list) -> dict | None:
+    """The confidence-trail line for the same-escalation correlation step.
+
+    Keeps apart the outcomes CLAUDE.md rule 1 requires: did not run (warn,
+    with the reason), ran and found nothing (warn, with the counts), ran and
+    used evidence (pass), errored (fail).
+    """
+    for n in notes or []:
+        k = n.get("kind")
+        if k == "escalation_skipped":
+            return {"mark": "warn",
+                    "text": "<strong>Chat/call correlation did not run</strong> — "
+                            f"{n.get('detail', 'unknown reason')}. This is NOT a "
+                            "finding that no chat or call exists."}
+        if k == "escalation_checked":
+            st = n.get("stats") or {}
+            counts = (f"{st.get('conversations', 0)} chat/call ticket(s) seen, "
+                      f"{st.get('in_window', 0)} in the review's timeline, "
+                      f"{st.get('qualified', 0)} on the same problem")
+            if st.get("errors"):
+                return {"mark": "fail",
+                        "text": "<strong>Chat/call correlation errored</strong> on "
+                                f"{st['errors']} ticket(s) ({counts}) — those "
+                                "tickets were not judged, not ruled out."}
+            if st.get("qualified"):
+                return {"mark": "pass",
+                        "text": "<strong>Chat/call ticket matches this escalation</strong> — "
+                                f"{counts}; {st.get('promoted', 0)} added as a "
+                                "candidate on that evidence."}
+            return {"mark": "warn",
+                    "text": "<strong>Chat/call correlation ran and found nothing</strong> — "
+                            f"{counts}. No same-guest chat or call in the "
+                            "timeline described this problem."}
+    return None
 
 
 def complete_booking_row(booking: dict, lookup) -> tuple:
@@ -2537,6 +2604,12 @@ async def process_review(review_id: str, force_candidates: bool = False):
                                         f"be a booking id ({_nums}){_again}. The first "
                                         f"was used; the others were not."})
 
+                    # The chat/call correlation step, said either way: ran and
+                    # found nothing is not did-not-run (CLAUDE.md rule 1).
+                    _et = escalation_trail(_notes)
+                    if _et:
+                        confidence_trail.append(_et)
+
                     if _short:
                         # THE WAREHOUSE IS ASKED NOW, not on confirm. These
                         # cards used to be built from the ticket's custom
@@ -2564,6 +2637,13 @@ async def process_review(review_id: str, force_candidates: bool = False):
                             # must not overwrite the booking's own record,
                             # which is authoritative wherever it is readable.
                             _c["zendesk_guest_name"] = _row["zendesk_guest_name"]
+                            # The chat/call ticket that told the same story as
+                            # the review, for the picker to show.
+                            if _row.get("escalation"):
+                                _c["escalation"] = _row["escalation"]
+                                _c["escalation_ticket_id"] = _row.get("ticket_id")
+                                _c["score_escalation"] = round(
+                                    escalation_points(_row["escalation"]), 2)
                             _c["details_lookup"] = _row["details_lookup"]
                             for _k in ("tid", "tgid", "vid", "bms_link",
                                        "tgid_link", "booking_status",
@@ -2611,6 +2691,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
                     bid_ticket_text = {}   # bid -> subject+body of its source ticket
                     bid_name_score  = {}   # bid -> 0..1 requester-name confidence
                     bid_signals     = {}   # bid -> ticket custom-field facts
+                    bid_escalation  = {}   # bid -> a same-guest chat/call ticket on this problem
                     for _f, _l, _full in search_identities:
                         try:
                             # No lookback_days — the service defaults to since
@@ -2630,6 +2711,22 @@ async def process_review(review_id: str, force_candidates: bool = False):
                                         float(_tr.get("name_score") or 0.0))
                                     if _tr.get("signals"):
                                         bid_signals[_tb] = _tr["signals"]
+                                        # Judged per TICKET, on that ticket's own
+                                        # channel, date and words - a booking can
+                                        # have several tickets, and mixing one's
+                                        # channel with another's text would
+                                        # invent evidence.
+                                        try:
+                                            _ev = zendesk.escalation_evidence(
+                                                _tr["signals"], _tr.get("text", ""),
+                                                indicators, author_first, author_last,
+                                                (review.received_at or datetime.utcnow())
+                                                .date().isoformat())
+                                        except Exception as _ee:
+                                            log.warning(f"[tier2] escalation check failed: {_ee}")
+                                            _ev = None
+                                        if _ev and _ev.get("qualifies"):
+                                            bid_escalation[_tb] = _ev
                             log.info(
                                 f"[tier2] zendesk requester: {len(_hits)} BIDs "
                                 f"for '{_f} {_l or ''}'")
@@ -2814,10 +2911,14 @@ async def process_review(review_id: str, force_candidates: bool = False):
                                              author_first, author_last)
                             return 3.0 * max(zd, bq, tk)
 
+                        def _esc_pts(bid):
+                            return escalation_points(bid_escalation.get(str(bid)))
+
                         def _score(row, bid=None):
-                            return (_venue_pts(row, bid) + _date_pts(row)
-                                    + _ticket_pts(bid) + _both_pts(bid)
-                                    + _name_pts(row, bid))
+                            return compose_tier2_score(
+                                _venue_pts(row, bid), _date_pts(row),
+                                _ticket_pts(bid), _both_pts(bid),
+                                _name_pts(row, bid), _esc_pts(bid))[0]
 
                         # ── Venue filter ──────────────────────────────────────
                         # When the review names a venue, only bookings for that
@@ -2885,8 +2986,10 @@ async def process_review(review_id: str, force_candidates: bool = False):
                             # the promotion rule contradicted it.
                             #
                             # Corroboration is everything EXCEPT the name.
-                            _corrob = (_venue_pts(bq_row, bid) + _date_pts(bq_row)
-                                       + _ticket_pts(bid) + _both_pts(bid))
+                            _corrob = compose_tier2_score(
+                                _venue_pts(bq_row, bid), _date_pts(bq_row),
+                                _ticket_pts(bid), _both_pts(bid),
+                                _name_pts(bq_row, bid), _esc_pts(bid))[1]
                             _ok, _why_not = tier1_promotable(_conf, _corrob)
                             if not _ok and _conf >= 3.0:
                                 confidence_trail.append({"mark": "warn",
@@ -2922,6 +3025,9 @@ async def process_review(review_id: str, force_candidates: bool = False):
                                 candidates[0]["score_date"]   = round(_date_pts(bq_row), 2)
                                 candidates[0]["score_ticket"] = round(_ticket_pts(bid), 2)
                                 candidates[0]["score_name"]   = round(_name_pts(bq_row, bid), 2)
+                                candidates[0]["score_escalation"] = round(_esc_pts(bid), 2)
+                                if bid_escalation.get(str(bid)):
+                                    candidates[0]["escalation"] = bid_escalation[str(bid)]
                                 candidates[0]["venue_signal"] = _venue_pts(bq_row, bid) > 0
                                 candidate_state = True
                                 match_tier = 2
@@ -2983,6 +3089,9 @@ async def process_review(review_id: str, force_candidates: bool = False):
                                 candidates[i]["score_ticket"] = round(_tp, 2)
                                 candidates[i]["score_both"]   = round(_bp, 2)
                                 candidates[i]["score_name"]   = round(_name_pts(row, bid), 2)
+                                candidates[i]["score_escalation"] = round(_esc_pts(bid), 2)
+                                if bid_escalation.get(str(bid)):
+                                    candidates[i]["escalation"] = bid_escalation[str(bid)]
                                 candidates[i]["venue_signal"] = _vp > 0 or _bp > 0
                             candidate_state = True
                             match_tier = 2
