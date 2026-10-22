@@ -1614,29 +1614,8 @@ async def process_review(review_id: str, force_candidates: bool = False):
         # so they get DIFFERENT trail lines — the two empties must not collapse.
         _xl_trail = None
         if not review.body_english:
-            try:
-                result = (await claude.translate(
-                    review.body_original, review.language or "auto", review_id)
-                    or "").strip()
-                if not result or result == "ENGLISH_ALREADY":
-                    _xl_trail = {"mark": "pass",
-                                 "text": "<strong>Translation</strong> — none "
-                                         "needed; the review reads as English "
-                                         "(ENGLISH_ALREADY)"}
-                else:
-                    _verdict = await reply_language.english_or_reject(result, review_id)
-                    if _verdict["store"]:
-                        review.body_english = result
-                    _xl_trail = {"mark": "pass" if _verdict["store"] else "warn",
-                                 "text": "<strong>Translation</strong> — "
-                                         + _verdict["why"]}
-                db.commit()
-            except Exception as e:
-                log.exception(f"Translation failed: {e}")
-                _xl_trail = {"mark": "warn",
-                             "text": f"<strong>Translation</strong> — the inbound "
-                                     f"translation call failed ({e}); the review "
-                                     f"is shown in its original language"}
+            _xl_trail = await reply_language.translate_inbound(review, review_id)
+            db.commit()
 
         # ── 1b. Name the guest's language ─────────────────────────────────────
         # OUTSIDE the block above, and that is the entire fix. The detection
