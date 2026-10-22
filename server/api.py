@@ -4264,8 +4264,10 @@ async def vs_intake(body: VsIntake, x_vs_key: str | None = Header(default=None),
     _provided_en = (rv.get("body_english") or "").strip()
     _en_to_store = ""
     _xl_trail = None
+    _xl_state = ""
     if _provided_en:
         _verdict = await _rl.english_or_reject(_provided_en, rid)
+        _xl_state = _rl._STATE_FOR_OUTCOME.get(_verdict["outcome"], "failed")
         if _verdict["store"]:
             _en_to_store = _provided_en
         _xl_trail = {"mark": "pass" if _verdict["store"] else "warn",
@@ -4280,6 +4282,7 @@ async def vs_intake(body: VsIntake, x_vs_key: str | None = Header(default=None),
         author=rv.get("author") or "",
         body_original=rv.get("body_original") or "",
         body_english=_en_to_store,
+        translation_state=_xl_state,
         reference_number=bid or None,
         received_at=datetime.utcnow(), date_source="ingest",
         status="draft",

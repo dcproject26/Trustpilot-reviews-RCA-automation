@@ -449,24 +449,110 @@ async def english_or_reject(text: str, review_id: str = None) -> dict:
     from server.services import claude as claude_svc
     try:
         detected = (await claude_svc.detect_language(text) or "").strip()
+        _verr = None
     except Exception as e:
         _log_translation_failure(review_id, "verify", e)
-        return {"store": False, "outcome": "unverified", "language": "",
-                "why": f"the translation could not be language-checked ({e}), "
-                       f"so it was NOT stored as the English text — re-run to "
-                       f"try the translation again"}
+        detected, _verr = "", e
     if detected and detected.lower() in _MEANS_ENGLISH:
         return {"store": True, "outcome": "stored", "language": detected,
                 "why": "translated to English (confirmed by the language check)"}
     if not detected:
+        # The verifier could not run or could not name the language. That is
+        # NOT evidence the translation is bad - the translation was already
+        # produced. Fall back to a deterministic check; a result that clearly
+        # reads as English is kept, labelled unverified. Anything else is
+        # still refused.
+        reason = (f"the language check failed ({_verr})" if _verr
+                  else "the language check could not name the language")
+        if looks_english(text):
+            return {"store": True, "outcome": "stored_unverified",
+                    "language": "",
+                    "why": f"translated to English; {reason}, so it was "
+                           f"checked by a local heuristic only and is stored "
+                           f"UNVERIFIED"}
         return {"store": False, "outcome": "unverified", "language": "",
-                "why": "the translation could not be language-checked — the "
-                       "detector did not run or could not name it — so it was "
-                       "NOT stored as the English text; re-run to try again"}
+                "why": f"{reason} and the text does not read as English by "
+                       f"the local heuristic either, so it was NOT stored "
+                       f"as the English text; re-run to try again"}
     return {"store": False, "outcome": "wrong_language", "language": detected,
-            "why": f"the translation came back in {detected}, not English — a "
+            "why": f"the translation came back in {detected}, not English - a "
                    f"translation in the wrong language is a failed translation, "
                    f"so it was NOT stored as the review's English text"}
+
+
+_EN_STOPWORDS = frozenset(
+    "the a an and or but of to in on at for with is are was were be been it "
+    "this that these those i we you they he she my our your their not no "
+    "have has had do did very so as by from".split())
+
+# verdict outcome -> Review.translation_state
+_STATE_FOR_OUTCOME = {
+    "stored": "stored", "stored_unverified": "stored_unverified",
+    "wrong_language": "refused_wrong_language",
+    "unverified": "refused_unverified",
+}
+
+
+def looks_english(text: str) -> bool:
+    """Deterministic English check used only when the model verifier is down.
+
+    Mostly-ASCII letters AND enough common English function words. Italian,
+    Spanish, Polish etc. fail one or the other."""
+    t = (text or "").strip()
+    letters = [c for c in t if c.isalpha()]
+    if not letters:
+        return False
+    if sum(1 for c in letters if ord(c) < 128) / len(letters) < 0.97:
+        return False
+    words = re.findall(r"[a-z']+", t.lower())
+    hits = sum(1 for w in words if w in _EN_STOPWORDS)
+    if len(words) <= 4:
+        return hits >= 1
+    return hits >= 2 and hits / len(words) >= 0.15
+
+
+def _known_non_english(lang) -> bool:
+    l = (lang or "").strip().lower()
+    return bool(l) and l not in _NEVER_DETECTED and l not in _MEANS_ENGLISH
+
+
+async def translate_inbound(review, review_id: str = None) -> dict:
+    """Inbound translation step. Sets review.body_english / translation_state
+    and returns the confidence-trail entry. Caller commits."""
+    import logging
+    from server.services import claude as claude_svc
+    try:
+        result = (await claude_svc.translate(
+            review.body_original, review.language or "auto", review_id)
+            or "").strip()
+        if not result or result == "ENGLISH_ALREADY":
+            if _known_non_english(review.language):
+                review.translation_state = "english_already_suspicious"
+                return {"mark": "warn",
+                        "text": f"<strong>Translation</strong> - the review is "
+                                f"recorded as {review.language}, yet the "
+                                f"translator answered ENGLISH_ALREADY; no "
+                                f"English text was stored. Suspicious - check "
+                                f"the language and re-run"}
+            review.translation_state = "english_already"
+            return {"mark": "pass",
+                    "text": "<strong>Translation</strong> - none needed; the "
+                            "review reads as English (ENGLISH_ALREADY)"}
+        verdict = await english_or_reject(result, review_id)
+        if verdict["store"]:
+            review.body_english = result
+        review.translation_state = _STATE_FOR_OUTCOME.get(
+            verdict["outcome"], "failed")
+        mark = "pass" if verdict["outcome"] == "stored" else "warn"
+        return {"mark": mark,
+                "text": "<strong>Translation</strong> - " + verdict["why"]}
+    except Exception as e:
+        logging.getLogger(__name__).exception(f"Translation failed: {e}")
+        review.translation_state = "failed"
+        return {"mark": "warn",
+                "text": f"<strong>Translation</strong> - the inbound "
+                        f"translation call failed ({e}); the review "
+                        f"is shown in its original language"}
 
 
 async def translate_outgoing(english: str, review, review_id: str = None) -> tuple:
