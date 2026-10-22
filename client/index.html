@@ -400,6 +400,26 @@
   .ibx-chip-row {
     display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px;
   }
+  .ibx-day-summary {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px;
+    margin: 2px 0 10px; padding: 7px 12px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--card); font-size: 12px; color: var(--muted-2);
+  }
+  .ibx-day-summary .ds-day { color: var(--text); font-weight: 600; }
+  .ibx-day-summary .ds-stat { color: var(--text); }
+  .ibx-day-summary .ds-stat b {
+    font-variant-numeric: tabular-nums; font-weight: 700;
+  }
+  .ibx-day-summary .ds-sep { color: var(--border); }
+  /* The basis toggle inside the filter popover. */
+  .ibx-basis { display: inline-flex; border: 1px solid var(--border);
+    border-radius: 7px; overflow: hidden; }
+  .ibx-basis button {
+    border: 0; background: var(--card); color: var(--muted-2);
+    padding: 5px 12px; font-size: 12px; cursor: pointer;
+  }
+  .ibx-basis button.on { background: var(--accent, #6d28d9); color: #fff; }
   .ibx-chip {
     display: inline-flex; align-items: center; gap: 4px;
     padding: 3px 8px; border: 1px solid var(--border);
@@ -2018,6 +2038,10 @@
              does not fake a filter that isn't there. Each chip has its own
              × so it can be dropped without opening the popover again. -->
         <div class="ibx-chip-row" id="ibx-chip-row" hidden></div>
+        <!-- Day summary: when a date range is active it answers the three
+             questions at once for that day — what arrived, how much was solved,
+             what is still pending — independent of which tab is open. -->
+        <div class="ibx-day-summary" id="ibx-day-summary" hidden></div>
       </div>
       <!-- The queue is a table now. One column header row, then one row per
            review — Guest, Review, Booking, State, Picked up by, Received. -->
@@ -3458,7 +3482,7 @@ const state = {
   // Filters STACK with the tab. Presets rewrite the concrete fields when set
   // — "today" fills a date range, "pending" implies status ≠ sent — because
   // an active preset and a hand-typed range would fight otherwise.
-  filters: { receivedFrom: '', receivedTo: '', owner: '', preset: '' },
+  filters: { receivedFrom: '', receivedTo: '', owner: '', preset: '', basis: 'received' },
   // What is typed in the inbox search box. Empty means no search — which is
   // not the same as a search that matched nothing, and the empty state below
   // says which.
@@ -3596,30 +3620,93 @@ function matchesSearch(r, q) {
 // PRESETS ARE A FORM OF THE FIELDS, deliberately. "Received today" sets a
 // date range; "Pending" is a status test. They only live in `state.filters`,
 // so the chip strip and the popover read one source and can never disagree.
-function _todayISO() {
-  // Local day, YYYY-MM-DD — matches the <input type=date> value the popover
-  // reads. Anchoring to UTC would show yesterday's reviews for anyone west of
-  // London for most of the working day.
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return y + '-' + m + '-' + dd;
+// The dashboard shows every timestamp in IST (see fmtIST). The day-bucketing
+// for the date filter MUST use the same zone, or "today" silently means "today
+// in the browser's local zone" and a review stamped "21 Oct 03:31 IST" lands on
+// the 20th for anyone west of IST. en-CA gives an ISO yyyy-mm-dd.
+const _IST_DAY_FMT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
+function _istDayISO(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(+d)) return '';
+  return _IST_DAY_FMT.format(d);          // "2026-10-21"
+}
+function _todayISO() { return _istDayISO(Date.now()); }
+function _shiftISO(iso, days) {
+  // Add `days` to a YYYY-MM-DD string, zone-free (date arithmetic only).
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
 }
 
-function _receivedDayISO(r) {
-  const t = r.receivedAt || r.time || null;
-  if (!t) return '';
-  const d = new Date(t);
-  if (isNaN(+d)) return '';
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return y + '-' + m + '-' + dd;
+// The two date axes a day can be read on. "received" = when the review arrived;
+// "solved" = when it was closed/sent (closedAt). The filter and the day summary
+// both read state.filters.basis so they can never disagree.
+function _receivedDayISO(r) { return _istDayISO(r.receivedAt || null); }
+function _solvedDayISO(r)   { return _istDayISO(r.closedAt || null); }
+function _dayISOFor(r, basis) {
+  return basis === 'solved' ? _solvedDayISO(r) : _receivedDayISO(r);
 }
 
 // A pending review has NOT reached sent. Untraceable ones stay pending.
 function _isPending(r) { return r.status !== 'sent'; }
+
+function _prettyDay(iso) {
+  if (!iso) return '…';
+  const [y, m, d] = iso.split('-').map(Number);
+  const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return d + ' ' + (MON[m - 1] || '?') + ' ' + y;
+}
+function _inRange(day, from, to) {
+  if (!day) return false;
+  if (from && day < from) return false;
+  if (to   && day > to)   return false;
+  return true;
+}
+
+// The day-summary strip. Independent of the open tab and of the basis toggle,
+// it answers the three questions the user asks of a day at once — what arrived,
+// how much was solved, what is still pending — so "solved count for a day" is
+// one glance. It respects the owner filter (so a per-owner day reads true) but
+// counts BOTH date axes itself, which is why it does not go through
+// matchesFilters (that filters on one axis).
+function _renderDaySummary() {
+  const el = document.getElementById('ibx-day-summary');
+  if (!el) return;
+  const f = state.filters || {};
+  const from = f.receivedFrom, to = f.receivedTo;
+  if (!from && !to) { el.hidden = true; el.innerHTML = ''; return; }
+  const ownerF = (f.owner || '').toLowerCase();
+  const ownerOK = (r) => {
+    if (!ownerF) return true;
+    const owner = (r.owner || '').toString().trim();
+    return (owner ? owner.toLowerCase() : 'unassigned').includes(ownerF);
+  };
+  let received = 0, solved = 0, pending = 0;
+  for (const r of REVIEWS) {
+    if (!ownerOK(r)) continue;
+    const rcv = _inRange(_receivedDayISO(r), from, to);
+    const slv = _inRange(_solvedDayISO(r), from, to);
+    if (rcv) { received++; if (r.status !== 'sent') pending++; }
+    if (slv) solved++;
+  }
+  const dayLabel = (from && to && from === to)
+    ? _prettyDay(from)
+    : _prettyDay(from) + ' → ' + _prettyDay(to);
+  const basis = f.basis === 'solved' ? 'Solved' : 'Received';
+  el.hidden = false;
+  el.innerHTML =
+    '<span class="ds-day">' + esc(dayLabel) + '</span>'
+    + '<span class="ds-sep">·</span>'
+    + '<span class="ds-stat">Received <b>' + received + '</b></span>'
+    + '<span class="ds-stat">Solved <b>' + solved + '</b></span>'
+    + '<span class="ds-stat">Pending <b>' + pending + '</b></span>'
+    + '<span class="ds-sep">·</span>'
+    + '<span>list shows <b>' + basis.toLowerCase() + '</b> on this day</span>';
+}
 
 function matchesFilters(r) {
   const f = state.filters || {};
@@ -3632,7 +3719,10 @@ function matchesFilters(r) {
   }
   if (f.preset === 'pending' && !_isPending(r)) return false;
   if (f.receivedFrom || f.receivedTo) {
-    const day = _receivedDayISO(r);
+    // Under the "solved" basis a review with no close date cannot fall on any
+    // solved-day, so it is correctly excluded from a solved-day range — that is
+    // what "solved on this day" means.
+    const day = _dayISOFor(r, f.basis || 'received');
     if (!day) return false;
     if (f.receivedFrom && day < f.receivedFrom) return false;
     if (f.receivedTo   && day > f.receivedTo)   return false;
@@ -3655,10 +3745,13 @@ function _renderChips() {
   if (!row) return;
   const f = state.filters || {};
   const chips = [];
-  if (f.preset === 'today')   chips.push(['preset', 'Received today', 'preset']);
+  const axis = f.basis === 'solved' ? 'Solved' : 'Received';
+  const PRESET_LABEL = { today: axis + ' today', yesterday: axis + ' yesterday',
+                         week: axis + ' last 7 days' };
+  if (PRESET_LABEL[f.preset]) chips.push(['preset', PRESET_LABEL[f.preset], 'preset']);
   if (f.preset === 'pending') chips.push(['preset', 'Pending', 'preset']);
-  if (!f.preset && (f.receivedFrom || f.receivedTo)) {
-    const label = (f.receivedFrom || '…') + ' → ' + (f.receivedTo || '…');
+  if (!PRESET_LABEL[f.preset] && (f.receivedFrom || f.receivedTo)) {
+    const label = axis + ': ' + (f.receivedFrom || '…') + ' → ' + (f.receivedTo || '…');
     chips.push(['range', label, 'date']);
   }
   if (f.owner) chips.push(['owner', f.owner, 'owner']);
@@ -3675,15 +3768,15 @@ function _renderChips() {
     : '');
 }
 function _chipKey(kind) {
-  if (kind === 'range') return 'Received: ';
   if (kind === 'owner') return 'Owner: ';
-  return '';
+  return '';                               // range carries its own axis label
 }
 
 function _dropFilter(which) {
   const f = state.filters;
   if (which === 'all') {
-    state.filters = { receivedFrom: '', receivedTo: '', owner: '', preset: '' };
+    state.filters = { receivedFrom: '', receivedTo: '', owner: '', preset: '',
+                      basis: (f && f.basis) || 'received' };
   } else if (which === 'preset') {
     f.preset = ''; f.receivedFrom = ''; f.receivedTo = '';
   } else if (which === 'date') {
@@ -3706,14 +3799,26 @@ function _openFilterPopover() {
   pop.className = 'ibx-pop';
   pop.setAttribute('role', 'dialog');
   pop.setAttribute('aria-label', 'Filter reviews');
+  const axis = f.basis === 'solved' ? 'Solved' : 'Received';
   pop.innerHTML =
-    '<div class="ibx-pop-row"><h4>Quick</h4><div class="ibx-presets">'
+    '<div class="ibx-pop-row"><h4>Count by</h4>'
+    + '<div class="ibx-basis">'
+    + '<button class="' + (f.basis !== 'solved' ? 'on' : '')
+    + '" data-basis="received">Received date</button>'
+    + '<button class="' + (f.basis === 'solved' ? 'on' : '')
+    + '" data-basis="solved">Solved date</button>'
+    + '</div></div>'
+    + '<div class="ibx-pop-row"><h4>Quick</h4><div class="ibx-presets">'
     + '<button class="ibx-preset ' + (f.preset === 'today' ? 'on' : '')
-    + '" data-preset="today">Received today</button>'
+    + '" data-preset="today">' + axis + ' today</button>'
+    + '<button class="ibx-preset ' + (f.preset === 'yesterday' ? 'on' : '')
+    + '" data-preset="yesterday">Yesterday</button>'
+    + '<button class="ibx-preset ' + (f.preset === 'week' ? 'on' : '')
+    + '" data-preset="week">Last 7 days</button>'
     + '<button class="ibx-preset ' + (f.preset === 'pending' ? 'on' : '')
     + '" data-preset="pending">Pending</button>'
     + '</div></div>'
-    + '<div class="ibx-pop-row"><h4>Received</h4>'
+    + '<div class="ibx-pop-row"><h4>' + axis + ' date</h4>'
     + '<div class="ibx-date-pair">'
     + '<input type="date" id="ibx-from" value="' + esc(f.receivedFrom)
     + '" aria-label="From">'
@@ -3741,18 +3846,39 @@ function _openFilterPopover() {
     nf.owner        = pop.querySelector('#ibx-owner').value.trim();
     state.filters = nf;
   };
+  // The date range a date-preset stands for, on the IST calendar.
+  const _presetRange = (key) => {
+    const today = _todayISO();
+    if (key === 'today')     return [today, today];
+    if (key === 'yesterday') { const y = _shiftISO(today, -1); return [y, y]; }
+    if (key === 'week')      return [_shiftISO(today, -6), today];
+    return ['', ''];                       // 'pending' carries no date
+  };
   pop.addEventListener('click', (e) => {
+    const basisBtn = e.target.closest('[data-basis]');
+    if (basisBtn) {
+      const nf = Object.assign({}, state.filters);
+      nf.basis = basisBtn.dataset.basis;
+      // A date preset is re-evaluated on the new axis so "today" keeps meaning
+      // today; the range stays the same dates, only the axis it reads changes.
+      state.filters = nf;
+      pop.remove(); btn.setAttribute('aria-expanded', 'false');
+      _renderChips(); renderInbox();
+      _openFilterPopover();                // reopen so every label reflects the axis
+      return;
+    }
     const preset = e.target.closest('.ibx-preset');
     if (preset) {
       const key = preset.dataset.preset;
       const nf = Object.assign({}, state.filters);
       if (nf.preset === key) {
         nf.preset = '';
-        if (key === 'today') { nf.receivedFrom = ''; nf.receivedTo = ''; }
+        if (key !== 'pending') { nf.receivedFrom = ''; nf.receivedTo = ''; }
       } else {
         nf.preset = key;
-        if (key === 'today') {
-          nf.receivedFrom = _todayISO(); nf.receivedTo = _todayISO();
+        if (key !== 'pending') {
+          const [a, b] = _presetRange(key);
+          nf.receivedFrom = a; nf.receivedTo = b;
         }
       }
       state.filters = nf;
@@ -3762,13 +3888,15 @@ function _openFilterPopover() {
     }
     if (e.target.classList.contains('ibx-apply')) {
       readIntoState();
-      // Typing a range by hand drops the "today" preset — otherwise a chip
-      // would say "Received today" while the range no longer says today.
-      if (state.filters.preset === 'today') state.filters.preset = '';
+      // Typing a range by hand drops any date-preset — otherwise a chip would
+      // say "today" while the range no longer says today. 'pending' survives.
+      if (state.filters.preset && state.filters.preset !== 'pending')
+        state.filters.preset = '';
       pop.remove(); btn.setAttribute('aria-expanded', 'false');
       _renderChips(); renderInbox();
     } else if (e.target.classList.contains('ibx-reset')) {
-      state.filters = { receivedFrom: '', receivedTo: '', owner: '', preset: '' };
+      state.filters = { receivedFrom: '', receivedTo: '', owner: '', preset: '',
+                        basis: state.filters.basis || 'received' };
       pop.remove(); btn.setAttribute('aria-expanded', 'false');
       _renderChips(); renderInbox();
     }
@@ -3858,6 +3986,7 @@ function sortReviews(list) {
 
 function renderInbox() {
   _renderChips();
+  _renderDaySummary();
   const list = document.getElementById('inbox-list');
   // Rebuilding innerHTML (below) drops the scrolled children and resets the
   // container's scrollTop to 0. A background poll re-renders while the user is
@@ -9654,7 +9783,7 @@ document.querySelectorAll('.inbox-tab').forEach(tab => {
 document.addEventListener('click', (ev) => {
   const chip = ev.target.closest('[data-load-owner]');
   if (!chip) return;
-  if (!state.filters) state.filters = {receivedFrom: '', receivedTo: '', owner: '', preset: ''};
+  if (!state.filters) state.filters = {receivedFrom: '', receivedTo: '', owner: '', preset: '', basis: 'received'};
   state.filters.owner = chip.dataset.loadOwner || '';
   _renderChips();
   renderInbox();
