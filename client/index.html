@@ -2315,6 +2315,11 @@ async function fetchInbox() {
         time:           row.received_at ? fmtIST(row.received_at) : 'no date recorded',
         status:         row.status || 'new',
         closedAt:       row.closed_at    || null,
+        // The solve instant the reports count by: the RCA/reply sent time, or
+        // the close-out time when there was no reply. closed_at alone misses
+        // every replied-to review (it only gets a close-out timestamp), so the
+        // "Solved on a day" filter must prefer sent_at. See _solvedDayISO.
+        sentAt:         row.sent_at      || null,
         closeReason:    row.close_reason || '',
         sentRoute:      row.sent_route || '',
         matchTier:      tier,
@@ -3646,7 +3651,14 @@ function _shiftISO(iso, days) {
 // "solved" = when it was closed/sent (closedAt). The filter and the day summary
 // both read state.filters.basis so they can never disagree.
 function _receivedDayISO(r) { return _istDayISO(r.receivedAt || null); }
-function _solvedDayISO(r)   { return _istDayISO(r.closedAt || null); }
+// A review is "solved" only when sent, and its solve instant is the sent time
+// (sent_at) or, for a close-out with no reply, the close time — exactly the
+// cohort the daily and ORM reports count. Counting by closedAt alone undercounts
+// because a replied-to review never gets a closedAt.
+function _solvedDayISO(r) {
+  if ((r.status || '') !== 'sent') return '';
+  return _istDayISO(r.sentAt || r.closedAt || null);
+}
 function _dayISOFor(r, basis) {
   return basis === 'solved' ? _solvedDayISO(r) : _receivedDayISO(r);
 }
