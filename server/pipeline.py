@@ -3568,6 +3568,8 @@ async def process_review(review_id: str, force_candidates: bool = False):
             _d.match_method       = _m.get("method") or narrowing_path
             _d.candidates_list    = candidates
             _d.candidate_state    = candidate_state
+            from server.services.repeat_guest import stamp_guest_key as _sgk
+            _sgk(_d)
             # The trail written here is the MATCHING half only — the analysis
             # has not run yet. It replaces whatever a previous completed run
             # left, and `generated_at` is not touched until the end, so a run
@@ -4354,6 +4356,8 @@ async def process_review(review_id: str, force_candidates: bool = False):
         draft.match_method         = _match.get("method") or narrowing_path
         draft.candidates_list      = candidates
         draft.candidate_state      = candidate_state
+        from server.services.repeat_guest import stamp_guest_key as _sgk
+        _sgk(draft)
         # Translation note (step 1) FIRST, and it must survive the branches above
         # that reassign confidence_trail to a carried prior trail. Prepended in
         # place so the persist line stays the plain whole-trail write a finished

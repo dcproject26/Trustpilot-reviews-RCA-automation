@@ -41,6 +41,7 @@ from server.config import status_summary, is_live, MOCK_MODE
 from server.services.slack import format_rca_slack, post_to_thread
 from server.services.claude import flag_to_biz_message
 from server.services.bigquery_patch import get_similar_complaints
+from server.services.repeat_guest import stamp_guest_key, find_repeats
 from server.services import dss as dss_svc
 
 _START_TIME = time.time()
@@ -2128,6 +2129,7 @@ async def select_candidate(review_id: str, body: CandidateSelect,
     # dies (see the durable-runs work), a stale reply stays un-postable rather
     # than going out against the new booking.
     d.rca_stale = True
+    stamp_guest_key(d)
     db.commit()
 
     # Re-run pipeline to fetch Zendesk/insights/RCA for the confirmed booking —
@@ -2232,6 +2234,7 @@ async def set_booking_id(review_id: str, body: BookingIdSet,
     # RCA reflects the pre-change match until the rebuild below finishes; refuse
     # to post it in the meantime. See select-candidate for the same guard.
     d.rca_stale = True
+    stamp_guest_key(d)
     db.commit()
 
     jobs.enqueue(review_id, "bid-set-by-hand")
@@ -2867,6 +2870,53 @@ def patch_action(review_id: str, body: ActionPatch,
     flag_modified(d, "actions_taken")
     db.commit()
     return {"ok": True, "actions_taken": actions}
+
+
+# ── Repeat guest (post-confirmation, never by name) ─────────────────────────
+
+def repeat_guest_payload(db: Session, review_id: str) -> dict:
+    """Prior/other reviews by the same confirmed guest. See services/repeat_guest."""
+    r = db.query(Review).filter(Review.id == review_id).first()
+    if not r:
+        raise HTTPException(404, f"No review {review_id}.")
+    d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
+    me = {"id": review_id, "received_at": r.received_at,
+          "confirmed_bid": getattr(d, "confirmed_bid", None) if d else None,
+          "guest_key": getattr(d, "guest_key", None) if d else None}
+    others = []
+    if me["confirmed_bid"]:
+        from sqlalchemy import or_
+        conds = [RcaDraft.confirmed_bid == me["confirmed_bid"]]
+        if me["guest_key"]:
+            conds.append(RcaDraft.guest_key == me["guest_key"])
+        rows = (db.query(RcaDraft, Review)
+                  .join(Review, Review.id == RcaDraft.review_id)
+                  .filter(or_(*conds), RcaDraft.review_id != review_id).all())
+        for od, orv in rows:
+            others.append({"id": orv.id, "guest_key": od.guest_key,
+                           "confirmed_bid": od.confirmed_bid,
+                           "received_at": orv.received_at,
+                           "rating": orv.rating, "status": orv.status})
+    res = find_repeats(me, others)
+    for m in res["matches"]:
+        ra = m.get("received_at")
+        m["received_at"] = ra.isoformat() if ra else None
+        m.pop("guest_key", None)   # internal identity, not for the wire
+    me_ra = me["received_at"]
+    return {"review_id": review_id, "state": res["state"],
+            "has_guest_key": res["has_guest_key"],
+            "ordinal": res["ordinal"], "matches": res["matches"],
+            "confirmed_bid": me["confirmed_bid"],
+            "message": {
+                "not_confirmed": "Booking id not confirmed - repeat check was NOT run.",
+                "no_guest_key": "Booking confirmed but it exposes no guest identity - only the booking id was compared.",
+                "none": "Checked: no other review from this guest.",
+                "found": "Other reviews from this guest found."}[res["state"]]}
+
+
+@router.get("/api/reviews/{review_id}/repeat-guest")
+async def repeat_guest(review_id: str, db: Session = Depends(get_session)):
+    return repeat_guest_payload(db, review_id)
 
 
 # ── NEW: Similar complaints refresh ─────────────────────────────────────────
@@ -4341,6 +4391,7 @@ def mark_untraceable(review_id: str, db: Session = Depends(get_session)):
     d.match_confidence = None
     d.match_method     = "Marked untraceable by associate"
     d.selected_candidate_bid = None
+    stamp_guest_key(d)   # booking is None -> clears the key
     trail = list(d.confidence_trail or [])
     trail.append({"mark": "warn",
                   "text": "<strong>Marked untraceable</strong> — associate rejected "
