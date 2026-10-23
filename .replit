@@ -30,9 +30,14 @@ PIP_USER = "false"
 # The base Python (Nix store) is read-only and already contains some of these
 # packages (e.g. requests), so pip's attempt to UNINSTALL the old copy before
 # upgrading fails with "Permission denied: /nix/store/.../requests". Ignoring
-# already-installed packages makes pip install fresh into .pythonlibs without
-# touching the read-only Nix store.
+# already-installed packages makes pip install fresh without touching the
+# read-only Nix store.
 PIP_IGNORE_INSTALLED = "1"
+# This deploy Python has user-site disabled, so pip's default target is the
+# read-only Nix store site-packages (install fails with Permission denied on the
+# first package). Point pip explicitly at the WRITABLE .pythonlibs dir — the same
+# location Replit's runtime loads packages from — so every package installs there.
+PIP_TARGET = "${REPL_HOME}/.pythonlibs/lib/python3.11/site-packages"
 
 [agent]
 expertMode = true
