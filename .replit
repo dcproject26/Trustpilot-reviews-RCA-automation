@@ -24,10 +24,9 @@ externalPort = 80
 PYTHONPATH = "${REPL_HOME}"
 PYTHONUNBUFFERED = "1"
 # Deployment builds on a Python where user site-packages are disabled, so a
-# `pip install --user` (Replit's default package step) fails with "Can not
-# perform a '--user' install". Force pip off --user for the build AND runtime.
+# `pip install --user` (Replit's default package step) fails. Force pip off
+# --user so it installs into the environment instead of a user dir.
 PIP_USER = "false"
-PYTHONNOUSERSITE = "1"
 
 [agent]
 expertMode = true
