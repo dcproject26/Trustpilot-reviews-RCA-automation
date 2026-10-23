@@ -41,6 +41,7 @@ from server.config import status_summary, is_live, MOCK_MODE
 from server.services.slack import format_rca_slack, post_to_thread
 from server.services.claude import flag_to_biz_message
 from server.services.bigquery_patch import get_similar_complaints
+from server.services.repeat_guest import stamp_booking, find_repeats
 from server.services import dss as dss_svc
 
 _START_TIME = time.time()
@@ -2135,6 +2136,7 @@ async def select_candidate(review_id: str, body: CandidateSelect,
     # dies (see the durable-runs work), a stale reply stays un-postable rather
     # than going out against the new booking.
     d.rca_stale = True
+    stamp_booking(d)
     db.commit()
 
     # Re-run pipeline to fetch Zendesk/insights/RCA for the confirmed booking —
@@ -2239,6 +2241,7 @@ async def set_booking_id(review_id: str, body: BookingIdSet,
     # RCA reflects the pre-change match until the rebuild below finishes; refuse
     # to post it in the meantime. See select-candidate for the same guard.
     d.rca_stale = True
+    stamp_booking(d)
     db.commit()
 
     jobs.enqueue(review_id, "bid-set-by-hand")
@@ -2874,6 +2877,60 @@ def patch_action(review_id: str, body: ActionPatch,
     flag_modified(d, "actions_taken")
     db.commit()
     return {"ok": True, "actions_taken": actions}
+
+
+# ── Repeat guest (post-confirmation, never by name) ─────────────────────────
+
+def repeat_guest_payload(db: Session, review_id: str) -> dict:
+    """Other reviews by the same guest (email / Zendesk account / booking id)."""
+    r = db.query(Review).filter(Review.id == review_id).first()
+    if not r:
+        raise HTTPException(404, f"No review {review_id}.")
+    d = db.query(RcaDraft).filter(RcaDraft.review_id == review_id).first()
+    me = {"id": review_id, "received_at": r.received_at,
+          "confirmed_bid": getattr(d, "confirmed_bid", None) if d else None,
+          "guest_email": getattr(d, "guest_email", None) if d else None,
+          "zendesk_requester_id": getattr(d, "zendesk_requester_id", None) if d else None}
+    others = []
+    from sqlalchemy import or_, func
+    conds = []
+    if me["confirmed_bid"]:
+        conds.append(RcaDraft.confirmed_bid == me["confirmed_bid"])
+    if me["guest_email"]:
+        conds.append(func.lower(RcaDraft.guest_email) == str(me["guest_email"]).strip().lower())
+    if me["zendesk_requester_id"]:
+        conds.append(RcaDraft.zendesk_requester_id == me["zendesk_requester_id"])
+    if conds:
+        rows = (db.query(RcaDraft, Review)
+                  .join(Review, Review.id == RcaDraft.review_id)
+                  .filter(or_(*conds), RcaDraft.review_id != review_id).all())
+        for od, orv in rows:
+            others.append({"id": orv.id, "guest_email": od.guest_email,
+                           "zendesk_requester_id": od.zendesk_requester_id,
+                           "confirmed_bid": od.confirmed_bid,
+                           "received_at": orv.received_at,
+                           "rating": orv.rating, "status": orv.status})
+    res = find_repeats(me, others)
+    for m in res["matches"]:
+        ra = m.get("received_at")
+        m["received_at"] = ra.isoformat() if ra else None
+        for k in ("guest_email", "zendesk_requester_id"):
+            m.pop(k, None)   # identity values never go on the wire
+    return {"review_id": review_id, "state": res["state"],
+            "has_key": res["has_key"], "key_kinds": res["key_kinds"],
+            "ordinal": res["ordinal"], "matches": res["matches"],
+            "confirmed_bid": me["confirmed_bid"],
+            "identity_reason": (getattr(d, "guest_identity_reason", None) or "") if d else "",
+            "message": {
+                "not_matched": "No booking or Zendesk ticket matched, so there is no guest key - repeat check was NOT run.",
+                "booking_only": "Only the booking id was comparable (no guest email / Zendesk account) - no other review shares it.",
+                "no_match": "Checked: no other review from this guest.",
+                "found": "Other reviews from this guest found."}[res["state"]]}
+
+
+@router.get("/api/reviews/{review_id}/repeat-guest")
+async def repeat_guest(review_id: str, db: Session = Depends(get_session)):
+    return repeat_guest_payload(db, review_id)
 
 
 # ── NEW: Similar complaints refresh ─────────────────────────────────────────
@@ -4351,6 +4408,7 @@ def mark_untraceable(review_id: str, db: Session = Depends(get_session)):
     d.match_confidence = None
     d.match_method     = "Marked untraceable by associate"
     d.selected_candidate_bid = None
+    stamp_booking(d)   # booking is None -> clears every key
     trail = list(d.confidence_trail or [])
     trail.append({"mark": "warn",
                   "text": "<strong>Marked untraceable</strong> — associate rejected "
