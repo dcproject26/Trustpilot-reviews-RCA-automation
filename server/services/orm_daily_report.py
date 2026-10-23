@@ -110,7 +110,10 @@ def count_rows(rows, day: date) -> tuple[dict, dict]:
         cell = r[_COL_DATE] if len(r) > _COL_DATE else ""
         d = _parse_date(cell)
         if d is None:
-            if str(cell or "").strip():
+            s = str(cell or "").strip()
+            # A spreadsheet error value (#REF!, #N/A, …) is junk, not a date we
+            # failed to read — skip it silently rather than flag it as unreadable.
+            if s and s.upper() not in _SPREADSHEET_ERRORS:
                 unparsed += 1
             continue
         if d != day:
@@ -126,8 +129,16 @@ def count_rows(rows, day: date) -> tuple[dict, dict]:
     return counts, {"unparsed_dates": unparsed, "skipped_non_owner": skipped}
 
 
+# Spreadsheet error values that land in the Date column (e.g. a broken formula
+# reference). They are junk, not dates we failed to parse, so they must not be
+# flagged as "unreadable" — that footnote should mean a real malformed date.
+_SPREADSHEET_ERRORS = {"#REF!", "#N/A", "#ERROR!", "#VALUE!", "#DIV/0!",
+                       "#NAME?", "#NULL!", "#NUM!", "#SPILL!", "#CALC!"}
+
+
 def _fmt_day(day: date) -> str:
-    return f"{day.strftime('%B')} {day.day}, {day.year}"
+    # Lead with the weekday so the report reads e.g. "Thursday, October 22, 2026".
+    return f"{day.strftime('%A')}, {day.strftime('%B')} {day.day}, {day.year}"
 
 
 def render(counts: dict, day: date, meta: dict | None = None) -> str:
