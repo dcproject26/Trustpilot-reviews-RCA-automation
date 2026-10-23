@@ -178,13 +178,21 @@ def render(counts: dict, day: date, meta: dict | None = None) -> str:
     return f"{head}\n{body}{foot}"
 
 
-def build_report(now: datetime | None = None) -> dict:
-    """Read ORM RAW and build the report for today. Returns
-    {text, counts, meta, error} — text is the Slack message, or an error string
-    when the sheet could not be read."""
+def build_report(now: datetime | None = None, day: str | date | None = None) -> dict:
+    """Read ORM RAW and build the report. Defaults to today (IST); pass `day`
+    (a date or 'YYYY-MM-DD') to build a specific day's report — e.g. to re-post a
+    day the 8pm run missed. Returns {text, counts, meta, error, day} — text is the
+    Slack message, or an error string when the sheet could not be read."""
     from server.config import ORM_RAW_SHEET_ID, ORM_RAW_SHEET_TAB
     from server.services.sheet_export import SheetIO
-    day = report_day(now)
+    if day:
+        try:
+            day = date.fromisoformat(day) if isinstance(day, str) else day
+        except ValueError:
+            return {"text": "", "counts": {}, "meta": {}, "day": str(day),
+                    "error": f"bad day {day!r}: expected YYYY-MM-DD"}
+    else:
+        day = report_day(now)
     out = {"text": "", "counts": {}, "meta": {}, "error": "", "day": str(day)}
     if not ORM_RAW_SHEET_ID:
         out["error"] = "ORM_RAW_SHEET_ID is not set"

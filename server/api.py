@@ -4023,23 +4023,25 @@ def orm_raw_write_solved(apply: bool = Query(False),
 
 
 @router.get("/api/orm-report/preview")
-def orm_report_preview():
-    """The internal daily report that would go out now — reads ORM RAW, posts
-    nothing. Returns {text, counts, meta, error, day}."""
+def orm_report_preview(day: str = Query("")):
+    """The internal daily report that would go out — reads ORM RAW, posts
+    nothing. Defaults to today; pass ?day=YYYY-MM-DD to preview a specific day.
+    Returns {text, counts, meta, error, day}."""
     from server.services.orm_daily_report import build_report
-    return build_report()
+    return build_report(day=day or None)
 
 
 @router.post("/api/orm-report/send")
-def orm_report_send():
+def orm_report_send(day: str = Query("")):
     """Build the per-owner report from ORM RAW and post it to the ORM internal
-    channel on demand."""
+    channel on demand. Defaults to today; pass ?day=YYYY-MM-DD to (re)post a
+    specific day the scheduler missed."""
     from server.services.orm_daily_report import build_report
     from server.services.slack import post_to_channel, last_post_failure
     from server.config import ORM_REPORT_CHANNEL
     if not ORM_REPORT_CHANNEL:
         raise HTTPException(400, "ORM_REPORT_CHANNEL is not set.")
-    rep = build_report()
+    rep = build_report(day=day or None)
     if rep.get("error"):
         raise HTTPException(502, f"Could not build the report: {rep['error']}")
     ts = post_to_channel(ORM_REPORT_CHANNEL, rep["text"])
