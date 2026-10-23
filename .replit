@@ -25,8 +25,14 @@ PYTHONPATH = "${REPL_HOME}"
 PYTHONUNBUFFERED = "1"
 # Deployment builds on a Python where user site-packages are disabled, so a
 # `pip install --user` (Replit's default package step) fails. Force pip off
-# --user so it installs into the environment instead of a user dir.
+# --user so it installs into the writable .pythonlibs instead of a user dir.
 PIP_USER = "false"
+# The base Python (Nix store) is read-only and already contains some of these
+# packages (e.g. requests), so pip's attempt to UNINSTALL the old copy before
+# upgrading fails with "Permission denied: /nix/store/.../requests". Ignoring
+# already-installed packages makes pip install fresh into .pythonlibs without
+# touching the read-only Nix store.
+PIP_IGNORE_INSTALLED = "1"
 
 [agent]
 expertMode = true
