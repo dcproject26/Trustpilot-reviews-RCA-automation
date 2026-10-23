@@ -214,6 +214,15 @@ def test_an_unreadable_date_is_counted_not_silently_dropped():
     assert meta["unparsed_dates"] == 1
 
 
+def test_a_spreadsheet_error_cell_is_not_flagged_as_unreadable():
+    """A junk cell like #REF! (a broken formula) is skipped silently, not counted
+    as an unreadable date — so it never triggers the footnote."""
+    for junk in ("#REF!", "#N/A", "#VALUE!"):
+        counts, meta = R.count_rows([_row(junk, "Trustpilot", "Avi")],
+                                    date(2026, 10, 21))
+        assert counts == {} and meta["unparsed_dates"] == 0, junk
+
+
 def test_several_date_formats_all_parse_to_the_same_day():
     day = date(2025, 4, 1)
     for s in ("April 1, 2025", "1 April 2025", "4/1/2025", "2025-04-01"):
@@ -224,7 +233,8 @@ def test_several_date_formats_all_parse_to_the_same_day():
 def test_render_shows_a_table_with_a_total_and_reports_unparsed():
     counts = {"Devshree": {R.SOCIAL_MEDIA: 1, R.TRUSTPILOT: 2, R.APP_FEEDBACK: 0}}
     text = R.render(counts, date(2026, 10, 21), {"unparsed_dates": 1})
-    assert "cases solved October 21, 2026" in text
+    assert "October 21, 2026" in text
+    assert "Wednesday" in text          # the weekday now leads the date
     assert "Devshree" in text and "TOTAL" in text
     assert "unreadable date" in text
 
