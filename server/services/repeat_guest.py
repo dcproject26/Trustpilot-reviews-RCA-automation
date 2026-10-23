@@ -1,84 +1,91 @@
-"""Repeat-reviewer detection, keyed on the CONFIRMED booking's guest.
+"""Repeat-reviewer detection. Identity = guest EMAIL, Zendesk ACCOUNT id
+(requester_id) and confirmed BOOKING id. NEVER a name, NEVER the PII hash.
 
-NOT BY NAME. A review's display name is not an identity (too many guests share
-one), and a review can only be called a repeat after its booking id is
-confirmed, because only then do we know who the guest on the booking is. So:
+Why: BigQuery's fct_bookings has no guest email and no customer id - only
+`primary_guest_name`, a PII hash that is not an identity. The guest email lives
+in Zendesk (custom field "Customer Email", else requester email) and used to be
+computed then discarded; the pipeline now captures it at ticket-match time.
 
-  * a review with no confirmed BID makes NO repeat claim, and is never returned
-    as anyone else's repeat;
-  * two reviews are the same guest when their confirmed bookings share a guest
-    key (a guest email if the booking ever exposes one, else the PII hash in
-    fct_bookings.primary_guest_name), or share the same booking id.
+Two reviews are the SAME guest iff they share ANY of: normalised guest_email,
+zendesk_requester_id, confirmed_bid. A review with none of the three makes no
+claim and is never returned as another's repeat.
 
-WHICH IDENTITY FIELDS EXIST (verified in code). `verify_bid` returns
-`primary_guest_name` (a PII hash on a large share of rows). The only email on
-the booking path, `escalation_email`, comes off dim_vendors.contact_details -
-the SUPPLIER's contact, not the guest's - so it is deliberately NOT used. A
-`guest_email` key on the booking dict is honoured if a query ever supplies one.
-A plain (non-hashed) primary_guest_name is a display name, so it is not a key.
+Payload states (CLAUDE.md rule 1 - "did not run" must not look like "ran, found
+none"):
+  not_matched   no confirmed booking, no Zendesk email/account: nothing checked
+  booking_only  only the booking id was comparable (no email/account id) and no
+                other review shares it
+  no_match      keyed by email/account, checked, no other review
+  found         at least one other review from this guest
+The reason a key is absent is stored on the draft (guest_identity_reason).
 
-States (CLAUDE.md rule 1 - "did not run" must not look like "ran, found none"):
-  not_confirmed  no confirmed BID: nothing was checked
-  no_guest_key   BID confirmed but no guest key, and no same-booking match:
-                 only the booking id could be compared
-  none           key present, checked, no other review by this guest
-  found          at least one other review by this guest
-
-All decision logic is pure and driven by tests/test_repeat_guest.py. The
-client panel in client/index.html has no JS test harness in this repo.
+All decision logic is pure and tested in tests/test_repeat_guest.py. The client
+tile in client/index.html has no JS test harness in this repo (Rule 2 exception).
 """
 from __future__ import annotations
 
-from server.names import looks_like_digest
+
+def norm_email(v) -> str:
+    v = str(v or "").strip().lower()
+    return v if "@" in v else ""
 
 
-def guest_key_from_booking(booking, candidate_state: bool = False) -> dict:
-    """Resolve the durable guest identity of a CONFIRMED booking.
-
-    Returns {confirmed_bid, guest_key, guest_email, guest_name_hash, reason}.
-    Unconfirmed (no id, candidate picker active, unverified id) yields all
-    None and a reason - never a key.
-    """
-    out = {"confirmed_bid": None, "guest_key": None, "guest_email": None,
-           "guest_name_hash": None, "reason": ""}
+def _confirmed_bid(booking, candidate_state=False):
+    """(bid, reason). Only a confirmed, verified, actually-read booking counts."""
     b = booking or {}
     bid = str(b.get("id") or "").strip()
     if candidate_state:
-        out["reason"] = "candidate picker active - booking not confirmed"
-        return out
+        return None, "candidate picker active - booking not confirmed"
     if not bid:
-        out["reason"] = "no booking id"
-        return out
+        return None, "no booking id"
     if b.get("_unverified"):
-        out["reason"] = "booking id not verified against the warehouse"
-        return out
+        return None, "booking id not verified against the warehouse"
     if b.get("details_lookup") in ("absent", "failed"):
-        out["reason"] = "booking record was not read"
-        return out
-    out["confirmed_bid"] = bid
-    email = str(b.get("guest_email") or "").strip().lower()
-    nm = str(b.get("primary_guest_name") or "").strip()
-    if email and "@" in email:
-        out["guest_email"] = email
-        out["guest_key"] = "email:" + email
-    if nm and looks_like_digest(nm):
-        out["guest_name_hash"] = nm
-        if not out["guest_key"]:
-            out["guest_key"] = "hash:" + nm
-    if not out["guest_key"]:
-        out["reason"] = ("booking exposes no guest email and a non-hashed "
-                         "guest name, which is not an identity")
-    return out
+        return None, "booking record was not read"
+    return bid, ""
 
 
-def stamp_guest_key(draft) -> dict:
-    """Write the resolved key onto an RcaDraft (clears it when unconfirmed)."""
-    r = guest_key_from_booking(draft.booking, bool(draft.candidate_state))
-    draft.confirmed_bid = r["confirmed_bid"]
-    draft.guest_key = r["guest_key"]
-    draft.guest_email = r["guest_email"]
-    draft.guest_name_hash = r["guest_name_hash"]
-    return r
+def stamp_booking(draft) -> None:
+    """Confirmation paths (select-candidate, set-booking-id, untraceable, early
+    pipeline save). Sets confirmed_bid and CLEARS the Zendesk-derived email and
+    account id: they were read off the previous booking's tickets, so they would
+    be stale. The pipeline re-run re-captures them via stamp_identity."""
+    bid, why = _confirmed_bid(draft.booking, bool(draft.candidate_state))
+    draft.confirmed_bid = bid
+    draft.guest_email = None
+    draft.zendesk_requester_id = None
+    draft.guest_identity_reason = (
+        "zendesk not yet checked for this booking" if bid else why)
+
+
+def stamp_identity(draft, zd_identity=None, zd_error=None, zd_searched=True) -> dict:
+    """Pipeline capture, after the Zendesk step. `zd_identity` is
+    zendesk.guest_identity_from_tickets()'s dict. Email/account id are kept only
+    when the booking is confirmed (the tickets were matched on that booking)."""
+    bid, why = _confirmed_bid(draft.booking, bool(draft.candidate_state))
+    draft.confirmed_bid = bid
+    draft.guest_email = draft.zendesk_requester_id = None
+    if not bid:
+        draft.guest_identity_reason = why
+    elif zd_error is not None:
+        draft.guest_identity_reason = f"zendesk search failed: {zd_error}"
+    elif not zd_searched or zd_identity is None:
+        draft.guest_identity_reason = "zendesk not searched"
+    else:
+        draft.guest_email = norm_email(zd_identity.get("guest_email")) or None
+        draft.zendesk_requester_id = str(zd_identity.get("requester_id") or "") or None
+        draft.guest_identity_reason = zd_identity.get("reason") or ""
+    return {"confirmed_bid": draft.confirmed_bid, "guest_email": draft.guest_email,
+            "zendesk_requester_id": draft.zendesk_requester_id,
+            "reason": draft.guest_identity_reason}
+
+
+def guest_key(row: dict) -> dict:
+    """The comparable identity of a review row: only non-empty parts."""
+    k = {"email": norm_email(row.get("guest_email")),
+         "requester_id": str(row.get("zendesk_requester_id") or "").strip(),
+         "bid": str(row.get("confirmed_bid") or "").strip()}
+    return {n: v for n, v in k.items() if v}
 
 
 def _sort_key(m):
@@ -86,34 +93,35 @@ def _sort_key(m):
 
 
 def find_repeats(me: dict, others: list) -> dict:
-    """Pure matcher. `me`/`others` are dicts with id, guest_key, confirmed_bid,
-    received_at (comparable or None). Returns {state, matches, ordinal}.
-    Each match: the other row plus matched_on ('guest'|'booking') and
-    carry_forward_bid (its confirmed BID). Oldest first.
-    """
-    bid, key = me.get("confirmed_bid"), me.get("guest_key")
-    if not bid:
-        return {"state": "not_confirmed", "matches": [], "ordinal": None,
-                "has_guest_key": False}
+    """Pure matcher. Rows: id, guest_email, zendesk_requester_id, confirmed_bid,
+    received_at. Returns {state, matches, ordinal, has_key, key_kinds}. Each
+    match: the other row plus matched_on (list of 'email'|'requester_id'|
+    'booking') and carry_forward_bid. Oldest first, self excluded."""
+    mk = guest_key(me)
+    if not mk:
+        return {"state": "not_matched", "matches": [], "ordinal": None,
+                "has_key": False, "key_kinds": []}
     matches = []
     for o in others:
-        if o.get("id") == me.get("id") or not o.get("confirmed_bid"):
+        if o.get("id") == me.get("id"):
             continue
-        same_key = bool(key) and o.get("guest_key") == key
-        same_bid = o["confirmed_bid"] == bid
-        if not (same_key or same_bid):
+        ok = guest_key(o)
+        hit = [n for n in mk if ok.get(n) == mk[n]]
+        if not hit:
             continue
         m = dict(o)
-        m["matched_on"] = "guest" if same_key else "booking"
-        m["carry_forward_bid"] = o["confirmed_bid"]
+        m["matched_on"] = ["booking" if n == "bid" else n for n in hit]
+        m["carry_forward_bid"] = o.get("confirmed_bid") or None
         matches.append(m)
     matches.sort(key=_sort_key)
+    kinds = sorted(mk)
+    base = {"has_key": True, "key_kinds": kinds}
     if matches:
         mine = me.get("received_at")
         earlier = sum(1 for m in matches
                       if m["received_at"] is not None
                       and (mine is None or m["received_at"] <= mine))
-        return {"state": "found", "matches": matches, "ordinal": earlier + 1,
-                "has_guest_key": bool(key)}
-    return {"state": "none" if key else "no_guest_key", "matches": [],
-            "ordinal": None, "has_guest_key": bool(key)}
+        return {**base, "state": "found", "matches": matches,
+                "ordinal": earlier + 1}
+    state = "booking_only" if kinds == ["bid"] else "no_match"
+    return {**base, "state": state, "matches": [], "ordinal": None}

@@ -214,12 +214,13 @@ class RcaDraft(Base):
     candidate_state  = Column(Boolean, default=False)   # True = picker active
     selected_candidate_bid = Column(String, nullable=True)
     # Repeat-reviewer identity of the CONFIRMED booking (services/repeat_guest).
-    # NULL = no confirmed BID / no key, never "checked and none". guest_key is
-    # "email:<addr>" or "hash:<primary_guest_name PII hash>"; never a name.
-    confirmed_bid    = Column(String, nullable=True, index=True)
-    guest_key        = Column(String, nullable=True, index=True)
-    guest_email      = Column(String, nullable=True)
-    guest_name_hash  = Column(String, nullable=True)
+    # Identity = guest email, Zendesk requester id, confirmed booking id. NEVER
+    # a name or the PII hash. NULL = absent; guest_identity_reason says WHY
+    # (rule 1: not checked vs checked-and-blank).
+    confirmed_bid         = Column(String, nullable=True, index=True)
+    guest_email           = Column(String, nullable=True, index=True)
+    zendesk_requester_id  = Column(String, nullable=True, index=True)
+    guest_identity_reason = Column(String, nullable=True)
     confidence_trail = Column(JSON, default=list)       # step-by-step signal-extraction trail
     # True once a booking is confirmed/changed and the RCA has NOT been rebuilt
     # for it. The RCA on a just-confirmed draft still reflects the OLD match —
@@ -564,9 +565,9 @@ def _WANTED_DRAFT_COLUMNS(is_pg: bool) -> dict:
         "rca_stale":              "BOOLEAN",
         # Repeat-guest identity of the confirmed booking (repeat_guest.py).
         "confirmed_bid":          "VARCHAR",
-        "guest_key":              "VARCHAR",
         "guest_email":            "VARCHAR",
-        "guest_name_hash":        "VARCHAR",
+        "zendesk_requester_id":   "VARCHAR",
+        "guest_identity_reason":  "VARCHAR",
     }
 
 

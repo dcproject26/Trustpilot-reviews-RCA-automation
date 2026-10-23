@@ -82,6 +82,30 @@ def requester_email(tickets, signals=None) -> str:
     return ""
 
 
+def guest_identity_from_tickets(tickets, signals=None) -> dict:
+    """{guest_email, requester_id, reason} for the repeat-guest key.
+
+    Email is normalised lowercase. `reason` is "" when an email was read, else
+    says why not (rule 1): no ticket matched vs tickets matched but no
+    readable email. requester_id is the Zendesk end-user account id.
+    """
+    tickets = list(tickets or [])
+    if not tickets:
+        return {"guest_email": "", "requester_id": "",
+                "reason": "no Zendesk ticket matched this booking"}
+    email = requester_email(tickets, signals).strip().lower()
+    rid = ""
+    for t in tickets:
+        v = getattr(t, "requester_id", None)
+        if v:
+            rid = str(v)
+            break
+    reason = ""
+    if not email:
+        reason = "tickets matched but Customer Email field and requester email were blank"
+    return {"guest_email": email, "requester_id": rid, "reason": reason}
+
+
 def collect_tickets(booking_id, search, email_of=None) -> tuple:
     """Every ticket on this case, from ALL routes, deduplicated by ticket id.
 
@@ -1437,7 +1461,8 @@ def _get_timeline_sync(_z, booking_id: str, booked_on: str = ""):
         log.info(f"[zendesk] no tickets for BID {booking_id} (all search routes)")
         return [], {}, {"ticket_ids": [], "timeline_raw": [],
                         "zendesk_requester_name": "",
-                        "search_tally": _search_tally}
+                        "search_tally": _search_tally,
+                        "guest_identity": guest_identity_from_tickets([])}
 
     # ── Extract booking fields from custom fields + tags ─────────────────────
     extracted = {}
@@ -1800,6 +1825,9 @@ def _get_timeline_sync(_z, booking_id: str, booked_on: str = ""):
         "timeline_raw": timeline_raw,
         "timeline_raw_ticket_ids": timeline_raw_ticket_ids,
         "zendesk_requester_name": zendesk_requester_name,
+        # Repeat-guest identity (email + account id) off the matched tickets.
+        "guest_identity": guest_identity_from_tickets(
+            [t for t in tickets if str(t.id) in set(ticket_ids)]),
         # WHICH ROUTES RAN AND WHAT EACH FOUND. Carried out so the trail can
         # say it: "one contact" is only honest when all three searched.
         "search_tally": _search_tally,

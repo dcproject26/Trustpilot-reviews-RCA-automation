@@ -5532,26 +5532,27 @@ function renderReviewCol() {
   // Repeat-reviewer panel. Client JS has no test harness in this repo
   // (CLAUDE.md rule 2); the decision logic is server-side and tested in
   // tests/test_repeat_guest.py. This only renders the four states distinctly:
-  // not_confirmed / no_guest_key / none / found (rule 1).
+  // not_matched / booking_only / no_match / found (rule 1). Key = guest
+  // email, Zendesk account id, booking id - never name or hash.
   const rgPanel = col.querySelector('#repeat-guest-panel');
   if (rgPanel) {
     const rgId = rgPanel.dataset.review;
     fetch(`/api/reviews/${rgId}/repeat-guest`).then(x => x.json()).then(p => {
       if (!document.body.contains(rgPanel) || state.selected !== rgId) return;
       const lines = {
-        not_confirmed: 'Repeat check not run - confirm the booking id first.',
-        no_guest_key: 'Booking confirmed, but it exposes no guest identity - repeat check could only compare the booking id.',
-        none: 'Checked - no other review from this guest.',
+        not_matched: 'Repeat check not run - no booking or Zendesk ticket matched yet, so there is no guest key.',
+        booking_only: 'Only the booking id could be compared (no guest email / Zendesk account found) - no other review shares it.',
+        no_match: 'Checked - no other review from this guest.',
       };
       let body;
       if (p.state === 'found') {
         const nth = p.ordinal ? (p.ordinal + (['th','st','nd','rd'][(p.ordinal % 100 > 10 && p.ordinal % 100 < 14) ? 0 : Math.min(p.ordinal % 10, 4) % 4] || 'th')) : '';
-        body = `<div class="similar-summary-line"><strong>${esc(nth)} review from this guest</strong> (same confirmed booking guest, not matched by name)</div>
+        body = `<div class="similar-summary-line"><strong>${esc(nth)} review from this guest</strong> (same guest email, Zendesk account or booking - never matched by name)</div>
           <div class="similar-list">${p.matches.map(m => `
             <div class="similar-item">
               <span class="ref">${esc(m.id)}</span>
               <span class="date">${esc((m.received_at || 'no date').slice(0, 10))}</span>
-              <span class="desc">${m.rating != null ? esc(m.rating) + '★' : ''} · matched on ${m.matched_on === 'booking' ? 'same booking' : 'same guest'}</span>
+              <span class="desc">${m.rating != null ? esc(m.rating) + '★' : ''} · matched on ${(m.matched_on || []).map(k => ({email:'same email', requester_id:'same Zendesk account', booking:'same booking'}[k] || k)).join(' + ')}</span>
               <span class="desc">BID ${esc(m.carry_forward_bid)} (traced - apply by hand if this review is untraceable)</span>
             </div>`).join('')}</div>`;
       } else {
