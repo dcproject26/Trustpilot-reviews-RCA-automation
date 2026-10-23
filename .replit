@@ -35,9 +35,11 @@ PIP_USER = "false"
 PIP_IGNORE_INSTALLED = "1"
 # This deploy Python has user-site disabled, so pip's default target is the
 # read-only Nix store site-packages (install fails with Permission denied on the
-# first package). Point pip explicitly at the WRITABLE .pythonlibs dir — the same
-# location Replit's runtime loads packages from — so every package installs there.
-PIP_TARGET = "${REPL_HOME}/.pythonlibs/lib/python3.11/site-packages"
+# first package). Install with a prefix into the WRITABLE .pythonlibs dir — the
+# same location Replit's runtime loads packages from — so every package installs
+# there. Prefix (not --target) keeps a normal layout so google.* namespace
+# packages resolve correctly.
+PIP_PREFIX = "/home/runner/workspace/.pythonlibs"
 
 [agent]
 expertMode = true
