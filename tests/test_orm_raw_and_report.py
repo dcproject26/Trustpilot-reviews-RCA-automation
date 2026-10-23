@@ -234,6 +234,34 @@ def test_a_day_with_nothing_says_so():
     assert "No cases logged for today" in text
 
 
+def test_build_report_day_param_targets_a_specific_day(monkeypatch):
+    """build_report(day=...) builds THAT day's report, not today's — so a day the
+    8pm scheduler missed can be re-posted. Drives the real build_report with the
+    sheet read mocked."""
+    import server.services.sheet_export as SE
+    rows = [
+        ["October 22, 2026", "Trustpilot", "", "", "", "", "", "", "Avi"],
+        ["October 22, 2026", "Instagram",  "", "", "", "", "", "", "Avi"],
+        ["October 23, 2026", "Trustpilot", "", "", "", "", "", "", "Paul"],
+    ]
+    class FakeIO:
+        def __init__(self, *a, **k): self.tab = "ORM RAW"
+        def resolve_tab(self): return self.tab
+        def read_range(self, rng): return rows
+    monkeypatch.setattr(SE, "SheetIO", FakeIO)
+    out = R.build_report(day="2026-10-22")
+    assert out["day"] == "2026-10-22" and not out["error"]
+    assert out["counts"].get("Avi", {}).get(R.TRUSTPILOT) == 1
+    assert out["counts"].get("Avi", {}).get(R.SOCIAL_MEDIA) == 1
+    assert "Paul" not in out["counts"]          # the 23rd is excluded
+    assert "October 22, 2026" in out["text"]
+
+
+def test_build_report_rejects_a_bad_day():
+    out = R.build_report(day="not-a-date")
+    assert out["error"] and "YYYY-MM-DD" in out["error"]
+
+
 # ── the Sheets connector is matched by name, not an exact slug ───────────────
 
 def test_sheet_connection_matched_by_name_not_exact_slug():
