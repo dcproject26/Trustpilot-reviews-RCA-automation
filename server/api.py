@@ -3598,6 +3598,9 @@ async def reprocess_review(
                     r.body_original = new_body
                     r.body_english  = None      # force re-translation of new text
                     refreshed = True
+                if parsed.get("review_url") and not getattr(r, "review_url", None):
+                    r.review_url = parsed["review_url"]
+                    refreshed = True
                 if parsed.get("reference_number") and not r.reference_number:
                     r.reference_number = parsed["reference_number"]
                     refreshed = True
@@ -4020,6 +4023,19 @@ def orm_raw_write_solved(apply: bool = Query(False),
     if apply and not ORM_RAW_SHEET_ID:
         raise HTTPException(400, "ORM_RAW_SHEET_ID is not set.")
     return write_solved_day(db, day=day, apply=apply)
+
+
+@router.post("/api/orm-master/write-solved")
+def orm_master_write_solved(apply: bool = Query(False),
+                            day: str = Query(""),
+                            db: Session = Depends(get_session)):
+    """Backfill the MASTER sheet with every Trustpilot case solved on `day`
+    (default today IST), deduped by review link. Dry-run unless apply=true."""
+    from server.services.orm_raw_export import write_solved_day_master
+    from server.config import ORM_MASTER_SHEET_ID
+    if apply and not ORM_MASTER_SHEET_ID:
+        raise HTTPException(400, "ORM_MASTER_SHEET_ID is not set.")
+    return write_solved_day_master(db, day=day, apply=apply)
 
 
 @router.get("/api/orm-report/preview")
