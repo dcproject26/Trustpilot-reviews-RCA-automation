@@ -54,6 +54,12 @@ COLUMNS = [
     "If yes, What is the source of the review", "Month", "Year", "Week",
 ]
 
+# The MASTER sheet header: cols 0-20 identical to COLUMNS, the last three differ.
+MASTER_COLUMNS = COLUMNS[:21] + [
+    "Why was review takedown not sent?", "TP link sent for Takedown",
+    "Time When the review was reacted to",
+]
+
 # Columns a human fills after the fact, left blank by the automation. Kept as a
 # named set so "we chose to leave this blank" is distinguishable from "we forgot
 # a column" — and so the test shows exactly which cells a person still owns.
@@ -359,5 +365,152 @@ def on_review_finished(review, draft) -> dict:
         return {"wrote": False, "skipped": "ORM_RAW_EXPORT_ENABLED is off"}
     if not ORM_RAW_SHEET_ID:
         return {"wrote": False, "skipped": "ORM_RAW_SHEET_ID is not set"}
-    return append_row(review, draft, ORM_RAW_SHEET_ID, ORM_RAW_SHEET_TAB,
-                      apply=True)
+    result = append_row(review, draft, ORM_RAW_SHEET_ID, ORM_RAW_SHEET_TAB,
+                        apply=True)
+    _write_master_isolated(review, draft)
+    return result
+
+
+def _write_master_isolated(review, draft) -> None:
+    """Dual-write to the master sheet AFTER the old-sheet write. Fully isolated:
+    any failure is logged and swallowed so it can never break the old write or
+    the solve path."""
+    try:
+        from server.config import (ORM_MASTER_EXPORT_ENABLED,
+                                   ORM_MASTER_SHEET_ID)
+        if ORM_MASTER_EXPORT_ENABLED and ORM_MASTER_SHEET_ID:
+            res = append_master_row(review, draft, apply=True)
+            if res.get("error") or res.get("header_problem"):
+                log.warning("[orm_master] not written for %s: %s",
+                            getattr(review, "id", "?"),
+                            res.get("error") or res.get("header_problem"))
+    except Exception as e:
+        log.warning("[orm_master] write failed for %s: %s",
+                    getattr(review, "id", "?"), e)
+
+
+# ── MASTER sheet (additive dual-write) ──────────────────────────────────────
+
+def master_row_for(review, draft, now: datetime | None = None) -> dict:
+    """One MASTER-sheet row as {column: value}. Cols 0-20 are exactly
+    orm_row_for's; the last three are the master sheet's own."""
+    base = orm_row_for(review, draft, now=now)
+    row = {c: base.get(c, "") for c in MASTER_COLUMNS[:21]}
+    v3 = {}
+    if draft is not None:
+        try:
+            from server.api import _resolve_v3_sections
+            v3 = _resolve_v3_sections(draft)[0] or {}
+        except Exception:
+            v3 = getattr(draft, "rca_v3", None) or {}
+    takedown = v3.get("takedown") or {}
+    ist = _solve_dt(review, draft)
+    row["Why was review takedown not sent?"] = takedown.get("reason") or ""
+    row["TP link sent for Takedown"] = getattr(review, "review_url", None) or ""
+    row["Time When the review was reacted to"] = (
+        ist.strftime("%d %b %Y, %H:%M:%S") if ist else "")
+    return row
+
+
+def master_to_cells(row: dict) -> list:
+    return [_s(row.get(c)) for c in MASTER_COLUMNS]
+
+
+def check_master_header(existing_header: list) -> str:
+    have = [str(h).strip() for h in (existing_header or []) if str(h).strip()]
+    if not have or have == MASTER_COLUMNS:
+        return ""
+    return ("the master sheet header does not match this build. Nothing was "
+            "written; align the header or MASTER_COLUMNS.")
+
+
+def append_master_row(review, draft, now: datetime | None = None,
+                      apply: bool = False,
+                      existing_links: set | None = None) -> dict:
+    """append_row for the MASTER sheet. Dedup by the review's Link column."""
+    from server.config import ORM_MASTER_SHEET_ID, ORM_MASTER_SHEET_TAB
+    tab = ORM_MASTER_SHEET_TAB
+    row = master_row_for(review, draft, now=now)
+    cells = master_to_cells(row)
+    out = {"planned": dict(zip(MASTER_COLUMNS, cells)), "wrote": False,
+           "skipped": "", "header_problem": "", "error": ""}
+    if not apply:
+        return out
+    try:
+        io = SheetIO(ORM_MASTER_SHEET_ID, a1_sheet(tab))
+        header, _ids = io.read_column_a_and_header()
+        problem = check_master_header(header)
+        if problem:
+            out["header_problem"] = problem
+            return out
+        link = (row.get("Link to the review") or "").strip()
+        if link:
+            if existing_links is None:
+                existing_links = {str(r[0]).strip()
+                                  for r in io.read_range(f"{a1_sheet(tab)}!H2:H")
+                                  if r and r[0]}
+            if link in existing_links:
+                out["skipped"] = "already on the sheet (same review link)"
+                return out
+        io.append_rows([cells])
+        if link and isinstance(existing_links, set):
+            existing_links.add(link)
+        out["wrote"] = True
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e}"
+        log.warning("[orm_master] append failed for %s: %s",
+                    getattr(review, "id", "?"), e)
+    return out
+
+
+def write_solved_day_master(db, day: str = "", now: datetime | None = None,
+                            apply: bool = False) -> dict:
+    """write_solved_day for the MASTER sheet: same solved cohort, deduped."""
+    from datetime import date as _date, timedelta
+    from sqlalchemy import or_, and_
+    from server.db import Review, RcaDraft
+    from server.tiers import SENT
+    from server.services.reporting_query import not_test_row_clause
+    from server.config import ORM_MASTER_SHEET_ID, ORM_MASTER_SHEET_TAB
+
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    if day:
+        t = _date.fromisoformat(day)
+        start_ist = datetime(t.year, t.month, t.day, tzinfo=IST)
+    else:
+        start_ist = now.astimezone(IST).replace(hour=0, minute=0, second=0,
+                                                microsecond=0)
+    start = start_ist.astimezone(timezone.utc).replace(tzinfo=None)
+    end = (start_ist + timedelta(days=1)).astimezone(timezone.utc).replace(tzinfo=None)
+    pairs = (db.query(Review, RcaDraft)
+               .outerjoin(RcaDraft, RcaDraft.review_id == Review.id)
+               .filter(Review.status == SENT)
+               .filter(or_(and_(RcaDraft.sent_at >= start, RcaDraft.sent_at < end),
+                           and_(Review.closed_at >= start, Review.closed_at < end)))
+               .filter(not_test_row_clause(Review))
+               .all())
+    existing_links = None
+    if apply and pairs:
+        try:
+            _io = SheetIO(ORM_MASTER_SHEET_ID, a1_sheet(ORM_MASTER_SHEET_TAB))
+            existing_links = {str(x[0]).strip()
+                              for x in _io.read_range(f"{a1_sheet(ORM_MASTER_SHEET_TAB)}!H2:H")
+                              if x and x[0]}
+        except Exception as e:
+            log.warning("[orm_master] could not read existing links: %s", e)
+    rows, wrote, skipped = [], 0, 0
+    for r, d in pairs:
+        res = append_master_row(r, d, apply=apply, existing_links=existing_links)
+        p = res["planned"]
+        rows.append({"review_id": getattr(r, "id", ""),
+                     "owner": p.get("Owner"), "booking_id": p.get("Booking ID"),
+                     "wrote": res["wrote"], "skipped": res.get("skipped") or "",
+                     "problem": res.get("error") or res.get("header_problem") or ""})
+        if res.get("wrote"):
+            wrote += 1
+        elif res.get("skipped"):
+            skipped += 1
+    return {"day": str(start_ist.date()), "solved": len(pairs), "wrote": wrote,
+            "skipped": skipped, "apply": apply, "rows": rows}
