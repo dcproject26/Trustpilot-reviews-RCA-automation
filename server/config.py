@@ -148,8 +148,8 @@ RCA_EXPORT_SHEET_TAB    = os.getenv("RCA_EXPORT_SHEET_TAB", "0")
 # confirms the mapping on a test row; the /api/orm-raw/test endpoint writes
 # regardless so a row can be verified before the auto-write is switched on.
 ORM_RAW_SHEET_ID        = os.getenv("ORM_RAW_SHEET_ID",
-                                    "146rmZTSWuFc8Mo-uKBbhDOeopi9I9MJzDJOoYHuUoSU")
-ORM_RAW_SHEET_TAB       = os.getenv("ORM_RAW_SHEET_TAB", "Sheet1")
+                                    "1hKhueUF_1gy-YUAkCU0pKuiUX8ZGkqKgVjNnWcG9-0k")
+ORM_RAW_SHEET_TAB       = os.getenv("ORM_RAW_SHEET_TAB", "ORM RAW")
 ORM_RAW_EXPORT_ENABLED  = os.getenv("ORM_RAW_EXPORT_ENABLED", "true").strip().lower() in (
     "1", "true", "yes", "on")
 # The ORM internal Slack channel the daily per-owner count report posts to.

@@ -22,7 +22,6 @@ class _Review:
         self.status = "sent"
         self.slack_ts = kw.get("slack_ts", "")
         self.channel = kw.get("channel", "")
-        self.review_url = kw.get("review_url")
 
 
 class _Draft:
@@ -42,7 +41,7 @@ class _Draft:
 def test_the_header_is_exactly_24_columns():
     assert len(O.COLUMNS) == 24
     # the first and last are the ones most likely to drift
-    assert O.COLUMNS[0] == "Date" and O.COLUMNS[-1] == "Time When the review was reacted to"
+    assert O.COLUMNS[0] == "Date" and O.COLUMNS[-1] == "Week"
     assert "What was the issue?" in O.COLUMNS
     assert "Review Take down sent?" in O.COLUMNS
 
@@ -71,7 +70,7 @@ def test_the_mapping_fills_the_fields_we_own():
     assert row["What was the issue?"] == "SP issues-[Tour/Guide/Cancellation/Quality/Comms]"
     assert row["Did we raise with the team?"] == "Supply Partner"  # sp, not guest (empty)
     assert row["Review Take down sent?"] == "Yes"
-    assert not {"Month", "Year", "Week"} & set(row)
+    assert row["Month"] == "Oct" and row["Year"] == "2026" and row["Week"] == "43"
 
 
 def test_city_prefers_zendesk_then_the_review_indicator():
@@ -123,7 +122,7 @@ def test_to_cells_is_in_column_order_and_full_width():
 def test_check_header_accepts_the_exact_header_and_rejects_a_drifted_one():
     assert O.check_header(O.COLUMNS) == ""
     assert O.check_header([]) == ""                     # empty sheet is safe
-    bad = O.check_header(O.COLUMNS[:-1] + ["Time When the review was reacted tooo"])
+    bad = O.check_header(O.COLUMNS[:-1] + ["Weekk"])
     assert bad and "does not match" in bad
 
 
@@ -288,52 +287,3 @@ def test_sheet_connection_absent_returns_none():
     # the exact case we hit: on the account but not bound to this Repl
     assert _pick_sheet([{"connector_name": "zendesk"}, {"connector_name": "bigquery"}]) is None
     assert _pick_sheet([]) is None
-
-
-def test_new_last_three_columns_and_no_month_year_week():
-    assert O.COLUMNS[-3:] == ["Why was review takedown not sent?",
-                              "TP link sent for Takedown",
-                              "Time When the review was reacted to"]
-    assert O.COLUMNS[:21] == [
-        "Date", "Source", "Query", "Booking ID", "TGID", "Experience Name",
-        "City", "Link to the review", "Owner", "Any follow-up needed?",
-        "Comments", "Solution Offered", "What was the issue?",
-        "Did we raise with the team?", "Link raised",
-        "Was the issue solved?(If raised internally)", "Raised with Second team?",
-        "Link Raised:", "Review Take down sent?",
-        "Follow up from an untraceable review?",
-        "If yes, What is the source of the review"]
-    assert not {"Month", "Year", "Week"} & set(O.COLUMNS)
-
-
-def test_new_columns_map_reason_link_and_ist_time():
-    rev = _Review(review_url="https://www.trustpilot.com/reviews/abc123")
-    d = _Draft(sent_at=datetime(2026, 12, 11, 4, 39, 51),   # UTC -> 10:09:51 IST
-               rca_v3={"takedown": {"verdict": "Yes",
-                                    "reason": "Review Takedown Sent"}})
-    row = O.orm_row_for(rev, d)
-    assert row["Why was review takedown not sent?"] == "Review Takedown Sent"
-    assert row["TP link sent for Takedown"] == "https://www.trustpilot.com/reviews/abc123"
-    assert row["Time When the review was reacted to"] == "11 Dec 2026, 10:09:51"
-    cells = O.to_cells(row)
-    assert cells[-3:] == ["Review Takedown Sent",
-                          "https://www.trustpilot.com/reviews/abc123",
-                          "11 Dec 2026, 10:09:51"]
-
-
-def test_new_columns_default_blank_when_absent():
-    row = O.orm_row_for(_Review(), _Draft(sent_at=datetime(2026, 10, 21, 9, 0)))
-    assert row["Why was review takedown not sent?"] == ""
-    assert row["TP link sent for Takedown"] == ""
-    assert row["Time When the review was reacted to"] == "21 Oct 2026, 14:30:00"
-
-
-def test_config_points_at_the_new_sheet():
-    from server import config
-    assert config.ORM_RAW_SHEET_ID == "146rmZTSWuFc8Mo-uKBbhDOeopi9I9MJzDJOoYHuUoSU"
-    assert config.ORM_RAW_SHEET_TAB == "Sheet1"
-
-
-def test_no_solve_time_leaves_date_and_reacted_time_blank():
-    row = O.orm_row_for(_Review(), _Draft())
-    assert row["Date"] == "" and row["Time When the review was reacted to"] == ""
