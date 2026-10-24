@@ -51,9 +51,7 @@ COLUMNS = [
     "Was the issue solved?(If raised internally)", "Raised with Second team?",
     "Link Raised:", "Review Take down sent?",
     "Follow up from an untraceable review?",
-    "If yes, What is the source of the review",
-    "Why was review takedown not sent?", "TP link sent for Takedown",
-    "Time When the review was reacted to",
+    "If yes, What is the source of the review", "Month", "Year", "Week",
 ]
 
 # Columns a human fills after the fact, left blank by the automation. Kept as a
@@ -199,13 +197,9 @@ def orm_row_for(review, draft, now: datetime | None = None) -> dict:
         # The takedown dropdown value exactly as the dashboard holds it —
         # Yes / No / Untraceable — not re-interpreted.
         "Review Take down sent?": takedown.get("verdict") or "",
-        # The dashboard dropdown value (Review Takedown Sent / Untraceable /
-        # Final Resolution WIP), not re-interpreted.
-        "Why was review takedown not sent?": takedown.get("reason") or "",
-        "TP link sent for Takedown": getattr(review, "review_url", None) or "",
-        # Same solve-time source as Date (_solve_dt), in IST.
-        "Time When the review was reacted to":
-            ist.strftime("%d %b %Y, %H:%M:%S") if ist else "",
+        "Month":           ist.strftime("%b") if ist else "",
+        "Year":            str(ist.year) if ist else "",
+        "Week":            str(ist.isocalendar()[1]) if ist else "",
     })
     return row
 
