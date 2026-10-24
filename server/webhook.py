@@ -147,6 +147,7 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
             received_at      = _at,
             date_source      = _src,
             reference_number = parsed["reference_number"],
+            review_url       = parsed.get("review_url"),
         )
         db.add(review)
         db.commit()
