@@ -54,10 +54,12 @@ COLUMNS = [
     "If yes, What is the source of the review", "Month", "Year", "Week",
 ]
 
-# The MASTER sheet header: cols 0-20 identical to COLUMNS, the last three differ.
+# The MASTER sheet header (27 cols): cols 0-20 identical to COLUMNS, then three
+# takedown/time columns the master sheet added, then Month/Year/Week (which the
+# master sheet ALSO keeps, unlike what an earlier read suggested).
 MASTER_COLUMNS = COLUMNS[:21] + [
     "Why was review takedown not sent?", "TP link sent for Takedown",
-    "Time When the review was reacted to",
+    "Time When the review was reacted to", "Month", "Year", "Week",
 ]
 
 # Columns a human fills after the fact, left blank by the automation. Kept as a
@@ -409,6 +411,10 @@ def master_row_for(review, draft, now: datetime | None = None) -> dict:
     row["TP link sent for Takedown"] = getattr(review, "review_url", None) or ""
     row["Time When the review was reacted to"] = (
         ist.strftime("%d %b %Y, %H:%M:%S") if ist else "")
+    # Month/Year/Week come straight from the base row (orm_row_for computes them).
+    row["Month"] = base.get("Month", "")
+    row["Year"] = base.get("Year", "")
+    row["Week"] = base.get("Week", "")
     return row
 
 

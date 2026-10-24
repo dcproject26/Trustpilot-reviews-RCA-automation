@@ -16,13 +16,12 @@ def _case():
 
 
 def test_master_columns_shape():
-    assert len(O.MASTER_COLUMNS) == 24
+    assert len(O.MASTER_COLUMNS) == 27
     assert O.MASTER_COLUMNS[:21] == O.COLUMNS[:21]
     assert O.MASTER_COLUMNS[21:] == ["Why was review takedown not sent?",
                                      "TP link sent for Takedown",
-                                     "Time When the review was reacted to"]
-    for c in ("Month", "Year", "Week"):
-        assert c not in O.MASTER_COLUMNS
+                                     "Time When the review was reacted to",
+                                     "Month", "Year", "Week"]
     assert O.COLUMNS[-1] == "Week" and len(O.COLUMNS) == 24   # old untouched
 
 
@@ -34,7 +33,8 @@ def test_master_row_maps_like_old_for_first_21_and_new_last_3():
     assert new["Why was review takedown not sent?"] == "not eligible"
     assert new["TP link sent for Takedown"] == "https://www.trustpilot.com/reviews/abc123"
     assert new["Time When the review was reacted to"] == "11 Dec 2025, 10:09:51"
-    assert "Month" not in new
+    # Month/Year/Week come from the base row and are present on the master too.
+    assert new["Month"] == old["Month"] and new["Year"] == old["Year"] and new["Week"] == old["Week"]
 
 
 def test_master_row_defaults_blank():
@@ -69,7 +69,7 @@ def test_append_master_row_dedups_and_writes_master_cells(monkeypatch):
     skip = O.append_master_row(rev, d, apply=True, existing_links={link})
     assert not skip["wrote"] and "already on the sheet" in skip["skipped"]
     ok = O.append_master_row(rev, d, apply=True, existing_links=set())
-    assert ok["wrote"] and len(_FakeIO.appended[0]) == 24
+    assert ok["wrote"] and len(_FakeIO.appended[0]) == 27
     assert _FakeIO.appended[0][23] == "11 Dec 2025, 10:09:51"
 
 
