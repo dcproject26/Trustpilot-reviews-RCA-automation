@@ -3598,6 +3598,9 @@ async def reprocess_review(
                     r.body_original = new_body
                     r.body_english  = None      # force re-translation of new text
                     refreshed = True
+                if parsed.get("review_url") and not getattr(r, "review_url", None):
+                    r.review_url = parsed["review_url"]
+                    refreshed = True
                 if parsed.get("reference_number") and not r.reference_number:
                     r.reference_number = parsed["reference_number"]
                     refreshed = True
