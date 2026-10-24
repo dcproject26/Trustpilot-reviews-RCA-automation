@@ -168,6 +168,41 @@ def review_published_at(event: dict):
     return None, ""
 
 
+_TP_REVIEW_URL_RE = re.compile(
+    r"https?://(?:www\.)?trustpilot\.com/reviews/[A-Za-z0-9]+")
+
+
+def _find_review_url(event: dict) -> str | None:
+    """First trustpilot.com/reviews/<id> URL anywhere in the raw event: message
+    text, block text/fields, accessory/element buttons, and every attachment
+    surface including title_link, author_link and action urls. None if absent.
+    Slack wraps links as <url|label>, which the regex reads straight through."""
+    parts: list[str] = [str(event.get("text") or "")]
+    for b in event.get("blocks") or []:
+        parts.append(str((b.get("text") or {}).get("text") or ""))
+        for f in b.get("fields") or []:
+            parts.append(str(f.get("text") or ""))
+        parts.append(str((b.get("accessory") or {}).get("url") or ""))
+        for el in b.get("elements") or []:
+            if isinstance(el, dict):
+                parts.append(str(el.get("url") or ""))
+                parts.append(str(el.get("text") if isinstance(el.get("text"), str) else ""))
+    for att in event.get("attachments") or []:
+        for k in ("pretext", "title", "text", "fallback", "footer",
+                  "title_link", "author_link"):
+            parts.append(str(att.get(k) or ""))
+        for f in att.get("fields") or []:
+            parts.append(str(f.get("title") or ""))
+            parts.append(str(f.get("value") or ""))
+        for a in att.get("actions") or []:
+            parts.append(str(a.get("url") or ""))
+    for p in parts:
+        m = _TP_REVIEW_URL_RE.search(p)
+        if m:
+            return m.group(0)
+    return None
+
+
 def parse_review(event: dict) -> dict:
     text = event.get("text", "")
     blocks = event.get("blocks", [])
@@ -318,6 +353,7 @@ def parse_review(event: dict) -> dict:
         if entry.split(": ", 1)[-1].lower() not in (body or "").lower():
             body = f"{body}\n{entry}".strip() if body else entry
 
+    review_url = _find_review_url(event)
     _pub_at, _pub_src = review_published_at(event)
     return {
         "slack_ts":         event["ts"],
@@ -344,6 +380,7 @@ def parse_review(event: dict) -> dict:
         # it "Review date".
         "published_at":        _pub_at,
         "published_at_source": _pub_src,
+        "review_url":       review_url,
         "raw_payload":      event,
     }
 
@@ -466,7 +503,8 @@ async def sync_channel_to_db(db, hours: float | None = None,
             language=parsed["language"], author=parsed.get("author") or None,
             body_original=parsed["body_original"], received_at=_at,
             date_source=_src,
-            reference_number=parsed["reference_number"], status="new"))
+            reference_number=parsed["reference_number"],
+            review_url=parsed.get("review_url"), status="new"))
         db.commit()
         try:
             from server.services.sheet_export import on_review_arrived

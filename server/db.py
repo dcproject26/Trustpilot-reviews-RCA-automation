@@ -151,6 +151,8 @@ class Review(Base):
     # refused_unverified | english_already | english_already_suspicious |
     # failed. Empty body_english alone cannot tell "refused" from "never ran".
     translation_state = Column(String, nullable=True)
+    # The Trustpilot review URL (trustpilot.com/reviews/<id>) captured at ingest.
+    review_url = Column(String, nullable=True)
     reference_number = Column(String, nullable=True)
     # NO DEFAULT. A default here does not leave the column empty — it INVENTS
     # a date, the moment this process happened to run, and nothing downstream
@@ -529,6 +531,7 @@ def _WANTED_REVIEW_COLUMNS(is_pg: bool) -> dict:
         "date_source":  "TEXT",
         # What the inbound translation did — see Review.translation_state.
         "translation_state": "TEXT",
+        "review_url": "TEXT",
     }
 
 

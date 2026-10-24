@@ -152,6 +152,14 @@ ORM_RAW_SHEET_ID        = os.getenv("ORM_RAW_SHEET_ID",
 ORM_RAW_SHEET_TAB       = os.getenv("ORM_RAW_SHEET_TAB", "ORM RAW")
 ORM_RAW_EXPORT_ENABLED  = os.getenv("ORM_RAW_EXPORT_ENABLED", "true").strip().lower() in (
     "1", "true", "yes", "on")
+# ORM MASTER — the new master sheet, written IN ADDITION to ORM RAW (which stays
+# the primary and the source the 8pm report reads). Same 24-column shape except
+# the last three. A failure here never affects the ORM RAW write.
+ORM_MASTER_SHEET_ID     = os.getenv("ORM_MASTER_SHEET_ID",
+                                    "146rmZTSWuFc8Mo-uKBbhDOeopi9I9MJzDJOoYHuUoSU")
+ORM_MASTER_SHEET_TAB    = os.getenv("ORM_MASTER_SHEET_TAB", "Sheet1")
+ORM_MASTER_EXPORT_ENABLED = os.getenv("ORM_MASTER_EXPORT_ENABLED", "true").strip().lower() in (
+    "1", "true", "yes", "on")
 # The ORM internal Slack channel the daily per-owner count report posts to.
 ORM_REPORT_CHANNEL      = os.getenv("ORM_REPORT_CHANNEL", "C045KG5AJF5")
 
