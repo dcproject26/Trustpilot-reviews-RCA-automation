@@ -84,32 +84,49 @@ def test_append_master_row_refuses_old_header(monkeypatch):
     assert not out["wrote"] and out["header_problem"] and not _FakeIO.appended
 
 
-def test_master_failure_never_breaks_old_write(monkeypatch):
+def test_tp_write_never_touches_old_sheet(monkeypatch):
+    """TP logging moved off the old sheet entirely: on_review_finished must
+    write ONLY to the master sheet and never call the old-sheet append."""
     calls = []
     monkeypatch.setattr(O, "append_row",
                         lambda *a, **k: calls.append("old") or {"wrote": True})
+    monkeypatch.setattr(O, "append_master_row",
+                        lambda *a, **k: calls.append("master") or {"wrote": True})
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "ORM_RAW_EXPORT_ENABLED", True)
+    monkeypatch.setattr(cfg, "ORM_MASTER_EXPORT_ENABLED", True)
+    monkeypatch.setattr(cfg, "ORM_MASTER_SHEET_ID", "SHEET")
+    rev, d = _case()
+    res = O.on_review_finished(rev, d)
+    assert res == {"wrote": True}
+    assert calls == ["master"]          # old sheet untouched
 
+
+def test_master_failure_is_swallowed_and_reported(monkeypatch):
+    """A master-write failure is caught and returned as a non-write with an
+    error, not raised into the solve path (CLAUDE rule 1 — named, not silent)."""
     def boom(*a, **k):
         raise RuntimeError("master down")
     monkeypatch.setattr(O, "append_master_row", boom)
-    rev, d = _case()
-    assert O.on_review_finished(rev, d) == {"wrote": True}
-    assert calls == ["old"]
-
-
-def test_master_written_after_old_and_respects_flag(monkeypatch):
-    order = []
-    monkeypatch.setattr(O, "append_row", lambda *a, **k: order.append("old") or {})
-    monkeypatch.setattr(O, "append_master_row",
-                        lambda *a, **k: order.append("master") or {})
-    rev, d = _case()
-    O.on_review_finished(rev, d)
-    assert order == ["old", "master"]
     import server.config as cfg
+    monkeypatch.setattr(cfg, "ORM_RAW_EXPORT_ENABLED", True)
+    monkeypatch.setattr(cfg, "ORM_MASTER_EXPORT_ENABLED", True)
+    monkeypatch.setattr(cfg, "ORM_MASTER_SHEET_ID", "SHEET")
+    rev, d = _case()
+    out = O.on_review_finished(rev, d)
+    assert not out["wrote"] and "master down" in out["error"]
+
+
+def test_tp_write_respects_flags(monkeypatch):
+    import server.config as cfg
+    monkeypatch.setattr(O, "append_master_row", lambda *a, **k: {"wrote": True})
+    monkeypatch.setattr(cfg, "ORM_MASTER_SHEET_ID", "SHEET")
+    rev, d = _case()
+    monkeypatch.setattr(cfg, "ORM_RAW_EXPORT_ENABLED", False)
+    assert O.on_review_finished(rev, d)["skipped"]           # master trigger off
+    monkeypatch.setattr(cfg, "ORM_RAW_EXPORT_ENABLED", True)
     monkeypatch.setattr(cfg, "ORM_MASTER_EXPORT_ENABLED", False)
-    order.clear()
-    O.on_review_finished(rev, d)
-    assert order == ["old"]
+    assert O.on_review_finished(rev, d)["skipped"]           # master sheet off
 
 
 def test_write_solved_day_master_dedups(live_db, monkeypatch):
