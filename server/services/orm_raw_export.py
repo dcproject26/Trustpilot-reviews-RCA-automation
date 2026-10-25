@@ -361,16 +361,26 @@ def on_review_finished(review, draft) -> dict:
     is confirmed on a test row before cases start flowing in live. Returns a
     'skipped' reason rather than writing when it is off, so the caller's log says
     which it was."""
-    from server.config import (ORM_RAW_EXPORT_ENABLED, ORM_RAW_SHEET_ID,
-                               ORM_RAW_SHEET_TAB)
+    from server.config import (ORM_RAW_EXPORT_ENABLED, ORM_MASTER_EXPORT_ENABLED,
+                               ORM_MASTER_SHEET_ID)
     if not ORM_RAW_EXPORT_ENABLED:
         return {"wrote": False, "skipped": "ORM_RAW_EXPORT_ENABLED is off"}
-    if not ORM_RAW_SHEET_ID:
-        return {"wrote": False, "skipped": "ORM_RAW_SHEET_ID is not set"}
-    result = append_row(review, draft, ORM_RAW_SHEET_ID, ORM_RAW_SHEET_TAB,
-                        apply=True)
-    _write_master_isolated(review, draft)
-    return result
+    # TP logging goes to the NEW master sheet ONLY. The old sheet is populated
+    # from the new sheet by its own formula and is read by the 8pm report, so the
+    # tool must NOT also write TP to it (that would double the rows).
+    if not (ORM_MASTER_EXPORT_ENABLED and ORM_MASTER_SHEET_ID):
+        return {"wrote": False, "skipped": "ORM_MASTER_EXPORT_ENABLED is off"}
+    try:
+        res = append_master_row(review, draft, apply=True)
+        if res.get("error") or res.get("header_problem"):
+            log.warning("[orm_master] not written for %s: %s",
+                        getattr(review, "id", "?"),
+                        res.get("error") or res.get("header_problem"))
+        return res
+    except Exception as e:
+        log.warning("[orm_master] write failed for %s: %s",
+                    getattr(review, "id", "?"), e)
+        return {"wrote": False, "error": f"{type(e).__name__}: {e}"}
 
 
 def _write_master_isolated(review, draft) -> None:
