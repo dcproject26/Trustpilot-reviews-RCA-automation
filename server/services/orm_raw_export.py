@@ -361,34 +361,34 @@ def on_review_finished(review, draft) -> dict:
     is confirmed on a test row before cases start flowing in live. Returns a
     'skipped' reason rather than writing when it is off, so the caller's log says
     which it was."""
-    from server.config import (ORM_RAW_EXPORT_ENABLED, ORM_RAW_SHEET_ID,
-                               ORM_RAW_SHEET_TAB)
+    from server.config import ORM_RAW_EXPORT_ENABLED
     if not ORM_RAW_EXPORT_ENABLED:
         return {"wrote": False, "skipped": "ORM_RAW_EXPORT_ENABLED is off"}
-    if not ORM_RAW_SHEET_ID:
-        return {"wrote": False, "skipped": "ORM_RAW_SHEET_ID is not set"}
-    result = append_row(review, draft, ORM_RAW_SHEET_ID, ORM_RAW_SHEET_TAB,
-                        apply=True)
-    _write_master_isolated(review, draft)
-    return result
+    # TP logging was SHIFTED off the old sheet onto the NEW master sheet: the
+    # tool no longer writes TP to the old sheet. The 8pm report is UNCHANGED —
+    # it still scans the old sheet as before (TP there is now hand-logged /
+    # legacy, exactly like the SM, App and Escalation rows).
+    return _write_master(review, draft)
 
 
-def _write_master_isolated(review, draft) -> None:
-    """Dual-write to the master sheet AFTER the old-sheet write. Fully isolated:
-    any failure is logged and swallowed so it can never break the old write or
-    the solve path."""
+def _write_master(review, draft) -> dict:
+    """Write this solved TP case to the master sheet. Returns the master write
+    result so the solve path logs whether the TP row landed (CLAUDE rule 1 — a
+    swallowed failure must not read like a successful write)."""
+    from server.config import (ORM_MASTER_EXPORT_ENABLED, ORM_MASTER_SHEET_ID)
+    if not (ORM_MASTER_EXPORT_ENABLED and ORM_MASTER_SHEET_ID):
+        return {"wrote": False, "skipped": "ORM_MASTER_EXPORT_ENABLED is off"}
     try:
-        from server.config import (ORM_MASTER_EXPORT_ENABLED,
-                                   ORM_MASTER_SHEET_ID)
-        if ORM_MASTER_EXPORT_ENABLED and ORM_MASTER_SHEET_ID:
-            res = append_master_row(review, draft, apply=True)
-            if res.get("error") or res.get("header_problem"):
-                log.warning("[orm_master] not written for %s: %s",
-                            getattr(review, "id", "?"),
-                            res.get("error") or res.get("header_problem"))
+        res = append_master_row(review, draft, apply=True)
+        if res.get("error") or res.get("header_problem"):
+            log.warning("[orm_master] not written for %s: %s",
+                        getattr(review, "id", "?"),
+                        res.get("error") or res.get("header_problem"))
+        return res
     except Exception as e:
         log.warning("[orm_master] write failed for %s: %s",
                     getattr(review, "id", "?"), e)
+        return {"wrote": False, "error": f"{type(e).__name__}: {e}"}
 
 
 # ── MASTER sheet (additive dual-write) ──────────────────────────────────────
