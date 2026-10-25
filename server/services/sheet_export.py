@@ -812,13 +812,13 @@ class SheetIO:
                        timeout=60.0)
         r.raise_for_status()
 
-    def append_rows(self, rows):
+    def append_rows(self, rows, value_input_option: str = "RAW"):
         if not rows:
             return
         import httpx
         r = httpx.post(f"{self._base()}/values/{self.tab}!A1:append",
                        headers=self._hdr(),
-                       params={"valueInputOption": "RAW",
+                       params={"valueInputOption": value_input_option,
                                "insertDataOption": "INSERT_ROWS"},
                        json={"values": rows}, timeout=60.0)
         r.raise_for_status()

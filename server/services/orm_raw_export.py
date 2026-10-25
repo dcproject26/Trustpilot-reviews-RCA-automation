@@ -473,7 +473,7 @@ def append_master_row(review, draft, now: datetime | None = None,
             if link in existing_links:
                 out["skipped"] = "already on the sheet (same review link)"
                 return out
-        io.append_rows([cells])
+        io.append_rows([cells], value_input_option="USER_ENTERED")
         if link and isinstance(existing_links, set):
             existing_links.add(link)
         out["wrote"] = True
