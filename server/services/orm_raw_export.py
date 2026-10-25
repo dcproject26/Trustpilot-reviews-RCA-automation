@@ -492,7 +492,9 @@ def append_master_row(review, draft, now: datetime | None = None,
         if key in existing_links:
             out["skipped"] = "already on the sheet (same review / booking)"
             return out
-        io.append_rows([cells])
+        # USER_ENTERED so cells carry no stray leading apostrophe (the _defuse
+        # text-marker is consumed on display; numbers/dates enter naturally).
+        io.append_rows([cells], value_input_option="USER_ENTERED")
         if isinstance(existing_links, set):
             existing_links.add(key)
         out["wrote"] = True
