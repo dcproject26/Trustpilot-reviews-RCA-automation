@@ -812,13 +812,19 @@ class SheetIO:
                        timeout=60.0)
         r.raise_for_status()
 
-    def append_rows(self, rows):
+    def append_rows(self, rows, value_input_option: str = "RAW"):
+        """Append rows. value_input_option="RAW" stores values exactly as given
+        (the default, used by the engineering export). "USER_ENTERED" enters them
+        as if typed — numbers become numbers and dates dates, and a leading
+        apostrophe (the _defuse text-marker) is consumed on display instead of
+        shown literally. The ORM master write uses USER_ENTERED so its cells
+        carry no stray leading apostrophe."""
         if not rows:
             return
         import httpx
         r = httpx.post(f"{self._base()}/values/{self.tab}!A1:append",
                        headers=self._hdr(),
-                       params={"valueInputOption": "RAW",
+                       params={"valueInputOption": value_input_option,
                                "insertDataOption": "INSERT_ROWS"},
                        json={"values": rows}, timeout=60.0)
         r.raise_for_status()
