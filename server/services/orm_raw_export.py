@@ -185,6 +185,11 @@ def orm_row_for(review, draft, now: datetime | None = None) -> dict:
     bk = (getattr(d, "booking", None) or {}) if d else {}
     takedown = v3.get("takedown") or {}
     ist = _solve_dt(review, draft)
+    # An untraceable review has no booking to log. Instead of leaving Booking ID
+    # blank, write "Untraceable" — the takedown verdict is the untraceable marker.
+    booking_id = _bkfield(bk, "id", "bid", "booking_id")
+    if str(takedown.get("verdict") or "").strip().lower() == "untraceable":
+        booking_id = "Untraceable"
 
     row = {c: "" for c in COLUMNS}                      # blanks by default
     row.update({
@@ -192,7 +197,7 @@ def orm_row_for(review, draft, now: datetime | None = None) -> dict:
         "Source":          "Trustpilot",
         "Query":           _query(getattr(d, "l1", "") if d else "",
                                   getattr(d, "l2", "") if d else ""),
-        "Booking ID":      _bkfield(bk, "id", "bid", "booking_id"),
+        "Booking ID":      booking_id,
         "TGID":            _bkfield(bk, "tgid", "TGID", "tourGroupId"),
         "Experience Name": _bkfield(bk, "experienceName", "experience",
                                     "experience_name", "tourGroupName"),
