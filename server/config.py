@@ -150,6 +150,15 @@ RCA_EXPORT_SHEET_TAB    = os.getenv("RCA_EXPORT_SHEET_TAB", "0")
 ORM_RAW_SHEET_ID        = os.getenv("ORM_RAW_SHEET_ID",
                                     "1hKhueUF_1gy-YUAkCU0pKuiUX8ZGkqKgVjNnWcG9-0k")
 ORM_RAW_SHEET_TAB       = os.getenv("ORM_RAW_SHEET_TAB", "ORM RAW")
+# The sheet the 8pm report SCANS. Deliberately a SEPARATE key from
+# ORM_RAW_SHEET_ID: a stale deployment secret once pointed ORM_RAW_SHEET_ID at
+# the master (TP-only) sheet, and the report silently counted only Trustpilot
+# with Social Media / App / Escalations all zero. This key has no such secret,
+# so it defaults to the real old ORM RAW sheet and cannot be re-polluted. The
+# report ALWAYS reads this sheet.
+ORM_REPORT_SHEET_ID     = os.getenv("ORM_REPORT_SHEET_ID",
+                                    "1hKhueUF_1gy-YUAkCU0pKuiUX8ZGkqKgVjNnWcG9-0k")
+ORM_REPORT_SHEET_TAB    = os.getenv("ORM_REPORT_SHEET_TAB", "ORM RAW")
 ORM_RAW_EXPORT_ENABLED  = os.getenv("ORM_RAW_EXPORT_ENABLED", "true").strip().lower() in (
     "1", "true", "yes", "on")
 # ORM MASTER — the new master sheet, written IN ADDITION to ORM RAW (which stays

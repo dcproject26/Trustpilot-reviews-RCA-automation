@@ -194,7 +194,8 @@ def build_report(now: datetime | None = None, day: str | date | None = None) -> 
     (a date or 'YYYY-MM-DD') to build a specific day's report — e.g. to re-post a
     day the 8pm run missed. Returns {text, counts, meta, error, day} — text is the
     Slack message, or an error string when the sheet could not be read."""
-    from server.config import ORM_RAW_SHEET_ID, ORM_RAW_SHEET_TAB
+    from server.config import (ORM_REPORT_SHEET_ID, ORM_REPORT_SHEET_TAB,
+                               ORM_MASTER_SHEET_ID)
     from server.services.sheet_export import SheetIO
     if day:
         try:
@@ -205,12 +206,20 @@ def build_report(now: datetime | None = None, day: str | date | None = None) -> 
     else:
         day = report_day(now)
     out = {"text": "", "counts": {}, "meta": {}, "error": "", "day": str(day)}
-    if not ORM_RAW_SHEET_ID:
-        out["error"] = "ORM_RAW_SHEET_ID is not set"
+    if not ORM_REPORT_SHEET_ID:
+        out["error"] = "ORM_REPORT_SHEET_ID is not set"
+        return out
+    # Guard (CLAUDE rule 1): the report scans the OLD sheet, which carries every
+    # platform. If its source is ever the master (TP-only) sheet, SM/App/Esc come
+    # back as a silent 0 — fail loud instead of posting a wrong, TP-only table.
+    if ORM_MASTER_SHEET_ID and ORM_REPORT_SHEET_ID == ORM_MASTER_SHEET_ID:
+        out["error"] = ("report source is the MASTER (TP-only) sheet — it would "
+                        "count only Trustpilot. Set ORM_REPORT_SHEET_ID to the "
+                        "old ORM RAW sheet.")
         return out
     try:
         from server.services.orm_raw_export import a1_sheet
-        io = SheetIO(ORM_RAW_SHEET_ID, ORM_RAW_SHEET_TAB)
+        io = SheetIO(ORM_REPORT_SHEET_ID, ORM_REPORT_SHEET_TAB)
         tab = io.resolve_tab() if hasattr(io, "resolve_tab") else io.tab
         rows = io.read_range(f"{a1_sheet(tab)}!A2:I")
     except Exception as e:

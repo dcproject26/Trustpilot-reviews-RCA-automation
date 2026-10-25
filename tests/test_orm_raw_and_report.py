@@ -272,6 +272,17 @@ def test_build_report_rejects_a_bad_day():
     assert out["error"] and "YYYY-MM-DD" in out["error"]
 
 
+def test_build_report_refuses_master_sheet_as_source(monkeypatch):
+    """If the report's source is ever the master (TP-only) sheet, it must fail
+    loud, not post a table with SM/App/Esc silently 0 (CLAUDE rule 1)."""
+    import server.config as cfg
+    monkeypatch.setattr(cfg, "ORM_MASTER_SHEET_ID", "SAME")
+    monkeypatch.setattr(cfg, "ORM_REPORT_SHEET_ID", "SAME")
+    out = R.build_report(day="2026-10-22")
+    assert out["error"] and "MASTER" in out["error"]
+    assert not out["counts"]
+
+
 # ── the Sheets connector is matched by name, not an exact slug ───────────────
 
 def test_sheet_connection_matched_by_name_not_exact_slug():
