@@ -73,6 +73,25 @@ def test_the_mapping_fills_the_fields_we_own():
     assert row["Month"] == "Oct" and row["Year"] == "2026" and row["Week"] == "43"
 
 
+def test_untraceable_review_writes_untraceable_in_booking_id():
+    rev = _Review(picked_up_by="Avi")
+    d = _Draft(sent_at=datetime(2026, 10, 24, 14, 30), l1="NAR", l2="General",
+               booking={},                              # no booking — untraceable
+               rca_v3={"takedown": {"verdict": "Untraceable"}})
+    row = O.orm_row_for(rev, d)
+    assert row["Booking ID"] == "Untraceable"
+    # it flows through to the master-sheet row too
+    assert O.master_row_for(rev, d)["Booking ID"] == "Untraceable"
+
+
+def test_traceable_review_keeps_its_booking_id():
+    rev = _Review(picked_up_by="Avi")
+    d = _Draft(sent_at=datetime(2026, 10, 24, 14, 30),
+               booking={"id": "34603337"},
+               rca_v3={"takedown": {"verdict": "No"}})
+    assert O.orm_row_for(rev, d)["Booking ID"] == "34603337"
+
+
 def test_city_prefers_zendesk_then_the_review_indicator():
     """City is the Zendesk booking-details city when present (the actual city),
     else the review's city_or_country indicator (what the card shows)."""
