@@ -134,8 +134,25 @@ def shortlist_rows(sigs, lookup):
     looked and found nothing" comes to read the same as "we never looked".
     """
     rows, tally = [], {"found": 0, "absent": 0, "failed": 0}
-    for sig in (sigs or []):
-        bid = str(sig.get("booking_id") or "")
+    sigs = sigs or []
+    all_bids = [str(sig.get("booking_id") or "") for sig in sigs]
+    valid_bids = [b for b in all_bids if b]
+    bq_results = {}
+    if valid_bids:
+        if lookup is None:
+            try:
+                from server.services.bigquery_patch import verify_bids_batch
+                bq_results = verify_bids_batch(valid_bids)
+            except Exception:
+                for b in valid_bids:
+                    bq_results[b] = "FAILED"
+        else:
+            for b in valid_bids:
+                try:
+                    bq_results[b] = lookup(b)
+                except Exception:
+                    bq_results[b] = "FAILED"
+    for sig, bid in zip(sigs, all_bids):
         zd_name = sig.get("guest_name", "") or ""
         base = {
             "id": bid,
@@ -144,12 +161,14 @@ def shortlist_rows(sigs, lookup):
             "date_of_visit":      sig.get("visit_date", "") or "",
             "vendorName":         sig.get("vendor_name", "") or "",
         }
-        try:
-            bq = lookup(bid) if bid else None
-            status = "found" if bq else "absent"
-        except Exception:
+        bq = bq_results.get(bid) if bid else None
+        if bq == "FAILED":
             bq, status = None, "failed"
-        if bq:
+        elif bq:
+            status = "found"
+        else:
+            status = "absent" if bid else "absent"
+        if bq and isinstance(bq, dict):
             merged = dict(base)
             for key in ("experienceName", "date_of_visit", "vendorName",
                         "primary_guest_name", "tid", "tgid", "vid",
@@ -2621,8 +2640,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
                         # warehouse had it, did not have it, or could not be
                         # asked; the card and the trail both read that rather
                         # than inferring it from an empty field.
-                        from server.services.bigquery_patch import verify_bid as _vbid
-                        _rows, _tally = shortlist_rows(_short, _vbid)
+                        _rows, _tally = shortlist_rows(_short, None)
                         candidates = []
                         for _row in _rows:
                             _c = _make_candidate(_row, "indicator_shortlist",
@@ -2802,19 +2820,19 @@ async def process_review(review_id: str, force_candidates: bool = False):
 
                     if zd_bids:
                         zd_candidates = []
-                        for bid in zd_bids[:10]:
-                            try:
-                                bq_row = verify_bid(bid)
-                            except Exception as e:
-                                log.warning(f"[tier2] verify_bid({bid}) raised: {e}")
-                                continue
+                        _batch_bids = [str(b) for b in zd_bids[:10]]
+                        try:
+                            from server.services.bigquery_patch import verify_bids_batch
+                            _bq_batch = verify_bids_batch(_batch_bids)
+                        except Exception as e:
+                            log.warning(f"[tier2] verify_bids_batch raised: {e}")
+                            _bq_batch = {}
+                        for bid in _batch_bids:
+                            bq_row = _bq_batch.get(bid)
                             if not bq_row:
                                 log.info(f"[tier2] BID {bid} not in BQ — skipped")
                                 continue
 
-                            # Hard filter only: visit date within the current
-                            # year (approved). Everything else is SCORED, not
-                            # filtered — indicators rank, they don't exclude.
                             visit_str = (bq_row.get("date_of_visit") or
                                          bq_row.get("visitDate") or "")
                             if visit_str:

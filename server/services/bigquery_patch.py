@@ -199,6 +199,67 @@ def verify_bid(bid: str) -> dict | None:
     return booking
 
 
+_VERIFY_BIDS_BATCH_SQL = f"""
+SELECT
+  b.booking_id,
+  b.created_at            AS date_of_booking,
+  DATE(b.experience_timestamp) AS date_of_visit,
+  b.tour_id               AS tid,
+  b.experience_id         AS tgid,
+  b.experience_name,
+  b.vendor_id,
+  b.vendor_name,
+  b.final_fulfilment_type AS fulfilment_type,
+  b.primary_guest_name,
+  b.booking_status
+FROM `{BIGQUERY_BOOKINGS_TABLE}` b
+WHERE b.booking_id IN UNNEST(@bids)
+"""
+
+def verify_bids_batch(bids: list[str]) -> dict[str, dict | None]:
+    """Batch BID lookup. Returns {bid_str: booking_dict_or_None} for each input.
+
+    One BQ query for the lot, then one _get_booking_extra per found booking
+    (the extra query joins dim_vendors and can't easily batch). Raises on
+    query failure like verify_bid does.
+    """
+    if not bids:
+        return {}
+    from server.services import bq_connector as bqc
+    from server.services.bigquery import _get_booking_extra
+    int_bids = [int(b) for b in bids]
+    rows = bqc.run_query(_VERIFY_BIDS_BATCH_SQL, params={"bids": ("INT64", int_bids)})
+    by_id = {}
+    for r in (rows or []):
+        bid_str = str(r.get("booking_id") or "")
+        _status = str(r.get("booking_status") or "")
+        if _status in ("Dummy", "Uncaptured"):
+            log.info(f"verify_bids_batch: {bid_str} is {_status} — skipped")
+            by_id[bid_str] = None
+            continue
+        tgid_str = str(r.get("tgid") or "")
+        booking = {
+            "id":              bid_str,
+            "date_of_booking": str(r.get("date_of_booking") or ""),
+            "date_of_visit":   str(r.get("date_of_visit") or ""),
+            "tid":             str(r.get("tid") or ""),
+            "tgid":            tgid_str,
+            "experienceName":  str(r.get("experience_name") or ""),
+            "vid":             str(r.get("vendor_id") or ""),
+            "vendorName":      str(r.get("vendor_name") or ""),
+            "fulfilmentType":  str(r.get("fulfilment_type") or ""),
+            "primary_guest_name": str(r.get("primary_guest_name") or ""),
+        }
+        booking["bms_link"]  = BMS_URL_PATTERN.format(bid=bid_str) if bid_str else None
+        booking["tgid_link"] = TGID_URL_PATTERN.format(tgid=tgid_str) if tgid_str else None
+        booking.update(_get_booking_extra(bid_str))
+        by_id[bid_str] = booking
+    result = {}
+    for b in bids:
+        result[b] = by_id.get(str(b))
+    return result
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # NEW: run_narrowing_query — Tier 2 cascade, one attempt
 # ─────────────────────────────────────────────────────────────────────────

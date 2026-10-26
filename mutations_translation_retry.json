@@ -1,0 +1,8 @@
+[
+  {
+    "file": "server/services/reply_language.py",
+    "name": "translation retry removed — wrong-language stays permanently untranslated",
+    "find": "        if verdict[\"outcome\"] == \"wrong_language\":\n            wrong_lang = verdict.get(\"language\", \"\")\n            retry_result = (await claude_svc.translate_retry(\n                review.body_original, wrong_lang, review_id) or \"\").strip()\n            if retry_result and retry_result != \"ENGLISH_ALREADY\":\n                verdict = await english_or_reject(retry_result, review_id)\n                if verdict[\"store\"]:\n                    result = retry_result\n                    verdict[\"why\"] = (\n                        f\"first attempt came back in {wrong_lang}; \"\n                        f\"retried with explicit language — {verdict['why']}\")",
+    "replace": ""
+  }
+]
