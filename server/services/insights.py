@@ -765,7 +765,7 @@ LEFT JOIN `{_BOOKINGS_TABLE}` b ON r.booking_id = b.booking_id
     _rev_ids = "ARRAY_AGG(DISTINCT CAST(r.booking_id AS STRING) LIMIT 20) AS ids"
     _sup_ids = "ARRAY_AGG(DISTINCT sq.booking_id LIMIT 20) AS ids"
 
-    _rev_scope_tidvid = "b.tour_id = @tid AND b.vendor_id = @vid"
+    _rev_scope_tidvid = "b.experience_id = @tid AND b.vendor_id = @vid"
 
     def _sql_reviews_total(scope):
         return f"""
@@ -815,7 +815,7 @@ WHERE {scope}
   AND {_win}
 """
 
-    _sup_scope_tidvid = "b.tour_id = @tid AND b.vendor_id = @vid"
+    _sup_scope_tidvid = "b.experience_id = @tid AND b.vendor_id = @vid"
     _support_where = _support_where_for(_sup_scope_tidvid)
 
     sql_d = f"""
@@ -849,7 +849,7 @@ FROM (
 )
 """
     sql_e_tidvid = f"""{_avg_select}{_reviews_from}
-WHERE b.tour_id = @tid AND b.vendor_id = @vid
+WHERE b.experience_id = @tid AND b.vendor_id = @vid
   AND r.rating IS NOT NULL
   AND r.source = 'CUSTOMER'
   AND {_win}
@@ -857,7 +857,7 @@ WHERE b.tour_id = @tid AND b.vendor_id = @vid
     # TGID is the experience, so this deliberately spans every tour and vendor
     # selling it - that breadth is the point of the comparison.
     sql_e_tgid = f"""{_avg_select}{_reviews_from}
-WHERE b.tour_id = @tgid
+WHERE b.experience_id = @tgid
   AND r.rating IS NOT NULL
   AND r.source = 'CUSTOMER'
   AND {_win}
@@ -867,7 +867,7 @@ WHERE b.tour_id = @tgid
     sql_f = f"""
 SELECT COUNT(DISTINCT b.booking_id) AS c
 FROM `{_BOOKINGS_TABLE}` b
-WHERE b.tour_id = @tid AND b.vendor_id = @vid
+WHERE b.experience_id = @tid AND b.vendor_id = @vid
   AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
   AND {_win}
 """
@@ -947,12 +947,12 @@ LEFT JOIN `{_ZENDESK_TABLE}` tk ON b.primary_ticket_id = tk.ticket_id
     sql_h  = f"{_ff_select}WHERE b.vendor_id = @vid AND {_win}{_ff_excl}"
     # Ops checks fulfilment for the same TGID over the last four weeks, because
     # that is the population that says whether this is a one-off or a pattern.
-    sql_h2 = f"{_ff_select}WHERE b.tour_id = @tgid AND {_win}{_ff_excl}"
+    sql_h2 = f"{_ff_select}WHERE b.experience_id = @tgid AND {_win}{_ff_excl}"
     # Completion at TID + VID: this vendor's version of this tour, which is the
     # narrowest population that still answers "can they fulfil THIS". VID alone
     # spans everything the vendor runs, so a vendor good at one tour and bad at
     # another averages to something true of neither.
-    sql_h3 = f"{_ff_select}WHERE b.tour_id = @tid AND b.vendor_id = @vid AND {_win}{_ff_excl}"
+    sql_h3 = f"{_ff_select}WHERE b.experience_id = @tid AND b.vendor_id = @vid AND {_win}{_ff_excl}"
     # --- I: same-day, same issue -------------------------------------------
     # Not a fulfilment rate. The question is how many OTHER guests visiting
     # this vendor on this same date raised the SAME issue - a cluster on one
@@ -978,7 +978,7 @@ GROUP BY status, ctype
 ORDER BY c DESC
 LIMIT 6
 """
-    sql_why_tgid = _ff_why.format(scope="b.tour_id = @tgid")
+    sql_why_tgid = _ff_why.format(scope="b.experience_id = @tgid")
     sql_why_vid  = _ff_why.format(scope="b.vendor_id = @vid")
 
     sql_i_rev = f"""

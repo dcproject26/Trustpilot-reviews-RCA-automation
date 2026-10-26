@@ -72,7 +72,7 @@ async def get_similar_complaints(booking: dict) -> tuple[list, list]:
           FORMAT_DATE('%d %b', DATE(r.reviewed_at)) AS date
         FROM `{BIGQUERY_REVIEWS_TABLE}` r
         JOIN `{BIGQUERY_BOOKINGS_TABLE}` b ON r.booking_id = b.booking_id
-        WHERE b.tour_id = @tid
+        WHERE b.experience_id = @tid
           AND b.vendor_id = @vid
           AND r.reviewed_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {days} DAY)
           AND r.rating <= 2
@@ -145,9 +145,9 @@ SELECT
   -- DATE because that is what it is — an experience is booked for a day.
   b.created_at            AS date_of_booking,
   DATE(b.experience_timestamp) AS date_of_visit,
-  b.tour_id               AS tid,
-  CAST(b.tour_id AS INT64) AS tgid,
-  b.tour_name              AS experience_name,
+  b.experience_id               AS tid,
+  CAST(b.experience_id AS INT64) AS tgid,
+  b.experience_name              AS experience_name,
   b.vendor_id,
   b.vendor_name,
   b.final_fulfilment_type AS fulfilment_type,
@@ -204,9 +204,9 @@ SELECT
   b.booking_id,
   b.created_at            AS date_of_booking,
   DATE(b.experience_timestamp) AS date_of_visit,
-  b.tour_id               AS tid,
-  CAST(b.tour_id AS INT64) AS tgid,
-  b.tour_name              AS experience_name,
+  b.experience_id               AS tid,
+  CAST(b.experience_id AS INT64) AS tgid,
+  b.experience_name              AS experience_name,
   b.vendor_id,
   b.vendor_name,
   b.final_fulfilment_type AS fulfilment_type,
@@ -269,13 +269,13 @@ SELECT
   b.booking_id,
   b.primary_guest_name,
   DATE(b.experience_timestamp) AS date_of_visit,
-  b.tour_name              AS experience_name,
-  b.tour_id               AS tid,
-  CAST(b.tour_id AS INT64) AS tgid,
+  b.experience_name              AS experience_name,
+  b.experience_id               AS tid,
+  CAST(b.experience_id AS INT64) AS tgid,
   b.vendor_id,
   b.vendor_name
 FROM `{BIGQUERY_BOOKINGS_TABLE}` b
-WHERE b.tour_id IN UNNEST(@tgid_list)
+WHERE b.experience_id IN UNNEST(@tgid_list)
   AND DATE(b.experience_timestamp) BETWEEN
       DATE_SUB(@review_pub_date, INTERVAL @date_window DAY) AND @review_pub_date
   AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
@@ -295,9 +295,9 @@ SELECT
   b.booking_id,
   b.primary_guest_name,
   DATE(b.experience_timestamp) AS date_of_visit,
-  b.tour_name              AS experience_name,
-  b.tour_id               AS tid,
-  CAST(b.tour_id AS INT64) AS tgid,
+  b.experience_name              AS experience_name,
+  b.experience_id               AS tid,
+  CAST(b.experience_id AS INT64) AS tgid,
   b.vendor_id,
   b.vendor_name
 FROM `{BIGQUERY_BOOKINGS_TABLE}` b
