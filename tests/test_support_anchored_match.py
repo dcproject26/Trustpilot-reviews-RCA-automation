@@ -152,9 +152,7 @@ def test_both_the_visit_and_the_booking_date_are_checked(bq_with):
     runner = bq_with([_row("88001", "x")])
     asyncio.run(bq.find_via_support(SVEN, tgids=TGIDS))
     sql, _ = runner.calls[0]
-    # Visit date is now experience_timestamp (renamed from experience_date in the
-    # realtime migration); the booking date is still created_at.
-    assert "experience_timestamp" in sql and "created_at" in sql
+    assert "experience_date" in sql and "created_at" in sql
 
 
 def test_a_date_the_model_did_not_format_is_dropped_not_passed(bq_with):

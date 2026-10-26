@@ -126,16 +126,7 @@ def _get_client():
 # NEW: verify_bid — Tier 1 BID lookup, returns a booking dict or None
 # ─────────────────────────────────────────────────────────────────────────
 
-# Realtime `*_lambda` migration (verified against the live fct_bookings_lambda
-# schema, not the migration guide's examples — which were wrong about what moved):
-#   • experience_id / experience_name / vendor_id / vendor_name / is_partnered /
-#     fulfilment type / fulfilment_status all live ON fct_bookings_lambda — no
-#     orders join and no fulfilments join are needed; read them straight off b.
-#   • experience_date -> experience_timestamp (combined date+time; DATE() recovers the day)
-#   • fulfilment_type -> final_fulfilment_type (the realized fulfilment method)
-#   • booking_status is SELECTed (not SQL-filtered) so verify_bid can tell a
-#     Dummy/Uncaptured booking apart from a genuinely absent one (rule 1).
-_VERIFY_BID_SQL = f"""
+_VERIFY_BID_SQL = """
 SELECT
   b.booking_id,
   -- The TIMESTAMP, not DATE(). b.created_at carries a time and DATE() threw it
@@ -144,39 +135,34 @@ SELECT
   -- blamed for truncating something it never received. The visit date stays a
   -- DATE because that is what it is — an experience is booked for a day.
   b.created_at            AS date_of_booking,
-  DATE(b.experience_timestamp) AS date_of_visit,
+  DATE(b.experience_date) AS date_of_visit,
   b.tour_id               AS tid,
   b.experience_id         AS tgid,
-  b.tour_name              AS experience_name,
+  b.experience_name,
   b.vendor_id,
-  b.vendor_name,
-  b.final_fulfilment_type AS fulfilment_type,
-  b.primary_guest_name,
-  b.booking_status
-FROM `{BIGQUERY_BOOKINGS_TABLE}` b
+  v.vendor_name,
+  f.fulfilment_type,
+  b.primary_guest_name
+FROM `headout-analytics.analytics_reporting.fct_bookings` b
+LEFT JOIN `headout-analytics.analytics_reporting.fct_fulfilments` f
+  ON b.booking_id = f.booking_id
+LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
+  ON b.vendor_id = v.vendor_id
 WHERE b.booking_id = @bid
 LIMIT 1
 """
 
 def verify_bid(bid: str) -> dict | None:
-    """Direct BID lookup in fct_bookings. Returns a booking dict or None.
-
-    Raises on query failure so callers can distinguish "not found" from
-    "could not look."  Every call site already wraps this in try/except.
-    """
+    """Direct BID lookup in fct_bookings. Returns a booking dict or None."""
     from server.services import bq_connector as bqc
-    rows = bqc.run_query(_VERIFY_BID_SQL, params={"bid": ("INT64", int(bid))})
+    try:
+        rows = bqc.run_query(_VERIFY_BID_SQL, params={"bid": ("INT64", int(bid))})
+    except Exception as e:
+        log.warning(f"verify_bid({bid}): query failed: {e}")
+        return None
     if not rows:
         return None
     r = rows[0]
-    # The realtime fct_bookings_lambda now carries Dummy/Uncaptured rows the old
-    # table did not. A BID resolving to one of these is NOT a real booking — say
-    # so distinctly (rule 1: not the same as "no such BID") and treat as unmatched.
-    _status = str(r.get("booking_status") or "")
-    if _status in ("Dummy", "Uncaptured"):
-        log.info(f"verify_bid({bid}): resolves to a {_status} booking — not a "
-                 f"real booking, treating as unmatched")
-        return None
     booking_id_str = str(r.get("booking_id") or bid)
     tgid_str       = str(r.get("tgid") or "")
     booking = {
@@ -203,21 +189,22 @@ def verify_bid(bid: str) -> dict | None:
 # NEW: run_narrowing_query — Tier 2 cascade, one attempt
 # ─────────────────────────────────────────────────────────────────────────
 
-_NARROWING_SQL_WITH_TGIDS = f"""
+_NARROWING_SQL_WITH_TGIDS = """
 SELECT
   b.booking_id,
   b.primary_guest_name,
-  DATE(b.experience_timestamp) AS date_of_visit,
-  b.tour_name              AS experience_name,
+  DATE(b.experience_date) AS date_of_visit,
+  b.experience_name,
   b.tour_id               AS tid,
   b.experience_id         AS tgid,
   b.vendor_id,
-  b.vendor_name
-FROM `{BIGQUERY_BOOKINGS_TABLE}` b
-WHERE CAST(b.experience_id AS STRING) IN UNNEST(@tgid_list)
-  AND DATE(b.experience_timestamp) BETWEEN
+  v.vendor_name
+FROM `headout-analytics.analytics_reporting.fct_bookings` b
+LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
+  ON b.vendor_id = v.vendor_id
+WHERE b.experience_id IN UNNEST(@tgid_list)
+  AND b.experience_date BETWEEN
       DATE_SUB(@review_pub_date, INTERVAL @date_window DAY) AND @review_pub_date
-  AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
   AND (
     (@author_first = '' AND @author_last = '')
     OR (@author_first != '' AND
@@ -225,24 +212,25 @@ WHERE CAST(b.experience_id AS STRING) IN UNNEST(@tgid_list)
     OR (@author_last != '' AND
         LOWER(b.primary_guest_name) LIKE CONCAT('%', LOWER(@author_last), '%'))
   )
-ORDER BY b.experience_timestamp DESC
+ORDER BY b.experience_date DESC
 LIMIT 10
 """
 
-_NARROWING_SQL_NO_TGIDS = f"""
+_NARROWING_SQL_NO_TGIDS = """
 SELECT
   b.booking_id,
   b.primary_guest_name,
-  DATE(b.experience_timestamp) AS date_of_visit,
-  b.tour_name              AS experience_name,
+  DATE(b.experience_date) AS date_of_visit,
+  b.experience_name,
   b.tour_id               AS tid,
   b.experience_id         AS tgid,
   b.vendor_id,
-  b.vendor_name
-FROM `{BIGQUERY_BOOKINGS_TABLE}` b
-WHERE DATE(b.experience_timestamp) BETWEEN
+  v.vendor_name
+FROM `headout-analytics.analytics_reporting.fct_bookings` b
+LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
+  ON b.vendor_id = v.vendor_id
+WHERE b.experience_date BETWEEN
       DATE_SUB(@review_pub_date, INTERVAL @date_window DAY) AND @review_pub_date
-  AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
   AND (
     (@author_first = '' AND @author_last = '')
     OR (@author_first != '' AND
@@ -250,7 +238,7 @@ WHERE DATE(b.experience_timestamp) BETWEEN
     OR (@author_last != '' AND
         LOWER(b.primary_guest_name) LIKE CONCAT('%', LOWER(@author_last), '%'))
   )
-ORDER BY b.experience_timestamp DESC
+ORDER BY b.experience_date DESC
 LIMIT 10
 """
 
@@ -275,10 +263,7 @@ def run_narrowing_query(
     }
 
     if tgid_list:
-        # experience_id is compared as STRING (CAST in the SQL) so the match is
-        # type-safe whatever fct_bookings_lambda stores it as — mirrors the
-        # working find_via_support. Pass the tgids as strings to match.
-        params["tgid_list"] = ("STRING", [str(t) for t in tgid_list])
+        params["tgid_list"] = ("INT64", tgid_list)
         sql = _NARROWING_SQL_WITH_TGIDS
         # Null-name guard: if both are empty strings, force NULL semantics via SQL
         # (LIKE '%empty%' would still match — use a sentinel approach: pass as empty

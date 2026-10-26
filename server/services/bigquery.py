@@ -12,22 +12,18 @@ Insights:
   - Same-day same-VID fulfilment issues
   - Fulfilment type
 
-Real table paths (post realtime `*_lambda` migration — verified against the live
-INFORMATION_SCHEMA, see docs/bigquery-lambda-migration-plan.md):
-  headout-analytics.analytics_reporting.fct_bookings_lambda   (everything the
-      matcher/enrichment needs: experience_id/name, vendor, is_partnered,
-      final_fulfilment_type, fulfilment_status, booking_status, price_payable_usd)
-  headout-analytics.analytics_reporting.fct_reviews           (not migrated)
-  headout-analytics.analytics_reporting.fct_zendesk_tickets   (completion_type, not migrated)
-  headout-analytics.analytics_reporting.dim_vendors           (escalation contact, not migrated)
-The fulfilments table is NOT queried any more — its fields live on the booking row.
+Real table paths confirmed from the Retool workflow:
+  headout-analytics.analytics_reporting.fct_bookings
+  headout-analytics.analytics_reporting.fct_reviews
+  headout-analytics.analytics_reporting.fct_fulfilments
+  headout-analytics.analytics_reporting.dim_vendors
 """
 import asyncio
 import json, logging
 import re as _re_mod
 from server.config import (
     is_live, GCP_SERVICE_ACCOUNT_JSON,
-    BIGQUERY_BOOKINGS_TABLE, BIGQUERY_REVIEWS_TABLE,
+    BIGQUERY_BOOKINGS_TABLE, BIGQUERY_REVIEWS_TABLE, BIGQUERY_FULFILMENTS_TABLE,
     BIGQUERY_SUPPORT_TABLE,
 )
 from server.names import looks_like_digest
@@ -124,18 +120,20 @@ async def find_booking(review: dict) -> dict | None:
         sql = f"""
         SELECT
             b.booking_id,
-            b.tour_name,
+            b.experience_name,
             b.experience_id   AS tgid,
             b.tour_id         AS tid,
             b.vendor_id       AS vid,
-            b.vendor_name,
-            DATE(b.created_at)            AS booked_on,
-            DATE(b.experience_timestamp)  AS visit_date,
+            v.vendor_name,
+            DATE(b.created_at)       AS booked_on,
+            DATE(b.experience_date)  AS visit_date,
             b.primary_guest_name     AS guest_name,
-            b.final_fulfilment_type  AS fulfilment_type
+            f.fulfilment_type
         FROM `{BIGQUERY_BOOKINGS_TABLE}` b
+        LEFT JOIN `{BIGQUERY_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
+        LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
+               ON b.vendor_id = v.vendor_id
         WHERE b.booking_id = @ref
-          AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
         LIMIT 1
         """
         rows = _run_query(sql, [_bqlib.ScalarQueryParameter("ref", "INT64", int(ref))])
@@ -151,18 +149,20 @@ async def find_booking(review: dict) -> dict | None:
         sql = f"""
         SELECT
             b.booking_id,
-            b.tour_name,
+            b.experience_name,
             b.experience_id   AS tgid,
             b.tour_id         AS tid,
             b.vendor_id       AS vid,
-            b.vendor_name,
-            DATE(b.created_at)            AS booked_on,
-            DATE(b.experience_timestamp)  AS visit_date,
+            v.vendor_name,
+            DATE(b.created_at)       AS booked_on,
+            DATE(b.experience_date)  AS visit_date,
             b.primary_guest_name     AS guest_name,
-            b.final_fulfilment_type  AS fulfilment_type
+            f.fulfilment_type
         FROM `{BIGQUERY_BOOKINGS_TABLE}` b
+        LEFT JOIN `{BIGQUERY_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
+        LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
+               ON b.vendor_id = v.vendor_id
         WHERE LOWER(b.primary_guest_name) LIKE LOWER(CONCAT('%', @name, '%'))
-          AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
         ORDER BY b.created_at DESC
         LIMIT 5
         """
@@ -414,7 +414,7 @@ def support_search_sql(indicators: dict, tgids: list | None = None,
         # already turned whatever the guest called the place into real ids, and
         # guests name product types - "musical ticket", "skip-the-line entry" -
         # which match no experience_name at all.
-        where.append("b.tour_id IN UNNEST(@tgids)")
+        where.append("CAST(b.experience_id AS STRING) IN UNNEST(@tgids)")
         params.append(_P.ArrayQueryParameter("tgids", "STRING", tgids))
     if dates:
         # A date the review named may be the visit date OR the date the guest
@@ -430,22 +430,20 @@ def support_search_sql(indicators: dict, tgids: list | None = None,
         # support contact, none surviving a date filter pinned to a guessed
         # year. Day and month must agree; the year may be off by one.
         where.append(f"""(
-            {_day_month_match("b.experience_timestamp")}
+            {_day_month_match("b.experience_date")}
             OR {_day_month_match("b.created_at")}
         )""")
         params.append(_P.ArrayQueryParameter("dates", "STRING", dates))
-    # Realtime migration: drop Dummy/Uncaptured bookings the new table now carries.
-    where.append("b.booking_status NOT IN ('Dummy', 'Uncaptured')")
     sql = f"""
     SELECT
         b.booking_id,
-        b.tour_name,
+        b.experience_name,
         b.experience_id          AS tgid,
         b.tour_id                AS tid,
         b.vendor_id              AS vid,
-        b.vendor_name,
-        DATE(b.created_at)            AS booked_on,
-        DATE(b.experience_timestamp)  AS visit_date,
+        v.vendor_name,
+        DATE(b.created_at)       AS booked_on,
+        DATE(b.experience_date)  AS visit_date,
         b.primary_guest_name     AS guest_name,
         COUNT(sq.query_id)       AS contact_count,
         STRING_AGG(DISTINCT COALESCE(sq.query_tag, sq.query_type,
@@ -455,6 +453,8 @@ def support_search_sql(indicators: dict, tgids: list | None = None,
     FROM `{BIGQUERY_SUPPORT_TABLE}` sq
     JOIN `{BIGQUERY_BOOKINGS_TABLE}` b
       ON SAFE_CAST(sq.booking_id AS INT64) = b.booking_id
+    LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
+           ON b.vendor_id = v.vendor_id
     WHERE {" AND ".join(where)}
       AND sq.query_created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(),
                                                INTERVAL {int(SUPPORT_LOOKBACK_DAYS)} DAY)
@@ -623,37 +623,25 @@ def _get_booking_extra(bid: str) -> dict:
         SELECT
             b.booking_status,
             b.tour_name,
-            b.is_partnered,
-            -- THREE SCALAR subqueries, not one `AS STRUCT`. The REST query shim
-            -- (bq_connector._convert) only deserializes scalars — a nested
-            -- RECORD came back as the raw BigQuery wire shape {{"f":[...]}}, so
-            -- `.get("email")` on it was always None and the escalation email
-            -- read blank in production (the deployment uses that shim). Scalar
-            -- columns deserialize correctly on both the shim and the real
-            -- client. All three share the same WHERE + ORDER BY, so they pick
-            -- the SAME contact (a vendor can list more than one ESCALATIONS
-            -- contact; ordering by address keeps the choice stable between runs).
-            (SELECT c.email FROM UNNEST(v.contact_details) c
-              WHERE REGEXP_CONTAINS(LOWER(IFNULL(c.type, '')), r'{_ESCALATION_TYPE_RE}')
+            f.is_partnered,
+            (SELECT AS STRUCT c.email, c.type, c.name
+               FROM UNNEST(v.contact_details) c
+              WHERE REGEXP_CONTAINS(LOWER(IFNULL(c.type, '')),
+                                    r'{_ESCALATION_TYPE_RE}')
                 AND IFNULL(c.email, '') != ''
-              ORDER BY c.email LIMIT 1)                   AS escalation_email,
-            (SELECT c.type FROM UNNEST(v.contact_details) c
-              WHERE REGEXP_CONTAINS(LOWER(IFNULL(c.type, '')), r'{_ESCALATION_TYPE_RE}')
-                AND IFNULL(c.email, '') != ''
-              ORDER BY c.email LIMIT 1)                   AS escalation_type,
-            (SELECT c.name FROM UNNEST(v.contact_details) c
-              WHERE REGEXP_CONTAINS(LOWER(IFNULL(c.type, '')), r'{_ESCALATION_TYPE_RE}')
-                AND IFNULL(c.email, '') != ''
-              ORDER BY c.email LIMIT 1)                   AS escalation_name,
+              -- A vendor can list more than one ESCALATIONS contact. Order
+              -- by address so the same booking always shows the same one -
+              -- a value that changes between runs with no cause is worse
+              -- than either candidate.
+              ORDER BY c.email
+              LIMIT 1)                                   AS escalation,
             (SELECT STRING_AGG(DISTINCT IFNULL(c.type, '(untyped)'), ', ')
                FROM UNNEST(v.contact_details) c)         AS contact_types,
             ARRAY_LENGTH(v.contact_details)              AS contact_count
         FROM `{BIGQUERY_BOOKINGS_TABLE}` b
-        -- is_partnered and the vendor are on fct_bookings_lambda directly (the
-        -- booking-level fulfilment rollup), so no fulfilments join is needed;
-        -- dim_vendors joins on the booking's vendor for the escalation contact.
+        LEFT JOIN `{BIGQUERY_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
         LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
-               ON v.vendor_id = b.vendor_id
+               ON v.vendor_id = f.vendor_id
         WHERE b.booking_id = @bid
         LIMIT 1
         """
@@ -674,13 +662,14 @@ def _get_booking_extra(bid: str) -> dict:
             # has no contacts on file", which is a claim about the vendor
             # rather than an admission that we did not find the vendor.
             _n_contacts = getattr(rows[0], "contact_count", None)
+            _esc = getattr(rows[0], "escalation", None)
             return {
                 "booking_status":   getattr(rows[0], "booking_status", None) or "",
                 "tid_name":         getattr(rows[0], "tour_name",      None) or "",
                 "isPartnered":      None if _partnered is None else bool(_partnered),
-                "escalationEmail":  getattr(rows[0], "escalation_email", None) or "",
-                "escalationType":   getattr(rows[0], "escalation_type",  None) or "",
-                "escalationName":   getattr(rows[0], "escalation_name",  None) or "",
+                "escalationEmail":  (_esc or {}).get("email") or "",
+                "escalationType":   (_esc or {}).get("type") or "",
+                "escalationName":   (_esc or {}).get("name") or "",
                 "contactTypes":     getattr(rows[0], "contact_types", None) or "",
                 "contactCount":     None if _n_contacts is None else int(_n_contacts),
                 **_get_booking_amount(bid_int),

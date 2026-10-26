@@ -50,20 +50,15 @@ import re
 import logging
 from datetime import datetime, timezone
 
-from server.config import is_live, MOCK_MODE, BIGQUERY_BOOKINGS_TABLE
+from server.config import is_live, MOCK_MODE
 from server.taxonomy import support_tags_for, support_tags_not_applicable
 
 log = logging.getLogger(__name__)
 
 _REVIEWS_TABLE     = "headout-analytics.analytics_reporting.fct_reviews"
-# Only the bookings table is in the realtime `*_lambda` migration (and env-driven
-# for it). Everything the insights tiles need — experience_id, vendor_id,
-# fulfilment_status — is on fct_bookings_lambda now; completion_type moved to
-# fct_zendesk_tickets (joined on primary_ticket_id). reviews / support /
-# vendor_tours / zendesk are NOT in the migration and stay as literals.
-_BOOKINGS_TABLE    = BIGQUERY_BOOKINGS_TABLE
+_BOOKINGS_TABLE    = "headout-analytics.analytics_reporting.fct_bookings"
 _SUPPORT_TABLE     = "headout-analytics.analytics_reporting.fct_support_queries"
-_ZENDESK_TABLE     = "headout-analytics.analytics_reporting.fct_zendesk_tickets"
+_FULFILMENTS_TABLE = "headout-analytics.analytics_reporting.fct_fulfilments"
 _VENDOR_TOURS      = "headout-analytics.analytics_reporting.dim_vendor_tours"
 
 # A review counts as negative at 3 stars or below - the threshold Looker uses.
@@ -743,16 +738,15 @@ async def get_insights(booking: dict, l1: str | None, l2: str | None,
 
     # The rolling window: the wd days before the anchor, excluding the anchor
     # day itself, exactly as Looker's self-join does.
-    _win = (f"DATE(b.experience_timestamp) < {anchor_sql} "
-            f"AND DATE(b.experience_timestamp) > DATE_SUB({anchor_sql}, INTERVAL {wd} DAY)")
+    _win = (f"DATE(b.experience_date) < {anchor_sql} "
+            f"AND DATE(b.experience_date) > DATE_SUB({anchor_sql}, INTERVAL {wd} DAY)")
 
     # --- A / B: negative reviews -------------------------------------------
-    # Realtime migration: experience_id / vendor_id now live ON fct_bookings_lambda
-    # (verified against the live schema), so the old orders/fulfilments joins are
-    # gone — the booking row carries everything the review tiles scope on.
+    # vendor_id comes off fct_fulfilments here, per Looker.
     _reviews_from = f"""
 FROM `{_REVIEWS_TABLE}` r
 LEFT JOIN `{_BOOKINGS_TABLE}` b ON r.booking_id = b.booking_id
+LEFT JOIN `{_FULFILMENTS_TABLE}` f ON r.booking_id = f.booking_id
 """
     # Recurrence is scoped to TID + VID: is this VENDOR'S VERSION of the
     # experience failing? That is the question the tile asks, and widening it
@@ -765,7 +759,7 @@ LEFT JOIN `{_BOOKINGS_TABLE}` b ON r.booking_id = b.booking_id
     _rev_ids = "ARRAY_AGG(DISTINCT CAST(r.booking_id AS STRING) LIMIT 20) AS ids"
     _sup_ids = "ARRAY_AGG(DISTINCT sq.booking_id LIMIT 20) AS ids"
 
-    _rev_scope_tidvid = "b.tour_id = @tid AND b.vendor_id = @vid"
+    _rev_scope_tidvid = "b.tour_id = @tid AND f.vendor_id = @vid"
 
     def _sql_reviews_total(scope):
         return f"""
@@ -849,7 +843,7 @@ FROM (
 )
 """
     sql_e_tidvid = f"""{_avg_select}{_reviews_from}
-WHERE b.tour_id = @tid AND b.vendor_id = @vid
+WHERE b.tour_id = @tid AND f.vendor_id = @vid
   AND r.rating IS NOT NULL
   AND r.source = 'CUSTOMER'
   AND {_win}
@@ -857,7 +851,7 @@ WHERE b.tour_id = @tid AND b.vendor_id = @vid
     # TGID is the experience, so this deliberately spans every tour and vendor
     # selling it - that breadth is the point of the comparison.
     sql_e_tgid = f"""{_avg_select}{_reviews_from}
-WHERE b.tour_id = @tgid
+WHERE b.experience_id = @tgid
   AND r.rating IS NOT NULL
   AND r.source = 'CUSTOMER'
   AND {_win}
@@ -868,7 +862,6 @@ WHERE b.tour_id = @tgid
 SELECT COUNT(DISTINCT b.booking_id) AS c
 FROM `{_BOOKINGS_TABLE}` b
 WHERE b.tour_id = @tid AND b.vendor_id = @vid
-  AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
   AND {_win}
 """
 
@@ -913,21 +906,18 @@ LIMIT 1
     # Mirrors Looker's count_completed_bookings / count_bookings, and its
     # unfulfilled measure, which needs both fields: a status outside
     # Completed/Dirty AND completion_type = Unfulfilled.
-    # Realtime migration: fulfilment_status is on fct_bookings_lambda; completion_type
-    # moved to fct_zendesk_tickets (join on primary_ticket_id = ticket_id, one ticket
-    # per booking — no fan-out). Verified against the live schemas.
     _ff_select = f"""
 SELECT
-  COUNT(DISTINCT IF(b.fulfilment_status IN UNNEST(@ff_done),
+  COUNT(DISTINCT IF(f.fulfilment_status IN UNNEST(@ff_done),
                     b.booking_id, NULL))            AS completed,
   COUNT(DISTINCT IF(b.booking_status IN UNNEST(@ff_done),
                     b.booking_id, NULL))            AS completed_by_booking_status,
-  COUNT(DISTINCT IF(b.fulfilment_status NOT IN UNNEST(@ff_done)
-                    AND tk.completion_type = 'Unfulfilled',
+  COUNT(DISTINCT IF(f.fulfilment_status NOT IN UNNEST(@ff_done)
+                    AND f.completion_type = 'Unfulfilled',
                     b.booking_id, NULL))            AS unfulfilled,
   COUNT(DISTINCT b.booking_id)                      AS total
 FROM `{_BOOKINGS_TABLE}` b
-LEFT JOIN `{_ZENDESK_TABLE}` tk ON b.primary_ticket_id = tk.ticket_id
+LEFT JOIN `{_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
 """
     # The dashboard's own filters, off the Looker tile:
     #   Fulfilment Status is not  Uncaptured, Dummy
@@ -941,13 +931,13 @@ LEFT JOIN `{_ZENDESK_TABLE}` tk ON b.primary_ticket_id = tk.ticket_id
     # NULL status, and NULL NOT IN (...) is NULL, which would drop the row.
     # Looker's "is not" keeps nulls, and so does this.
     _ff_excl = f"""
-  AND IFNULL(b.fulfilment_status, '') NOT IN UNNEST(@ff_skip_status)
-  AND IFNULL(tk.completion_type,   '') NOT IN UNNEST(@ff_skip_ctype)
-  AND {_norm_sql("IFNULL(tk.completion_type, '')")} NOT IN UNNEST(@ff_guest)"""
+  AND IFNULL(f.fulfilment_status, '') NOT IN UNNEST(@ff_skip_status)
+  AND IFNULL(f.completion_type,   '') NOT IN UNNEST(@ff_skip_ctype)
+  AND {_norm_sql("IFNULL(f.completion_type, '')")} NOT IN UNNEST(@ff_guest)"""
     sql_h  = f"{_ff_select}WHERE b.vendor_id = @vid AND {_win}{_ff_excl}"
     # Ops checks fulfilment for the same TGID over the last four weeks, because
     # that is the population that says whether this is a one-off or a pattern.
-    sql_h2 = f"{_ff_select}WHERE b.tour_id = @tgid AND {_win}{_ff_excl}"
+    sql_h2 = f"{_ff_select}WHERE b.experience_id = @tgid AND {_win}{_ff_excl}"
     # Completion at TID + VID: this vendor's version of this tour, which is the
     # narrowest population that still answers "can they fulfil THIS". VID alone
     # spans everything the vendor runs, so a vendor good at one tour and bad at
@@ -967,18 +957,18 @@ LEFT JOIN `{_ZENDESK_TABLE}` tk ON b.primary_ticket_id = tk.ticket_id
     # fulfilment backlog, and they lead somewhere different.
     _ff_why = f"""
 SELECT
-  IFNULL(b.fulfilment_status, '(none)') AS status,
-  IFNULL(tk.completion_type,  '(none)')  AS ctype,
+  IFNULL(f.fulfilment_status, '(none)') AS status,
+  IFNULL(f.completion_type,  '(none)')  AS ctype,
   COUNT(DISTINCT b.booking_id)          AS c
 FROM `{_BOOKINGS_TABLE}` b
-LEFT JOIN `{_ZENDESK_TABLE}` tk ON b.primary_ticket_id = tk.ticket_id
+LEFT JOIN `{_FULFILMENTS_TABLE}` f ON b.booking_id = f.booking_id
 WHERE {{scope}} AND {_win}{_ff_excl}
-  AND IFNULL(b.fulfilment_status, '') NOT IN UNNEST(@ff_done)
+  AND IFNULL(f.fulfilment_status, '') NOT IN UNNEST(@ff_done)
 GROUP BY status, ctype
 ORDER BY c DESC
 LIMIT 6
 """
-    sql_why_tgid = _ff_why.format(scope="b.tour_id = @tgid")
+    sql_why_tgid = _ff_why.format(scope="b.experience_id = @tgid")
     sql_why_vid  = _ff_why.format(scope="b.vendor_id = @vid")
 
     sql_i_rev = f"""
@@ -987,8 +977,8 @@ SELECT COUNT(DISTINCT r.booking_id) AS c,
 {_reviews_from}
 LEFT JOIN UNNEST(r.issues) AS iss
 LEFT JOIN UNNEST(iss.l2_issues) AS l2v
-WHERE b.vendor_id = @vid
-  AND DATE(b.experience_timestamp) = {anchor_sql}
+WHERE f.vendor_id = @vid
+  AND DATE(b.experience_date) = {anchor_sql}
   AND {_norm_sql('l2v')} IN UNNEST(@l2v)
 """
     sql_i_sup = f"""
@@ -996,7 +986,7 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c,
        ARRAY_AGG(DISTINCT sq.booking_id LIMIT 20) AS ids
 {_support_from}
 WHERE b.vendor_id = @vid
-  AND DATE(b.experience_timestamp) = {anchor_sql}
+  AND DATE(b.experience_date) = {anchor_sql}
   AND {_auto_resolved_ok}
   AND NOT REGEXP_CONTAINS(IFNULL({_QUERY_CATEGORY_SQL}, ''), @nar)
   AND {tag_pred}
@@ -1006,8 +996,7 @@ WHERE b.vendor_id = @vid
     sql_i_tot = f"""
 SELECT COUNT(DISTINCT b.booking_id) AS c
 FROM `{_BOOKINGS_TABLE}` b
-WHERE b.vendor_id = @vid AND DATE(b.experience_timestamp) = {anchor_sql}
-  AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
+WHERE b.vendor_id = @vid AND DATE(b.experience_date) = {anchor_sql}
 """
 
     nar_par  = {"nar": _NAR_PATTERN}
