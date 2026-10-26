@@ -1,0 +1,8 @@
+[
+  {
+    "file": "server/services/bigquery_patch.py",
+    "name": "verify_bid swallows exceptions again — broken lookup reads as absent",
+    "find": "    rows = bqc.run_query(_VERIFY_BID_SQL, params={\"bid\": (\"INT64\", int(bid))})",
+    "replace": "    try:\n        rows = bqc.run_query(_VERIFY_BID_SQL, params={\"bid\": (\"INT64\", int(bid))})\n    except Exception:\n        return None"
+  }
+]

@@ -39,3 +39,14 @@ def test_a_real_booking_is_still_matched(monkeypatch):
     monkeypatch.setattr(bq, "_get_booking_extra", lambda bid: {})
     out = bp.verify_bid("32908218")
     assert out is not None and out["id"] == "32908218"
+
+
+def test_verify_bid_raises_on_query_failure(monkeypatch):
+    """verify_bid must propagate query failures so callers can distinguish
+    'not found' from 'could not look.'  If it swallows exceptions and returns
+    None, shortlist_rows marks a broken lookup as 'absent' and the card says
+    'not in the warehouse' when the warehouse was never reached."""
+    monkeypatch.setattr(bqc, "run_query",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("table gone")))
+    with pytest.raises(RuntimeError, match="table gone"):
+        bp.verify_bid("34711365")

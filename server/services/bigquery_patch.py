@@ -159,13 +159,13 @@ LIMIT 1
 """
 
 def verify_bid(bid: str) -> dict | None:
-    """Direct BID lookup in fct_bookings. Returns a booking dict or None."""
+    """Direct BID lookup in fct_bookings. Returns a booking dict or None.
+
+    Raises on query failure so callers can distinguish "not found" from
+    "could not look."  Every call site already wraps this in try/except.
+    """
     from server.services import bq_connector as bqc
-    try:
-        rows = bqc.run_query(_VERIFY_BID_SQL, params={"bid": ("INT64", int(bid))})
-    except Exception as e:
-        log.warning(f"verify_bid({bid}): query failed: {e}")
-        return None
+    rows = bqc.run_query(_VERIFY_BID_SQL, params={"bid": ("INT64", int(bid))})
     if not rows:
         return None
     r = rows[0]
