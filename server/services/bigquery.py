@@ -124,7 +124,7 @@ async def find_booking(review: dict) -> dict | None:
         sql = f"""
         SELECT
             b.booking_id,
-            b.experience_name,
+            b.tour_name,
             b.experience_id   AS tgid,
             b.tour_id         AS tid,
             b.vendor_id       AS vid,
@@ -151,7 +151,7 @@ async def find_booking(review: dict) -> dict | None:
         sql = f"""
         SELECT
             b.booking_id,
-            b.experience_name,
+            b.tour_name,
             b.experience_id   AS tgid,
             b.tour_id         AS tid,
             b.vendor_id       AS vid,
@@ -414,7 +414,7 @@ def support_search_sql(indicators: dict, tgids: list | None = None,
         # already turned whatever the guest called the place into real ids, and
         # guests name product types - "musical ticket", "skip-the-line entry" -
         # which match no experience_name at all.
-        where.append("CAST(b.experience_id AS STRING) IN UNNEST(@tgids)")
+        where.append("b.tour_id IN UNNEST(@tgids)")
         params.append(_P.ArrayQueryParameter("tgids", "STRING", tgids))
     if dates:
         # A date the review named may be the visit date OR the date the guest
@@ -439,7 +439,7 @@ def support_search_sql(indicators: dict, tgids: list | None = None,
     sql = f"""
     SELECT
         b.booking_id,
-        b.experience_name,
+        b.tour_name,
         b.experience_id          AS tgid,
         b.tour_id                AS tid,
         b.vendor_id              AS vid,

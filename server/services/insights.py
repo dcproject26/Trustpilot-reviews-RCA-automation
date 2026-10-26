@@ -857,7 +857,7 @@ WHERE b.tour_id = @tid AND b.vendor_id = @vid
     # TGID is the experience, so this deliberately spans every tour and vendor
     # selling it - that breadth is the point of the comparison.
     sql_e_tgid = f"""{_avg_select}{_reviews_from}
-WHERE CAST(b.experience_id AS STRING) = @tgid
+WHERE b.tour_id = @tgid
   AND r.rating IS NOT NULL
   AND r.source = 'CUSTOMER'
   AND {_win}
@@ -947,7 +947,7 @@ LEFT JOIN `{_ZENDESK_TABLE}` tk ON b.primary_ticket_id = tk.ticket_id
     sql_h  = f"{_ff_select}WHERE b.vendor_id = @vid AND {_win}{_ff_excl}"
     # Ops checks fulfilment for the same TGID over the last four weeks, because
     # that is the population that says whether this is a one-off or a pattern.
-    sql_h2 = f"{_ff_select}WHERE CAST(b.experience_id AS STRING) = @tgid AND {_win}{_ff_excl}"
+    sql_h2 = f"{_ff_select}WHERE b.tour_id = @tgid AND {_win}{_ff_excl}"
     # Completion at TID + VID: this vendor's version of this tour, which is the
     # narrowest population that still answers "can they fulfil THIS". VID alone
     # spans everything the vendor runs, so a vendor good at one tour and bad at
@@ -978,7 +978,7 @@ GROUP BY status, ctype
 ORDER BY c DESC
 LIMIT 6
 """
-    sql_why_tgid = _ff_why.format(scope="CAST(b.experience_id AS STRING) = @tgid")
+    sql_why_tgid = _ff_why.format(scope="b.tour_id = @tgid")
     sql_why_vid  = _ff_why.format(scope="b.vendor_id = @vid")
 
     sql_i_rev = f"""
