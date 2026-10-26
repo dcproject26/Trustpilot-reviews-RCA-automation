@@ -1852,6 +1852,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
         narrowing_path  = None
         extracted_sigs  = {}
         narrowing_attempts = []
+        _verify_bid_failed = False
 
         if confirmed_bid and is_live("bigquery"):
             from server.services.bigquery_patch import verify_bid as _vb
@@ -2024,12 +2025,19 @@ async def process_review(review_id: str, force_candidates: bool = False):
             from server.services import venue_resolver
             from server.prompts import venue_extraction_prompt
 
+            _verify_bid_failed = False
             if review.reference_number and bid_source:
                 try:
                     bq_row = verify_bid(review.reference_number)
                 except Exception as e:
                     log.warning(f"verify_bid raised: {e}")
                     bq_row = None
+                    _verify_bid_failed = True
+                    confidence_trail.append({"mark": "fail",
+                        "text": f"<strong>BQ query failed</strong> for BID "
+                                f"{review.reference_number} — {type(e).__name__}: "
+                                f"{str(e)[:120]}. This is not 'not found': the "
+                                f"warehouse could not be asked."})
 
                 if bq_row:
                     if bid_source in ("attachment", "manual"):
@@ -2233,7 +2241,7 @@ async def process_review(review_id: str, force_candidates: bool = False):
                                         f"{', '.join(verify_hits)}"})
                             confidence_trail.append({"mark": "pass",
                                 "text": "<strong>Tier 1</strong> confirmed via regex"})
-                else:
+                elif not _verify_bid_failed:
                     _ctr["t1_bq_missed"] += 1
                     confidence_trail.append({"mark": "warn",
                         "text": f"<strong>BQ:</strong> BID {review.reference_number} not found — falling through to Tier 2"})
@@ -2821,17 +2829,35 @@ async def process_review(review_id: str, force_candidates: bool = False):
                     if zd_bids:
                         zd_candidates = []
                         _batch_bids = [str(b) for b in zd_bids[:10]]
+                        _bq_batch_failed = False
                         try:
                             from server.services.bigquery_patch import verify_bids_batch
                             _bq_batch = verify_bids_batch(_batch_bids)
                         except Exception as e:
                             log.warning(f"[tier2] verify_bids_batch raised: {e}")
                             _bq_batch = {}
+                            _bq_batch_failed = True
+                            confidence_trail.append({"mark": "fail",
+                                "text": f"<strong>BQ batch lookup failed</strong> for "
+                                        f"{len(_batch_bids)} Zendesk-found BID(s) — "
+                                        f"{type(e).__name__}: {str(e)[:100]}. "
+                                        f"Candidates shown with Zendesk data only."})
                         for bid in _batch_bids:
                             bq_row = _bq_batch.get(bid)
-                            if not bq_row:
+                            if not bq_row and not _bq_batch_failed:
                                 log.info(f"[tier2] BID {bid} not in BQ — skipped")
                                 continue
+                            if not bq_row and _bq_batch_failed:
+                                bq_row = {
+                                    "id": bid,
+                                    "_unverified": True,
+                                    "primary_guest_name": bid_name_score.get(bid, ""),
+                                }
+                                sig = bid_signals.get(bid, {})
+                                if sig:
+                                    bq_row["experienceName"] = sig.get("experience", "")
+                                    bq_row["date_of_visit"] = sig.get("visit_date", "")
+                                    bq_row["vendorName"] = sig.get("vendor_name", "")
 
                             visit_str = (bq_row.get("date_of_visit") or
                                          bq_row.get("visitDate") or "")
@@ -3493,10 +3519,12 @@ async def process_review(review_id: str, force_candidates: bool = False):
                 candidates = _v["kept"]
 
         untraceable_reason = None
-        _bq_could_not_be_asked = not is_live("bigquery")
+        _bq_could_not_be_asked = not is_live("bigquery") or _verify_bid_failed
         if (not booking and not candidate_state and review.reference_number
                 and bid_source and _bq_could_not_be_asked):
-            why = "BigQuery is not live on this server"
+            why = ("BigQuery query failed — the warehouse was asked and did not answer"
+                   if _verify_bid_failed else
+                   "BigQuery is not live on this server")
             booking = {
                 "id": str(review.reference_number),
                 "_unverified": True,
