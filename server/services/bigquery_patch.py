@@ -146,8 +146,8 @@ SELECT
   b.created_at            AS date_of_booking,
   DATE(b.experience_timestamp) AS date_of_visit,
   b.tour_id               AS tid,
-  b.experience_id         AS tgid,
-  b.experience_name,
+  CAST(b.tour_id AS INT64) AS tgid,
+  b.tour_name              AS experience_name,
   b.vendor_id,
   b.vendor_name,
   b.final_fulfilment_type AS fulfilment_type,
@@ -205,8 +205,8 @@ SELECT
   b.created_at            AS date_of_booking,
   DATE(b.experience_timestamp) AS date_of_visit,
   b.tour_id               AS tid,
-  b.experience_id         AS tgid,
-  b.experience_name,
+  CAST(b.tour_id AS INT64) AS tgid,
+  b.tour_name              AS experience_name,
   b.vendor_id,
   b.vendor_name,
   b.final_fulfilment_type AS fulfilment_type,
@@ -269,13 +269,13 @@ SELECT
   b.booking_id,
   b.primary_guest_name,
   DATE(b.experience_timestamp) AS date_of_visit,
-  b.experience_name,
+  b.tour_name              AS experience_name,
   b.tour_id               AS tid,
-  b.experience_id         AS tgid,
+  CAST(b.tour_id AS INT64) AS tgid,
   b.vendor_id,
   b.vendor_name
 FROM `{BIGQUERY_BOOKINGS_TABLE}` b
-WHERE CAST(b.experience_id AS STRING) IN UNNEST(@tgid_list)
+WHERE b.tour_id IN UNNEST(@tgid_list)
   AND DATE(b.experience_timestamp) BETWEEN
       DATE_SUB(@review_pub_date, INTERVAL @date_window DAY) AND @review_pub_date
   AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
@@ -295,9 +295,9 @@ SELECT
   b.booking_id,
   b.primary_guest_name,
   DATE(b.experience_timestamp) AS date_of_visit,
-  b.experience_name,
+  b.tour_name              AS experience_name,
   b.tour_id               AS tid,
-  b.experience_id         AS tgid,
+  CAST(b.tour_id AS INT64) AS tgid,
   b.vendor_id,
   b.vendor_name
 FROM `{BIGQUERY_BOOKINGS_TABLE}` b

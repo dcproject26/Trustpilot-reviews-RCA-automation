@@ -129,8 +129,8 @@ def test_it_matches_resolved_tgids_not_the_words_the_guest_used(bq_with):
     asyncio.run(bq.find_via_support(SVEN, tgids=TGIDS))
     sql, params = runner.calls[0]
     assert params["tgids"] == TGIDS
-    assert "experience_id" in sql
-    assert "experience_name" not in sql[sql.find("WHERE"):], \
+    assert "tour_id" in sql[sql.find("WHERE"):]
+    assert "tour_name" not in sql[sql.find("WHERE"):], \
         "the free-text venue match is what returned nothing for 'musical ticket'"
 
 
