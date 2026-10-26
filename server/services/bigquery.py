@@ -124,9 +124,9 @@ async def find_booking(review: dict) -> dict | None:
         sql = f"""
         SELECT
             b.booking_id,
-            b.experience_name        AS experience_name,
-            CAST(b.experience_id AS INT64) AS tgid,
-            b.experience_id         AS tid,
+            b.tour_name              AS experience_name,
+            CAST(b.tour_id AS INT64) AS tgid,
+            b.tour_id               AS tid,
             b.vendor_id       AS vid,
             b.vendor_name,
             DATE(b.created_at)            AS booked_on,
@@ -151,9 +151,9 @@ async def find_booking(review: dict) -> dict | None:
         sql = f"""
         SELECT
             b.booking_id,
-            b.experience_name        AS experience_name,
-            CAST(b.experience_id AS INT64) AS tgid,
-            b.experience_id         AS tid,
+            b.tour_name              AS experience_name,
+            CAST(b.tour_id AS INT64) AS tgid,
+            b.tour_id               AS tid,
             b.vendor_id       AS vid,
             b.vendor_name,
             DATE(b.created_at)            AS booked_on,
@@ -414,7 +414,7 @@ def support_search_sql(indicators: dict, tgids: list | None = None,
         # already turned whatever the guest called the place into real ids, and
         # guests name product types - "musical ticket", "skip-the-line entry" -
         # which match no experience_name at all.
-        where.append("b.experience_id IN UNNEST(@tgids)")
+        where.append("b.tour_id IN UNNEST(@tgids)")
         params.append(_P.ArrayQueryParameter("tgids", "STRING", tgids))
     if dates:
         # A date the review named may be the visit date OR the date the guest
@@ -439,9 +439,9 @@ def support_search_sql(indicators: dict, tgids: list | None = None,
     sql = f"""
     SELECT
         b.booking_id,
-        b.experience_name              AS experience_name,
-        CAST(b.experience_id AS INT64) AS tgid,
-        b.experience_id                AS tid,
+        b.tour_name                    AS experience_name,
+        CAST(b.tour_id AS INT64)       AS tgid,
+        b.tour_id                      AS tid,
         b.vendor_id              AS vid,
         b.vendor_name,
         DATE(b.created_at)            AS booked_on,
@@ -622,7 +622,7 @@ def _get_booking_extra(bid: str) -> dict:
         sql = f"""
         SELECT
             b.booking_status,
-            b.experience_name AS tour_name,
+            b.tour_name AS tour_name,
             b.is_partnered,
             -- THREE SCALAR subqueries, not one `AS STRUCT`. The REST query shim
             -- (bq_connector._convert) only deserializes scalars — a nested
