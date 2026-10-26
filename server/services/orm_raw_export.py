@@ -185,8 +185,10 @@ def orm_row_for(review, draft, now: datetime | None = None) -> dict:
     bk = (getattr(d, "booking", None) or {}) if d else {}
     takedown = v3.get("takedown") or {}
     ist = _solve_dt(review, draft)
+
     # An untraceable review has no booking to log. Instead of leaving Booking ID
-    # blank, write "Untraceable" — the takedown verdict is the untraceable marker.
+    # blank (indistinguishable from a data-entry gap), write "Untraceable" — the
+    # takedown verdict is the dashboard's own untraceable marker.
     booking_id = _bkfield(bk, "id", "bid", "booking_id")
     if str(takedown.get("verdict") or "").strip().lower() == "untraceable":
         booking_id = "Untraceable"
@@ -366,13 +368,21 @@ def on_review_finished(review, draft) -> dict:
     is confirmed on a test row before cases start flowing in live. Returns a
     'skipped' reason rather than writing when it is off, so the caller's log says
     which it was."""
-    from server.config import (ORM_RAW_EXPORT_ENABLED, ORM_MASTER_EXPORT_ENABLED,
-                               ORM_MASTER_SHEET_ID)
+    from server.config import ORM_RAW_EXPORT_ENABLED
     if not ORM_RAW_EXPORT_ENABLED:
         return {"wrote": False, "skipped": "ORM_RAW_EXPORT_ENABLED is off"}
-    # TP logging goes to the NEW master sheet ONLY. The old sheet is populated
-    # from the new sheet by its own formula and is read by the 8pm report, so the
-    # tool must NOT also write TP to it (that would double the rows).
+    # TP logging was SHIFTED off the old sheet onto the NEW master sheet: the
+    # tool no longer writes TP to the old sheet. The 8pm report is UNCHANGED —
+    # it still scans the old sheet as before (TP there is now hand-logged /
+    # legacy, exactly like the SM, App and Escalation rows).
+    return _write_master(review, draft)
+
+
+def _write_master(review, draft) -> dict:
+    """Write this solved TP case to the master sheet. Returns the master write
+    result so the solve path logs whether the TP row landed (CLAUDE rule 1 — a
+    swallowed failure must not read like a successful write)."""
+    from server.config import (ORM_MASTER_EXPORT_ENABLED, ORM_MASTER_SHEET_ID)
     if not (ORM_MASTER_EXPORT_ENABLED and ORM_MASTER_SHEET_ID):
         return {"wrote": False, "skipped": "ORM_MASTER_EXPORT_ENABLED is off"}
     try:
@@ -386,24 +396,6 @@ def on_review_finished(review, draft) -> dict:
         log.warning("[orm_master] write failed for %s: %s",
                     getattr(review, "id", "?"), e)
         return {"wrote": False, "error": f"{type(e).__name__}: {e}"}
-
-
-def _write_master_isolated(review, draft) -> None:
-    """Dual-write to the master sheet AFTER the old-sheet write. Fully isolated:
-    any failure is logged and swallowed so it can never break the old write or
-    the solve path."""
-    try:
-        from server.config import (ORM_MASTER_EXPORT_ENABLED,
-                                   ORM_MASTER_SHEET_ID)
-        if ORM_MASTER_EXPORT_ENABLED and ORM_MASTER_SHEET_ID:
-            res = append_master_row(review, draft, apply=True)
-            if res.get("error") or res.get("header_problem"):
-                log.warning("[orm_master] not written for %s: %s",
-                            getattr(review, "id", "?"),
-                            res.get("error") or res.get("header_problem"))
-    except Exception as e:
-        log.warning("[orm_master] write failed for %s: %s",
-                    getattr(review, "id", "?"), e)
 
 
 # ── MASTER sheet (additive dual-write) ──────────────────────────────────────
@@ -445,10 +437,35 @@ def check_master_header(existing_header: list) -> str:
             "written; align the header or MASTER_COLUMNS.")
 
 
+# Master-sheet column indexes used for the dedup key (0-based, within the
+# 27-col row): A Date, C Query, D Booking ID, E TGID, H Link, I Owner.
+_M_DATE, _M_SOURCE, _M_QUERY, _M_BOOKING, _M_TGID, _M_LINK, _M_OWNER = (
+    0, 1, 2, 3, 4, 7, 8)
+
+
+def master_dedupe_key(cells: list) -> tuple | str:
+    """A stable identity for a master row, for dedup.
+
+    The review link is the identity when it is present. A Trustpilot case whose
+    link was never captured has a BLANK link, and keying blanks off the empty
+    string collapses every link-less case into one — so those fall back to the
+    booking's own facts (Date + Booking ID + Owner + Query + TGID). This is the
+    fix for the backfill writing the same no-link case three times: a blank link
+    could not be deduped, so it was appended on every run."""
+    def g(i):
+        return str(cells[i]).strip() if len(cells) > i else ""
+    link = g(_M_LINK)
+    if link:
+        return link
+    return ("nolink", g(_M_DATE), g(_M_BOOKING), g(_M_OWNER),
+            g(_M_QUERY), g(_M_TGID))
+
+
 def append_master_row(review, draft, now: datetime | None = None,
                       apply: bool = False,
                       existing_links: set | None = None) -> dict:
-    """append_row for the MASTER sheet. Dedup by the review's Link column."""
+    """append_row for the MASTER sheet. Dedup by the review link, or, when the
+    link is blank, by the booking's facts (see master_dedupe_key)."""
     from server.config import ORM_MASTER_SHEET_ID, ORM_MASTER_SHEET_TAB
     tab = ORM_MASTER_SHEET_TAB
     row = master_row_for(review, draft, now=now)
@@ -464,23 +481,118 @@ def append_master_row(review, draft, now: datetime | None = None,
         if problem:
             out["header_problem"] = problem
             return out
-        link = (row.get("Link to the review") or "").strip()
-        if link:
-            if existing_links is None:
-                existing_links = {str(r[0]).strip()
-                                  for r in io.read_range(f"{a1_sheet(tab)}!H2:H")
-                                  if r and r[0]}
-            if link in existing_links:
-                out["skipped"] = "already on the sheet (same review link)"
-                return out
+        key = master_dedupe_key(cells)
+        # existing_links, when passed, is the set of dedup KEYS already present.
+        # Build it from the whole sheet (A2:I covers every column the key uses)
+        # when the caller did not supply one.
+        if existing_links is None:
+            existing_links = {master_dedupe_key(r)
+                              for r in io.read_range(f"{a1_sheet(tab)}!A2:I")
+                              if any(str(c).strip() for c in r)}
+        if key in existing_links:
+            out["skipped"] = "already on the sheet (same review / booking)"
+            return out
+        # USER_ENTERED so cells carry no stray leading apostrophe (the _defuse
+        # text-marker is consumed on display; numbers/dates enter naturally).
         io.append_rows([cells], value_input_option="USER_ENTERED")
-        if link and isinstance(existing_links, set):
-            existing_links.add(link)
+        if isinstance(existing_links, set):
+            existing_links.add(key)
         out["wrote"] = True
     except Exception as e:
         out["error"] = f"{type(e).__name__}: {e}"
         log.warning("[orm_master] append failed for %s: %s",
                     getattr(review, "id", "?"), e)
+    return out
+
+
+def _col_letter(n: int) -> str:
+    """1-based column index to its A1 letter (1→A, 27→AA)."""
+    s = ""
+    while n > 0:
+        n, r = divmod(n - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
+def cleanup_master_sheet(apply: bool = False, do_sort: bool = True,
+                         _io=None) -> dict:
+    """Dedupe — and, by default, Date-sort — the master sheet IN PLACE.
+
+    Why this exists: the backfill wrote some cases more than once (a link-less
+    Trustpilot case could not be deduped by link, so it landed on every run),
+    and it wrote whole days out of order (Oct 24 before 21–23), which is the
+    'rows jumbled' the dashboard shows. This reads every row, keeps the FIRST of
+    each identity (master_dedupe_key: review link, or booking facts when the
+    link is blank), optionally re-lays them in Date order (stable within a day),
+    and rewrites the survivors, blanking the rows they vacated.
+
+    It rewrites PLAIN VALUES only; the tool writes Month/Year/Week as values,
+    not formulas, so the overwrite carries no formula. Dry-run by default —
+    returns {total, kept, removed, applied, error}; pass apply=True to write."""
+    from server.config import ORM_MASTER_SHEET_ID, ORM_MASTER_SHEET_TAB
+    from server.services.orm_daily_report import _parse_date
+    out = {"applied": False, "header_problem": "", "total": 0, "kept": 0,
+           "removed": 0, "sorted": bool(do_sort), "error": ""}
+    try:
+        io = _io or SheetIO(ORM_MASTER_SHEET_ID, a1_sheet(ORM_MASTER_SHEET_TAB))
+        if hasattr(io, "resolve_tab"):
+            io.resolve_tab()
+        header, _ids = io.read_column_a_and_header()
+        problem = check_master_header(header)
+        if problem:
+            out["header_problem"] = problem
+            return out
+        ncol = len(MASTER_COLUMNS)
+        tabname = getattr(io, "tab", ORM_MASTER_SHEET_TAB)
+        raw = io.read_range(f"{a1_sheet(tabname)}!A2:{_col_letter(ncol)}")
+        norm = [(list(r) + [""] * ncol)[:ncol] for r in raw]
+        data = [r for r in norm if any(str(c).strip() for c in r)]
+        out["total"] = len(data)
+        # Dedup TRUSTPILOT ROWS ONLY. The master sheet is the full dashboard —
+        # Instagram, Facebook, PlayStore, App Feedback, Escalations are all here
+        # beside Trustpilot — and those are logged by hand with a BLANK link and
+        # often a blank booking, so deduping them on booking facts would collapse
+        # two genuinely different same-day/same-owner social cases into one and
+        # DELETE real rows. So non-Trustpilot rows are never removed; only
+        # Trustpilot duplicates are (link-less by booking facts — the backfill
+        # artefact — or byte-identical linked rows). A shared link that differs
+        # in any other column is kept too: it may be a real second entry.
+        seen, kept = set(), []
+        for r in data:
+            if str(r[_M_SOURCE]).strip().lower() != "trustpilot":
+                kept.append(r)                      # SM / App / Escalation: never dropped
+                continue
+            if not str(r[_M_LINK]).strip():
+                k = master_dedupe_key(r)            # blank-link TP: booking facts
+            else:
+                k = ("exact",) + tuple(str(c).strip() for c in r)
+            if k in seen:
+                continue
+            seen.add(k)
+            kept.append(r)
+        if do_sort:
+            def sk(r):
+                d = _parse_date(r[_M_DATE])
+                return (0, d.toordinal()) if d else (1, 0)
+            kept = sorted(kept, key=sk)       # stable — intra-day order preserved
+        out["kept"] = len(kept)
+        out["removed"] = len(data) - len(kept)
+        if not apply:
+            return out
+        updates = [(2 + i, row) for i, row in enumerate(kept)]
+        blank = [""] * ncol
+        for j in range(len(kept), len(norm)):   # clear the rows the survivors left
+            updates.append((2 + j, blank))
+        # Chunk the rewrite: one batchUpdate of ~5000 rows can exceed the API's
+        # request-size limit, so write in slices.
+        CHUNK = 1000
+        for s in range(0, len(updates), CHUNK):
+            io.update_rows(updates[s:s + CHUNK])
+        out["applied"] = True
+        out["rows_rewritten"] = len(updates)
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e}"
+        log.warning("[orm_master] cleanup failed: %s", e)
     return out
 
 
@@ -516,9 +628,9 @@ def write_solved_day_master(db, day: str = "", now: datetime | None = None,
     if apply and pairs:
         try:
             _io = SheetIO(ORM_MASTER_SHEET_ID, a1_sheet(ORM_MASTER_SHEET_TAB))
-            existing_links = {str(x[0]).strip()
-                              for x in _io.read_range(f"{a1_sheet(ORM_MASTER_SHEET_TAB)}!H2:H")
-                              if x and x[0]}
+            existing_links = {master_dedupe_key(x)
+                              for x in _io.read_range(f"{a1_sheet(ORM_MASTER_SHEET_TAB)}!A2:I")
+                              if any(str(c).strip() for c in x)}
         except Exception as e:
             log.warning("[orm_master] could not read existing links: %s", e)
     rows, wrote, skipped = [], 0, 0
