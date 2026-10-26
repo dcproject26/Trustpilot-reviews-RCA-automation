@@ -62,8 +62,21 @@ TRUSTPILOT_BOT_USER_ID = os.getenv("TRUSTPILOT_BOT_USER_ID", "").strip()
 # CAST). reviews / support / zendesk / dim_* are NOT in the migration and keep
 # their names.
 GCP_SERVICE_ACCOUNT_JSON  = os.getenv("GCP_SERVICE_ACCOUNT_JSON", "")
-BIGQUERY_BOOKINGS_TABLE   = os.getenv("BIGQUERY_BOOKINGS_TABLE",
+_BIGQUERY_BOOKINGS_RAW    = os.getenv("BIGQUERY_BOOKINGS_TABLE",
                                        "headout-analytics.analytics_reporting.fct_bookings_lambda")
+# The legacy fct_bookings was dropped 15 Oct 2026. An env var still pointing at
+# it (copied from the old .env.example) silently breaks every BQ query — the
+# table is gone and the error surfaces as "booking lookup did not complete" on
+# every card. Auto-correct rather than crash: the _lambda table is the only one.
+if _BIGQUERY_BOOKINGS_RAW.endswith(".fct_bookings"):
+    import logging as _cfg_log
+    _cfg_log.getLogger(__name__).warning(
+        "BIGQUERY_BOOKINGS_TABLE is set to the DROPPED fct_bookings table — "
+        "auto-correcting to fct_bookings_lambda. Update your .env or Secrets "
+        "to silence this warning.")
+    BIGQUERY_BOOKINGS_TABLE = _BIGQUERY_BOOKINGS_RAW + "_lambda"
+else:
+    BIGQUERY_BOOKINGS_TABLE = _BIGQUERY_BOOKINGS_RAW
 BIGQUERY_REVIEWS_TABLE    = os.getenv("BIGQUERY_REVIEWS_TABLE",
                                        "headout-analytics.analytics_reporting.fct_reviews")
 BIGQUERY_SUPPORT_TABLE     = os.getenv("BIGQUERY_SUPPORT_TABLE",
