@@ -303,6 +303,13 @@ async def translate(body: str, lang: str, review_id: str = None) -> str:
     return await _call(prompts.translation_prompt(body, lang), max_tokens=1500)
 
 
+async def translate_retry(body: str, wrong_lang: str, review_id: str = None) -> str:
+    """Retry translation after the first attempt came back in the wrong language."""
+    if not is_live("anthropic"):
+        return body
+    return await _call(prompts.translation_retry_prompt(body, wrong_lang), max_tokens=1500)
+
+
 async def detect_language(text: str) -> str:
     """The language a review was written in, as a short name ("Spanish").
 

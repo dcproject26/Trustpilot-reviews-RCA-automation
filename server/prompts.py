@@ -503,6 +503,17 @@ Review:
 {body}"""
 
 
+def translation_retry_prompt(body: str, wrong_lang: str) -> str:
+    return f"""The previous translation of this review came back in {wrong_lang} instead of English.
+Translate this review into ENGLISH. The output language MUST be English. Do not output {wrong_lang}.
+Preserve tone exactly — frustration, sarcasm, urgency. Translate, do not paraphrase.
+If it is already written in English, reply with exactly the word: ENGLISH_ALREADY
+Return ONLY the English translation, or the word ENGLISH_ALREADY. No preamble, no label.
+
+Review:
+{body}"""
+
+
 # ─── 2. Signal extraction ───────────────────────────────────────────────────
 def signal_extraction_prompt(review_text: str) -> str:
     return f"""Extract structured signals from this Trustpilot review so we can search BigQuery for the booking.

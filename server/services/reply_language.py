@@ -539,6 +539,17 @@ async def translate_inbound(review, review_id: str = None) -> dict:
                     "text": "<strong>Translation</strong> - none needed; the "
                             "review reads as English (ENGLISH_ALREADY)"}
         verdict = await english_or_reject(result, review_id)
+        if verdict["outcome"] == "wrong_language":
+            wrong_lang = verdict.get("language", "")
+            retry_result = (await claude_svc.translate_retry(
+                review.body_original, wrong_lang, review_id) or "").strip()
+            if retry_result and retry_result != "ENGLISH_ALREADY":
+                verdict = await english_or_reject(retry_result, review_id)
+                if verdict["store"]:
+                    result = retry_result
+                    verdict["why"] = (
+                        f"first attempt came back in {wrong_lang}; "
+                        f"retried with explicit language — {verdict['why']}")
         if verdict["store"]:
             review.body_english = result
         review.translation_state = _STATE_FOR_OUTCOME.get(

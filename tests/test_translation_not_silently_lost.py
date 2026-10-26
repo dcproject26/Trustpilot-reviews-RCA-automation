@@ -117,6 +117,35 @@ def test_wrong_language_result_refused(monkeypatch):
     assert trail["mark"] == "warn" and "Polish" in trail["text"]
 
 
+# -- wrong language retry succeeds on second attempt -------------------------
+def test_wrong_language_retried_and_succeeds(monkeypatch):
+    """When the first translation comes back in the wrong language, a retry
+    with an explicit prompt can recover it in the same run."""
+    monkeypatch.setattr(claude, "translate", _aret("De audiogids was betalend."))
+    monkeypatch.setattr(claude, "translate_retry", _aret(GOOD))
+    detect_results = iter(["Dutch", "English"])
+    async def _detect(text):
+        return next(detect_results)
+    monkeypatch.setattr(claude, "detect_language", _detect)
+    r = _review()
+    trail = asyncio.run(RL.translate_inbound(r, "retry1"))
+    assert r.body_english == GOOD
+    assert r.translation_state == "stored"
+    assert "first attempt came back in Dutch" in trail["text"]
+
+
+def test_wrong_language_retry_also_fails(monkeypatch):
+    """When both the first attempt and the retry come back wrong, the
+    translation is refused — no infinite loop."""
+    monkeypatch.setattr(claude, "translate", _aret("De audiogids."))
+    monkeypatch.setattr(claude, "translate_retry", _aret("De audiogids opnieuw."))
+    monkeypatch.setattr(claude, "detect_language", _aret("Dutch"))
+    r = _review()
+    trail = asyncio.run(RL.translate_inbound(r, "retry2"))
+    assert not r.body_english
+    assert r.translation_state == "refused_wrong_language"
+
+
 # -- cause 3: durable state, visible after re-run ----------------------------
 def test_state_survives_and_is_overwritten_by_clean_rerun(monkeypatch):
     r = _review()
