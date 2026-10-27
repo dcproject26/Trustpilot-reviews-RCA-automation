@@ -85,6 +85,12 @@ BIGQUERY_SUPPORT_TABLE     = os.getenv("BIGQUERY_SUPPORT_TABLE",
 # orders table. Nothing else queries it (experience_id/name are on bookings).
 BIGQUERY_ORDERS_TABLE      = os.getenv("BIGQUERY_ORDERS_TABLE",
                                         "headout-analytics.analytics_reporting.fct_orders_lambda")
+# dim_experiences carries the canonical experience_name. fct_bookings_lambda
+# only has tour_name, which for aggregator bookings (Musement, GYG) is a
+# generic label like "General" — not the real experience name. Every query
+# that needs the experience name joins this table via tour_id = experience_id.
+BIGQUERY_EXPERIENCES_TABLE = os.getenv("BIGQUERY_EXPERIENCES_TABLE",
+                                        "headout-analytics.analytics_reporting.dim_experiences")
 
 # Zendesk
 ZENDESK_SUBDOMAIN        = os.getenv("ZENDESK_SUBDOMAIN", "headout")
