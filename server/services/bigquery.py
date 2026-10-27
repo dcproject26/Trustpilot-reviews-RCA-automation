@@ -135,7 +135,7 @@ async def find_booking(review: dict) -> dict | None:
             b.final_fulfilment_type  AS fulfilment_type
         FROM `{BIGQUERY_BOOKINGS_TABLE}` b
         LEFT JOIN `{BIGQUERY_EXPERIENCES_TABLE}` e
-          ON CAST(b.tour_id AS INT64) = CAST(e.experience_id AS INT64)
+          ON SAFE_CAST(b.tour_id AS INT64) = SAFE_CAST(e.experience_id AS INT64)
         WHERE b.booking_id = @ref
           AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
         LIMIT 1
@@ -164,7 +164,7 @@ async def find_booking(review: dict) -> dict | None:
             b.final_fulfilment_type  AS fulfilment_type
         FROM `{BIGQUERY_BOOKINGS_TABLE}` b
         LEFT JOIN `{BIGQUERY_EXPERIENCES_TABLE}` e
-          ON CAST(b.tour_id AS INT64) = CAST(e.experience_id AS INT64)
+          ON SAFE_CAST(b.tour_id AS INT64) = SAFE_CAST(e.experience_id AS INT64)
         WHERE LOWER(b.primary_guest_name) LIKE LOWER(CONCAT('%', @name, '%'))
           AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
         ORDER BY b.created_at DESC
@@ -460,7 +460,7 @@ def support_search_sql(indicators: dict, tgids: list | None = None,
     JOIN `{BIGQUERY_BOOKINGS_TABLE}` b
       ON SAFE_CAST(sq.booking_id AS INT64) = b.booking_id
     LEFT JOIN `{BIGQUERY_EXPERIENCES_TABLE}` e
-      ON CAST(b.tour_id AS INT64) = CAST(e.experience_id AS INT64)
+      ON SAFE_CAST(b.tour_id AS INT64) = SAFE_CAST(e.experience_id AS INT64)
     WHERE {" AND ".join(where)}
       AND sq.query_created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(),
                                                INTERVAL {int(SUPPORT_LOOKBACK_DAYS)} DAY)
@@ -661,7 +661,7 @@ def _get_booking_extra(bid: str) -> dict:
         LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
                ON v.vendor_id = b.vendor_id
         LEFT JOIN `{BIGQUERY_EXPERIENCES_TABLE}` e
-               ON CAST(b.tour_id AS INT64) = CAST(e.experience_id AS INT64)
+               ON SAFE_CAST(b.tour_id AS INT64) = SAFE_CAST(e.experience_id AS INT64)
         WHERE b.booking_id = @bid
         LIMIT 1
         """
