@@ -15,7 +15,7 @@ one small change at the return step.
 import logging
 from server.config import (
     is_live, BIGQUERY_BOOKINGS_TABLE, BIGQUERY_REVIEWS_TABLE, BIGQUERY_SUPPORT_TABLE,
-    BMS_URL_PATTERN, TGID_URL_PATTERN,
+    BIGQUERY_EXPERIENCES_TABLE, BMS_URL_PATTERN, TGID_URL_PATTERN,
 )
 from server.taxonomy import SIMILAR_MATCH_RULE
 
@@ -147,13 +147,15 @@ SELECT
   DATE(b.experience_timestamp) AS date_of_visit,
   b.tour_id                      AS tid,
   CAST(b.tour_id AS INT64)       AS tgid,
-  b.tour_name                    AS experience_name,
+  COALESCE(e.experience_name, b.tour_name) AS experience_name,
   b.vendor_id,
   b.vendor_name,
   b.final_fulfilment_type AS fulfilment_type,
   b.primary_guest_name,
   b.booking_status
 FROM `{BIGQUERY_BOOKINGS_TABLE}` b
+LEFT JOIN `{BIGQUERY_EXPERIENCES_TABLE}` e
+  ON CAST(b.tour_id AS INT64) = CAST(e.experience_id AS INT64)
 WHERE b.booking_id = @bid
 LIMIT 1
 """
@@ -206,13 +208,15 @@ SELECT
   DATE(b.experience_timestamp) AS date_of_visit,
   b.tour_id                      AS tid,
   CAST(b.tour_id AS INT64)       AS tgid,
-  b.tour_name                    AS experience_name,
+  COALESCE(e.experience_name, b.tour_name) AS experience_name,
   b.vendor_id,
   b.vendor_name,
   b.final_fulfilment_type AS fulfilment_type,
   b.primary_guest_name,
   b.booking_status
 FROM `{BIGQUERY_BOOKINGS_TABLE}` b
+LEFT JOIN `{BIGQUERY_EXPERIENCES_TABLE}` e
+  ON CAST(b.tour_id AS INT64) = CAST(e.experience_id AS INT64)
 WHERE b.booking_id IN UNNEST(@bids)
 """
 
@@ -269,12 +273,14 @@ SELECT
   b.booking_id,
   b.primary_guest_name,
   DATE(b.experience_timestamp) AS date_of_visit,
-  b.tour_name                    AS experience_name,
+  COALESCE(e.experience_name, b.tour_name) AS experience_name,
   b.tour_id                      AS tid,
   CAST(b.tour_id AS INT64)       AS tgid,
   b.vendor_id,
   b.vendor_name
 FROM `{BIGQUERY_BOOKINGS_TABLE}` b
+LEFT JOIN `{BIGQUERY_EXPERIENCES_TABLE}` e
+  ON CAST(b.tour_id AS INT64) = CAST(e.experience_id AS INT64)
 WHERE b.tour_id IN UNNEST(@tgid_list)
   AND DATE(b.experience_timestamp) BETWEEN
       DATE_SUB(@review_pub_date, INTERVAL @date_window DAY) AND @review_pub_date
@@ -295,12 +301,14 @@ SELECT
   b.booking_id,
   b.primary_guest_name,
   DATE(b.experience_timestamp) AS date_of_visit,
-  b.tour_name                    AS experience_name,
+  COALESCE(e.experience_name, b.tour_name) AS experience_name,
   b.tour_id                      AS tid,
   CAST(b.tour_id AS INT64)       AS tgid,
   b.vendor_id,
   b.vendor_name
 FROM `{BIGQUERY_BOOKINGS_TABLE}` b
+LEFT JOIN `{BIGQUERY_EXPERIENCES_TABLE}` e
+  ON CAST(b.tour_id AS INT64) = CAST(e.experience_id AS INT64)
 WHERE DATE(b.experience_timestamp) BETWEEN
       DATE_SUB(@review_pub_date, INTERVAL @date_window DAY) AND @review_pub_date
   AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
