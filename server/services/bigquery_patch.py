@@ -155,7 +155,7 @@ SELECT
   b.booking_status
 FROM `{BIGQUERY_BOOKINGS_TABLE}` b
 LEFT JOIN `{BIGQUERY_EXPERIENCES_TABLE}` e
-  ON CAST(b.tour_id AS INT64) = CAST(e.experience_id AS INT64)
+  ON SAFE_CAST(b.tour_id AS INT64) = SAFE_CAST(e.experience_id AS INT64)
 WHERE b.booking_id = @bid
 LIMIT 1
 """
@@ -216,7 +216,7 @@ SELECT
   b.booking_status
 FROM `{BIGQUERY_BOOKINGS_TABLE}` b
 LEFT JOIN `{BIGQUERY_EXPERIENCES_TABLE}` e
-  ON CAST(b.tour_id AS INT64) = CAST(e.experience_id AS INT64)
+  ON SAFE_CAST(b.tour_id AS INT64) = SAFE_CAST(e.experience_id AS INT64)
 WHERE b.booking_id IN UNNEST(@bids)
 """
 
@@ -280,7 +280,7 @@ SELECT
   b.vendor_name
 FROM `{BIGQUERY_BOOKINGS_TABLE}` b
 LEFT JOIN `{BIGQUERY_EXPERIENCES_TABLE}` e
-  ON CAST(b.tour_id AS INT64) = CAST(e.experience_id AS INT64)
+  ON SAFE_CAST(b.tour_id AS INT64) = SAFE_CAST(e.experience_id AS INT64)
 WHERE b.tour_id IN UNNEST(@tgid_list)
   AND DATE(b.experience_timestamp) BETWEEN
       DATE_SUB(@review_pub_date, INTERVAL @date_window DAY) AND @review_pub_date
@@ -308,7 +308,7 @@ SELECT
   b.vendor_name
 FROM `{BIGQUERY_BOOKINGS_TABLE}` b
 LEFT JOIN `{BIGQUERY_EXPERIENCES_TABLE}` e
-  ON CAST(b.tour_id AS INT64) = CAST(e.experience_id AS INT64)
+  ON SAFE_CAST(b.tour_id AS INT64) = SAFE_CAST(e.experience_id AS INT64)
 WHERE DATE(b.experience_timestamp) BETWEEN
       DATE_SUB(@review_pub_date, INTERVAL @date_window DAY) AND @review_pub_date
   AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
