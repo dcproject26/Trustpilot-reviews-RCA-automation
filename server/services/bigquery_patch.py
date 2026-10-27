@@ -15,7 +15,7 @@ one small change at the return step.
 import logging
 from server.config import (
     is_live, BIGQUERY_BOOKINGS_TABLE, BIGQUERY_REVIEWS_TABLE, BIGQUERY_SUPPORT_TABLE,
-    BIGQUERY_EXPERIENCES_TABLE, BMS_URL_PATTERN, TGID_URL_PATTERN,
+    BMS_URL_PATTERN, TGID_URL_PATTERN,
 )
 from server.taxonomy import SIMILAR_MATCH_RULE
 
@@ -147,15 +147,22 @@ SELECT
   DATE(b.experience_timestamp) AS date_of_visit,
   b.tour_id                      AS tid,
   CAST(b.tour_id AS INT64)       AS tgid,
-  COALESCE(e.experience_name, b.tour_name) AS experience_name,
+  -- EXPERIENCE NAME IS NOT ON THIS TABLE. The bookings table carries only
+  -- tour_id / tour_name; experience_id / experience_name live on the ORDER
+  -- (fct_orders_lambda). The previous join — dim_experiences ON
+  -- tour_id = experience_id — compared two different id spaces and returned a
+  -- DIFFERENT experience's name (booking 34711365: "Lunch and the Bow of
+  -- Ulysses" / exp 4598 instead of "Thames River Lunch Cruise" / exp 2961).
+  -- So this is just the tour name as a safe base; verify_bid overrides it with
+  -- the real experience name read through the order — see
+  -- bigquery._experience_from_order.
+  b.tour_name                    AS experience_name,
   b.vendor_id,
   b.vendor_name,
   b.final_fulfilment_type AS fulfilment_type,
   b.primary_guest_name,
   b.booking_status
 FROM `{BIGQUERY_BOOKINGS_TABLE}` b
-LEFT JOIN `{BIGQUERY_EXPERIENCES_TABLE}` e
-  ON SAFE_CAST(b.tour_id AS INT64) = SAFE_CAST(e.experience_id AS INT64)
 WHERE b.booking_id = @bid
 LIMIT 1
 """
@@ -196,8 +203,15 @@ def verify_bid(bid: str) -> dict | None:
     booking["bms_link"]  = BMS_URL_PATTERN.format(bid=booking_id_str)   if booking_id_str  else None
     booking["tgid_link"] = TGID_URL_PATTERN.format(tgid=tgid_str)       if tgid_str        else None
     # Enrich with booking_status and tid_name — isolated query, never breaks the main match
-    from server.services.bigquery import _get_booking_extra
+    from server.services.bigquery import _get_booking_extra, _experience_from_order
     booking.update(_get_booking_extra(booking_id_str))
+    # The REAL experience name, read through the order (tour_name was only a
+    # safe base above). Isolated: if it cannot be read, the tour name stands and
+    # the booking still resolves — never the WRONG experience, never a break.
+    try:
+        booking.update(_experience_from_order(int(booking_id_str)))
+    except (TypeError, ValueError):
+        pass
     return booking
 
 
@@ -208,15 +222,13 @@ SELECT
   DATE(b.experience_timestamp) AS date_of_visit,
   b.tour_id                      AS tid,
   CAST(b.tour_id AS INT64)       AS tgid,
-  COALESCE(e.experience_name, b.tour_name) AS experience_name,
+  b.tour_name AS experience_name,
   b.vendor_id,
   b.vendor_name,
   b.final_fulfilment_type AS fulfilment_type,
   b.primary_guest_name,
   b.booking_status
 FROM `{BIGQUERY_BOOKINGS_TABLE}` b
-LEFT JOIN `{BIGQUERY_EXPERIENCES_TABLE}` e
-  ON SAFE_CAST(b.tour_id AS INT64) = SAFE_CAST(e.experience_id AS INT64)
 WHERE b.booking_id IN UNNEST(@bids)
 """
 
@@ -230,7 +242,7 @@ def verify_bids_batch(bids: list[str]) -> dict[str, dict | None]:
     if not bids:
         return {}
     from server.services import bq_connector as bqc
-    from server.services.bigquery import _get_booking_extra
+    from server.services.bigquery import _get_booking_extra, _experience_from_order
     int_bids = [int(b) for b in bids]
     rows = bqc.run_query(_VERIFY_BIDS_BATCH_SQL, params={"bids": ("INT64", int_bids)})
     by_id = {}
@@ -257,6 +269,10 @@ def verify_bids_batch(bids: list[str]) -> dict[str, dict | None]:
         booking["bms_link"]  = BMS_URL_PATTERN.format(bid=bid_str) if bid_str else None
         booking["tgid_link"] = TGID_URL_PATTERN.format(tgid=tgid_str) if tgid_str else None
         booking.update(_get_booking_extra(bid_str))
+        try:
+            booking.update(_experience_from_order(int(bid_str)))
+        except (TypeError, ValueError):
+            pass
         by_id[bid_str] = booking
     result = {}
     for b in bids:
@@ -273,14 +289,12 @@ SELECT
   b.booking_id,
   b.primary_guest_name,
   DATE(b.experience_timestamp) AS date_of_visit,
-  COALESCE(e.experience_name, b.tour_name) AS experience_name,
+  b.tour_name AS experience_name,
   b.tour_id                      AS tid,
   CAST(b.tour_id AS INT64)       AS tgid,
   b.vendor_id,
   b.vendor_name
 FROM `{BIGQUERY_BOOKINGS_TABLE}` b
-LEFT JOIN `{BIGQUERY_EXPERIENCES_TABLE}` e
-  ON SAFE_CAST(b.tour_id AS INT64) = SAFE_CAST(e.experience_id AS INT64)
 WHERE b.tour_id IN UNNEST(@tgid_list)
   AND DATE(b.experience_timestamp) BETWEEN
       DATE_SUB(@review_pub_date, INTERVAL @date_window DAY) AND @review_pub_date
@@ -301,14 +315,12 @@ SELECT
   b.booking_id,
   b.primary_guest_name,
   DATE(b.experience_timestamp) AS date_of_visit,
-  COALESCE(e.experience_name, b.tour_name) AS experience_name,
+  b.tour_name AS experience_name,
   b.tour_id                      AS tid,
   CAST(b.tour_id AS INT64)       AS tgid,
   b.vendor_id,
   b.vendor_name
 FROM `{BIGQUERY_BOOKINGS_TABLE}` b
-LEFT JOIN `{BIGQUERY_EXPERIENCES_TABLE}` e
-  ON SAFE_CAST(b.tour_id AS INT64) = SAFE_CAST(e.experience_id AS INT64)
 WHERE DATE(b.experience_timestamp) BETWEEN
       DATE_SUB(@review_pub_date, INTERVAL @date_window DAY) AND @review_pub_date
   AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
@@ -361,13 +373,25 @@ def run_narrowing_query(
         log.warning(f"run_narrowing_query failed: {e}")
         return []
 
+    # The SELECT returns b.tour_name as a safe base; the REAL experience name
+    # lives on the order and is read per candidate through _experience_from_order
+    # (isolated — a failure leaves the tour name, never the wrong experience).
+    from server.services.bigquery import _experience_from_order
     result = []
     for r in rows:
+        _bid = str(r.get("booking_id") or "")
+        _exp = str(r.get("experience_name") or "")
+        try:
+            _ord = _experience_from_order(int(_bid))
+            if _ord.get("experienceName"):
+                _exp = _ord["experienceName"]
+        except (TypeError, ValueError):
+            pass
         result.append({
-            "id":               str(r.get("booking_id") or ""),
+            "id":               _bid,
             "primary_guest_name": str(r.get("primary_guest_name") or ""),
             "date_of_visit":    str(r.get("date_of_visit") or ""),
-            "experience_name":  str(r.get("experience_name") or ""),
+            "experience_name":  _exp,
             "tid":              str(r.get("tid") or ""),
             "tgid":             str(r.get("tgid") or ""),
             "vid":              str(r.get("vendor_id") or ""),

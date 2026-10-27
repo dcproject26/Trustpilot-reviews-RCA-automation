@@ -129,7 +129,10 @@ def test_it_matches_resolved_tgids_not_the_words_the_guest_used(bq_with):
     asyncio.run(bq.find_via_support(SVEN, tgids=TGIDS))
     sql, params = runner.calls[0]
     assert params["tgids"] == TGIDS
-    assert "experience_id" in sql
+    # Matching is on the resolved ids, compared against the booking's tour_id
+    # (experience fields are not on the bookings table post-migration). What
+    # must NOT happen is a free-text experience_name match on the guest's words.
+    assert "b.tour_id IN UNNEST(@tgids)" in sql
     assert "experience_name" not in sql[sql.find("WHERE"):], \
         "the free-text venue match is what returned nothing for 'musical ticket'"
 
@@ -152,7 +155,8 @@ def test_both_the_visit_and_the_booking_date_are_checked(bq_with):
     runner = bq_with([_row("88001", "x")])
     asyncio.run(bq.find_via_support(SVEN, tgids=TGIDS))
     sql, _ = runner.calls[0]
-    assert "experience_date" in sql and "created_at" in sql
+    # The visit date is experience_timestamp post-migration (was experience_date).
+    assert "experience_timestamp" in sql and "created_at" in sql
 
 
 def test_a_date_the_model_did_not_format_is_dropped_not_passed(bq_with):

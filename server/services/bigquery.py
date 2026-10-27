@@ -28,7 +28,8 @@ import re as _re_mod
 from server.config import (
     is_live, GCP_SERVICE_ACCOUNT_JSON,
     BIGQUERY_BOOKINGS_TABLE, BIGQUERY_REVIEWS_TABLE,
-    BIGQUERY_SUPPORT_TABLE, BIGQUERY_EXPERIENCES_TABLE,
+    BIGQUERY_SUPPORT_TABLE,
+    BIGQUERY_ORDERS_TABLE,
 )
 from server.names import looks_like_digest
 from server.services.mock_data import MOCK_BOOKINGS, MOCK_INSIGHTS
@@ -124,7 +125,7 @@ async def find_booking(review: dict) -> dict | None:
         sql = f"""
         SELECT
             b.booking_id,
-            COALESCE(e.experience_name, b.tour_name) AS experience_name,
+            b.tour_name AS experience_name,
             CAST(b.tour_id AS INT64) AS tgid,
             b.tour_id               AS tid,
             b.vendor_id       AS vid,
@@ -134,8 +135,6 @@ async def find_booking(review: dict) -> dict | None:
             b.primary_guest_name     AS guest_name,
             b.final_fulfilment_type  AS fulfilment_type
         FROM `{BIGQUERY_BOOKINGS_TABLE}` b
-        LEFT JOIN `{BIGQUERY_EXPERIENCES_TABLE}` e
-          ON SAFE_CAST(b.tour_id AS INT64) = SAFE_CAST(e.experience_id AS INT64)
         WHERE b.booking_id = @ref
           AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
         LIMIT 1
@@ -153,7 +152,7 @@ async def find_booking(review: dict) -> dict | None:
         sql = f"""
         SELECT
             b.booking_id,
-            COALESCE(e.experience_name, b.tour_name) AS experience_name,
+            b.tour_name AS experience_name,
             CAST(b.tour_id AS INT64) AS tgid,
             b.tour_id               AS tid,
             b.vendor_id       AS vid,
@@ -163,8 +162,6 @@ async def find_booking(review: dict) -> dict | None:
             b.primary_guest_name     AS guest_name,
             b.final_fulfilment_type  AS fulfilment_type
         FROM `{BIGQUERY_BOOKINGS_TABLE}` b
-        LEFT JOIN `{BIGQUERY_EXPERIENCES_TABLE}` e
-          ON SAFE_CAST(b.tour_id AS INT64) = SAFE_CAST(e.experience_id AS INT64)
         WHERE LOWER(b.primary_guest_name) LIKE LOWER(CONCAT('%', @name, '%'))
           AND b.booking_status NOT IN ('Dummy', 'Uncaptured')
         ORDER BY b.created_at DESC
@@ -443,7 +440,7 @@ def support_search_sql(indicators: dict, tgids: list | None = None,
     sql = f"""
     SELECT
         b.booking_id,
-        COALESCE(e.experience_name, b.tour_name) AS experience_name,
+        b.tour_name AS experience_name,
         CAST(b.tour_id AS INT64)       AS tgid,
         b.tour_id                      AS tid,
         b.vendor_id              AS vid,
@@ -459,8 +456,6 @@ def support_search_sql(indicators: dict, tgids: list | None = None,
     FROM `{BIGQUERY_SUPPORT_TABLE}` sq
     JOIN `{BIGQUERY_BOOKINGS_TABLE}` b
       ON SAFE_CAST(sq.booking_id AS INT64) = b.booking_id
-    LEFT JOIN `{BIGQUERY_EXPERIENCES_TABLE}` e
-      ON SAFE_CAST(b.tour_id AS INT64) = SAFE_CAST(e.experience_id AS INT64)
     WHERE {" AND ".join(where)}
       AND sq.query_created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(),
                                                INTERVAL {int(SUPPORT_LOOKBACK_DAYS)} DAY)
@@ -628,7 +623,11 @@ def _get_booking_extra(bid: str) -> dict:
         sql = f"""
         SELECT
             b.booking_status,
-            COALESCE(e.experience_name, b.tour_name) AS tour_name,
+            -- tour_name only. experience_name is NOT on the bookings table (it
+            -- lives on the order); the old dim_experiences-on-tour_id join
+            -- returned a different experience's name. verify_bid resolves the
+            -- real experience name through the order separately.
+            b.tour_name AS tour_name,
             b.is_partnered,
             -- THREE SCALAR subqueries, not one `AS STRUCT`. The REST query shim
             -- (bq_connector._convert) only deserializes scalars — a nested
@@ -660,8 +659,6 @@ def _get_booking_extra(bid: str) -> dict:
         -- dim_vendors joins on the booking's vendor for the escalation contact.
         LEFT JOIN `headout-analytics.analytics_reporting.dim_vendors` v
                ON v.vendor_id = b.vendor_id
-        LEFT JOIN `{BIGQUERY_EXPERIENCES_TABLE}` e
-               ON SAFE_CAST(b.tour_id AS INT64) = SAFE_CAST(e.experience_id AS INT64)
         WHERE b.booking_id = @bid
         LIMIT 1
         """
@@ -716,6 +713,43 @@ def _get_booking_amount(bid_int: int) -> dict:
             v = getattr(rows[0], "amount_usd", None)
             if v is not None:
                 return {"amountUSD": float(v)}
+    except Exception:
+        pass
+    return {}
+
+
+def _experience_from_order(bid_int: int) -> dict:
+    """The booking's real experience NAME, read from the ORDER.
+
+    After the realtime migration the bookings table carries only tour_id /
+    tour_name — `experience_id` and `experience_name` live on fct_orders_lambda
+    (verified against the live schema via Omni, and stated in venue_resolver).
+    The experience name must therefore be read THROUGH the order
+    (b.order_id = o.order_id), NOT by joining dim_experiences on tour_id:
+    tour_id and experience_id are different id spaces, so that join returned a
+    DIFFERENT experience's name. Booking 34711365 showed "Lunch and the Bow of
+    Ulysses" (experience 4598, = its tour_id) instead of its real "Thames River
+    Lunch Cruise with 2-Course Meal, Coffee & Tea" (experience_id 2961).
+
+    Its OWN query so an unexpected column name costs only this field — the
+    booking still resolves with tour_name as the fallback, and the fetch never
+    breaks. Returns {} on any failure.
+    """
+    if not bid_int:
+        return {}
+    try:
+        sql = f"""
+        SELECT o.experience_name AS experience_name
+        FROM `{BIGQUERY_BOOKINGS_TABLE}` b
+        JOIN `{BIGQUERY_ORDERS_TABLE}` o ON b.order_id = o.order_id
+        WHERE b.booking_id = @bid
+        LIMIT 1
+        """
+        rows = _run_query(sql, [_bqlib.ScalarQueryParameter("bid", "INT64", bid_int)])
+        if rows:
+            name = getattr(rows[0], "experience_name", None)
+            if name:
+                return {"experienceName": str(name)}
     except Exception:
         pass
     return {}
