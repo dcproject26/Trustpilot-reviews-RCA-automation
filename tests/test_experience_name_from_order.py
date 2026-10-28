@@ -47,10 +47,10 @@ def test_verify_bid_uses_the_experience_name_from_the_order(monkeypatch):
         "the real experience name from the order must win over the tour name"
 
 
-def test_verify_bid_sets_the_tgid_and_link_from_the_order_experience_id(monkeypatch):
-    """TGID is the experience_id (lives on the order), NOT the tour_id. It is
-    carried as experienceId + experienceLink so the card shows/links the real
-    experience; `tgid` stays the tour_id for code that still scopes on it."""
+def test_verify_bid_sets_tgid_to_the_experience_id(monkeypatch):
+    """TGID IS the experience_id (Tour Group ID = experience_id), NOT the
+    tour_id. After the order enrichment, tgid must carry the real experience_id
+    so every downstream consumer — insights, Slack, prompts — scopes correctly."""
     monkeypatch.setattr(bqc, "run_query", lambda *a, **k: [_row()])
     monkeypatch.setattr(bq, "_get_booking_extra", lambda bid: {})
     monkeypatch.setattr(
@@ -58,9 +58,11 @@ def test_verify_bid_sets_the_tgid_and_link_from_the_order_experience_id(monkeypa
         lambda bid_int: {"experienceName": "Wicked", "experienceId": "3037"})
     out = bp.verify_bid("34600921")
     assert out["experienceId"] == "3037", "the real TGID is the order's experience_id"
-    assert out["tgid"] == "4598", "tgid stays the tour_id (the fixture's tour_id)"
+    assert out["tgid"] == "3037", "tgid must be the experience_id, not the tour_id"
+    assert "3037" in (out.get("tgid_link") or ""), \
+        "the TGID link must point to the experience page (experience_id)"
     assert "3037" in (out.get("experienceLink") or ""), \
-        "the TGID link must point to the experience page (experience_id), not the tour"
+        "the experience link must also use experience_id"
 
 
 def test_experience_from_order_returns_the_experience_id(monkeypatch):

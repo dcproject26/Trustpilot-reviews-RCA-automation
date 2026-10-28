@@ -143,6 +143,7 @@ async def find_booking(review: dict) -> dict | None:
         if rows:
             b = _row_to_dict(rows[0])
             b.update(_get_booking_extra(str(rows[0].booking_id)))
+            _enrich_experience(b)
             b["_match"] = {"tier": 1, "confidence": "high",
                            "method": "Booking ID in review text"}
             return b
@@ -171,6 +172,7 @@ async def find_booking(review: dict) -> dict | None:
         if len(rows) == 1:
             b = _row_to_dict(rows[0])
             b.update(_get_booking_extra(str(rows[0].booking_id)))
+            _enrich_experience(b)
             b["_match"] = {"tier": 2, "confidence": "med",
                            "method": "Single name match"}
             return b
@@ -585,6 +587,29 @@ def _row_to_dict(row) -> dict:
         "visitDate":      str(getattr(row, "visit_date", "") or ""),
         "fulfilmentType": getattr(row, "fulfilment_type", "") or "",
     }
+
+
+def _enrich_experience(booking: dict) -> None:
+    """Set experienceName + tgid from the order's experience_id.
+
+    TGID is the experience_id (Tour Group ID), NOT the tour_id. The booking
+    table only has tour_id; the real experience_id lives on the order. After
+    this call, booking["tgid"] carries the experience_id and
+    booking["experienceName"] carries the real experience name.
+    """
+    try:
+        bid_int = int(booking.get("id") or 0)
+        if not bid_int:
+            return
+        order = _experience_from_order(bid_int)
+        if order.get("experienceName"):
+            booking["experienceName"] = order["experienceName"]
+        exp_id = str(order.get("experienceId") or "")
+        if exp_id:
+            booking["experienceId"] = exp_id
+            booking["tgid"] = exp_id
+    except (TypeError, ValueError):
+        pass
 
 
 def _get_booking_extra(bid: str) -> dict:

@@ -213,11 +213,14 @@ def verify_bid(bid: str) -> dict | None:
         booking.update(_experience_from_order(int(booking_id_str)))
     except (TypeError, ValueError):
         pass
-    # The TGID link points to the EXPERIENCE page, so it must use the real
-    # experience_id, not the tour_id. `tgid` itself stays tour_id (other code
-    # scopes on it); the card reads experienceId/experienceLink for display.
+    # TGID IS the experience_id (Tour Group ID = experience_id, lives on the
+    # order). The SQL reads tour_id as a safe base; now that we have the real
+    # experience_id from the order, promote it to `tgid` so every downstream
+    # consumer — insights, Slack, prompts — scopes on the real experience.
     _exp_id = str(booking.get("experienceId") or "")
     if _exp_id:
+        booking["tgid"] = _exp_id
+        booking["tgid_link"] = TGID_URL_PATTERN.format(tgid=_exp_id)
         booking["experienceLink"] = TGID_URL_PATTERN.format(tgid=_exp_id)
     return booking
 
@@ -282,6 +285,8 @@ def verify_bids_batch(bids: list[str]) -> dict[str, dict | None]:
             pass
         _exp_id = str(booking.get("experienceId") or "")
         if _exp_id:
+            booking["tgid"] = _exp_id
+            booking["tgid_link"] = TGID_URL_PATTERN.format(tgid=_exp_id)
             booking["experienceLink"] = TGID_URL_PATTERN.format(tgid=_exp_id)
         by_id[bid_str] = booking
     result = {}
@@ -405,7 +410,7 @@ def run_narrowing_query(
             "date_of_visit":    str(r.get("date_of_visit") or ""),
             "experience_name":  _exp,
             "tid":              str(r.get("tid") or ""),
-            "tgid":             str(r.get("tgid") or ""),
+            "tgid":             _exp_id or str(r.get("tgid") or ""),
             "experienceId":     _exp_id,
             "vid":              str(r.get("vendor_id") or ""),
             "vendorName":       str(r.get("vendor_name") or ""),

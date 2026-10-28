@@ -1333,7 +1333,7 @@ _BOOKING_DETAIL_ROWS = (
     ("Booking ID",       ("id", "bid", "booking_id")),
     ("Experience",       ("experienceName", "experience_name", "experience")),
     ("TID name",         ("tid_name", "tidName", "tour_name")),
-    ("TGID / TID",       ("tgid",)),
+    ("TGID / TID",       ("tgid", "experienceId")),
     ("Vendor ID",        ("vid", "vendor_id", "vendorId")),
     ("Vendor name",      ("vendorName", "vendor_name", "partner")),
     ("Fulfilment type",  ("fulfilmentType", "fulfilment_type",
