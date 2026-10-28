@@ -44,6 +44,8 @@ _NON_OWNERS = {"", "test", "unassigned", "(none)", "na", "n/a"}
 # picked_up_by. Map shortened → canonical so the report merges them.
 _OWNER_ALIASES: dict[str, str] = {
     "devshree": "Devshree C",
+    "swagatom": "Abo Tani",
+    "samson j c": "Paul",
 }
 
 
