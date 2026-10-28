@@ -39,6 +39,19 @@ PLATFORMS = [SOCIAL_MEDIA, TRUSTPILOT, APP_FEEDBACK, ESCALATIONS]
 # Owners that are not people. Dropped from the roster, case-insensitively.
 _NON_OWNERS = {"", "test", "unassigned", "(none)", "na", "n/a"}
 
+# Canonical owner names. The team's manual entries (Social Media, Escalations)
+# use full names; our Trustpilot rows sometimes carry a shortened form from
+# picked_up_by. Map shortened → canonical so the report merges them.
+_OWNER_ALIASES: dict[str, str] = {
+    "devshree": "Devshree C",
+}
+
+
+def _canon_owner(name: str) -> str:
+    """The canonical display name for a sheet owner."""
+    s = str(name or "").strip().lstrip("@").strip()
+    return _OWNER_ALIASES.get(s.lower(), s)
+
 # ORM RAW column indexes (0-based), from the live header on 2026-10-21:
 # A Date, B Source, …, I Owner.
 _COL_DATE = 0
@@ -118,8 +131,7 @@ def count_rows(rows, day: date) -> tuple[dict, dict]:
             continue
         if d != day:
             continue
-        owner = (r[_COL_OWNER] if len(r) > _COL_OWNER else "") or ""
-        owner = str(owner).strip().lstrip("@").strip()
+        owner = _canon_owner(r[_COL_OWNER] if len(r) > _COL_OWNER else "")
         if owner.lower() in _NON_OWNERS:
             skipped += 1
             continue
@@ -156,7 +168,7 @@ def render(counts: dict, day: date, meta: dict | None = None) -> str:
                     f"not read and were not counted.)_")
         return head + "\nNo cases logged for today." + note
 
-    owners = sorted(counts, key=lambda o: -sum(counts[o].values()))
+    owners = sorted(counts, key=lambda o: o.lower())
     name_w = max([len("Owner")] + [len(o) for o in owners])
     headers = list(PLATFORMS)
     # Short column captions so the table fits a Slack code block on a phone.
