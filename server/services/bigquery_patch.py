@@ -205,13 +205,20 @@ def verify_bid(bid: str) -> dict | None:
     # Enrich with booking_status and tid_name — isolated query, never breaks the main match
     from server.services.bigquery import _get_booking_extra, _experience_from_order
     booking.update(_get_booking_extra(booking_id_str))
-    # The REAL experience name, read through the order (tour_name was only a
-    # safe base above). Isolated: if it cannot be read, the tour name stands and
-    # the booking still resolves — never the WRONG experience, never a break.
+    # The REAL experience name AND experience_id (the true TGID), read through
+    # the order (tour_name/tour_id were only a safe base above). Isolated: if it
+    # cannot be read, the tour name stands and the booking still resolves —
+    # never the WRONG experience, never a break.
     try:
         booking.update(_experience_from_order(int(booking_id_str)))
     except (TypeError, ValueError):
         pass
+    # The TGID link points to the EXPERIENCE page, so it must use the real
+    # experience_id, not the tour_id. `tgid` itself stays tour_id (other code
+    # scopes on it); the card reads experienceId/experienceLink for display.
+    _exp_id = str(booking.get("experienceId") or "")
+    if _exp_id:
+        booking["experienceLink"] = TGID_URL_PATTERN.format(tgid=_exp_id)
     return booking
 
 
@@ -273,6 +280,9 @@ def verify_bids_batch(bids: list[str]) -> dict[str, dict | None]:
             booking.update(_experience_from_order(int(bid_str)))
         except (TypeError, ValueError):
             pass
+        _exp_id = str(booking.get("experienceId") or "")
+        if _exp_id:
+            booking["experienceLink"] = TGID_URL_PATTERN.format(tgid=_exp_id)
         by_id[bid_str] = booking
     result = {}
     for b in bids:
@@ -381,10 +391,12 @@ def run_narrowing_query(
     for r in rows:
         _bid = str(r.get("booking_id") or "")
         _exp = str(r.get("experience_name") or "")
+        _exp_id = ""
         try:
             _ord = _experience_from_order(int(_bid))
             if _ord.get("experienceName"):
                 _exp = _ord["experienceName"]
+            _exp_id = str(_ord.get("experienceId") or "")
         except (TypeError, ValueError):
             pass
         result.append({
@@ -394,6 +406,7 @@ def run_narrowing_query(
             "experience_name":  _exp,
             "tid":              str(r.get("tid") or ""),
             "tgid":             str(r.get("tgid") or ""),
+            "experienceId":     _exp_id,
             "vid":              str(r.get("vendor_id") or ""),
             "vendorName":       str(r.get("vendor_name") or ""),
         })

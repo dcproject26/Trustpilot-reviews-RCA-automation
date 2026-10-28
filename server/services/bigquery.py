@@ -739,7 +739,8 @@ def _experience_from_order(bid_int: int) -> dict:
         return {}
     try:
         sql = f"""
-        SELECT o.experience_name AS experience_name
+        SELECT o.experience_name AS experience_name,
+               o.experience_id   AS experience_id
         FROM `{BIGQUERY_BOOKINGS_TABLE}` b
         JOIN `{BIGQUERY_ORDERS_TABLE}` o ON b.order_id = o.order_id
         WHERE b.booking_id = @bid
@@ -747,9 +748,18 @@ def _experience_from_order(bid_int: int) -> dict:
         """
         rows = _run_query(sql, [_bqlib.ScalarQueryParameter("bid", "INT64", bid_int)])
         if rows:
+            out = {}
             name = getattr(rows[0], "experience_name", None)
             if name:
-                return {"experienceName": str(name)}
+                out["experienceName"] = str(name)
+            # experience_id IS the real TGID (tour group id). It lives on the
+            # order, NOT on the booking (the booking only has tour_id). Carried
+            # as its own field so it can be shown/linked as the TGID without
+            # disturbing `tgid` (= tour_id), which other code still scopes on.
+            exp_id = getattr(rows[0], "experience_id", None)
+            if exp_id not in (None, ""):
+                out["experienceId"] = str(exp_id)
+            return out
     except Exception:
         pass
     return {}

@@ -47,6 +47,35 @@ def test_verify_bid_uses_the_experience_name_from_the_order(monkeypatch):
         "the real experience name from the order must win over the tour name"
 
 
+def test_verify_bid_sets_the_tgid_and_link_from_the_order_experience_id(monkeypatch):
+    """TGID is the experience_id (lives on the order), NOT the tour_id. It is
+    carried as experienceId + experienceLink so the card shows/links the real
+    experience; `tgid` stays the tour_id for code that still scopes on it."""
+    monkeypatch.setattr(bqc, "run_query", lambda *a, **k: [_row()])
+    monkeypatch.setattr(bq, "_get_booking_extra", lambda bid: {})
+    monkeypatch.setattr(
+        bq, "_experience_from_order",
+        lambda bid_int: {"experienceName": "Wicked", "experienceId": "3037"})
+    out = bp.verify_bid("34600921")
+    assert out["experienceId"] == "3037", "the real TGID is the order's experience_id"
+    assert out["tgid"] == "4598", "tgid stays the tour_id (the fixture's tour_id)"
+    assert "3037" in (out.get("experienceLink") or ""), \
+        "the TGID link must point to the experience page (experience_id), not the tour"
+
+
+def test_experience_from_order_returns_the_experience_id(monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(
+        bq, "_run_query",
+        lambda sql, params: [SimpleNamespace(experience_name="Wicked", experience_id=3037)])
+    if getattr(bq, "_bqlib", None) is None:
+        import types as _t
+        monkeypatch.setattr(bq, "_bqlib",
+                            _t.SimpleNamespace(ScalarQueryParameter=lambda *a, **k: None))
+    out = bq._experience_from_order(34600921)
+    assert out == {"experienceName": "Wicked", "experienceId": "3037"}
+
+
 def test_verify_bid_falls_back_to_tour_name_when_the_order_cannot_be_read(monkeypatch):
     """The order enrichment is isolated: if it returns nothing, the booking
     still resolves with the tour name — never the WRONG experience, never a
@@ -92,6 +121,20 @@ def test_experience_from_order_is_silent_on_failure(monkeypatch):
 
 _PATCH = pathlib.Path("server/services/bigquery_patch.py").read_text(encoding="utf-8")
 _BQ = pathlib.Path("server/services/bigquery.py").read_text(encoding="utf-8")
+
+
+_CLIENT = pathlib.Path("client/index.html").read_text(encoding="utf-8")
+
+
+def test_the_card_shows_the_experience_id_as_the_tgid():
+    """Client-side JS (no harness) — a source assertion, allowed by CLAUDE.md §2.
+    The TGID field and link must prefer experienceId/experienceLink (the real
+    experience id on the order) over tgid/tgidLink (the tour id)."""
+    assert "b.experienceId || b.tgid" in _CLIENT, \
+        "the TGID field no longer prefers the experience_id"
+    assert "b.experienceLink || b.tgidLink" in _CLIENT, \
+        "the TGID link no longer prefers the experience page link"
+    assert "db.experienceId" in _CLIENT, "experienceId is not read from the API payload"
 
 
 def test_the_tour_id_to_experience_id_join_appears_nowhere():

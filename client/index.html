@@ -3198,6 +3198,7 @@ async function loadDraftOverlays() {
           matchReasons:   c.matchReasons || c.match_reasons || [],
           experience:     c.experience || c.experienceName || '',
           tgid:           c.tgid || '',
+          experienceId:   c.experienceId || c.experience_id || '',
           tid:            c.tid || '',
           vendorName:     c.vendorName || c.partner || '',
           experienceDate: c.experienceDate || c.visitDate || '',
@@ -3330,6 +3331,12 @@ async function loadDraftOverlays() {
         r.booking.bookingDate      = bookingCreatedAt(db)     || r.booking.bookingDate;
         r.booking.bmsLink          = db.bms_link;
         r.booking.tgidLink         = db.tgid_link;
+        // The REAL TGID is the experience_id (lives on the order); `tgid` above
+        // is the tour_id. The booking panel shows experienceId as the TGID and
+        // links it to the experience page. Fall back to tgid when the order
+        // lookup did not run, so an older draft still shows something.
+        r.booking.experienceId     = db.experienceId || db.experience_id || r.booking.experienceId || '';
+        r.booking.experienceLink   = db.experienceLink || db.experience_link || r.booking.experienceLink || '';
         r.booking.ticketMailSeen   = !!db.ticket_mail_seen;
         // Tri-state on purpose: true, false, and "no fulfilment row said".
         // ?? rather than || so a genuine false is not read as absent.
@@ -5044,7 +5051,7 @@ function renderReviewCol() {
               c.experienceDate,
               c.contactCount ? `${c.contactCount} support contact${c.contactCount > 1 ? 's' : ''}`
                              + (c.contactTags ? ` · ${c.contactTags}` : '') : '',
-              (c.tgid || c.tid) ? `TGID ${c.tgid || '—'} / TID ${c.tid || '—'}` : '',
+              (c.experienceId || c.tgid || c.tid) ? `TGID ${c.experienceId || c.tgid || '—'} / TID ${c.tid || '—'}` : '',
               c.leadTime ? `lead ${c.leadTime}` : '',
             ].filter(Boolean);
             return `
@@ -5146,7 +5153,14 @@ function renderReviewCol() {
         <div class="detail-row"><span class="k">Booking ID</span><span class="v mono">${b.bmsLink ? `<a href="${b.bmsLink}" target="_blank" rel="noopener" class="bms-link">${b.bid}</a>` : b.bid}</span></div>
         <div class="detail-row"><span class="k">Experience</span><span class="v">${b.experience || "—"}</span></div>
         <div class="detail-row"><span class="k">TID name</span><span class="v ${b.tidName ? '' : 'placeholder'}">${b.tidName || '—'}</span></div>
-        <div class="detail-row"><span class="k">TGID / TID</span><span class="v">${b.tgidLink ? `<a href="${b.tgidLink}" target="_blank" rel="noopener" class="tgid-link">${b.tgid || "—"}</a>` : (b.tgid || "—")} / ${b.tid || "—"}</span></div>
+        <div class="detail-row"><span class="k">TGID / TID</span><span class="v">${(() => {
+          // TGID is the experience_id (the tour GROUP id), linked to the
+          // experience page. tgid/tgidLink are the tour_id fallback for older
+          // drafts that never ran the order lookup. TID stays the tour_id.
+          const _tg = b.experienceId || b.tgid || "—";
+          const _lk = b.experienceLink || b.tgidLink || "";
+          return (_lk ? `<a href="${_lk}" target="_blank" rel="noopener" class="tgid-link">${_tg}</a>` : _tg) + ` / ${b.tid || "—"}`;
+        })()}</span></div>
         <div class="detail-row"><span class="k">Vendor ID</span><span class="v">${b.vid || "—"}</span></div>
         <div class="detail-row"><span class="k">Vendor name</span><span class="v">${b.vendorName || "—"}</span></div>
         <div class="detail-row"><span class="k">Fulfilment type</span><span class="v">${b.fulfilmentType || '—'}</span></div>
