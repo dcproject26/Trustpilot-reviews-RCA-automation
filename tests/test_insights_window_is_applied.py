@@ -49,7 +49,10 @@ def bq(monkeypatch):
     return seen
 
 
-BOOKING = {"tid": "43605", "vid": "4040", "tgid": "22238",
+# experienceId is the real TGID (from the order). The experience-scoped tiles
+# key on it, not on tgid (= tour_id), so the fixture carries it or those tiles
+# are legitimately skipped.
+BOOKING = {"tid": "43605", "vid": "4040", "tgid": "22238", "experienceId": "3037",
            "date_of_visit": "2026-06-01"}
 
 # Anchored on the visit date, so they are the same three tiles whatever window

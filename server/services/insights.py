@@ -50,7 +50,8 @@ import re
 import logging
 from datetime import datetime, timezone
 
-from server.config import is_live, MOCK_MODE, BIGQUERY_BOOKINGS_TABLE
+from server.config import (is_live, MOCK_MODE, BIGQUERY_BOOKINGS_TABLE,
+                           BIGQUERY_ORDERS_TABLE)
 from server.taxonomy import support_tags_for, support_tags_not_applicable
 
 log = logging.getLogger(__name__)
@@ -62,6 +63,13 @@ _REVIEWS_TABLE     = "headout-analytics.analytics_reporting.fct_reviews"
 # fct_zendesk_tickets (joined on primary_ticket_id). reviews / support /
 # vendor_tours / zendesk are NOT in the migration and stay as literals.
 _BOOKINGS_TABLE    = BIGQUERY_BOOKINGS_TABLE
+# experience_id (the real TGID) lives on fct_orders_lambda, NOT on
+# fct_bookings_lambda — the bookings table carries only tour_id / tour_name.
+# Verified against the live schema via Omni: the semantic model has
+# `fct_orders.experience_id` (string-typed) and reports "No such field
+# fct_bookings.experience_id". The TGID-scoped tiles reach it through
+# b.order_id = o.order_id. See _reviews_from_tgid / _ff_select_tgid / _ff_why_tgid.
+_ORDERS_TABLE      = BIGQUERY_ORDERS_TABLE
 _SUPPORT_TABLE     = "headout-analytics.analytics_reporting.fct_support_queries"
 _ZENDESK_TABLE     = "headout-analytics.analytics_reporting.fct_zendesk_tickets"
 _VENDOR_TOURS      = "headout-analytics.analytics_reporting.dim_vendor_tours"
@@ -654,6 +662,12 @@ async def get_insights(booking: dict, l1: str | None, l2: str | None,
     tid        = str(booking.get("tid") or "").strip()
     vid        = str(booking.get("vid") or "").strip()
     tgid       = str(booking.get("tgid") or "").strip()
+    # The REAL experience id (the true TGID) lives on the order and is carried on
+    # the booking as experienceId. tgid above is the tour_id — kept for the
+    # recurrence/why scopes that genuinely want the tour. The three TGID-scoped
+    # tiles (experience rating, experience fulfilment, why) must use exp_id, or
+    # they scope to one tour instead of the whole experience.
+    exp_id     = str(booking.get("experienceId") or "").strip()
     visit_date = str(booking.get("visitDate") or booking.get("date_of_visit") or "").strip()
 
     # A booking id is enough. tid, vid and tgid are one lookup away in
@@ -663,7 +677,7 @@ async def get_insights(booking: dict, l1: str | None, l2: str | None,
     # nobody asked: the ids are derivable, so derive them.
     bid = str(booking.get("bid") or booking.get("bookingId")
               or booking.get("id") or "").strip()
-    if not (tid and vid and tgid) and bid.isdigit():
+    if not (tid and vid and tgid and exp_id) and bid.isdigit():
         try:
             from server.services.bigquery_patch import verify_bid
             loop = asyncio.get_running_loop()
@@ -675,20 +689,26 @@ async def get_insights(booking: dict, l1: str | None, l2: str | None,
             tid  = tid  or str(resolved.get("tid") or "").strip()
             vid  = vid  or str(resolved.get("vid") or "").strip()
             tgid = tgid or str(resolved.get("tgid") or "").strip()
+            exp_id = exp_id or str(resolved.get("experienceId") or "").strip()
             visit_date = visit_date or str(resolved.get("date_of_visit") or "").strip()
-            log.info(f"[insights] resolved {bid} -> tid={tid} vid={vid} tgid={tgid}")
+            log.info(f"[insights] resolved {bid} -> tid={tid} vid={vid} "
+                     f"tgid={tgid} exp_id={exp_id}")
 
     # Only give up when there is nothing at all to key on.
     #
     # This used to bail whenever tid or vid was missing, which threw away three
-    # metrics that never needed tid: the TGID rating keys on tgid alone, and
-    # both fulfilment rates key on tgid or vid alone. A booking that resolved
-    # far enough to know its experience and vendor can always answer "how is
-    # this experience rated" and "how often does this vendor fulfil" - those
-    # are properties of the vendor, not of this booking's issue, and reporting
-    # them as zero says something false about a vendor rather than nothing.
-    if not tid and not vid and not tgid:
-        log.warning("[insights] no tid, vid or tgid - returning zeros")
+    # metrics that never needed tid: the experience rating keys on exp_id alone,
+    # and both fulfilment rates key on exp_id or vid alone. A booking that
+    # resolved far enough to know its experience and vendor can always answer
+    # "how is this experience rated" and "how often does this vendor fulfil" -
+    # those are properties of the vendor, not of this booking's issue, and
+    # reporting them as zero says something false about a vendor rather than
+    # nothing. The experience-scoped tiles gate on exp_id (the real TGID, from
+    # the order), so a booking with a tour_id but no resolvable experience_id
+    # shows a dash on those tiles - not a tour-scoped number under an experience
+    # label, which was the bug this change fixes.
+    if not tid and not vid and not tgid and not exp_id:
+        log.warning("[insights] no tid, vid, tgid or exp_id - returning zeros")
         return _zero_result(l2, wd,
                             f"booking {bid} did not resolve in fct_bookings"
                             if bid else "no booking id on the draft",
@@ -753,6 +773,15 @@ async def get_insights(booking: dict, l1: str | None, l2: str | None,
     _reviews_from = f"""
 FROM `{_REVIEWS_TABLE}` r
 LEFT JOIN `{_BOOKINGS_TABLE}` b ON r.booking_id = b.booking_id
+"""
+    # TGID scope is by the real experience_id, which lives on the ORDER, not on
+    # the booking (the booking only has tour_id). So the TGID rating joins
+    # bookings -> orders on order_id and filters o.experience_id, where every
+    # other reviews tile stays at the tour/vendor grain and uses _reviews_from.
+    # CAST to STRING so the @tgid bind (always a string) matches whatever the
+    # warehouse stores experience_id as — verified string-typed via Omni, but
+    # the CAST keeps it type-safe either way, mirroring the narrowing query.
+    _reviews_from_tgid = f"""{_reviews_from}LEFT JOIN `{_ORDERS_TABLE}` o ON b.order_id = o.order_id
 """
     # Recurrence is scoped to TID + VID: is this VENDOR'S VERSION of the
     # experience failing? That is the question the tile asks, and widening it
@@ -855,9 +884,12 @@ WHERE b.tour_id = @tid AND b.vendor_id = @vid
   AND {_win}
 {_avg_tail}"""
     # TGID is the experience, so this deliberately spans every tour and vendor
-    # selling it - that breadth is the point of the comparison.
-    sql_e_tgid = f"""{_avg_select}{_reviews_from}
-WHERE b.tour_id = @tgid
+    # selling it - that breadth is the point of the comparison. The experience
+    # is o.experience_id (from the order), NOT b.tour_id: the migration
+    # conflated the two, which scoped this tile to a single tour instead of the
+    # whole experience.
+    sql_e_tgid = f"""{_avg_select}{_reviews_from_tgid}
+WHERE CAST(o.experience_id AS STRING) = @tgid
   AND r.rating IS NOT NULL
   AND r.source = 'CUSTOMER'
   AND {_win}
@@ -929,6 +961,11 @@ SELECT
 FROM `{_BOOKINGS_TABLE}` b
 LEFT JOIN `{_ZENDESK_TABLE}` tk ON b.primary_ticket_id = tk.ticket_id
 """
+    # Same select, but reaching the order so the TGID fulfilment rate can scope
+    # by the real experience_id (on the order) rather than b.tour_id. Only the
+    # TGID query needs this join; the VID and TID+VID rates stay on _ff_select.
+    _ff_select_tgid = f"""{_ff_select}LEFT JOIN `{_ORDERS_TABLE}` o ON b.order_id = o.order_id
+"""
     # The dashboard's own filters, off the Looker tile:
     #   Fulfilment Status is not  Uncaptured, Dummy
     #   Completion Type  is not   Cancelled Fraudulent, Dummy
@@ -947,7 +984,8 @@ LEFT JOIN `{_ZENDESK_TABLE}` tk ON b.primary_ticket_id = tk.ticket_id
     sql_h  = f"{_ff_select}WHERE b.vendor_id = @vid AND {_win}{_ff_excl}"
     # Ops checks fulfilment for the same TGID over the last four weeks, because
     # that is the population that says whether this is a one-off or a pattern.
-    sql_h2 = f"{_ff_select}WHERE b.tour_id = @tgid AND {_win}{_ff_excl}"
+    # TGID is the experience (o.experience_id, on the order), not b.tour_id.
+    sql_h2 = f"{_ff_select_tgid}WHERE CAST(o.experience_id AS STRING) = @tgid AND {_win}{_ff_excl}"
     # Completion at TID + VID: this vendor's version of this tour, which is the
     # narrowest population that still answers "can they fulfil THIS". VID alone
     # spans everything the vendor runs, so a vendor good at one tour and bad at
@@ -978,7 +1016,24 @@ GROUP BY status, ctype
 ORDER BY c DESC
 LIMIT 6
 """
-    sql_why_tgid = _ff_why.format(scope="b.tour_id = @tgid")
+    # Same breakdown, scoped to the whole experience. experience_id is on the
+    # order, so this variant joins bookings -> orders on order_id; the VID
+    # breakdown keeps the plain _ff_why (no experience grain needed).
+    _ff_why_tgid = f"""
+SELECT
+  IFNULL(b.fulfilment_status, '(none)') AS status,
+  IFNULL(tk.completion_type,  '(none)')  AS ctype,
+  COUNT(DISTINCT b.booking_id)          AS c
+FROM `{_BOOKINGS_TABLE}` b
+LEFT JOIN `{_ZENDESK_TABLE}` tk ON b.primary_ticket_id = tk.ticket_id
+LEFT JOIN `{_ORDERS_TABLE}` o ON b.order_id = o.order_id
+WHERE CAST(o.experience_id AS STRING) = @tgid AND {_win}{_ff_excl}
+  AND IFNULL(b.fulfilment_status, '') NOT IN UNNEST(@ff_done)
+GROUP BY status, ctype
+ORDER BY c DESC
+LIMIT 6
+"""
+    sql_why_tgid = _ff_why_tgid
     sql_why_vid  = _ff_why.format(scope="b.vendor_id = @vid")
 
     sql_i_rev = f"""
@@ -1062,13 +1117,13 @@ SELECT COUNT(DISTINCT sq.booking_id) AS c,
         coro_c,
         _run(sql_d, {**base, **nar_par})             if pair else asyncio.sleep(0),
         _run(sql_e_tidvid, base)                     if pair else asyncio.sleep(0),
-        _run(sql_e_tgid, {**anchor_par, "tgid": tgid}) if tgid else asyncio.sleep(0),
+        _run(sql_e_tgid, {**anchor_par, "tgid": exp_id}) if exp_id else asyncio.sleep(0),
         _run(sql_f, base)                            if pair else asyncio.sleep(0),
         _run(sql_g, {"tid": tid, "vid": vid})        if pair else asyncio.sleep(0),
         _run(sql_h, {**base, **ff_par})              if vid else asyncio.sleep(0),
-        _run(sql_h2, {**anchor_par, **ff_par, "tgid": tgid}) if tgid else asyncio.sleep(0),
-        (_run(sql_why_tgid, {**anchor_par, **ff_par, "tgid": tgid})
-         if tgid else asyncio.sleep(0)),
+        _run(sql_h2, {**anchor_par, **ff_par, "tgid": exp_id}) if exp_id else asyncio.sleep(0),
+        (_run(sql_why_tgid, {**anchor_par, **ff_par, "tgid": exp_id})
+         if exp_id else asyncio.sleep(0)),
         (_run(sql_why_vid, {**base, **ff_par}) if vid else asyncio.sleep(0)),
         (_run(sql_i_rev, {**anchor_par, "vid": vid, "l2v": ("STRING", variants)})
          if (visit_date and vid and variants) else asyncio.sleep(0)),
