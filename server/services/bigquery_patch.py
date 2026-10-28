@@ -138,12 +138,11 @@ def _get_client():
 _VERIFY_BID_SQL = f"""
 SELECT
   b.booking_id,
-  -- The TIMESTAMP, not DATE(). b.created_at carries a time and DATE() threw it
-  -- away at the source, so nothing downstream could show it: the booking log
-  -- and the events timeline both rendered a bare date, and the formatter was
-  -- blamed for truncating something it never received. The visit date stays a
+  -- FORMAT_TIMESTAMP so the value is a readable ISO string, not a raw epoch
+  -- that str() renders as scientific notation ("1.793021983E9"). The booking
+  -- log and events timeline need both date and time; the visit date stays a
   -- DATE because that is what it is — an experience is booked for a day.
-  b.created_at            AS date_of_booking,
+  FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%S', b.created_at) AS date_of_booking,
   DATE(b.experience_timestamp) AS date_of_visit,
   b.tour_id                      AS tid,
   CAST(b.tour_id AS INT64)       AS tgid,
@@ -228,7 +227,7 @@ def verify_bid(bid: str) -> dict | None:
 _VERIFY_BIDS_BATCH_SQL = f"""
 SELECT
   b.booking_id,
-  b.created_at            AS date_of_booking,
+  FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%S', b.created_at) AS date_of_booking,
   DATE(b.experience_timestamp) AS date_of_visit,
   b.tour_id                      AS tid,
   CAST(b.tour_id AS INT64)       AS tgid,
