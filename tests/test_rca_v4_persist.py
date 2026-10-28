@@ -514,6 +514,94 @@ def test_fully_ticketed_frames_are_never_announced_as_grouped():
     assert out == []
 
 
+# ── count reconciliation: the drop this task exists for ──────────────────────
+# The reported bug: a guest contacts support N times, the RCA renders M < N of
+# them, and nothing says so. One `support_interaction_notes` row is one
+# contact, so the number of guest contacts the Zendesk frames show and the
+# number of contact notes have to reconcile — and when they do not, the drop is
+# counted and named rather than left for the reader to notice (CLAUDE.md rule 1).
+
+def _guest_frame(tid, **over):
+    """A frame the split keeps as a guest contact: actor guest, on a ticket."""
+    fr = {"ticket_id": str(tid), "thread": "chat", "actor": "guest",
+          "guestSaid": f"guest wrote on {tid}"}
+    fr.update(over)
+    return fr
+
+
+def _note(tid):
+    return {"zd_ref": f"ZD-{tid}", "summary": f"contact on {tid}"}
+
+
+def test_three_guest_contacts_two_rendered_is_counted_and_named():
+    """THE POINT. Three distinct guest tickets, two contact notes — the third
+    contact is a silent drop until this line names it."""
+    frames = [_guest_frame(1), _guest_frame(2), _guest_frame(3)]
+    out = contact_join_notes(frames, [], {"support_interaction_notes":
+                                          [_note(1), _note(2)]})
+    line = next((n for n in out if "found in the Zendesk timeline" in n), None)
+    assert line, f"no count-reconciliation line among {out!r}"
+    assert "3 guest contact(s) found" in line
+    assert "2 rendered" in line
+    assert "1 guest contact(s)" in line and "not represented" in line
+
+
+def test_the_reconciliation_counts_distinct_contacts_not_frames():
+    """A ticket is one contact however many frames it carries. Four messages on
+    one ticket plus one on another is two contacts, not five — the count must
+    match the per-contact card, or it reports events and reads as inflated."""
+    frames = ([_guest_frame(1, guestSaid=f"m{i}") for i in range(4)]
+              + [_guest_frame(2)])
+    # Model rendered both contacts: no drop.
+    assert contact_join_notes(frames, [], {"support_interaction_notes":
+                                           [_note(1), _note(2)]}) == []
+    # Model rendered one: exactly one contact dropped, not four events.
+    out = contact_join_notes(frames, [], {"support_interaction_notes": [_note(1)]})
+    line = next((n for n in out if "found in the Zendesk timeline" in n), None)
+    assert line and "2 guest contact(s) found" in line and "1 rendered" in line
+
+
+def test_the_no_direct_interaction_sentinel_is_not_a_rendered_contact():
+    """When the guest DID reach us but the model returned the no-contact
+    sentinel, that is the worst drop — every contact gone — and must fire, not
+    reconcile as 1 rendered against the sentinel."""
+    frames = [_guest_frame(1)]
+    rca = {"support_interaction_notes": [
+        {"zd_ref": None, "summary":
+         "No direct interaction found between the customer and the support team."}]}
+    out = contact_join_notes(frames, [], rca)
+    line = next((n for n in out if "found in the Zendesk timeline" in n), None)
+    assert line and "1 guest contact(s) found" in line and "0 rendered" in line
+
+
+def test_equal_counts_say_nothing():
+    """The clean case stays silent — a reconciliation line on every run is the
+    noise that makes a reader stop reading the ones that matter."""
+    frames = [_guest_frame(1), _guest_frame(2)]
+    assert contact_join_notes(frames, [], {"support_interaction_notes":
+                                           [_note(1), _note(2)]}) == []
+
+
+def test_more_notes_than_frames_does_not_fire_the_count_line():
+    """An extra note is an off-Zendesk or invented contact — already told by the
+    off-Zendesk / failed-join lines, per note. A count line would say it twice,
+    and 'found' is not 'too few' here."""
+    frames = [_guest_frame(1)]
+    out = contact_join_notes(frames, [], {"support_interaction_notes":
+                                          [_note(1), {"zd_ref": None,
+                                                      "summary": "guest phoned"}]})
+    assert not any("found in the Zendesk timeline" in n for n in out)
+    assert any("no Zendesk ticket" in n for n in out)   # the off-Zendesk line
+
+
+def test_agent_only_ticket_is_not_counted_as_a_guest_contact():
+    """A ticket with no guest frame is not a guest contact (guest_took_part), so
+    rendering no note for it is not a drop — the count must not fire."""
+    frames = [{"ticket_id": "9", "thread": "email", "actor": "co",
+               "weDid": "internal note"}]
+    assert contact_join_notes(frames, [], {"support_interaction_notes": []}) == []
+
+
 # ── defect 5: the failure entry, driven ─────────────────────────────────────
 
 def test_a_dead_run_records_a_sentence_and_keeps_the_raw():

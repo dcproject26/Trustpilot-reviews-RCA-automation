@@ -151,18 +151,43 @@ def project_v4(rca) -> dict:
     return out
 
 
+# The one sentence the model returns when nobody reached us (prompts.py rule
+# 10). It is NOT a rendered contact — counting it as one would make a booking
+# the guest never contacted reconcile as "1 rendered" against 0 found.
+_NO_CONTACT_SUMMARY = (
+    "No direct interaction found between the customer and the support team.")
+
+
+def _is_no_contact_note(note) -> bool:
+    return (str((note or {}).get("summary") or "").strip().rstrip(".").lower()
+            == _NO_CONTACT_SUMMARY.rstrip(".").lower())
+
+
 def contact_join_notes(support_frames, sp_frames, rca) -> list:
     """What the contact-note join could not do, as trail lines.
 
-    Two different facts, deliberately not one message. A note carrying a
-    zd_ref that matches no frame is a FAILED JOIN - the reference is wrong on
-    one side and the reader should know the row is floating. A note with no
-    zd_ref at all is a deliberate off-Zendesk contact, which is the model doing
-    what rule 11 asks. Merging them would make a working run look faulty.
+    THREE facts, deliberately not one message.
 
-    Returns [] when everything joined, which is the only case that should be
-    silent: a join that matches nothing looks exactly like a model that
-    returned no notes, and that is the failure this exists to make visible.
+    1. A COUNT MISMATCH — the guest reached us more times than the RCA renders.
+       The model writes one `support_interaction_notes` row per guest contact,
+       and nothing until now compared that against how many contacts the Zendesk
+       frames actually show. So a guest who wrote three times and a model that
+       summarised them into two notes produced an identical card: the third
+       contact, and whatever it said, vanished from the notes and from the
+       drafted reply with no number anywhere saying it had. Counted the same way
+       the card groups contacts, and said out loud (CLAUDE.md rule 1) — "N guest
+       contacts found, M rendered", never a silent drop.
+    2. A note carrying a zd_ref that matches no frame is a FAILED JOIN - the
+       reference is wrong on one side and the reader should know the row is
+       floating.
+    3. A note with no zd_ref at all is a deliberate off-Zendesk contact, which
+       is the model doing what rule 11 asks. Merging it with the failed joins
+       would make a working run look faulty.
+
+    Returns [] when everything reconciled and joined, which is the only case
+    that should be silent: a join that matches nothing looks exactly like a
+    model that returned no notes, and that is the failure this exists to make
+    visible.
     """
     keys = {zd_key(f.get("ticket_id"))
             for f in list(support_frames or []) + list(sp_frames or [])
@@ -170,8 +195,9 @@ def contact_join_notes(support_frames, sp_frames, rca) -> list:
     keys.discard("")
 
     rca = rca if isinstance(rca, dict) else {}
-    notes = [n for n in (rca.get("support_interaction_notes") or [])
-             if isinstance(n, dict)]
+    si_notes = [n for n in (rca.get("support_interaction_notes") or [])
+                if isinstance(n, dict)]
+    notes = list(si_notes)
     notes += [r for r in ((rca.get("sp_interaction_notes") or {}).get("records") or [])
               if isinstance(r, dict)]
 
@@ -180,6 +206,32 @@ def contact_join_notes(support_frames, sp_frames, rca) -> list:
     off_zd = [n for n in notes if not zd_key(n.get("zd_ref"))]
 
     out = []
+
+    # ── COUNT RECONCILIATION ─────────────────────────────────────────────────
+    # The guest's contacts are `support_interaction_notes`; SP exchanges have
+    # their own section and are not counted here. `found` is the distinct guest
+    # contacts the Zendesk frames record, grouped exactly as the card groups
+    # them; `rendered` is the real contact notes the model produced (the
+    # no-direct-contact sentinel is not a contact).
+    #
+    # ONLY THE DROP DIRECTION fires here (found > rendered). The opposite —
+    # more notes than frames — is a note the model added off Zendesk or
+    # invented, and that is already told, per note, by the off-Zendesk and
+    # failed-join lines below; a count line for it would say the same thing
+    # twice. `found == 0` stays silent: with no guest frame there is no ground
+    # truth to assert a drop against, and an off-Zendesk contact the model
+    # reported is not a contact the frames dropped.
+    from server.services.zendesk import guest_contact_count
+    found = guest_contact_count(support_frames)
+    rendered = len([n for n in si_notes if not _is_no_contact_note(n)])
+    if found > rendered:
+        out.append(
+            f"{found} guest contact(s) found in the Zendesk timeline, "
+            f"{rendered} rendered in the RCA — {found - rendered} guest "
+            f"contact(s) the record shows are not represented as a contact "
+            f"note; a dropped contact, not a quiet booking. Check the timeline "
+            f"against the contact notes before sending the reply")
+
     if unmatched:
         refs = ", ".join(sorted({str(n.get("zd_ref")) for n in unmatched}))
         out.append(f"{len(unmatched)} model note(s) could not be joined to a "

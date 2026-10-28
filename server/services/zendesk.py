@@ -980,6 +980,81 @@ def split_contact_frames(frames) -> tuple[list, list]:
             [f for f in frames if id(f) not in kept])
 
 
+# How far apart two untracked frames can be and still be one exchange. The same
+# 30 minutes the Slack composer uses (services/slack.py::_CONTACT_GAP_MIN); the
+# two have to agree, which is what test_guest_contact_count enforces.
+_CONTACT_WINDOW_MIN = 30
+
+
+def group_contacts(frames, gap_min: int = _CONTACT_WINDOW_MIN) -> list:
+    """Frames grouped into distinct contacts: [(key, [frame, ...]), ...].
+
+    THE ONE grouping. "How many times did the guest reach us" is a question the
+    Slack composer answers to render the section and the reconciliation below
+    answers to CHECK it, and two copies of a grouping rule drift exactly the way
+    two copies of a join key do (the scar `zd_key` carries). So the count and
+    the card are grouped the same way: one entry per Zendesk ticket, and frames
+    with no ticket id folded together when they fall inside `gap_min` minutes —
+    consecutive messages minutes apart are one exchange however they were logged.
+
+    `services/slack.py::_contacts` is the twin that renders from this grain;
+    test_guest_contact_count asserts the two never disagree, so a change here
+    that the renderer did not get is caught rather than shipped.
+
+    Pass only CONVERSATION frames (`split_contact_frames(...)[0]`): machinery is
+    not a contact, and grouping it would count it as one.
+    """
+    out, last_at = [], None
+    for fr in (frames or []):
+        if not isinstance(fr, dict):
+            continue
+        # Digits only, exactly as the renderer's join key reads a ticket id, so
+        # "ZD-4491" and "4491" land in the same group whichever side wrote it.
+        m = re.search(r"\d+", str(fr.get("ticket_id") or ""))
+        key = m.group(0) if m else ""
+        if key:
+            for k, group in out:
+                if k == key:
+                    group.append(fr)
+                    break
+            else:
+                out.append((key, [fr]))
+            last_at = None            # a ticketed frame does not extend a window
+            continue
+        at = None
+        try:
+            at = datetime.fromisoformat(
+                str(fr.get("time_sort") or "").replace("Z", "+00:00"))
+        except ValueError:
+            at = None
+        near = (at is not None and last_at is not None
+                and abs((at - last_at).total_seconds()) <= gap_min * 60)
+        if near and out and not out[-1][0]:
+            out[-1][1].append(fr)
+        else:
+            out.append(("", [fr]))
+        last_at = at
+    return out
+
+
+def guest_contact_count(frames) -> int:
+    """How many distinct guest↔support contacts these frames record.
+
+    The ground truth the RCA's contact section and the drafted reply are
+    measured against — the number of times the guest actually reached us,
+    counted the SAME way the card groups them (`split_contact_frames` →
+    `group_contacts`), so "N found" is the number a reader counts on the card
+    and not a second, quietly different tally.
+
+    A frame set that passed `is_conversation` but whose ticket the guest was
+    never in (`guest_took_part`) is not a guest contact and is not counted —
+    that is `split_contact_frames`'s job, and this defers to it rather than
+    re-deciding it here.
+    """
+    convo, _ = split_contact_frames(frames)
+    return len(group_contacts(convo))
+
+
 def moved_frames_note(moved) -> str:
     """What moved, and where to, in one clause — or "" when nothing moved.
 
