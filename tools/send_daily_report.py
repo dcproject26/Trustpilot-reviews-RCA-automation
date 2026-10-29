@@ -29,6 +29,11 @@ from server.services import slack
 
 
 def main() -> int:
+    if os.getenv("DAILY_REPORT_DISABLED", "").strip().lower() in ("1", "true", "yes"):
+        print("[daily-report] disabled via DAILY_REPORT_DISABLED env var.",
+              file=sys.stderr)
+        return 0
+
     channel = os.getenv("SLACK_CHANNEL_DAILY", "").strip()
     if not channel:
         print("[daily-report] SLACK_CHANNEL_DAILY is not set — nothing to post. "

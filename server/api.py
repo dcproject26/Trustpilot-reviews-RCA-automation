@@ -3954,6 +3954,9 @@ def daily_trigger(x_report_token: str | None = Header(default=None),
     from the X-Report-Token header or an 'Authorization: Bearer <token>' header,
     so a curl from cron-job.org / GitHub Actions can drive it. The Replit path
     does NOT use this — it runs the script in-container instead."""
+    import os
+    if os.getenv("DAILY_REPORT_DISABLED", "").strip().lower() in ("1", "true", "yes"):
+        return {"ok": False, "reason": "daily report disabled via DAILY_REPORT_DISABLED"}
     from server.config import DAILY_REPORT_TOKEN
     from server.services.daily_report import build_daily_digest
     from server.services.slack import post_to_channel, last_post_failure
@@ -4036,6 +4039,21 @@ def orm_master_write_solved(apply: bool = Query(False),
     if apply and not ORM_MASTER_SHEET_ID:
         raise HTTPException(400, "ORM_MASTER_SHEET_ID is not set.")
     return write_solved_day_master(db, day=day, apply=apply)
+
+
+@router.post("/api/orm-master/cleanup")
+def orm_master_cleanup(apply: bool = Query(False),
+                       sort: bool = Query(True)):
+    """Dedupe (and, by default, Date-sort) the MASTER sheet in place. Removes
+    duplicate rows — by review link, or by booking facts for link-less rows —
+    and re-lays the survivors in date order, fixing the jumbled/duplicated rows
+    the backfill left. Dry-run unless apply=true. Runs ON THE DEPLOYMENT where
+    the Google credential lives. Returns {total, kept, removed, applied}."""
+    from server.services.orm_raw_export import cleanup_master_sheet
+    from server.config import ORM_MASTER_SHEET_ID
+    if apply and not ORM_MASTER_SHEET_ID:
+        raise HTTPException(400, "ORM_MASTER_SHEET_ID is not set.")
+    return cleanup_master_sheet(apply=apply, do_sort=sort)
 
 
 @router.get("/api/orm-report/preview")
