@@ -262,9 +262,12 @@ async def run_query_async(sql: str, params: dict | None = None) -> list[dict]:
     """
     if MOCK_MODE:
         return []
+    # Acquire the underlying asyncio.Semaphore with a 30s timeout so queries
+    # fail fast instead of piling up forever when all slots are busy.
+    _sem = _BQ_SEM._get()
     t0 = time.time()
     try:
-        await asyncio.wait_for(_BQ_SEM.acquire(), timeout=30.0)
+        await asyncio.wait_for(_sem.acquire(), timeout=30.0)
     except (asyncio.TimeoutError, TimeoutError):
         log.error(f"[bq_connector] gave up after 30s waiting for a slot "
                   f"(cap {_BQ_SEM_WIDTH}) — all slots occupied, shedding load")
@@ -291,7 +294,7 @@ async def run_query_async(sql: str, params: dict | None = None) -> list[dict]:
                 f"This is our time limit, not a result — the row may well "
                 f"exist. Re-run once the warehouse is responsive.") from e
     finally:
-        _BQ_SEM.release()
+        _sem.release()
 
 
 def run_query(sql: str, params: dict | None = None) -> list[dict]:
