@@ -263,12 +263,17 @@ async def run_query_async(sql: str, params: dict | None = None) -> list[dict]:
     if MOCK_MODE:
         return []
     t0 = time.time()
-    async with _BQ_SEM:
+    try:
+        await asyncio.wait_for(_BQ_SEM.acquire(), timeout=30.0)
+    except (asyncio.TimeoutError, TimeoutError):
+        log.error(f"[bq_connector] gave up after 30s waiting for a slot "
+                  f"(cap {_BQ_SEM_WIDTH}) — all slots occupied, shedding load")
+        raise BQQueryTimeout(
+            "All BigQuery slots are busy — query dropped to prevent pile-up. "
+            "Re-run once the current batch finishes.")
+    try:
         waited = time.time() - t0
-        # The threshold and the message disagreed — it tested 20s and reported
-        # "exceeded 2s", so a reader sizing the queue off the log was working
-        # from the wrong number.
-        if waited > 20.0:
+        if waited > 5.0:
             log.warning(f"[bq_connector] queued {waited:.1f}s for a slot "
                         f"(cap {_BQ_SEM_WIDTH}) — queries are holding slots "
                         f"longer than the work needs, or too many pipelines "
@@ -279,17 +284,14 @@ async def run_query_async(sql: str, params: dict | None = None) -> list[dict]:
                 loop.run_in_executor(None, run_query, sql, params),
                 BQ_QUERY_TIMEOUT_S)
         except (asyncio.TimeoutError, TimeoutError) as e:
-            # RAISED, NEVER RETURNED AS []. An empty list here would be read by
-            # every caller as "the warehouse has no such row" — so a booking
-            # that exists would render as untraceable, and a timeout would be
-            # indistinguishable from a genuine miss. That is the first rule of
-            # this codebase, and this is the query layer it matters most in.
             log.error(f"[bq_connector] query exceeded {BQ_QUERY_TIMEOUT_S:.0f}s "
                       f"and was abandoned; the slot is released")
             raise BQQueryTimeout(
                 f"BigQuery did not answer within {BQ_QUERY_TIMEOUT_S:.0f}s. "
                 f"This is our time limit, not a result — the row may well "
                 f"exist. Re-run once the warehouse is responsive.") from e
+    finally:
+        _BQ_SEM.release()
 
 
 def run_query(sql: str, params: dict | None = None) -> list[dict]:
