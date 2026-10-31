@@ -4733,7 +4733,8 @@ function renderReviewCol() {
   // this state could not occur; now it can, and the full layout would draw a
   // booking panel over an empty object.
   const _closedNoBooking = r.type === 'sent'
-    && !((r.booking || {}).bid || (r.booking || {}).id);
+    && !((r.booking || {}).bid || (r.booking || {}).id)
+    && !r.candidateState;
   if (r.type === 'untraceable' || r.type === 'processing' || _closedNoBooking) {
     col.innerHTML = `
       <div class="story-col">
