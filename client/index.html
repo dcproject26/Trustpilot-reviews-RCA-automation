@@ -4770,15 +4770,21 @@ function renderReviewCol() {
                 ? (r.processingState === 'stalled'
                      ? 'The run stopped before it searched'
                      : 'Still running — nothing searched yet')
-                : 'No booking found'}</div>
+                : ((r.confidenceTrail || []).length
+                    ? 'No booking confirmed'
+                    : 'No booking found')}</div>
               <div class="match-method">${r.type === 'processing' ? ''
-                : 'No venue, date or name usable for search'}</div>
+                : ((r.confidenceTrail || []).length
+                    ? 'Pipeline searched but could not confirm a match'
+                    : 'No venue, date or name usable for search')}</div>
             </div>
           </div>
           <div class="match-warn">${r.type === 'processing'
             ? esc(r.processingReason || 'This review has no draft row yet.')
             : (r.untraceableReason
-            || 'No trail was recorded — the pipeline never reached matching. Re-run the match; if it stays empty the run fails before matching.')}</div>
+            || ((r.confidenceTrail || []).length
+                ? 'No booking was confirmed — see the trail below for what was tried.'
+                : 'No trail was recorded — the pipeline never reached matching. Re-run the match; if it stays empty the run fails before matching.'))}</div>
         <!-- Reads r.confidenceTrail, the trail the pipeline actually writes.
              This panel used to read r.untraceableChecks, which nothing in the
              client ever assigns - so it was empty on every untraceable review
