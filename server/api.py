@@ -3669,10 +3669,53 @@ def review_progress(review_id: str):
     """
     from server.pipeline import PIPELINE_PROGRESS
     from server.tiers import liveness, STALL_AFTER_S
+    import time as _t
     e = PIPELINE_PROGRESS.get(review_id)
     if not e:
+        # No in-memory entry on THIS instance. On autoscale another instance
+        # may be running the pipeline — check the durable job row, which
+        # note_progress updates every step. Without this fallback the poll
+        # hit a different instance, got {running: false}, and the button
+        # reset while the run was still going.
+        try:
+            from server import db as _db
+            s = _db.SessionLocal()
+            try:
+                job = (s.query(_db.RunJob)
+                        .filter(_db.RunJob.review_id == review_id,
+                                _db.RunJob.status.in_(("queued", "running")))
+                        .order_by(_db.RunJob.created_at.desc()).first())
+                if job and job.progress:
+                    p = job.progress
+                    updated = p.get("updated_at", "")
+                    from datetime import datetime
+                    try:
+                        last = datetime.fromisoformat(updated)
+                        since = int(_t.time() - last.timestamp())
+                    except Exception:
+                        since = 0
+                    step = p.get("step", 0)
+                    total = p.get("total", 8)
+                    stage = p.get("stage", "working")
+                    stalled = since >= STALL_AFTER_S
+                    state = "stalled" if stalled else ("queued" if job.status == "queued" else "running")
+                    return {"running": state in ("running", "queued"),
+                            "state": state,
+                            "step": step, "total": total, "stage": stage,
+                            "elapsed_s": since,
+                            "since_progress_s": since,
+                            "stalled_after_s": STALL_AFTER_S}
+                elif job:
+                    # Job row exists but no progress yet — it's queued
+                    return {"running": True, "state": "queued",
+                            "step": 0, "total": 8, "stage": "queued",
+                            "elapsed_s": 0, "since_progress_s": 0,
+                            "stalled_after_s": STALL_AFTER_S}
+            finally:
+                s.close()
+        except Exception:
+            pass
         return {"running": False, "state": "", "stalled_after_s": STALL_AFTER_S}
-    import time as _t
     state, since = liveness(e)
     return {"running": state in ("running", "queued"), "state": state,
             "step": e["step"], "total": e["total"], "stage": e["stage"],
